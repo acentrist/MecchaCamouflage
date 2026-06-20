@@ -1,0 +1,57 @@
+# Build output
+/build/
+/build-dev/
+/out/
+/dist/
+/packages/
+
+# External dependencies
+/external/
+/third_party/
+
+# UE4SS / game runtime artifacts
+/Chameleon/
+/Mods/
+/Binaries/
+/Content/
+*.pak
+*.ucas
+*.utoc
+*.sig
+*.exe
+*.dll
+*.pdb
+*.lib
+*.exp
+*.ilk
+*.dmp
+*.log
+*.trace
+*.tmp
+
+# IDE / OS noise
+/.vs/
+/.vscode/
+/.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+Thumbs.db
+Desktop.ini
+
+# CMake / Ninja
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+build.ninja
+.ninja_deps
+.ninja_log
+
+# Local scripts and machine-specific config
+*.local.ps1
+*.local.ini
+/.env
+/.env.*
+.serena

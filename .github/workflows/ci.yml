@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout RE-UE4SS
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/UE4SS-RE/RE-UE4SS.git external/RE-UE4SS
+
+      - name: Download UE4SS runtime
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force external | Out-Null
+          Invoke-WebRequest `
+            -Uri "https://github.com/UE4SS-RE/RE-UE4SS/releases/download/v3.0.1/UE4SS_v3.0.1.zip" `
+            -OutFile "external/UE4SS_v3.0.1.zip"
+          Expand-Archive -Force "external/UE4SS_v3.0.1.zip" "external/UE4SS-runtime"
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Ensure Ninja
+        shell: pwsh
+        run: |
+          if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
+            choco install ninja -y
+          }
+          ninja --version
+
+      - name: Ensure Rust
+        shell: pwsh
+        run: |
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - name: Runtime route check
+        shell: pwsh
+        run: |
+          .\scripts\test_runtime_route.ps1
+
+      - name: Static release checks
+        shell: pwsh
+        run: |
+          $paths = @("cppmods", "scripts", "README.md", "LICENSE.txt", "CMakeLists.txt")
+          $patterns = @("F8", "ReceiveDrawHUD", "DrawText", "DrawRect", "AddHitBox", "PrintString", "multiplayer", "online", "packaging\README.txt", "README.txt", "edge_terminal_extrude_full")
+          $files = foreach ($path in $paths) {
+            if (Test-Path $path -PathType Leaf) {
+              Get-Item $path
+            } elseif (Test-Path $path -PathType Container) {
+              Get-ChildItem $path -Recurse -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -notmatch '\\(build|dist|external)\\' }
+            }
+          }
+          foreach ($pattern in $patterns) {
+            $hits = $files | Select-String -SimpleMatch $pattern
+            if ($hits) {
+              $hits | ForEach-Object { Write-Host $_ }
+              throw "Forbidden release/runtime text found: $pattern"
+            }
+          }
+
+      - name: Build
+        shell: pwsh
+        run: |
+          .\scripts\build.ps1 -UE4SSRoot "$env:GITHUB_WORKSPACE\external\RE-UE4SS"
+
+      - name: Package dry run
+        shell: pwsh
+        run: |
+          .\scripts\package_release.ps1 `
+            -Version 1.0.0-ci `
+            -UE4SSRuntimeRoot "$env:GITHUB_WORKSPACE\external\UE4SS-runtime" `
+            -UE4SSLicensePath "$env:GITHUB_WORKSPACE\external\RE-UE4SS\LICENSE"
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [IO.Compression.ZipFile]::OpenRead("$env:GITHUB_WORKSPACE\dist\meccha-camouflage-1.0.0-ci.zip")
+          $entries = $zip.Entries | ForEach-Object { $_.FullName }
+          $zip.Dispose()
+          $expected = @(
+            "README.md",
+            "LICENSE.txt",
+            "THIRD_PARTY_NOTICES.md",
+            "UE4SS_LICENSE.txt",
+            "Chameleon/Binaries/Win64/dwmapi.dll",
+            "Chameleon/Binaries/Win64/ue4ss/UE4SS.dll",
+            "Chameleon/Binaries/Win64/ue4ss/UE4SS-settings.ini",
+            "Chameleon/Binaries/Win64/ue4ss/Mods/mods.txt",
+            "Chameleon/Binaries/Win64/ue4ss/Mods/MecchaCamouflage/dlls/main.dll"
+          )
+          $missing = Compare-Object $expected $entries | Where-Object { $_.SideIndicator -eq "<=" }
+          if ($missing) {
+            $missing | ForEach-Object { Write-Host $_ }
+            throw "Missing package entries"
+          }

@@ -1,0 +1,9 @@
+* text=auto
+*.cpp text eol=lf
+*.h text eol=lf
+*.hpp text eol=lf
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+*.ps1 text eol=crlf
+*.md text eol=lf
+*.ini text eol=crlf
