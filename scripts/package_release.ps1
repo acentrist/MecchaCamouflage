@@ -3,6 +3,7 @@ param(
     [string]$Version = "1.0.0",
     [string]$OutDir = "",
     [string]$UE4SSRuntimeRoot = $env:UE4SS_RUNTIME_ROOT,
+    [string]$UE4SSSourceRoot = $env:UE4SS_ROOT,
     [string]$UE4SSLicensePath = ""
 )
 
@@ -18,6 +19,9 @@ if (-not $OutDir) {
 }
 if (-not $UE4SSRuntimeRoot) {
     $UE4SSRuntimeRoot = Join-Path $RepoRoot "external\UE4SS-runtime"
+}
+if (-not $UE4SSSourceRoot) {
+    $UE4SSSourceRoot = Join-Path $RepoRoot "external\RE-UE4SS"
 }
 
 function Resolve-FileFromRoot([string]$Root, [string[]]$RelativePaths, [string]$Name) {
@@ -45,21 +49,41 @@ $Dwmapi = Resolve-FileFromRoot $UE4SSRuntimeRoot @(
     "dwmapi.dll",
     "Chameleon\Binaries\Win64\dwmapi.dll"
 ) "dwmapi.dll"
-$UE4SSDll = Resolve-FileFromRoot $UE4SSRuntimeRoot @(
-    "UE4SS.dll",
-    "ue4ss\UE4SS.dll",
-    "Chameleon\Binaries\Win64\ue4ss\UE4SS.dll"
-) "UE4SS.dll"
+$BuiltUE4SSDll = Get-ChildItem $BuildDir -Recurse -Filter "UE4SS.dll" |
+    Where-Object { $_.FullName -match "\\Game__Shipping__Win64\\bin\\UE4SS\.dll$" } |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+if ($BuiltUE4SSDll) {
+    $UE4SSDll = $BuiltUE4SSDll.FullName
+}
+else {
+    $UE4SSDll = Resolve-FileFromRoot $UE4SSRuntimeRoot @(
+        "UE4SS.dll",
+        "ue4ss\UE4SS.dll",
+        "Chameleon\Binaries\Win64\ue4ss\UE4SS.dll"
+    ) "UE4SS.dll"
+}
 $UE4SSSettings = $null
 foreach ($RelativePath in @(
-    "UE4SS-settings.ini",
-    "ue4ss\UE4SS-settings.ini",
-    "Chameleon\Binaries\Win64\ue4ss\UE4SS-settings.ini"
+    "assets\UE4SS-settings.ini"
 )) {
-    $Candidate = Join-Path $UE4SSRuntimeRoot $RelativePath
+    $Candidate = Join-Path $UE4SSSourceRoot $RelativePath
     if (Test-Path $Candidate -PathType Leaf) {
         $UE4SSSettings = (Resolve-Path $Candidate).Path
         break
+    }
+}
+if (-not $UE4SSSettings) {
+    foreach ($RelativePath in @(
+        "UE4SS-settings.ini",
+        "ue4ss\UE4SS-settings.ini",
+        "Chameleon\Binaries\Win64\ue4ss\UE4SS-settings.ini"
+    )) {
+        $Candidate = Join-Path $UE4SSRuntimeRoot $RelativePath
+        if (Test-Path $Candidate -PathType Leaf) {
+            $UE4SSSettings = (Resolve-Path $Candidate).Path
+            break
+        }
     }
 }
 

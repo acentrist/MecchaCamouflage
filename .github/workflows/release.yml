@@ -127,6 +127,7 @@ jobs:
           .\scripts\package_release.ps1 `
             -Version $version `
             -UE4SSRuntimeRoot "$env:GITHUB_WORKSPACE\external\UE4SS-runtime" `
+            -UE4SSSourceRoot "$env:GITHUB_WORKSPACE\external\RE-UE4SS" `
             -UE4SSLicensePath "$env:GITHUB_WORKSPACE\external\RE-UE4SS\LICENSE"
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $zip = [IO.Compression.ZipFile]::OpenRead("$env:GITHUB_WORKSPACE\dist\meccha-camouflage-$version.zip")
@@ -152,6 +153,21 @@ jobs:
           if ($unexpected) {
             $unexpected | ForEach-Object { Write-Host $_ }
             throw "Unexpected package entries"
+          }
+          $stage = "$env:GITHUB_WORKSPACE\dist\meccha-camouflage-$version"
+          $exports = & dumpbin /exports "$stage\UE4SS.dll" 2>&1 | Out-String
+          foreach ($symbol in @(
+            "?on_ui_init@CppUserModBase",
+            "?register_keydown_event@CppUserModBase",
+            "?RegisterGameViewportClientTickPostCallback@Hook@Unreal@RC"
+          )) {
+            if (-not $exports.Contains($symbol)) {
+              throw "Packaged UE4SS.dll is missing required export: $symbol"
+            }
+          }
+          $imports = & dumpbin /imports "$stage\Mods\MecchaCamouflage\dlls\main.dll" 2>&1 | Out-String
+          if (-not $imports.Contains("UE4SS.dll")) {
+            throw "Packaged mod DLL does not import UE4SS.dll"
           }
 
       - name: Upload artifact
