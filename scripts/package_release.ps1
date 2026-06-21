@@ -93,15 +93,18 @@ $Win64Root = $Stage
 $UE4SSRoot = $Win64Root
 $ModsRoot = Join-Path $Win64Root "Mods"
 $ModDllDir = Join-Path $ModsRoot "$ModName\dlls"
+$SignaturesRoot = Join-Path $UE4SSRoot "UE4SS_Signatures"
 
 Remove-Item -Recurse -Force $Stage -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $ModDllDir | Out-Null
+New-Item -ItemType Directory -Force -Path $SignaturesRoot | Out-Null
 
 Copy-Item -Force $DllFile.FullName (Join-Path $ModDllDir "main.dll")
 Copy-Item -Force $Dwmapi (Join-Path $Win64Root "dwmapi.dll")
 Copy-Item -Force $UE4SSDll (Join-Path $Win64Root "UE4SS.dll")
 Copy-Item -Force (Join-Path $RepoRoot "README.md") (Join-Path $Stage "README.md")
 Copy-Item -Force (Join-Path $RepoRoot "LICENSE.txt") (Join-Path $Stage "LICENSE.txt")
+Copy-Item -Force (Join-Path $RepoRoot "UE4SS_Signatures\StaticConstructObject.lua") (Join-Path $SignaturesRoot "StaticConstructObject.lua")
 
 @"
 ConsoleEnabled = 0
@@ -111,6 +114,8 @@ GuiConsoleVisible = 0
 if ($UE4SSSettings) {
     $SettingsText = Get-Content -Raw $UE4SSSettings
     foreach ($Line in @(
+        "MajorVersion = 5",
+        "MinorVersion = 6",
         "ConsoleEnabled = 0",
         "GuiConsoleEnabled = 0",
         "GuiConsoleVisible = 0"

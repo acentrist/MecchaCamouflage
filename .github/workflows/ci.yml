@@ -151,6 +151,7 @@ jobs:
             "dwmapi.dll",
             "UE4SS.dll",
             "UE4SS-settings.ini",
+            "UE4SS_Signatures/StaticConstructObject.lua",
             "Mods/mods.txt",
             "Mods/MecchaCamouflage/dlls/main.dll"
           )
@@ -178,4 +179,12 @@ jobs:
           $imports = & dumpbin /imports "$stage\Mods\MecchaCamouflage\dlls\main.dll" 2>&1 | Out-String
           if (-not $imports.Contains("UE4SS.dll")) {
             throw "Packaged mod DLL does not import UE4SS.dll"
+          }
+          $signature = Get-Content -Raw "$stage\UE4SS_Signatures\StaticConstructObject.lua"
+          if (-not $signature.Contains("4C 8B DC 55 53 41 56")) {
+            throw "Packaged StaticConstructObject signature is missing the MECCHA CHAMELEON pattern"
+          }
+          $settings = Get-Content -Raw "$stage\UE4SS-settings.ini"
+          if (-not $settings.Contains("MajorVersion = 5") -or -not $settings.Contains("MinorVersion = 6")) {
+            throw "Packaged UE4SS settings are missing the UE 5.6 override"
           }
