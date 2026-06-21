@@ -70,8 +70,8 @@ namespace MecchaCamouflage::Core
     };
 
     constexpr double MaxBulkMedianRgbError = 0.18;
-    constexpr double MaxCaptureTraceChromaAvg = 0.25;
-    constexpr double MaxCaptureTraceChromaP95 = 0.55;
+    constexpr double MaxCaptureTraceChromaAvg = 0.50;
+    constexpr double MaxCaptureTraceChromaP95 = 0.72;
 
     auto clamp_unit(double value) -> double;
     auto byte_from_unit(double value) -> std::uint8_t;

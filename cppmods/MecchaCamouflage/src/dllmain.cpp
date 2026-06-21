@@ -273,6 +273,10 @@ namespace
         bool clear_show_only_components_called{false};
         bool primitive_render_mode_written{false};
         bool actor_hidden_guard_active{false};
+        bool target_mesh_hidden_guard_active{false};
+        bool hide_target_component_called{false};
+        bool actor_rotation_set_called{false};
+        bool component_rotation_set_called{false};
         int requested_render_target_format{SceneCaptureRenderTargetFormatRgba16f};
         int requested_capture_source{SceneCaptureSourceFinalColorLdr};
         int read_pixels{0};
@@ -442,6 +446,13 @@ namespace
     auto is_floor_like_object(Unreal::UObject* actor, Unreal::UObject* component) -> bool;
     auto transform_screen_coord(double value, double scale, double offset, bool flip, double pivot) -> double;
     auto effective_capture_coord(double capture_value, double fallback_value) -> double;
+    auto read_bool_property_by_name(Unreal::UObject* object, const CharType* property_name) -> std::optional<bool>;
+    auto write_bool_property_by_name(Unreal::UObject* object, const CharType* property_name, bool value) -> bool;
+    auto call_bool_params(Unreal::UObject* object, const CharType* function_name, std::initializer_list<bool> values) -> bool;
+    auto call_rotator_bool_params(Unreal::UObject* object,
+                                  const CharType* function_name,
+                                  const Unreal::FRotator& rotation,
+                                  std::initializer_list<bool> values) -> bool;
 
     struct ActorHiddenGuard
     {
@@ -461,6 +472,67 @@ namespace
             if (active && actor)
             {
                 set_actor_hidden(actor, false);
+            }
+        }
+    };
+
+    struct ComponentVisibilityGuard
+    {
+        Unreal::UObject* component{nullptr};
+        bool active{false};
+        std::optional<bool> original_hidden{};
+        std::optional<bool> original_visible{};
+        bool called_hidden{false};
+        bool called_visibility{false};
+
+        explicit ComponentVisibilityGuard(Unreal::UObject* in_component) : component(in_component), active(false)
+        {
+            if (!component)
+            {
+                return;
+            }
+            original_hidden = read_bool_property_by_name(component, STR("bHiddenInGame"));
+            original_visible = read_bool_property_by_name(component, STR("bVisible"));
+            called_hidden = call_bool_params(component, STR("SetHiddenInGame"), {true, true});
+            called_visibility = call_bool_params(component, STR("SetVisibility"), {false, true});
+            if (!called_hidden)
+            {
+                called_hidden = write_bool_property_by_name(component, STR("bHiddenInGame"), true);
+            }
+            if (!called_visibility)
+            {
+                called_visibility = write_bool_property_by_name(component, STR("bVisible"), false);
+            }
+            active = called_hidden || called_visibility;
+        }
+
+        ~ComponentVisibilityGuard()
+        {
+            if (!component || !active)
+            {
+                return;
+            }
+            if (original_hidden)
+            {
+                if (!call_bool_params(component, STR("SetHiddenInGame"), {*original_hidden, true}))
+                {
+                    write_bool_property_by_name(component, STR("bHiddenInGame"), *original_hidden);
+                }
+            }
+            else if (called_hidden)
+            {
+                call_bool_params(component, STR("SetHiddenInGame"), {false, true});
+            }
+            if (original_visible)
+            {
+                if (!call_bool_params(component, STR("SetVisibility"), {*original_visible, true}))
+                {
+                    write_bool_property_by_name(component, STR("bVisible"), *original_visible);
+                }
+            }
+            else if (called_visibility)
+            {
+                call_bool_params(component, STR("SetVisibility"), {true, true});
             }
         }
     };
@@ -895,6 +967,21 @@ namespace
         return Unreal::FRotator{pitch, yaw, 0.0};
     }
 
+    auto rotator_from_axes(const Unreal::FVector& forward,
+                           const Unreal::FVector& right,
+                           const Unreal::FVector& up) -> Unreal::FRotator
+    {
+        const auto dir = normalize(forward);
+        const auto yaw = std::atan2(dir.Y(), dir.X()) * 180.0 / Pi;
+        const auto xy = std::sqrt(dir.X() * dir.X() + dir.Y() * dir.Y());
+        const auto pitch = std::atan2(dir.Z(), xy) * 180.0 / Pi;
+        const auto cp = std::max(0.000001, std::cos(pitch * Pi / 180.0));
+        const auto sr = clamp(-right.Z() / cp, -1.0, 1.0);
+        const auto cr = clamp(up.Z() / cp, -1.0, 1.0);
+        const auto roll = std::atan2(sr, cr) * 180.0 / Pi;
+        return Unreal::FRotator{pitch, yaw, roll};
+    }
+
     auto hash_u32(std::uint32_t x) -> std::uint32_t
     {
         x ^= x >> 16;
@@ -1311,6 +1398,26 @@ namespace
             return true;
         }
         const auto size = std::min<int32_t>(property->GetElementSize(), Unreal::FVector::StaticSize());
+        std::memcpy(prop_value_ptr(container, property), &value, static_cast<size_t>(size));
+        return true;
+    }
+
+    auto write_rotator(Unreal::FProperty* property, uint8_t* container, const Unreal::FRotator& value) -> bool
+    {
+        auto* struct_prop = Unreal::CastField<Unreal::FStructProperty>(property);
+        if (!struct_prop)
+        {
+            return false;
+        }
+        if (write_struct_numbers(struct_prop,
+                                 container,
+                                 {{STR("Pitch"), value.GetPitch()},
+                                  {STR("Yaw"), value.GetYaw()},
+                                  {STR("Roll"), value.GetRoll()}}))
+        {
+            return true;
+        }
+        const auto size = std::min<int32_t>(property->GetElementSize(), static_cast<int32_t>(sizeof(Unreal::FRotator)));
         std::memcpy(prop_value_ptr(container, property), &value, static_cast<size_t>(size));
         return true;
     }
@@ -2886,6 +2993,104 @@ namespace
         return true;
     }
 
+    auto call_bool_params(Unreal::UObject* object, const CharType* function_name, std::initializer_list<bool> values) -> bool
+    {
+        if (!object)
+        {
+            return false;
+        }
+        auto* function = object->GetFunctionByNameInChain(function_name);
+        if (!function)
+        {
+            return false;
+        }
+        std::vector<uint8_t> params(static_cast<size_t>(function->GetParmsSize()), 0);
+        auto value = values.begin();
+        auto wrote = 0;
+        for (auto* property : function->ForEachProperty())
+        {
+            if (!property || !property->HasAnyPropertyFlags(Unreal::CPF_Parm) ||
+                property->HasAnyPropertyFlags(Unreal::CPF_ReturnParm))
+            {
+                continue;
+            }
+            if (value == values.end())
+            {
+                break;
+            }
+            if (!Unreal::CastField<Unreal::FBoolProperty>(property) && prop_type_name(property) != STR("BoolProperty"))
+            {
+                continue;
+            }
+            if (write_bool(property, params.data(), *value))
+            {
+                ++wrote;
+                ++value;
+            }
+        }
+        if (wrote <= 0)
+        {
+            return false;
+        }
+        object->ProcessEvent(function, params.data());
+        return true;
+    }
+
+    auto call_rotator_bool_params(Unreal::UObject* object,
+                                  const CharType* function_name,
+                                  const Unreal::FRotator& rotation,
+                                  std::initializer_list<bool> values) -> bool
+    {
+        if (!object)
+        {
+            return false;
+        }
+        auto* function = object->GetFunctionByNameInChain(function_name);
+        if (!function)
+        {
+            return false;
+        }
+        std::vector<uint8_t> params(static_cast<size_t>(function->GetParmsSize()), 0);
+        bool wrote_rotation = false;
+        auto bool_value = values.begin();
+        for (auto* property : function->ForEachProperty())
+        {
+            if (!property || !property->HasAnyPropertyFlags(Unreal::CPF_Parm) ||
+                property->HasAnyPropertyFlags(Unreal::CPF_ReturnParm))
+            {
+                continue;
+            }
+            if (!wrote_rotation)
+            {
+                if (auto* struct_prop = Unreal::CastField<Unreal::FStructProperty>(property))
+                {
+                    const auto* structure = struct_type(struct_prop);
+                    const auto struct_name = structure ? structure->GetName() : StringType{};
+                    const auto prop_name = lower_copy(property->GetName());
+                    if (contains_text(struct_name, STR("Rotator")) || contains_text(prop_name, STR("rotation")))
+                    {
+                        wrote_rotation = write_rotator(property, params.data(), rotation);
+                        continue;
+                    }
+                }
+            }
+            if (bool_value != values.end() &&
+                (Unreal::CastField<Unreal::FBoolProperty>(property) || prop_type_name(property) == STR("BoolProperty")))
+            {
+                if (write_bool(property, params.data(), *bool_value))
+                {
+                    ++bool_value;
+                }
+            }
+        }
+        if (!wrote_rotation)
+        {
+            return false;
+        }
+        object->ProcessEvent(function, params.data());
+        return true;
+    }
+
     auto call_object_return_object(Unreal::UObject* object, const CharType* function_name, Unreal::UObject* value) -> Unreal::UObject*
     {
         if (!object || !value)
@@ -3880,6 +4085,20 @@ namespace
             hidden_guard.emplace(pawn);
             result.diagnostics.actor_hidden_guard_active = hidden_guard->active;
         }
+        Unreal::UObject* target_mesh = nullptr;
+        std::optional<ComponentVisibilityGuard> target_mesh_guard{};
+        if (hide_pawn)
+        {
+            if (auto* paint_component = find_runtime_paint_component_for(pawn))
+            {
+                target_mesh = find_target_mesh_for_runtime_paint(paint_component, pawn);
+            }
+            if (target_mesh && target_mesh != pawn)
+            {
+                target_mesh_guard.emplace(target_mesh);
+                result.diagnostics.target_mesh_hidden_guard_active = target_mesh_guard->active;
+            }
+        }
         auto* scene_capture_class =
             Unreal::UObjectGlobals::StaticFindObject<Unreal::UClass*>(nullptr, nullptr, STR("/Script/Engine.SceneCapture2D"));
         result.diagnostics.scene_capture_class = scene_capture_class != nullptr;
@@ -3912,6 +4131,28 @@ namespace
             result.image.failure = STR("capture_component_unavailable");
             return result;
         }
+        result.diagnostics.actor_rotation_set_called =
+            call_rotator_bool_params(capture_actor, STR("K2_SetActorRotation"), rotation, {false});
+        result.diagnostics.component_rotation_set_called =
+            call_rotator_bool_params(capture_component, STR("K2_SetWorldRotation"), rotation, {false, false});
+        const auto capture_actor_rotation = call_no_params_return_rotator(capture_actor, STR("K2_GetActorRotation"));
+        const auto capture_component_rotation = call_no_params_return_rotator(capture_component, STR("K2_GetComponentRotation"));
+        RC::Output::send<RC::LogLevel::Warning>(
+            STR("{} scene_capture_rotation intended=({}, {}, {}) actor_set={} component_set={} actor_ok={} actor=({}, {}, {}) component_ok={} component=({}, {}, {})\n"),
+            ModTag,
+            rotation.GetPitch(),
+            rotation.GetYaw(),
+            rotation.GetRoll(),
+            result.diagnostics.actor_rotation_set_called ? 1 : 0,
+            result.diagnostics.component_rotation_set_called ? 1 : 0,
+            capture_actor_rotation ? 1 : 0,
+            capture_actor_rotation ? capture_actor_rotation->GetPitch() : 0.0,
+            capture_actor_rotation ? capture_actor_rotation->GetYaw() : 0.0,
+            capture_actor_rotation ? capture_actor_rotation->GetRoll() : 0.0,
+            capture_component_rotation ? 1 : 0,
+            capture_component_rotation ? capture_component_rotation->GetPitch() : 0.0,
+            capture_component_rotation ? capture_component_rotation->GetYaw() : 0.0,
+            capture_component_rotation ? capture_component_rotation->GetRoll() : 0.0);
 
         result.diagnostics.texture_target_written =
             write_object_property_by_name(capture_component, STR("TextureTarget"), render_target);
@@ -3931,6 +4172,11 @@ namespace
             return result;
         }
         configure_scene_capture_actor_filter(capture_component, pawn, hide_pawn, false, &result.diagnostics);
+        if (hide_pawn && target_mesh)
+        {
+            result.diagnostics.hide_target_component_called =
+                call_object_param(capture_component, STR("HideComponent"), target_mesh);
+        }
 
         const auto capture_start = SteadyClock::now();
         result.diagnostics.capture_scene_called = call_no_params(capture_component, STR("CaptureScene"));
@@ -5166,6 +5412,99 @@ namespace
         return {42.0, true};
     }
 
+    auto first_vector_from_functions(Unreal::UObject* object, std::initializer_list<const CharType*> function_names)
+        -> std::optional<Unreal::FVector>
+    {
+        for (const auto* function_name : function_names)
+        {
+            if (auto value = call_no_params_return_vector(object, function_name))
+            {
+                return value;
+            }
+        }
+        return std::nullopt;
+    }
+
+    auto first_rotator_from_functions(Unreal::UObject* object, std::initializer_list<const CharType*> function_names)
+        -> std::optional<Unreal::FRotator>
+    {
+        for (const auto* function_name : function_names)
+        {
+            if (auto value = call_no_params_return_rotator(object, function_name))
+            {
+                return value;
+            }
+        }
+        return std::nullopt;
+    }
+
+    auto log_pawn_camera_component_candidates(Unreal::UObject* pawn, Unreal::UObject* camera_manager) -> void
+    {
+        if (!pawn)
+        {
+            return;
+        }
+        const auto pawn_name = pawn->GetFullName();
+        int owned_count = 0;
+        int logged = 0;
+        for (const auto* class_name : {STR("CameraComponent"), STR("SpringArmComponent")})
+        {
+            std::vector<Unreal::UObject*> objects{};
+            Unreal::UObjectGlobals::FindObjects(512, class_name, nullptr, objects, 0, 0, false);
+            for (auto* object : objects)
+            {
+                if (!object)
+                {
+                    continue;
+                }
+                auto* owner = call_no_params_return_object(object, STR("GetOwner"));
+                const auto object_name = object->GetFullName();
+                const auto owned = owner == pawn || object_name.find(pawn_name) != StringType::npos;
+                if (!owned)
+                {
+                    continue;
+                }
+                ++owned_count;
+                if (logged >= 12)
+                {
+                    continue;
+                }
+                ++logged;
+                const auto location = first_vector_from_functions(
+                    object,
+                    {STR("K2_GetComponentLocation"), STR("GetComponentLocation"), STR("GetWorldLocation")});
+                const auto rotation = first_rotator_from_functions(
+                    object,
+                    {STR("K2_GetComponentRotation"), STR("GetComponentRotation"), STR("GetWorldRotation")});
+                const auto forward = rotation ? rotator_forward(*rotation) : Unreal::FVector{};
+                RC::Output::send<RC::LogLevel::Warning>(
+                    STR("{} camera_component_candidate class={} object={} owner={} selected_camera_manager={} loc_ok={} loc=({}, {}, {}) rot_ok={} rot=({}, {}, {}) forward=({}, {}, {})\n"),
+                    ModTag,
+                    class_name,
+                    object_name,
+                    owner ? owner->GetFullName() : STR("<null>"),
+                    camera_manager ? camera_manager->GetFullName() : STR("<null>"),
+                    location ? 1 : 0,
+                    location ? location->X() : 0.0,
+                    location ? location->Y() : 0.0,
+                    location ? location->Z() : 0.0,
+                    rotation ? 1 : 0,
+                    rotation ? rotation->GetPitch() : 0.0,
+                    rotation ? rotation->GetYaw() : 0.0,
+                    rotation ? rotation->GetRoll() : 0.0,
+                    rotation ? forward.X() : 0.0,
+                    rotation ? forward.Y() : 0.0,
+                    rotation ? forward.Z() : 0.0);
+            }
+        }
+        RC::Output::send<RC::LogLevel::Warning>(
+            STR("{} camera_component_candidates pawn={} owned_count={} logged={}\n"),
+            ModTag,
+            pawn_name,
+            owned_count,
+            logged);
+    }
+
 
     auto fov_from_deproject_sample(double center_to_sample_angle, double screen_half_fraction) -> double
     {
@@ -5470,25 +5809,46 @@ namespace
         auto camera_rotation = call_no_params_return_rotator(camera, STR("GetCameraRotation"));
         const auto camera_fov = camera_fov_from_manager(camera);
 
-        const auto base_forward = camera_rotation ? rotator_forward(*camera_rotation) : center.direction;
+        const auto deproject_forward = normalize(center.direction);
+        auto deproject_right = normalize(sub(right_ray.direction, mul(deproject_forward, dot(right_ray.direction, deproject_forward))));
+        auto deproject_up = normalize(sub(up_ray.direction, mul(deproject_forward, dot(up_ray.direction, deproject_forward))));
+        if (length(deproject_right) < 0.01)
+        {
+            deproject_right = camera_rotation ? rotator_right(*camera_rotation)
+                                              : normalize(cross(vec(0.0, 0.0, 1.0), deproject_forward));
+        }
+        if (length(deproject_up) < 0.01)
+        {
+            deproject_up = camera_rotation ? rotator_up(*camera_rotation)
+                                           : normalize(cross(deproject_forward, deproject_right));
+        }
+        auto deproject_basis_up = normalize(cross(deproject_forward, deproject_right));
+        if (length(deproject_basis_up) < 0.01)
+        {
+            deproject_basis_up = deproject_up;
+        }
+        if (dot(deproject_basis_up, deproject_up) < 0.0)
+        {
+            deproject_right = mul(deproject_right, -1.0);
+            deproject_basis_up = mul(deproject_basis_up, -1.0);
+        }
+        deproject_right = normalize(deproject_right);
+        deproject_up = normalize(deproject_basis_up);
+
+        const auto base_forward = deproject_forward;
         auto forward = rotate_yaw_pitch(base_forward, yaw_offset, pitch_offset);
-        auto right = camera_rotation ? rotator_right(*camera_rotation)
-                                     : normalize(sub(right_ray.direction, mul(center.direction, dot(right_ray.direction, center.direction))));
+        auto right = deproject_right;
         if (length(right) < 0.01)
         {
             right = normalize(cross(vec(0.0, 0.0, 1.0), forward));
         }
-        auto up = camera_rotation ? rotator_up(*camera_rotation)
-                                  : normalize(sub(up_ray.direction, mul(center.direction, dot(up_ray.direction, center.direction))));
+        auto up = deproject_up;
         if (length(up) < 0.01)
         {
             up = normalize(cross(forward, right));
         }
-        if (!camera_rotation)
-        {
-            right = normalize(cross(up, forward));
-            up = normalize(cross(forward, right));
-        }
+        right = normalize(cross(up, forward));
+        up = normalize(cross(forward, right));
 
         const auto right_angle = std::acos(clamp(dot(center.direction, right_ray.direction), -1.0, 1.0));
         const auto up_angle = std::acos(clamp(dot(center.direction, up_ray.direction), -1.0, 1.0));
@@ -5510,7 +5870,7 @@ namespace
         const auto eye = camera_eye ? *camera_eye : center.location;
 
         RC::Output::send<RC::LogLevel::Verbose>(
-            STR("{} deproject_frame ok viewport={}x{} eye=({}, {}, {}) camera_eye=({}, {}, {}) deproject_eye=({}, {}, {}) forward=({}, {}, {}) deproject_forward=({}, {}, {}) right=({}, {}, {}) up=({}, {}, {}) scene_capture_fov={} fov_source={} camera_fov={} camera_fov_fallback={} fov_axis=corrected_deproject_horizontal hfov_perspective={} vfov_perspective={} hfov_from_vfov={} old_linear_hfov={} old_linear_vfov={} camera_deproject_angle_delta={} sample=({}, {})\n"),
+            STR("{} deproject_frame ok viewport={}x{} eye=({}, {}, {}) camera_eye=({}, {}, {}) deproject_eye=({}, {}, {}) camera_rot_ok={} camera_rot=({}, {}, {}) forward=({}, {}, {}) deproject_forward=({}, {}, {}) right=({}, {}, {}) up=({}, {}, {}) scene_capture_fov={} fov_source={} camera_fov={} camera_fov_fallback={} fov_axis=corrected_deproject_horizontal hfov_perspective={} vfov_perspective={} hfov_from_vfov={} old_linear_hfov={} old_linear_vfov={} camera_deproject_angle_delta={} sample=({}, {})\n"),
             ModTag,
             viewport.width,
             viewport.height,
@@ -5523,6 +5883,10 @@ namespace
             center.location.X(),
             center.location.Y(),
             center.location.Z(),
+            camera_rotation ? 1 : 0,
+            camera_rotation ? camera_rotation->GetPitch() : 0.0,
+            camera_rotation ? camera_rotation->GetYaw() : 0.0,
+            camera_rotation ? camera_rotation->GetRoll() : 0.0,
             forward.X(),
             forward.Y(),
             forward.Z(),
@@ -5555,9 +5919,8 @@ namespace
         frame.up = up;
         frame.fov_degrees = fov_degrees;
         frame.fov_fallback = !fov_used_deproject && camera_fov.second;
-        frame.source = camera_rotation ? STR("camera_manager_with_deproject_diagnostics")
-                                       : STR("controller_deproject_corrected_fov");
-        frame.rotation = camera_rotation ? *camera_rotation : rotator_from_forward(forward);
+        frame.source = STR("controller_deproject_axes_camera_eye");
+        frame.rotation = rotator_from_axes(forward, right, up);
         frame.has_rotation = true;
         frame.deproject_hfov = estimated_hfov * 180.0 / Pi;
         frame.deproject_vfov = estimated_vfov * 180.0 / Pi;
@@ -5633,6 +5996,7 @@ namespace
         auto* controller_view_target = call_no_params_return_object(controller, STR("GetViewTarget"));
         auto* camera_view_target = call_no_params_return_object(camera, STR("GetViewTarget"));
         auto* camera_owner = call_no_params_return_object(camera, STR("GetOwner"));
+        log_pawn_camera_component_candidates(pawn, camera);
         const auto pawn_location = call_no_params_return_vector(pawn, STR("K2_GetActorLocation"));
         const auto mesh_location = call_no_params_return_vector(mesh, STR("K2_GetComponentLocation"));
         const auto target_location = mesh_location ? *mesh_location : pawn_location.value_or(frame->eye);
@@ -6022,10 +6386,14 @@ namespace
                                                         128);
         pixel_diag = bulk_capture.diagnostics;
         RC::Output::send<RC::LogLevel::Verbose>(
-            STR("{} screen_body capture_filter actor_hidden_guard={} hide_actor_components_called={} capture_scene_called={} texture_target_written={} capture_source_written={} capture_every_frame_written={} capture_on_movement_written={}\n"),
+            STR("{} screen_body capture_filter actor_hidden_guard={} target_mesh_hidden_guard={} hide_actor_components_called={} hide_target_component_called={} actor_rotation_set={} component_rotation_set={} capture_scene_called={} texture_target_written={} capture_source_written={} capture_every_frame_written={} capture_on_movement_written={}\n"),
             ModTag,
             pixel_diag.actor_hidden_guard_active ? 1 : 0,
+            pixel_diag.target_mesh_hidden_guard_active ? 1 : 0,
             pixel_diag.hide_actor_components_called ? 1 : 0,
+            pixel_diag.hide_target_component_called ? 1 : 0,
+            pixel_diag.actor_rotation_set_called ? 1 : 0,
+            pixel_diag.component_rotation_set_called ? 1 : 0,
             pixel_diag.capture_scene_called ? 1 : 0,
             pixel_diag.texture_target_written ? 1 : 0,
             pixel_diag.capture_source_written ? 1 : 0,

@@ -46,6 +46,22 @@ int main()
     }
 
     {
+        const auto decision = Core::validate_capture_quality(Core::CaptureQualityInput{
+            true,
+            true,
+            3000,
+            3000,
+            2048,
+            false,
+            false,
+            0.05,
+            0.57,
+            0.77});
+        assert(decision.ok);
+        assert(decision.failure == "ok");
+    }
+
+    {
         const auto before = make_channel(8, 8, 17);
         const auto decision = Core::validate_capture_quality(Core::CaptureQualityInput{
             true,

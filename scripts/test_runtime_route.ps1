@@ -20,6 +20,7 @@ Assert-True ($SourceText.Contains("side_enabled=0")) "side disabled marker is mi
 Assert-True ($SourceText.Contains("auto run_play() -> void")) "synchronous run_play is missing"
 Assert-True ($SourceText.Contains("MecchaCamouflage::Core::validate_capture_quality")) "core capture validation is not used"
 Assert-True ($SourceText.Contains("MecchaCamouflage::Core::assemble_direct_texture")) "core texture assembly is not used"
+Assert-True ($SourceText.Contains("corrected_deproject_hfov")) "F10 capture FOV diagnostic/source marker is missing"
 
 $RunPendingStart = $SourceText.IndexOf("auto run_pending_ui_camouflage()")
 $RunPlayStart = $SourceText.IndexOf("auto run_play() -> void", $RunPendingStart)
@@ -35,6 +36,7 @@ Assert-True (-not $SourceText.Contains("aux_surface_copy_v1")) "broken aux_surfa
 Assert-True (-not $SourceText.Contains("screen_silhouette_short_band_v1")) "broken screen_silhouette_short_band_v1 route remains"
 Assert-True (-not $SourceText.Contains("progressive_screen_body")) "progressive_screen_body route remains"
 Assert-True (-not $SourceText.Contains("tps_camera_manager_identity")) "tps_camera_manager_identity route remains"
+Assert-True (-not $SourceText.Contains("camera_manager_fov_for_capture")) "camera-manager FOV capture regression remains"
 Assert-True (-not $SourceText.Contains("pixel_api_batched")) "pixel_api_batched route remains"
 Assert-True (-not $SourceText.Contains("auto run_projection_audit")) "projection audit command route remains"
 Assert-True (-not $SourceText.Contains("fallback_camo_palette")) "procedural palette fallback remains"
