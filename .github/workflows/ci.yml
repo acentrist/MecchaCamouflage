@@ -20,10 +20,24 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.UEPSEUDO_DEPLOY_KEY }}
 
+      - name: Cache RE-UE4SS source
+        uses: actions/cache@v4
+        with:
+          path: external/RE-UE4SS
+          key: ${{ runner.os }}-re-ue4ss-meccha-v3.0.1
+
       - name: Checkout RE-UE4SS
         shell: pwsh
         run: |
-          git clone --depth 1 --branch meccha-v3.0.1 https://github.com/acentrist/RE-UE4SS.git external/RE-UE4SS
+          if (Test-Path "external/RE-UE4SS/.git") {
+            git -C external/RE-UE4SS fetch --depth 1 origin meccha-v3.0.1
+            git -C external/RE-UE4SS checkout --force FETCH_HEAD
+            git -C external/RE-UE4SS reset --hard FETCH_HEAD
+          }
+          else {
+            Remove-Item -Recurse -Force external/RE-UE4SS -ErrorAction SilentlyContinue
+            git clone --depth 1 --branch meccha-v3.0.1 https://github.com/acentrist/RE-UE4SS.git external/RE-UE4SS
+          }
           git -C external/RE-UE4SS submodule sync --recursive
           git -C external/RE-UE4SS submodule update --init --recursive
           if (-not (Test-Path "external/RE-UE4SS/deps/first/Unreal/CMakeLists.txt")) {
@@ -33,14 +47,26 @@ jobs:
             throw "RE-UE4SS deps/first/patternsleuth submodule was not checked out"
           }
 
+      - name: Cache UE4SS runtime
+        uses: actions/cache@v4
+        with:
+          path: |
+            external/UE4SS_v3.0.1.zip
+            external/UE4SS-runtime
+          key: ${{ runner.os }}-ue4ss-runtime-v3.0.1
+
       - name: Download UE4SS runtime
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force external | Out-Null
-          Invoke-WebRequest `
-            -Uri "https://github.com/UE4SS-RE/RE-UE4SS/releases/download/v3.0.1/UE4SS_v3.0.1.zip" `
-            -OutFile "external/UE4SS_v3.0.1.zip"
-          Expand-Archive -Force "external/UE4SS_v3.0.1.zip" "external/UE4SS-runtime"
+          if (-not (Test-Path "external/UE4SS-runtime/UE4SS.dll")) {
+            if (-not (Test-Path "external/UE4SS_v3.0.1.zip")) {
+              Invoke-WebRequest `
+                -Uri "https://github.com/UE4SS-RE/RE-UE4SS/releases/download/v3.0.1/UE4SS_v3.0.1.zip" `
+                -OutFile "external/UE4SS_v3.0.1.zip"
+            }
+            Expand-Archive -Force "external/UE4SS_v3.0.1.zip" "external/UE4SS-runtime"
+          }
 
       - name: Set up MSVC
         uses: ilammy/msvc-dev-cmd@v1
@@ -61,6 +87,17 @@ jobs:
           rustup default stable
           rustc --version
           cargo --version
+
+      - name: Cache build outputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            build
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-msvc-build-v1-ue4ss-v3.0.1-${{ hashFiles('CMakeLists.txt', 'cppmods/**', 'scripts/build.ps1') }}
+          restore-keys: |
+            ${{ runner.os }}-msvc-build-v1-ue4ss-v3.0.1-
 
       - name: Runtime route check
         shell: pwsh
