@@ -777,6 +777,72 @@ int main()
     }
 
     {
+        std::vector<Core::MicroFillSource> sources{};
+        sources.push_back(Core::MicroFillSource{
+            0.100,
+            0.100,
+            100.0,
+            100.0,
+            0.0,
+            0.0,
+            1.0,
+            Core::Color{1.0, 0.0, 0.0, 0.5, 0.0},
+            true,
+            true,
+            1});
+        sources.push_back(Core::MicroFillSource{
+            0.106,
+            0.100,
+            124.0,
+            102.0,
+            0.0,
+            0.0,
+            1.0,
+            Core::Color{0.0, 0.0, 1.0, 0.7, 0.2},
+            true,
+            true,
+            1});
+        const auto fill = Core::plan_front_micro_fill(sources, Core::MicroFillPolicy{
+            0.002,
+            0.012,
+            48.0,
+            0.90,
+            4,
+            8});
+        assert(fill.direct_preserved == 2);
+        assert(!fill.candidates.empty());
+        assert(fill.candidates.size() <= 2);
+        assert(fill.candidates[0].priority < 0);
+        assert(fill.candidates[0].u > 0.100);
+        assert(fill.candidates[0].u < 0.106);
+        assert(std::abs(fill.candidates[0].color.r + fill.candidates[0].color.b - 1.0) < 0.000001);
+
+        sources[1].verified = false;
+        const auto unverified = Core::plan_front_micro_fill(sources, Core::MicroFillPolicy{
+            0.002,
+            0.012,
+            48.0,
+            0.90,
+            4,
+            8});
+        assert(unverified.candidates.empty());
+        assert(unverified.rejected_unverified_source > 0);
+
+        sources[1].verified = true;
+        sources[1].normal_x = 1.0;
+        sources[1].normal_z = 0.0;
+        const auto normal_rejected = Core::plan_front_micro_fill(sources, Core::MicroFillPolicy{
+            0.002,
+            0.012,
+            48.0,
+            0.90,
+            4,
+            8});
+        assert(normal_rejected.candidates.empty());
+        assert(normal_rejected.rejected_normal > 0);
+    }
+
+    {
         const auto low_side = Core::evaluate_side_coverage(Core::SideCoverageInput{
             true,
             48,

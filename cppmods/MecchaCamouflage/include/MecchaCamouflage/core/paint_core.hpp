@@ -548,6 +548,41 @@ namespace MecchaCamouflage::Core
         int normal_limit{0};
     };
 
+    struct MicroFillSource
+    {
+        double u{0.0};
+        double v{0.0};
+        double screen_x{0.0};
+        double screen_y{0.0};
+        double normal_x{0.0};
+        double normal_y{0.0};
+        double normal_z{1.0};
+        Color color{};
+        bool direct{true};
+        bool verified{false};
+        int radius{1};
+        bool floor_like{false};
+    };
+
+    struct MicroFillPolicy
+    {
+        double brush_radius_uv{0.003};
+        double max_uv_distance{0.018};
+        double max_screen_distance{64.0};
+        double min_normal_dot{0.72};
+        int max_gap_cells{4};
+        int max_candidates{0};
+    };
+
+    struct MicroFillReport
+    {
+        std::vector<PaintSeed> candidates{};
+        int direct_preserved{0};
+        int rejected_unbounded{0};
+        int rejected_normal{0};
+        int rejected_unverified_source{0};
+    };
+
     struct SideCoverageInput
     {
         bool front_quality_success{false};
@@ -613,6 +648,8 @@ namespace MecchaCamouflage::Core
     auto choose_precision_brush_radius(const PrecisionBrushInput& input) -> PrecisionBrushDecision;
     auto infer_surface_stretch_seeds(const std::vector<SurfaceStretchSeed>& seeds,
                                      const SurfaceStretchPolicy& policy) -> SurfaceStretchReport;
+    auto plan_front_micro_fill(const std::vector<MicroFillSource>& sources,
+                               const MicroFillPolicy& policy) -> MicroFillReport;
     auto evaluate_side_coverage(const SideCoverageInput& input) -> SideCoverageReport;
     auto merge_nearby_paint_seeds(const std::vector<PaintSeed>& seeds,
                                   double brush_radius_uv) -> std::vector<PaintSeed>;

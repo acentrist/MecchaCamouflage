@@ -989,6 +989,174 @@ namespace MecchaCamouflage::Core
         return report;
     }
 
+    auto plan_front_micro_fill(const std::vector<MicroFillSource>& sources,
+                               const MicroFillPolicy& policy) -> MicroFillReport
+    {
+        MicroFillReport report{};
+        const auto brush_radius = std::max(0.000001, policy.brush_radius_uv);
+        const auto max_uv = std::max(0.0, policy.max_uv_distance);
+        const auto max_screen = std::max(0.0, policy.max_screen_distance);
+        const auto min_normal_dot = clamp(policy.min_normal_dot, -1.0, 1.0);
+        const auto max_gap_cells = std::max(1, policy.max_gap_cells);
+        const auto max_candidates = policy.max_candidates > 0
+                                        ? policy.max_candidates
+                                        : static_cast<int>(sources.size());
+
+        const auto normal_dot = [](const MicroFillSource& a, const MicroFillSource& b) {
+            const auto al = std::sqrt(a.normal_x * a.normal_x + a.normal_y * a.normal_y + a.normal_z * a.normal_z);
+            const auto bl = std::sqrt(b.normal_x * b.normal_x + b.normal_y * b.normal_y + b.normal_z * b.normal_z);
+            if (al <= 0.000001 || bl <= 0.000001)
+            {
+                return 1.0;
+            }
+            return (a.normal_x * b.normal_x + a.normal_y * b.normal_y + a.normal_z * b.normal_z) / (al * bl);
+        };
+        const auto cell_index = [brush_radius](double value) {
+            return static_cast<int>(std::floor(clamp(value, 0.0, 0.999999) / brush_radius));
+        };
+        const auto cell_key = [](int x, int y) {
+            return (static_cast<std::int64_t>(x) << 32) ^ (static_cast<std::int64_t>(y) & 0xffffffffLL);
+        };
+
+        struct IndexedCell
+        {
+            std::size_t index{0};
+            int x{0};
+            int y{0};
+        };
+        std::vector<std::pair<int, int>> cells{};
+        std::vector<IndexedCell> direct_cells{};
+        cells.reserve(sources.size());
+        direct_cells.reserve(sources.size());
+        std::vector<std::int64_t> direct_keys{};
+        direct_keys.reserve(sources.size());
+        for (std::size_t index = 0; index < sources.size(); ++index)
+        {
+            const auto& source = sources[index];
+            const auto cx = cell_index(source.u);
+            const auto cy = cell_index(source.v);
+            cells.push_back({cx, cy});
+            if (source.direct)
+            {
+                ++report.direct_preserved;
+                direct_keys.push_back(cell_key(cx, cy));
+                direct_cells.push_back(IndexedCell{index, cx, cy});
+            }
+        }
+
+        std::vector<std::int64_t> emitted_keys{};
+        emitted_keys.reserve(static_cast<std::size_t>(std::max(0, max_candidates)));
+        const auto has_key = [](const std::vector<std::int64_t>& keys, std::int64_t key) {
+            return std::find(keys.begin(), keys.end(), key) != keys.end();
+        };
+
+        auto attempt_pair = [&](std::size_t i, std::size_t j) {
+            if (static_cast<int>(report.candidates.size()) >= max_candidates)
+            {
+                return;
+            }
+            if (!sources[i].verified || !sources[j].verified)
+            {
+                ++report.rejected_unverified_source;
+                return;
+            }
+            if (normal_dot(sources[i], sources[j]) < min_normal_dot)
+            {
+                ++report.rejected_normal;
+                return;
+            }
+
+            const auto du = sources[i].u - sources[j].u;
+            const auto dv = sources[i].v - sources[j].v;
+            const auto uv_distance = std::sqrt(du * du + dv * dv);
+            const auto dsx = sources[i].screen_x - sources[j].screen_x;
+            const auto dsy = sources[i].screen_y - sources[j].screen_y;
+            const auto screen_distance = std::sqrt(dsx * dsx + dsy * dsy);
+            const auto dx_cells = cells[i].first - cells[j].first;
+            const auto dy_cells = cells[i].second - cells[j].second;
+            const auto gap_cells = std::max(std::abs(dx_cells), std::abs(dy_cells));
+            if (uv_distance > max_uv || screen_distance > max_screen ||
+                gap_cells <= 1 || gap_cells > max_gap_cells)
+            {
+                ++report.rejected_unbounded;
+                return;
+            }
+
+            for (int step = 1; step < gap_cells && static_cast<int>(report.candidates.size()) < max_candidates; ++step)
+            {
+                const auto t = static_cast<double>(step) / static_cast<double>(gap_cells);
+                const auto u = clamp(sources[i].u * (1.0 - t) + sources[j].u * t, 0.0, 0.999999);
+                const auto v = clamp(sources[i].v * (1.0 - t) + sources[j].v * t, 0.0, 0.999999);
+                const auto key = cell_key(cell_index(u), cell_index(v));
+                if (has_key(direct_keys, key) || has_key(emitted_keys, key))
+                {
+                    continue;
+                }
+
+                PaintSeed candidate{};
+                candidate.u = u;
+                candidate.v = v;
+                candidate.color.r = sources[i].color.r * (1.0 - t) + sources[j].color.r * t;
+                candidate.color.g = sources[i].color.g * (1.0 - t) + sources[j].color.g * t;
+                candidate.color.b = sources[i].color.b * (1.0 - t) + sources[j].color.b * t;
+                candidate.color.roughness =
+                    sources[i].color.roughness * (1.0 - t) + sources[j].color.roughness * t;
+                candidate.color.metallic =
+                    sources[i].color.metallic * (1.0 - t) + sources[j].color.metallic * t;
+                candidate.floor_like = sources[i].floor_like && sources[j].floor_like;
+                candidate.priority = -2;
+                candidate.radius = std::max(1, std::min(sources[i].radius, sources[j].radius));
+                candidate.weight = 0.5;
+                emitted_keys.push_back(key);
+                report.candidates.push_back(candidate);
+            }
+        };
+        auto scan_neighbors = [&](std::vector<IndexedCell> ordered, bool y_major) {
+            if (y_major)
+            {
+                std::sort(ordered.begin(), ordered.end(), [](const IndexedCell& a, const IndexedCell& b) {
+                    return a.y == b.y ? a.x < b.x : a.y < b.y;
+                });
+            }
+            else
+            {
+                std::sort(ordered.begin(), ordered.end(), [](const IndexedCell& a, const IndexedCell& b) {
+                    return a.x == b.x ? a.y < b.y : a.x < b.x;
+                });
+            }
+            constexpr int lookahead = 8;
+            for (std::size_t pos = 0; pos < ordered.size() && static_cast<int>(report.candidates.size()) < max_candidates; ++pos)
+            {
+                for (int step = 1;
+                     step <= lookahead && pos + static_cast<std::size_t>(step) < ordered.size() &&
+                     static_cast<int>(report.candidates.size()) < max_candidates;
+                     ++step)
+                {
+                    const auto& a = ordered[pos];
+                    const auto& b = ordered[pos + static_cast<std::size_t>(step)];
+                    const auto major_gap = y_major ? std::abs(a.y - b.y) : std::abs(a.x - b.x);
+                    const auto minor_gap = y_major ? std::abs(a.x - b.x) : std::abs(a.y - b.y);
+                    if (major_gap > 1)
+                    {
+                        break;
+                    }
+                    if (minor_gap > max_gap_cells)
+                    {
+                        if (major_gap == 0)
+                        {
+                            break;
+                        }
+                        continue;
+                    }
+                    attempt_pair(a.index, b.index);
+                }
+            }
+        };
+        scan_neighbors(direct_cells, true);
+        scan_neighbors(direct_cells, false);
+        return report;
+    }
+
     auto evaluate_side_coverage(const SideCoverageInput& input) -> SideCoverageReport
     {
         SideCoverageReport report{};

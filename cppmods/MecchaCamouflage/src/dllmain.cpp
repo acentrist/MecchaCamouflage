@@ -7904,6 +7904,218 @@ namespace
         return front_samples;
     }
 
+    auto collect_projected_side_edge_samples(Unreal::UObject* pawn,
+                                             Unreal::UObject* mesh,
+                                             Unreal::UObject* controller,
+                                             const ViewportInfo& viewport,
+                                             const std::vector<ScreenHitSample>& front_samples,
+                                             ProbeState& state,
+                                             BrushQuerySideStats& stats,
+                                             MecchaCamouflage::Core::FrameBudget& budget) -> std::vector<ScreenHitSample>
+    {
+        std::vector<ScreenHitSample> side_samples{};
+        if (!pawn || !mesh || !controller || viewport.width <= 0 || viewport.height <= 0 ||
+            front_samples.empty() || state.cancelled)
+        {
+            stats.first_failure = STR("projected_side_prereq_unavailable");
+            return side_samples;
+        }
+
+        auto* query = find_screen_space_brush_query_for_pawn(pawn);
+        if (!query)
+        {
+            stats.first_failure = STR("screen_space_brush_query_unavailable");
+            return side_samples;
+        }
+        stats.query_name = query->GetFullName();
+        if (!configure_screen_space_brush_query(query, pawn, mesh))
+        {
+            stats.first_failure = STR("screen_space_brush_query_config_failed");
+            return side_samples;
+        }
+
+        constexpr int bin_count = 64;
+        struct EdgeBin
+        {
+            bool used{false};
+            double min_nx{1.0};
+            double max_nx{0.0};
+            double sum_ny{0.0};
+            int count{0};
+        };
+        std::array<EdgeBin, bin_count> bins{};
+        const auto encode_texel = [](double u, double v) -> std::uint64_t {
+            const auto x = static_cast<std::uint64_t>(std::max(0, std::min(4095, static_cast<int>(u * 4096.0))));
+            const auto y = static_cast<std::uint64_t>(std::max(0, std::min(4095, static_cast<int>(v * 4096.0))));
+            return (y << 32) | x;
+        };
+        std::unordered_set<std::uint64_t> unique_texels{};
+        unique_texels.reserve(front_samples.size() + 512);
+        for (const auto& sample : front_samples)
+        {
+            unique_texels.insert(encode_texel(sample.u, sample.v));
+            const auto bin = std::max(0, std::min(bin_count - 1, static_cast<int>(sample.ny * bin_count)));
+            auto& edge = bins[static_cast<size_t>(bin)];
+            edge.used = true;
+            edge.min_nx = std::min(edge.min_nx, sample.nx);
+            edge.max_nx = std::max(edge.max_nx, sample.nx);
+            edge.sum_ny += sample.ny;
+            ++edge.count;
+        }
+
+        constexpr int max_side_samples = 768;
+        constexpr int max_side_attempts_per_tick = 96;
+        const std::array<double, 3> offsets{{0.012, 0.024, 0.036}};
+        for (int bin = 0; bin < bin_count && static_cast<int>(side_samples.size()) < max_side_samples; ++bin)
+        {
+            if (state.cancelled)
+            {
+                break;
+            }
+            const auto& edge = bins[static_cast<size_t>(bin)];
+            if (!edge.used || edge.count <= 0)
+            {
+                continue;
+            }
+            const auto ny = clamp(edge.sum_ny / static_cast<double>(edge.count), 0.0, 0.999999);
+            for (const auto side : {-1, 1})
+            {
+                for (const auto offset : offsets)
+                {
+                    if (static_cast<int>(side_samples.size()) >= max_side_samples)
+                    {
+                        break;
+                    }
+                    const auto nx = side < 0
+                                        ? clamp(edge.min_nx - offset, 0.0, 0.999999)
+                                        : clamp(edge.max_nx + offset, 0.0, 0.999999);
+                    if (nx <= 0.0 || nx >= 0.999999)
+                    {
+                        continue;
+                    }
+                    if (stats.attempts >= max_side_attempts_per_tick)
+                    {
+                        stats.budget_exhausted = true;
+                        if (stats.first_failure.empty())
+                        {
+                            stats.first_failure = STR("projected_side_budget_exhausted");
+                        }
+                        return side_samples;
+                    }
+                    const auto candidate_start = SteadyClock::now();
+                    const auto consume_candidate_budget = [&]() -> bool {
+                        if (budget.consume(elapsed_ms_since(candidate_start)))
+                        {
+                            stats.budget_exhausted = true;
+                            if (stats.first_failure.empty())
+                            {
+                                stats.first_failure = STR("projected_side_budget_exhausted");
+                            }
+                            return true;
+                        }
+                        return false;
+                    };
+                    const auto screen_x = nx * static_cast<double>(viewport.width);
+                    const auto screen_y = ny * static_cast<double>(viewport.height);
+                    const auto ray = deproject_screen_position(controller, screen_x, screen_y);
+                    if (!ray.ok)
+                    {
+                        if (stats.first_failure.empty())
+                        {
+                            stats.first_failure = ray.failure.empty() ? STR("projected_side_deproject_failed") : ray.failure;
+                        }
+                        if (consume_candidate_budget())
+                        {
+                            return side_samples;
+                        }
+                        continue;
+                    }
+                    ++stats.attempts;
+                    auto hit = query_brush_from_world_ray(query, ray.location, ray.direction);
+                    if (!hit.params_ok)
+                    {
+                        if (stats.first_failure.empty())
+                        {
+                            stats.first_failure = hit.failure.empty() ? STR("projected_side_brush_query_params_failed") : hit.failure;
+                        }
+                        if (consume_candidate_budget())
+                        {
+                            return side_samples;
+                        }
+                        continue;
+                    }
+                    if (!hit.success)
+                    {
+                        if (consume_candidate_budget())
+                        {
+                            return side_samples;
+                        }
+                        continue;
+                    }
+                    ++stats.success;
+                    const auto owner_hit = hit.component == mesh || object_is_or_belongs_to(hit.actor, pawn) ||
+                                           object_is_or_belongs_to(hit.component, pawn);
+                    if (!owner_hit)
+                    {
+                        if (consume_candidate_budget())
+                        {
+                            return side_samples;
+                        }
+                        continue;
+                    }
+                    ++stats.owner_hits;
+                    if (!hit.has_uv || !std::isfinite(hit.u) || !std::isfinite(hit.v))
+                    {
+                        if (consume_candidate_budget())
+                        {
+                            return side_samples;
+                        }
+                        continue;
+                    }
+                    ++stats.uv_hits;
+                    const auto texel_key = encode_texel(hit.u, hit.v);
+                    if (!unique_texels.insert(texel_key).second)
+                    {
+                        ++stats.duplicate_texels;
+                        if (consume_candidate_budget())
+                        {
+                            return side_samples;
+                        }
+                        continue;
+                    }
+
+                    ScreenHitSample sample{};
+                    sample.screen_x = screen_x;
+                    sample.screen_y = screen_y;
+                    sample.nx = nx;
+                    sample.ny = ny;
+                    sample.capture_nx = nx;
+                    sample.capture_ny = ny;
+                    sample.u = clamp(hit.u, 0.0, 0.999999);
+                    sample.v = clamp(hit.v, 0.0, 0.999999);
+                    sample.world_position = hit.world_position;
+                    sample.normal = hit.normal;
+                    sample.color = Color{0.0, 0.0, 0.0, 0.85, 0.0};
+                    sample.floor_like = false;
+                    side_samples.push_back(sample);
+                    ++stats.seeds;
+                    ++stats.frame_projected_pixels;
+                    ++stats.projected_pixels;
+                    if (consume_candidate_budget())
+                    {
+                        return side_samples;
+                    }
+                }
+            }
+        }
+
+        if (stats.first_failure.empty())
+        {
+            stats.first_failure = side_samples.empty() ? STR("projected_side_no_samples") : STR("<none>");
+        }
+        return side_samples;
+    }
+
     auto collect_brush_query_side_samples(Unreal::UObject* component,
                                           Unreal::UObject* pawn,
                                           Unreal::UObject* mesh,
@@ -10449,6 +10661,15 @@ namespace
             int stretch_inferred_strokes{0};
             int stretch_rejected_seam{0};
             int stretch_normal_limit{0};
+            int microfill_candidates{0};
+            int microfill_sent{0};
+            int microfill_rejected_unbounded{0};
+            int microfill_rejected_normal{0};
+            int microfill_rejected_unverified_source{0};
+            bool microfill_quality_success{false};
+            int side_back_inferred_color_used{0};
+            bool back_quality_success{false};
+            bool overall_quality_success{false};
             int vertical_band_hits{0};
             int vertical_band_count{0};
             int apply_cursor{0};
@@ -12102,6 +12323,10 @@ namespace
                 {
                     return;
                 }
+                if (!m_pipeline_job.sampled_front_finalized && (budget.overrun || budget.hard_overrun))
+                {
+                    return;
+                }
                 if (!m_pipeline_job.sampled_readback_api_available)
                 {
                     m_state.failures = 1;
@@ -12271,17 +12496,171 @@ namespace
                         return;
                     }
 
-                    m_pipeline_job.side_quality_success = false;
-                    m_pipeline_job.side_quality_failed = false;
-                    m_pipeline_job.side_quality_failure = STR("front_quality_deferred");
-                    m_state.side_enabled = 0;
-                    m_state.side_backend = STR("front_quality_deferred");
+                    std::vector<MecchaCamouflage::Core::MicroFillSource> microfill_sources{};
+                    microfill_sources.reserve(front_samples.size());
+                    for (const auto& sample : front_samples)
+                    {
+                        MecchaCamouflage::Core::MicroFillSource source{};
+                        source.u = sample.u;
+                        source.v = sample.v;
+                        source.screen_x = sample.screen_x;
+                        source.screen_y = sample.screen_y;
+                        source.normal_x = sample.normal.X();
+                        source.normal_y = sample.normal.Y();
+                        source.normal_z = sample.normal.Z();
+                        source.color = MecchaCamouflage::Core::Color{
+                            sample.color.r,
+                            sample.color.g,
+                            sample.color.b,
+                            sample.color.roughness,
+                            sample.color.metallic};
+                        source.direct = true;
+                        source.verified = true;
+                        source.radius = std::max(1, static_cast<int>(std::round(m_pipeline_job.brush.brush_footprint_texels)));
+                        source.floor_like = sample.floor_like;
+                        microfill_sources.push_back(source);
+                    }
+                    const auto microfill_report =
+                        MecchaCamouflage::Core::plan_front_micro_fill(microfill_sources,
+                                                                      MecchaCamouflage::Core::MicroFillPolicy{
+                                                                          m_pipeline_job.brush.radius,
+                                                                          std::max(m_pipeline_job.brush.radius * 4.25, 0.010),
+                                                                          72.0,
+                                                                          0.82,
+                                                                          4,
+                                                                          std::min(2048, std::max(0, static_cast<int>(front_samples.size()) / 10))});
+                    m_pipeline_job.microfill_candidates = static_cast<int>(microfill_report.candidates.size());
+                    m_pipeline_job.microfill_rejected_unbounded = microfill_report.rejected_unbounded;
+                    m_pipeline_job.microfill_rejected_normal = microfill_report.rejected_normal;
+                    m_pipeline_job.microfill_rejected_unverified_source = microfill_report.rejected_unverified_source;
+                    m_pipeline_job.microfill_quality_success = m_pipeline_job.microfill_candidates > 0;
+                    auto nearest_front_sample = [&](double u, double v) -> const ScreenHitSample* {
+                        const ScreenHitSample* best = nullptr;
+                        double best_distance = 1000000000000.0;
+                        for (const auto& sample : front_samples)
+                        {
+                            const auto du = sample.u - u;
+                            const auto dv = sample.v - v;
+                            const auto distance = du * du + dv * dv;
+                            if (distance < best_distance)
+                            {
+                                best_distance = distance;
+                                best = &sample;
+                            }
+                        }
+                        return best;
+                    };
+                    for (const auto& candidate : microfill_report.candidates)
+                    {
+                        const auto* nearest = nearest_front_sample(candidate.u, candidate.v);
+                        if (!nearest)
+                        {
+                            continue;
+                        }
+                        ScreenHitSample sample{};
+                        sample.screen_x = nearest->screen_x;
+                        sample.screen_y = nearest->screen_y;
+                        sample.nx = nearest->nx;
+                        sample.ny = nearest->ny;
+                        sample.capture_nx = -1.0;
+                        sample.capture_ny = -1.0;
+                        sample.u = clamp(candidate.u, 0.0, 0.999999);
+                        sample.v = clamp(candidate.v, 0.0, 0.999999);
+                        sample.world_position = nearest->world_position;
+                        sample.normal = nearest->normal;
+                        sample.color = Color{
+                            candidate.color.r,
+                            candidate.color.g,
+                            candidate.color.b,
+                            candidate.color.roughness,
+                            candidate.color.metallic};
+                        sample.floor_like = candidate.floor_like;
+                        m_pipeline_job.apply_samples.push_back(sample);
+                        m_pipeline_job.sampled_readback_colors.push_back(std::nullopt);
+                        ++m_pipeline_job.microfill_sent;
+                    }
+
+                    BrushQuerySideStats projected_side_stats{};
+                    std::vector<ScreenHitSample> side_samples{};
+                    const auto side_query_start = SteadyClock::now();
+                    if (budget.overrun || budget.hard_overrun)
+                    {
+                        projected_side_stats.budget_exhausted = true;
+                        projected_side_stats.first_failure = STR("projected_side_budget_exhausted");
+                    }
+                    else
+                    {
+                        side_samples = collect_projected_side_edge_samples(m_pipeline_job.pawn,
+                                                                           m_pipeline_job.mesh,
+                                                                           m_pipeline_job.controller,
+                                                                           m_pipeline_job.viewport,
+                                                                           front_samples,
+                                                                           m_state,
+                                                                           projected_side_stats,
+                                                                           budget);
+                    }
+                    m_pipeline_job.timing.side_query_ms += elapsed_ms_since(side_query_start);
+                    m_pipeline_job.frame_budget_overrun = m_pipeline_job.frame_budget_overrun || budget.overrun;
+                    m_pipeline_job.side_stats = projected_side_stats;
+                    m_pipeline_job.side_sample_count = static_cast<int>(side_samples.size());
+                    m_pipeline_job.side_inferred_samples = 0;
+                    m_pipeline_job.side_back_inferred_color_used = 0;
+                    for (const auto& side_sample : side_samples)
+                    {
+                        m_pipeline_job.apply_samples.push_back(side_sample);
+                        m_pipeline_job.sampled_readback_colors.push_back(std::nullopt);
+                    }
+                    const auto side_quality = MecchaCamouflage::Core::evaluate_side_coverage(MecchaCamouflage::Core::SideCoverageInput{
+                        m_pipeline_job.front_coverage_ok,
+                        m_pipeline_job.side_sample_count,
+                        0,
+                        96,
+                        m_pipeline_job.side_stats.budget_exhausted});
+                    m_pipeline_job.side_quality_success = side_quality.side_quality_success;
+                    m_pipeline_job.side_quality_failed = side_quality.side_quality_failed;
+                    m_pipeline_job.side_quality_failure = RC::ensure_str(side_quality.failure.c_str());
+                    m_pipeline_job.back_quality_success = false;
+                    m_pipeline_job.overall_quality_success =
+                        m_pipeline_job.front_coverage_ok &&
+                        m_pipeline_job.microfill_quality_success &&
+                        m_pipeline_job.side_quality_success;
+                    m_state.side_enabled = m_pipeline_job.side_sample_count > 0 ? 1 : 0;
+                    m_state.side_backend = m_pipeline_job.side_sample_count > 0
+                                               ? STR("projected_side_edge_replicated")
+                                               : STR("projected_side_edge_no_samples");
+                    m_state.side_query_attempts = m_pipeline_job.side_stats.attempts;
+                    m_state.side_query_success = m_pipeline_job.side_stats.success;
+                    m_state.side_query_uv_hits = m_pipeline_job.side_stats.uv_hits;
+                    m_state.side_projected_pixels = m_pipeline_job.side_stats.projected_pixels;
+                    m_state.side_material_hits = m_pipeline_job.side_stats.material_hits;
+                    m_state.side_seeds = m_pipeline_job.side_sample_count;
+                    m_state.side_nearest_sources = 0;
+                    m_state.side_duplicate_texels = m_pipeline_job.side_stats.duplicate_texels;
+                    m_state.side_normal_suspect = m_pipeline_job.side_stats.normal_suspect;
+                    m_state.side_budget_exhausted = m_pipeline_job.side_stats.budget_exhausted ? 1 : 0;
                     m_pipeline_job.sampled_front_finalized = true;
                     RC::Output::send<RC::LogLevel::Warning>(
-                        STR("{} post_front_extension_disabled side_enabled=0 side_backend=front_quality_deferred side_quality_success=0 side_quality_failed=0 side_quality_failure=front_quality_deferred stretch_enabled=0 stretch_backend=disabled_quality_regression stretch_inferred_strokes=0 readback_backend=sampled_pixel_tick bulk_readback_used=0 queued_strokes={} front_streaming_samples={} job_stage=scene_capture_supplement\n"),
+                        STR("{} front_microfill_and_side_queue front_microfill_enabled=1 microfill_candidates={} microfill_sent={} microfill_rejected_unbounded={} microfill_rejected_normal={} microfill_rejected_unverified_source={} microfill_quality_success={} side_enabled={} side_backend={} side_quality_success={} side_quality_failed={} side_samples={} side_back_inferred_color_used=0 virtual_side_capture=pending_no_color_applied back_quality_success=0 overall_quality_success={} stretch_enabled=0 stretch_backend=disabled_quality_regression stretch_inferred_strokes=0 readback_backend=sampled_pixel_tick bulk_readback_used=0 queued_strokes={} front_streaming_samples={} job_stage=scene_capture_supplement\n"),
                         ModTag,
+                        m_pipeline_job.microfill_candidates,
+                        m_pipeline_job.microfill_sent,
+                        m_pipeline_job.microfill_rejected_unbounded,
+                        m_pipeline_job.microfill_rejected_normal,
+                        m_pipeline_job.microfill_rejected_unverified_source,
+                        m_pipeline_job.microfill_quality_success ? 1 : 0,
+                        m_state.side_enabled,
+                        m_state.side_backend,
+                        m_pipeline_job.side_quality_success ? 1 : 0,
+                        m_pipeline_job.side_quality_failed ? 1 : 0,
+                        m_pipeline_job.side_sample_count,
+                        m_pipeline_job.overall_quality_success ? 1 : 0,
                         m_pipeline_job.apply_cursor,
                         m_pipeline_job.sampled_front_sample_count);
+                    if (m_pipeline_job.sampled_readback_cursor <
+                        static_cast<int>(m_pipeline_job.sampled_readback_colors.size()))
+                    {
+                        return;
+                    }
                 }
 
                 if (m_pipeline_job.streaming_apply_enabled && m_pipeline_job.sampled_front_finalized)
@@ -12313,7 +12692,7 @@ namespace
                                                    : STR("<none>");
                     }
                     RC::Output::send<RC::LogLevel::Warning>(
-                        STR("{} play replicated_paint result reason={} success={} visible_backend={} queued_strokes={} streaming_apply=1 replicated_apply=1 replicated_strokes_sent={} local_echo_strokes={} replicated_strokes_failed={} apply_rpc={} local_echo_rpc={} import_backend=0 texture_import_used=0 no_apply=0 albedo_only={} material_channels_sent={} replicated_partial={} quality_success={} front_coverage_ok={} front_coverage_failed={} coverage_failure={} refined_reaches_coarse_bottom={} refined_grid_complete={} vertical_band_hits={}/{} refined_grid_cursor={} refined_total_cells={} side_enabled={} side_backend={} side_quality_success={} side_quality_failed={} side_samples={} side_inferred_samples={} stretch_enabled=0 stretch_backend=disabled_quality_regression stretch_inferred_strokes={} stretch_rejected_seam={} stretch_normal_limit={} readback_backend=sampled_pixel_tick bulk_readback_used=0 sampled_readback_cursor={}/{} atlas_source={} atlas_probe_ok={} exact_material_source=unavailable material_confidence={} material_source={} color_source=hidden_character_capture brush_payload=1 apply_mode=AlphaBlend brush_radius={} effective_brush_world_radius={} brush_seed_radius_px={} brush_radius_source={} requested_brush_radius={} brush_radius_clamped_by_game_min={} brush_footprint_texels={} strokes_before_merge={} duplicate_merged_strokes={} capture_alignment=project_world_to_screen alignment_used=1 projected_delta_avg_px={} projected_delta_p95_px={} projected_delta_max_px={} alignment_fallback_samples={} brush_subdivision_level={} brush_subdivision_pixel_size={} frame_budget_overrun={} apply_frame_overruns={} phase_ms=({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}) fallback_used=0 legacy_splat_success=0 job_stage=complete\n"),
+                        STR("{} play replicated_paint result reason={} success={} visible_backend={} queued_strokes={} streaming_apply=1 replicated_apply=1 replicated_strokes_sent={} local_echo_strokes={} replicated_strokes_failed={} apply_rpc={} local_echo_rpc={} import_backend=0 texture_import_used=0 no_apply=0 albedo_only={} material_channels_sent={} replicated_partial={} quality_success={} front_quality_success={} front_coverage_ok={} front_coverage_failed={} coverage_failure={} refined_reaches_coarse_bottom={} refined_grid_complete={} vertical_band_hits={}/{} refined_grid_cursor={} refined_total_cells={} front_microfill_enabled=1 microfill_quality_success={} microfill_candidates={} microfill_sent={} microfill_rejected_unbounded={} microfill_rejected_normal={} microfill_rejected_unverified_source={} side_enabled={} side_backend={} side_quality_success={} side_quality_failed={} side_samples={} side_inferred_samples={} side_back_inferred_color_used={} virtual_side_capture=pending_no_color_applied back_quality_success={} overall_quality_success={} stretch_enabled=0 stretch_backend=disabled_quality_regression stretch_inferred_strokes={} stretch_rejected_seam={} stretch_normal_limit={} readback_backend=sampled_pixel_tick bulk_readback_used=0 sampled_readback_cursor={}/{} atlas_source={} atlas_probe_ok={} exact_material_source=unavailable material_confidence={} material_source={} color_source=hidden_character_capture brush_payload=1 apply_mode=AlphaBlend brush_radius={} effective_brush_world_radius={} brush_seed_radius_px={} brush_radius_source={} requested_brush_radius={} brush_radius_clamped_by_game_min={} brush_footprint_texels={} strokes_before_merge={} duplicate_merged_strokes={} capture_alignment=project_world_to_screen alignment_used=1 projected_delta_avg_px={} projected_delta_p95_px={} projected_delta_max_px={} alignment_fallback_samples={} brush_subdivision_level={} brush_subdivision_pixel_size={} frame_budget_overrun={} apply_frame_overruns={} phase_ms=({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}) fallback_used=0 legacy_splat_success=0 job_stage=complete\n"),
                         ModTag,
                         m_pipeline_job.reason.empty() ? STR("<none>") : m_pipeline_job.reason,
                         m_state.success,
@@ -12329,6 +12708,7 @@ namespace
                         m_pipeline_job.stroke_plan.partial ? 1 : 0,
                         m_pipeline_job.stroke_plan.quality_success ? 1 : 0,
                         m_pipeline_job.front_coverage_ok ? 1 : 0,
+                        m_pipeline_job.front_coverage_ok ? 1 : 0,
                         m_pipeline_job.front_coverage_failed ? 1 : 0,
                         RC::ensure_str(m_pipeline_job.front_coverage.failure.c_str()),
                         m_pipeline_job.front_coverage.reaches_coarse_bottom ? 1 : 0,
@@ -12337,12 +12717,21 @@ namespace
                         m_pipeline_job.vertical_band_count,
                         m_pipeline_job.refine_cursor,
                         m_pipeline_job.refine_total_cells,
+                        m_pipeline_job.microfill_quality_success ? 1 : 0,
+                        m_pipeline_job.microfill_candidates,
+                        m_pipeline_job.microfill_sent,
+                        m_pipeline_job.microfill_rejected_unbounded,
+                        m_pipeline_job.microfill_rejected_normal,
+                        m_pipeline_job.microfill_rejected_unverified_source,
                         m_state.side_enabled,
                         m_state.side_backend,
                         m_pipeline_job.side_quality_success ? 1 : 0,
                         m_pipeline_job.side_quality_failed ? 1 : 0,
                         m_pipeline_job.side_sample_count,
                         m_pipeline_job.side_inferred_samples,
+                        m_pipeline_job.side_back_inferred_color_used,
+                        m_pipeline_job.back_quality_success ? 1 : 0,
+                        m_pipeline_job.overall_quality_success ? 1 : 0,
                         m_pipeline_job.stretch_inferred_strokes,
                         m_pipeline_job.stretch_rejected_seam,
                         m_pipeline_job.stretch_normal_limit,
