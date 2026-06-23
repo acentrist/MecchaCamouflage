@@ -23,6 +23,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "../sdk/meccha_mesh_layout.hpp"
 #include "../sdk/meccha_sdk_min.hpp"
 
 #pragma comment(lib, "Ws2_32.lib")
@@ -74,6 +75,8 @@ namespace
     std::mutex g_paint_jobs_mutex;
     std::condition_variable g_paint_jobs_cv;
     std::vector<std::shared_ptr<QueuedPaintJob>> g_paint_jobs;
+    std::atomic<bool> g_mesh_snapshot_ready{false};
+    std::atomic<bool> g_dump_cancel_requested{false};
 
     auto paint_full_route_native_direct(const std::string& request) -> std::string;
     auto drain_paint_jobs_on_game_thread() -> void;
@@ -123,6 +126,7 @@ namespace
         out.reserve(text.size() + 8);
         for (const char c : text)
         {
+            const auto value = static_cast<unsigned char>(c);
             if (c == '\\' || c == '"')
             {
                 out.push_back('\\');
@@ -135,6 +139,17 @@ namespace
             else if (c == '\r')
             {
                 out += "\\r";
+            }
+            else if (c == '\t')
+            {
+                out += "\\t";
+            }
+            else if (value < 0x20)
+            {
+                static constexpr char digits[] = "0123456789abcdef";
+                out += "\\u00";
+                out.push_back(digits[(value >> 4) & 0x0f]);
+                out.push_back(digits[value & 0x0f]);
             }
             else
             {
@@ -275,6 +290,62 @@ namespace
         const auto ok = WriteFile(file, text.data(), static_cast<DWORD>(text.size()), &written, nullptr);
         CloseHandle(file);
         return ok && written == text.size();
+    }
+
+    auto ensure_directory(const std::wstring& path) -> bool
+    {
+        if (path.empty())
+        {
+            return false;
+        }
+        if (CreateDirectoryW(path.c_str(), nullptr))
+        {
+            return true;
+        }
+        return GetLastError() == ERROR_ALREADY_EXISTS;
+    }
+
+    auto runtime_log_dir_path() -> std::wstring
+    {
+        wchar_t local_appdata[MAX_PATH]{};
+        const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", local_appdata, MAX_PATH);
+        if (length == 0 || length >= MAX_PATH)
+        {
+            return {};
+        }
+        std::wstring base = local_appdata;
+        const std::wstring root = base + L"\\MecchaCamouflage";
+        const std::wstring runtime = root + L"\\runtime";
+        if (!ensure_directory(root) || !ensure_directory(runtime))
+        {
+            return {};
+        }
+        return runtime;
+    }
+
+    auto write_runtime_artifact_binary(const wchar_t* filename, const std::string& bytes) -> bool
+    {
+        const auto dir = runtime_log_dir_path();
+        if (dir.empty())
+        {
+            return false;
+        }
+        std::wstring path = dir + L"\\";
+        path += filename;
+        HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file == INVALID_HANDLE_VALUE)
+        {
+            return false;
+        }
+        DWORD written = 0;
+        const auto ok = WriteFile(file, bytes.data(), static_cast<DWORD>(bytes.size()), &written, nullptr);
+        CloseHandle(file);
+        return ok && written == bytes.size();
+    }
+
+    auto write_runtime_artifact_text(const wchar_t* filename, const std::string& text) -> bool
+    {
+        return write_runtime_artifact_binary(filename, text);
     }
 
     struct ModuleRange
@@ -1345,6 +1416,481 @@ namespace
             const auto name = ref.names.resolve(safe_read<std::uint32_t>(prop + OffFFieldName));
             out += name + "@" + std::to_string(prop_offset(prop)) + "#" + std::to_string(prop_element_size(prop));
         }
+        return out;
+    }
+
+    auto early_hex_address(std::uintptr_t value) -> std::string
+    {
+        char buffer[32]{};
+        std::snprintf(buffer, sizeof(buffer), "0x%llx", static_cast<unsigned long long>(value));
+        return buffer;
+    }
+
+    auto early_json_bool(bool value) -> const char*
+    {
+        return value ? "true" : "false";
+    }
+
+    auto property_list_json(Reflection& ref, std::uintptr_t object, int max_props = 96) -> std::string
+    {
+        std::string out = "[";
+        int count = 0;
+        for (auto cls = ref.class_ptr(object); cls && count < max_props; cls = safe_read<std::uintptr_t>(cls + OffSuperStruct))
+        {
+            for (auto prop = safe_read<std::uintptr_t>(cls + OffChildProperties); prop && count < max_props; prop = safe_read<std::uintptr_t>(prop + OffFFieldNext), ++count)
+            {
+                if (count > 0)
+                {
+                    out += ",";
+                }
+                out += "{\"name\":\"" + json_escape(ref.names.resolve(safe_read<std::uint32_t>(prop + OffFFieldName))) + "\"";
+                out += ",\"offset\":" + std::to_string(prop_offset(prop));
+                out += ",\"element_size\":" + std::to_string(prop_element_size(prop));
+                out += "}";
+            }
+        }
+        out += "]";
+        return out;
+    }
+
+    auto property_name_at_or_before_offset(Reflection& ref, std::uintptr_t object, int offset) -> std::string
+    {
+        std::string best_name{};
+        int best_offset = -1;
+        for (auto cls = ref.class_ptr(object); cls; cls = safe_read<std::uintptr_t>(cls + OffSuperStruct))
+        {
+            for (auto prop = safe_read<std::uintptr_t>(cls + OffChildProperties); prop; prop = safe_read<std::uintptr_t>(prop + OffFFieldNext))
+            {
+                const auto current_offset = prop_offset(prop);
+                if (current_offset <= offset && current_offset > best_offset)
+                {
+                    best_offset = current_offset;
+                    best_name = ref.names.resolve(safe_read<std::uint32_t>(prop + OffFFieldName));
+                }
+            }
+        }
+        if (best_name.empty())
+        {
+            return "";
+        }
+        return best_name + "+" + std::to_string(offset - best_offset);
+    }
+
+    auto function_list_json(Reflection& ref, std::uintptr_t object, int max_functions = 96) -> std::string
+    {
+        std::string out = "[";
+        int count = 0;
+        for (auto cls = ref.class_ptr(object); cls && count < max_functions; cls = safe_read<std::uintptr_t>(cls + OffSuperStruct))
+        {
+            for (auto child = safe_read<std::uintptr_t>(cls + OffChildren); child && count < max_functions; child = safe_read<std::uintptr_t>(child + OffUFieldNext))
+            {
+                const auto name = ref.object_name(child);
+                if (name.empty())
+                {
+                    continue;
+                }
+                if (count > 0)
+                {
+                    out += ",";
+                }
+                out += "{\"name\":\"" + json_escape(name) + "\"";
+                out += ",\"params_size\":" + std::to_string(safe_read<int>(child + OffPropertiesSize, 0));
+                out += ",\"schema\":\"" + json_escape(function_param_schema(ref, child)) + "\"}";
+                ++count;
+            }
+        }
+        out += "]";
+        return out;
+    }
+
+    auto array_header_scan_json(std::uintptr_t object, int scan_bytes = 0x1000, int max_entries = 96) -> std::string
+    {
+        std::string out = "[";
+        int count = 0;
+        for (int offset = 0; object && offset + 16 <= scan_bytes && count < max_entries; offset += 8)
+        {
+            const auto data = safe_read<std::uintptr_t>(object + static_cast<std::uintptr_t>(offset), 0);
+            const auto num = safe_read<int>(object + static_cast<std::uintptr_t>(offset + 8), 0);
+            const auto max = safe_read<int>(object + static_cast<std::uintptr_t>(offset + 12), 0);
+            if (!data || num <= 0 || max < num || max > 2000000)
+            {
+                continue;
+            }
+            const auto first = safe_read<std::uintptr_t>(data, 0);
+            if (count > 0)
+            {
+                out += ",";
+            }
+            out += "{\"offset\":" + std::to_string(offset);
+            out += ",\"data\":\"" + early_hex_address(data) + "\"";
+            out += ",\"num\":" + std::to_string(num);
+            out += ",\"max\":" + std::to_string(max);
+            out += ",\"first_qword\":\"" + early_hex_address(first) + "\"}";
+            ++count;
+        }
+        out += "]";
+        return out;
+    }
+
+    auto pointer_scan_json(std::uintptr_t object, int scan_bytes = 0x1000, int max_entries = 128) -> std::string
+    {
+        std::string out = "[";
+        int count = 0;
+        for (int offset = 0; object && offset + 8 <= scan_bytes && count < max_entries; offset += 8)
+        {
+            const auto ptr = safe_read<std::uintptr_t>(object + static_cast<std::uintptr_t>(offset), 0);
+            if (!ptr || address_in_main_module(ptr))
+            {
+                continue;
+            }
+            const auto first = safe_read<std::uintptr_t>(ptr, 0);
+            if (!first)
+            {
+                continue;
+            }
+            if (count > 0)
+            {
+                out += ",";
+            }
+            out += "{\"offset\":" + std::to_string(offset);
+            out += ",\"ptr\":\"" + early_hex_address(ptr) + "\"";
+            out += ",\"first_qword\":\"" + early_hex_address(first) + "\"";
+            out += ",\"live_uobject\":" + std::string(early_json_bool(live_uobject(ptr))) + "}";
+            ++count;
+        }
+        out += "]";
+        return out;
+    }
+
+    auto json_float_or_null(float value) -> std::string
+    {
+        if (!std::isfinite(static_cast<double>(value)))
+        {
+            return "null";
+        }
+        return std::to_string(value);
+    }
+
+    auto bytes_preview_hex(std::uintptr_t data, int byte_count) -> std::string
+    {
+        static constexpr char digits[] = "0123456789abcdef";
+        std::string out{};
+        out.reserve(static_cast<std::size_t>(std::max(0, byte_count) * 2));
+        for (int i = 0; data && i < byte_count; ++i)
+        {
+            const auto value = safe_read<std::uint8_t>(data + static_cast<std::uintptr_t>(i), 0);
+            out.push_back(digits[(value >> 4) & 0x0f]);
+            out.push_back(digits[value & 0x0f]);
+        }
+        return out;
+    }
+
+    auto nonzero_preview_bytes(std::uintptr_t data, int byte_count) -> int
+    {
+        int count = 0;
+        for (int i = 0; data && i < byte_count; ++i)
+        {
+            if (safe_read<std::uint8_t>(data + static_cast<std::uintptr_t>(i), 0) != 0)
+            {
+                ++count;
+            }
+        }
+        return count;
+    }
+
+    auto float_preview_json(std::uintptr_t data, int float_count) -> std::string
+    {
+        std::string out = "[";
+        for (int i = 0; data && i < float_count; ++i)
+        {
+            if (i > 0)
+            {
+                out += ",";
+            }
+            out += json_float_or_null(safe_read<float>(data + static_cast<std::uintptr_t>(i * 4), 0.0f));
+        }
+        out += "]";
+        return out;
+    }
+
+    auto u16_preview_json(std::uintptr_t data, int count) -> std::string
+    {
+        std::string out = "[";
+        for (int i = 0; data && i < count; ++i)
+        {
+            if (i > 0)
+            {
+                out += ",";
+            }
+            out += std::to_string(safe_read<std::uint16_t>(data + static_cast<std::uintptr_t>(i * 2), 0));
+        }
+        out += "]";
+        return out;
+    }
+
+    auto u32_preview_json(std::uintptr_t data, int count) -> std::string
+    {
+        std::string out = "[";
+        for (int i = 0; data && i < count; ++i)
+        {
+            if (i > 0)
+            {
+                out += ",";
+            }
+            out += std::to_string(safe_read<std::uint32_t>(data + static_cast<std::uintptr_t>(i * 4), 0));
+        }
+        out += "]";
+        return out;
+    }
+
+    auto array_candidate_kind(int num, int max) -> std::string
+    {
+        if (num >= 8192 && max <= 1000000)
+        {
+            return "large_mesh_buffer_candidate";
+        }
+        if (num >= 256 && max <= 1000000)
+        {
+            return "mesh_buffer_candidate";
+        }
+        return "array";
+    }
+
+    auto array_candidate_score(int num,
+                               int max,
+                               std::uintptr_t first_qword,
+                               std::uint32_t first_dword,
+                               float first_float,
+                               int nonzero_bytes,
+                               bool pointer_table_suspect) -> int
+    {
+        int score = 0;
+        if (num >= 8192)
+        {
+            score += 40;
+        }
+        else if (num >= 2048)
+        {
+            score += 28;
+        }
+        else if (num >= 256)
+        {
+            score += 14;
+        }
+        if (max >= num && max <= num + std::max(64, num / 4))
+        {
+            score += 12;
+        }
+        if (first_qword != 0)
+        {
+            score += 8;
+        }
+        if (first_dword < 1000000)
+        {
+            score += 6;
+        }
+        if (std::isfinite(static_cast<double>(first_float)) && first_float > -100000.0f && first_float < 100000.0f)
+        {
+            score += 6;
+        }
+        if (nonzero_bytes >= 24)
+        {
+            score += 36;
+        }
+        else if (nonzero_bytes >= 8)
+        {
+            score += 18;
+        }
+        else if (nonzero_bytes == 0)
+        {
+            score -= 48;
+        }
+        if (pointer_table_suspect)
+        {
+            score -= 64;
+        }
+        return score;
+    }
+
+    auto pointer_target_array_scan_json(std::uintptr_t object,
+                                        int owner_scan_bytes = 0x1800,
+                                        int target_scan_bytes = 0x800,
+                                        int max_targets = 96,
+                                        int max_arrays_per_target = 32) -> std::string
+    {
+        std::string out = "[";
+        int target_count = 0;
+        for (int owner_offset = 0; object && owner_offset + 8 <= owner_scan_bytes && target_count < max_targets; owner_offset += 8)
+        {
+            const auto target = safe_read<std::uintptr_t>(object + static_cast<std::uintptr_t>(owner_offset), 0);
+            if (!target || address_in_main_module(target))
+            {
+                continue;
+            }
+            std::string arrays = "[";
+            int array_count = 0;
+            for (int target_offset = 0; target_offset + 16 <= target_scan_bytes && array_count < max_arrays_per_target; target_offset += 8)
+            {
+                const auto data = safe_read<std::uintptr_t>(target + static_cast<std::uintptr_t>(target_offset), 0);
+                const auto num = safe_read<int>(target + static_cast<std::uintptr_t>(target_offset + 8), 0);
+                const auto max = safe_read<int>(target + static_cast<std::uintptr_t>(target_offset + 12), 0);
+                if (!data || num <= 0 || max < num || max > 4000000)
+                {
+                    continue;
+                }
+                if (array_count > 0)
+                {
+                    arrays += ",";
+                }
+                const auto first_qword = safe_read<std::uintptr_t>(data, 0);
+                const auto first_dword = safe_read<std::uint32_t>(data, 0);
+                const auto first_float = safe_read<float>(data, 0.0f);
+                const auto nonzero_bytes = nonzero_preview_bytes(data, 64);
+                const auto candidate_kind = array_candidate_kind(num, max);
+                arrays += "{\"offset\":" + std::to_string(target_offset);
+                arrays += ",\"data\":\"" + early_hex_address(data) + "\"";
+                arrays += ",\"num\":" + std::to_string(num);
+                arrays += ",\"max\":" + std::to_string(max);
+                arrays += ",\"first_qword\":\"" + early_hex_address(first_qword) + "\"";
+                arrays += ",\"first_dword\":" + std::to_string(first_dword);
+                arrays += ",\"first_float\":" + json_float_or_null(first_float);
+                arrays += ",\"preview_nonzero_bytes\":" + std::to_string(nonzero_bytes);
+                arrays += ",\"candidate_kind\":\"" + candidate_kind + "\"";
+                arrays += "}";
+                ++array_count;
+            }
+            arrays += "]";
+            if (array_count <= 0)
+            {
+                continue;
+            }
+            if (target_count > 0)
+            {
+                out += ",";
+            }
+            out += "{\"owner_offset\":" + std::to_string(owner_offset);
+            out += ",\"target\":\"" + early_hex_address(target) + "\"";
+            out += ",\"target_first_qword\":\"" + early_hex_address(safe_read<std::uintptr_t>(target, 0)) + "\"";
+            out += ",\"target_live_uobject\":" + std::string(early_json_bool(live_uobject(target)));
+            out += ",\"arrays\":" + arrays + "}";
+            ++target_count;
+        }
+        out += "]";
+        return out;
+    }
+
+    auto mesh_buffer_candidates_json(Reflection& ref,
+                                     std::uintptr_t object,
+                                     int owner_scan_bytes = 0x1800,
+                                     int target_scan_bytes = 0x900,
+                                     int max_candidates = 80) -> std::string
+    {
+        struct Candidate
+        {
+            int score{0};
+            int owner_offset{0};
+            int target_offset{0};
+            std::uintptr_t target{0};
+            bool target_live_uobject{false};
+            bool pointer_table_suspect{false};
+            std::uintptr_t data{0};
+            int num{0};
+            int max{0};
+            std::uintptr_t first_qword{0};
+            std::uint32_t first_dword{0};
+            float first_float{0.0f};
+            int nonzero_bytes{0};
+            std::string kind{};
+        };
+        std::vector<Candidate> candidates{};
+        for (int owner_offset = 0; object && owner_offset + 8 <= owner_scan_bytes; owner_offset += 8)
+        {
+            const auto target = safe_read<std::uintptr_t>(object + static_cast<std::uintptr_t>(owner_offset), 0);
+            if (!target || address_in_main_module(target))
+            {
+                continue;
+            }
+            for (int target_offset = 0; target_offset + 16 <= target_scan_bytes; target_offset += 8)
+            {
+                const auto data = safe_read<std::uintptr_t>(target + static_cast<std::uintptr_t>(target_offset), 0);
+                const auto num = safe_read<int>(target + static_cast<std::uintptr_t>(target_offset + 8), 0);
+                const auto max = safe_read<int>(target + static_cast<std::uintptr_t>(target_offset + 12), 0);
+                if (!data || num <= 0 || max < num || max > 4000000)
+                {
+                    continue;
+                }
+                const auto kind = array_candidate_kind(num, max);
+                if (kind == "array")
+                {
+                    continue;
+                }
+                const auto first_qword = safe_read<std::uintptr_t>(data, 0);
+                const auto first_dword = safe_read<std::uint32_t>(data, 0);
+                const auto first_float = safe_read<float>(data, 0.0f);
+                const auto nonzero_bytes = nonzero_preview_bytes(data, 64);
+                const bool pointer_table_suspect = address_in_main_module(first_qword) || live_uobject(first_qword);
+                if (nonzero_bytes == 0)
+                {
+                    continue;
+                }
+                candidates.push_back(Candidate{
+                    array_candidate_score(num, max, first_qword, first_dword, first_float, nonzero_bytes, pointer_table_suspect),
+                    owner_offset,
+                    target_offset,
+                    target,
+                    live_uobject(target),
+                    pointer_table_suspect,
+                    data,
+                    num,
+                    max,
+                    first_qword,
+                    first_dword,
+                    first_float,
+                    nonzero_bytes,
+                    kind});
+            }
+        }
+        std::sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b) {
+            if (a.score != b.score)
+            {
+                return a.score > b.score;
+            }
+            return a.num > b.num;
+        });
+        std::string out = "[";
+        const auto count = std::min<int>(static_cast<int>(candidates.size()), max_candidates);
+        for (int i = 0; i < count; ++i)
+        {
+            const auto& c = candidates[static_cast<std::size_t>(i)];
+            if (i > 0)
+            {
+                out += ",";
+            }
+            out += "{\"rank\":" + std::to_string(i + 1);
+            out += ",\"score\":" + std::to_string(c.score);
+            out += ",\"kind\":\"" + c.kind + "\"";
+            out += ",\"owner_offset\":" + std::to_string(c.owner_offset);
+            out += ",\"owner_property\":\"" + json_escape(property_name_at_or_before_offset(ref, object, c.owner_offset)) + "\"";
+            out += ",\"target\":\"" + early_hex_address(c.target) + "\"";
+            out += ",\"target_name\":\"" + json_escape(c.target_live_uobject ? ref.object_name(c.target) : std::string{}) + "\"";
+            out += ",\"target_class\":\"" + json_escape(c.target_live_uobject ? ref.class_name(c.target) : std::string{}) + "\"";
+            out += ",\"target_live_uobject\":" + std::string(early_json_bool(c.target_live_uobject));
+            out += ",\"target_offset\":" + std::to_string(c.target_offset);
+            out += ",\"data\":\"" + early_hex_address(c.data) + "\"";
+            out += ",\"num\":" + std::to_string(c.num);
+            out += ",\"max\":" + std::to_string(c.max);
+            out += ",\"first_qword\":\"" + early_hex_address(c.first_qword) + "\"";
+            out += ",\"first_dword\":" + std::to_string(c.first_dword);
+            out += ",\"first_float\":" + json_float_or_null(c.first_float);
+            out += ",\"preview_nonzero_bytes\":" + std::to_string(c.nonzero_bytes);
+            out += ",\"pointer_table_suspect\":" + std::string(early_json_bool(c.pointer_table_suspect));
+            out += ",\"first_bytes_hex\":\"" + bytes_preview_hex(c.data, 64) + "\"";
+            out += ",\"first_floats\":" + float_preview_json(c.data, 8);
+            out += ",\"first_u16\":" + u16_preview_json(c.data, 16);
+            out += ",\"first_u32\":" + u32_preview_json(c.data, 12);
+            out += "}";
+        }
+        out += "]";
         return out;
     }
 
@@ -3235,12 +3781,18 @@ namespace
         std::string failure{};
         std::uintptr_t mesh{0};
         std::uintptr_t query{0};
+        std::uintptr_t hit_test_function{0};
         std::uintptr_t deproject_function{0};
         std::uintptr_t query_function{0};
+        std::string sampling_backend{"unset"};
+        std::string hit_test_schema{};
         std::string deproject_schema{};
         std::string query_schema{};
         int viewport_width{0};
         int viewport_height{0};
+        int hit_test_calls{0};
+        int hit_test_success{0};
+        int hit_test_failed{0};
         int deproject_calls{0};
         int deproject_ok{0};
         int deproject_return_false{0};
@@ -3256,11 +3808,11 @@ namespace
         int target_front_hits{80000};
         int coarse_grid_x{96};
         int coarse_grid_y{72};
-        int refine_grid_x{384};
-        int refine_grid_y{320};
+        int refine_grid_x{320};
+        int refine_grid_y{260};
         int coarse_seeds{0};
         int refine_seeds{0};
-        int hard_attempt_budget{220000};
+        int hard_attempt_budget{160000};
         int adaptive_passes{0};
         int adaptive_seeds{0};
         int adaptive_attempts{0};
@@ -3651,10 +4203,15 @@ namespace
                ",\"front_native_bbox_min_ny\":" + std::to_string(native_front.bbox_min_ny) +
                ",\"front_native_bbox_max_nx\":" + std::to_string(native_front.bbox_max_nx) +
                ",\"front_native_bbox_max_ny\":" + std::to_string(native_front.bbox_max_ny) +
+               ",\"front_native_sampling_backend\":\"" + json_escape(native_front.sampling_backend) + "\"" +
                ",\"front_native_query\":\"" + hex_address(native_front.query) + "\"" +
                ",\"front_native_mesh\":\"" + hex_address(native_front.mesh) + "\"" +
+               ",\"front_native_hit_test_function\":\"" + hex_address(native_front.hit_test_function) + "\"" +
                ",\"front_native_deproject_function\":\"" + hex_address(native_front.deproject_function) + "\"" +
                ",\"front_native_query_function\":\"" + hex_address(native_front.query_function) + "\"" +
+               ",\"front_native_hit_test_calls\":" + std::to_string(native_front.hit_test_calls) +
+               ",\"front_native_hit_test_success\":" + std::to_string(native_front.hit_test_success) +
+               ",\"front_native_hit_test_failed\":" + std::to_string(native_front.hit_test_failed) +
                ",\"front_native_viewport_width\":" + std::to_string(native_front.viewport_width) +
                ",\"front_native_viewport_height\":" + std::to_string(native_front.viewport_height) +
                ",\"front_native_deproject_calls\":" + std::to_string(native_front.deproject_calls) +
@@ -3672,6 +4229,7 @@ namespace
                ",\"front_native_first_hit_world_z\":" + std::to_string(native_front.first_hit_world_position.Z) +
                ",\"front_native_first_hit_actor\":\"" + hex_address(native_front.first_hit_actor) + "\"" +
                ",\"front_native_first_hit_component\":\"" + hex_address(native_front.first_hit_component) + "\"" +
+               ",\"front_native_hit_test_schema\":\"" + json_escape(native_front.hit_test_schema) + "\"" +
                ",\"front_native_first_deproject_failure\":\"" + json_escape(native_front.first_deproject_failure) + "\"" +
                ",\"front_native_first_query_failure\":\"" + json_escape(native_front.first_query_failure) + "\"" +
                ",\"front_native_failure\":\"" + json_escape(native_front.failure) + "\"";
@@ -4062,6 +4620,55 @@ namespace
         return sdk_decode_brush_query_result(ref, function, params.data());
     }
 
+    auto sdk_hit_test_at_screen_position(Reflection& ref,
+                                         const SdkContext& ctx,
+                                         std::uintptr_t mesh,
+                                         double screen_x,
+                                         double screen_y) -> SdkBrushQueryHit
+    {
+        SdkBrushQueryHit out{};
+        const auto function = ref.find_function(ctx.component, "HitTestAtScreenPosition");
+        if (!function)
+        {
+            out.failure = "hit_test_at_screen_position_unavailable";
+            return out;
+        }
+        const auto params_size = safe_read<int>(function + OffPropertiesSize, 0);
+        if (params_size != static_cast<int>(sizeof(meccha_sdk::RuntimePaintableComponent_HitTestAtScreenPosition)))
+        {
+            out.failure = "hit_test_params_size_mismatch";
+            return out;
+        }
+
+        meccha_sdk::RuntimePaintableComponent_HitTestAtScreenPosition params{};
+        params.MeshComponent = reinterpret_cast<void*>(mesh);
+        params.ScreenPosition = {screen_x, screen_y};
+        params.PlayerController = reinterpret_cast<void*>(ctx.controller);
+        params.bUseCachedTriangles = true;
+
+        std::string failure{};
+        if (!process_event(ctx.component, function, reinterpret_cast<std::uint8_t*>(&params), failure))
+        {
+            out.failure = "hit_test_process_event_failed:" + failure;
+            return out;
+        }
+
+        out.params_ok = true;
+        out.success = params.ReturnValue.bSuccess;
+        out.has_uv = params.ReturnValue.bSuccess;
+        out.u = params.ReturnValue.HitUV.X;
+        out.v = params.ReturnValue.HitUV.Y;
+        out.world_position = params.ReturnValue.HitWorldPosition;
+        out.normal = params.ReturnValue.HitNormal;
+        out.actor = ctx.pawn;
+        out.component = mesh;
+        if (!out.success)
+        {
+            out.failure = "hit_test_result_unsuccessful";
+        }
+        return out;
+    }
+
     auto sdk_collect_native_front_samples(Reflection& ref,
                                           const SdkContext& ctx,
                                           const std::vector<FrontSample>& color_source) -> SdkNativeFrontSampleResult
@@ -4069,16 +4676,20 @@ namespace
         SdkNativeFrontSampleResult result{};
         result.mesh = sdk_find_front_mesh(ref, ctx);
         result.query = sdk_find_screen_space_brush_query(ref, ctx);
+        result.hit_test_function = ref.find_function(ctx.component, "HitTestAtScreenPosition");
         result.deproject_function = ref.find_function(ctx.controller, "DeprojectScreenPositionToWorld");
         result.query_function = result.query ? ref.find_function(result.query, "QueryFromWorldRay") : 0;
+        result.hit_test_schema = function_param_schema(ref, result.hit_test_function);
         result.deproject_schema = function_param_schema(ref, result.deproject_function);
         result.query_schema = function_param_schema(ref, result.query_function);
-        if (!result.query)
+        const bool use_hit_test = result.mesh && result.hit_test_function;
+        result.sampling_backend = use_hit_test ? "runtime_paintable_hit_test_cached_triangles" : "screenspace_brush_query_world_ray";
+        if (!use_hit_test && !result.query)
         {
             result.failure = "screen_space_brush_query_unavailable";
             return result;
         }
-        if (!sdk_configure_screen_space_brush_query(ref, result.query, ctx.pawn, result.mesh))
+        if (!use_hit_test && !sdk_configure_screen_space_brush_query(ref, result.query, ctx.pawn, result.mesh))
         {
             result.failure = "screen_space_brush_query_config_failed";
             return result;
@@ -4095,6 +4706,41 @@ namespace
         const int target_samples = std::max(result.min_front_hits, result.target_front_hits);
         const int hard_attempts = std::max(result.hard_attempt_budget, target_samples * 2);
         result.hard_attempt_budget = hard_attempts;
+        const auto collect_start = std::chrono::steady_clock::now();
+        constexpr double collect_timeout_ms = 210000.0;
+        bool stop_sampling = false;
+        int last_collect_progress = -1;
+        auto total_surface_attempts = [&]() {
+            return result.deproject_calls + result.hit_test_calls;
+        };
+        auto collect_elapsed_ms = [&]() {
+            return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - collect_start).count();
+        };
+        auto emit_collect_progress = [&](bool force) {
+            const auto attempt_progress = hard_attempts > 0
+                ? static_cast<int>((static_cast<double>(total_surface_attempts()) / static_cast<double>(hard_attempts)) * 100.0)
+                : 0;
+            const auto sample_progress = target_samples > 0
+                ? static_cast<int>((static_cast<double>(result.samples.size()) / static_cast<double>(target_samples)) * 100.0)
+                : 0;
+            const auto progress = std::max(0, std::min(99, std::max(attempt_progress, sample_progress)));
+            if (!force && progress == last_collect_progress)
+            {
+                return;
+            }
+            last_collect_progress = progress;
+            write_bridge_progress("front_sampling_collecting",
+                                  "collecting native front surface samples",
+                                  progress,
+                                  100,
+                                  collect_elapsed_ms(),
+                                  "\"front_hits\":" + std::to_string(result.samples.size()) +
+                                      ",\"deproject_calls\":" + std::to_string(result.deproject_calls) +
+                                      ",\"hit_test_calls\":" + std::to_string(result.hit_test_calls) +
+                                      ",\"sampling_backend\":\"" + json_escape(result.sampling_backend) + "\"" +
+                                      ",\"hard_attempt_budget\":" + std::to_string(hard_attempts) +
+                                      ",\"target_front_hits\":" + std::to_string(target_samples));
+        };
         std::unordered_set<std::uint64_t> unique_texels{};
         unique_texels.reserve(static_cast<std::size_t>(target_samples) * 2U);
         result.samples.reserve(static_cast<std::size_t>(target_samples));
@@ -4119,52 +4765,77 @@ namespace
         };
 
         auto try_sample = [&](double nx, double ny, bool refined) -> bool {
-            if (result.deproject_calls >= hard_attempts || static_cast<int>(result.samples.size()) >= target_samples)
+            if (stop_sampling || total_surface_attempts() >= hard_attempts || static_cast<int>(result.samples.size()) >= target_samples)
             {
                 return false;
+            }
+            if (collect_elapsed_ms() >= collect_timeout_ms)
+            {
+                result.failure = "front_sampling_timeout_before_bridge_timeout";
+                stop_sampling = true;
+                emit_collect_progress(true);
+                return false;
+            }
+            if ((total_surface_attempts() % 2500) == 0)
+            {
+                emit_collect_progress(false);
             }
             nx = clamp01(nx);
             ny = clamp01(ny);
             const auto screen_x = nx * static_cast<double>(viewport.width);
             const auto screen_y = ny * static_cast<double>(viewport.height);
-            const auto ray = sdk_deproject_screen_position(ref, ctx, screen_x, screen_y);
-            ++result.deproject_calls;
-            if (result.deproject_calls == 1)
+            SdkBrushQueryHit hit{};
+            if (use_hit_test)
             {
-                result.first_screen_x = screen_x;
-                result.first_screen_y = screen_y;
-                result.first_ray_location = ray.location;
-                result.first_ray_direction = ray.direction;
+                ++result.hit_test_calls;
+                hit = sdk_hit_test_at_screen_position(ref, ctx, result.mesh, screen_x, screen_y);
+                if (result.hit_test_calls == 1)
+                {
+                    result.first_screen_x = screen_x;
+                    result.first_screen_y = screen_y;
+                }
             }
-            if (!ray.ok)
+            else
             {
-                if (result.failure.empty())
+                const auto ray = sdk_deproject_screen_position(ref, ctx, screen_x, screen_y);
+                ++result.deproject_calls;
+                if (result.deproject_calls == 1)
                 {
-                    result.failure = ray.failure;
+                    result.first_screen_x = screen_x;
+                    result.first_screen_y = screen_y;
+                    result.first_ray_location = ray.location;
+                    result.first_ray_direction = ray.direction;
                 }
-                if (result.first_deproject_failure.empty())
+                if (!ray.ok)
                 {
-                    result.first_deproject_failure = ray.failure;
+                    if (result.failure.empty())
+                    {
+                        result.failure = ray.failure;
+                    }
+                    if (result.first_deproject_failure.empty())
+                    {
+                        result.first_deproject_failure = ray.failure;
+                    }
+                    if (contains_text(ray.failure, "return_false"))
+                    {
+                        ++result.deproject_return_false;
+                    }
+                    else if (contains_text(ray.failure, "direction_invalid"))
+                    {
+                        ++result.deproject_direction_invalid;
+                    }
+                    else if (contains_text(ray.failure, "process_event"))
+                    {
+                        ++result.deproject_process_failed;
+                    }
+                    ++result.rejected;
+                    return false;
                 }
-                if (contains_text(ray.failure, "return_false"))
-                {
-                    ++result.deproject_return_false;
-                }
-                else if (contains_text(ray.failure, "direction_invalid"))
-                {
-                    ++result.deproject_direction_invalid;
-                }
-                else if (contains_text(ray.failure, "process_event"))
-                {
-                    ++result.deproject_process_failed;
-                }
-                ++result.rejected;
-                return false;
+                ++result.deproject_ok;
+                hit = sdk_query_brush_from_world_ray(ref, result.query, ray.location, ray.direction);
+                ++result.query_calls;
             }
-            ++result.deproject_ok;
             ++result.attempts;
-            const auto hit = sdk_query_brush_from_world_ray(ref, result.query, ray.location, ray.direction);
-            ++result.query_calls;
             if (!hit.params_ok)
             {
                 if (result.failure.empty())
@@ -4174,6 +4845,10 @@ namespace
                 if (result.first_query_failure.empty())
                 {
                     result.first_query_failure = hit.failure;
+                }
+                if (use_hit_test)
+                {
+                    ++result.hit_test_failed;
                 }
                 ++result.query_param_failed;
                 ++result.rejected;
@@ -4187,8 +4862,16 @@ namespace
                     result.first_query_failure = hit.failure.empty() ? "brush_query_no_hit" : hit.failure;
                 }
                 ++result.query_result_failed;
+                if (use_hit_test)
+                {
+                    ++result.hit_test_failed;
+                }
                 ++result.rejected;
                 return false;
+            }
+            if (use_hit_test)
+            {
+                ++result.hit_test_success;
             }
             ++result.query_success;
             if (result.query_success == 1)
@@ -4258,9 +4941,9 @@ namespace
             return true;
         };
 
-        for (int y = 0; y < result.coarse_grid_y && static_cast<int>(result.samples.size()) < target_samples; ++y)
+        for (int y = 0; y < result.coarse_grid_y && !stop_sampling && static_cast<int>(result.samples.size()) < target_samples; ++y)
         {
-            for (int x = 0; x < result.coarse_grid_x && static_cast<int>(result.samples.size()) < target_samples; ++x)
+            for (int x = 0; x < result.coarse_grid_x && !stop_sampling && static_cast<int>(result.samples.size()) < target_samples; ++x)
             {
                 const auto jx = (cell_jitter(x, y, 11) - 0.5) * 0.72;
                 const auto jy = (cell_jitter(x, y, 23) - 0.5) * 0.72;
@@ -4278,9 +4961,9 @@ namespace
         const auto query_min_ny = have_bbox ? clamp01(result.bbox_min_ny - span_y * 0.18) : 0.08;
         const auto query_max_ny = have_bbox ? clamp01(result.bbox_max_ny + span_y * 0.55) : 0.92;
 
-        for (int y = 0; y < result.refine_grid_y && static_cast<int>(result.samples.size()) < target_samples; ++y)
+        for (int y = 0; y < result.refine_grid_y && !stop_sampling && static_cast<int>(result.samples.size()) < target_samples; ++y)
         {
-            for (int x = 0; x < result.refine_grid_x && static_cast<int>(result.samples.size()) < target_samples; ++x)
+            for (int x = 0; x < result.refine_grid_x && !stop_sampling && static_cast<int>(result.samples.size()) < target_samples; ++x)
             {
                 const auto jx = (cell_jitter(x, y, 37) - 0.5) * 0.84;
                 const auto jy = (cell_jitter(x, y, 41) - 0.5) * 0.84;
@@ -4300,7 +4983,7 @@ namespace
             {1.0, 0.45}, {-1.0, 0.45}, {1.0, -0.45}, {-1.0, -0.45},
         };
         for (int pass = 0;
-             pass < 8 && result.deproject_calls < hard_attempts && static_cast<int>(result.samples.size()) < target_samples;
+             pass < 8 && !stop_sampling && total_surface_attempts() < hard_attempts && static_cast<int>(result.samples.size()) < target_samples;
              ++pass)
         {
             const auto seeds = result.samples;
@@ -4314,13 +4997,14 @@ namespace
             const auto pass_dx = adaptive_base_dx * ring;
             const auto pass_dy = adaptive_base_dy * ring;
             for (std::size_t i = 0;
-                 i < seeds.size() && result.deproject_calls < hard_attempts && static_cast<int>(result.samples.size()) < target_samples;
+                 i < seeds.size() && !stop_sampling && total_surface_attempts() < hard_attempts && static_cast<int>(result.samples.size()) < target_samples;
                  ++i)
             {
                 const auto& seed = seeds[i];
                 for (int d = 0;
                      d < static_cast<int>(sizeof(directions) / sizeof(directions[0])) &&
-                     result.deproject_calls < hard_attempts &&
+                     !stop_sampling &&
+                     total_surface_attempts() < hard_attempts &&
                      static_cast<int>(result.samples.size()) < target_samples;
                      ++d)
                 {
@@ -4341,6 +5025,7 @@ namespace
         {
             result.failure = "native_front_surface_samples_empty";
         }
+        emit_collect_progress(true);
         return result;
     }
 
@@ -6791,9 +7476,9 @@ namespace
                 }
                 const auto inv = 1.0 / texels[index].weight;
                 const auto offset = index * 4;
-                out.albedo[offset + 0] = sdk_byte_from_unit(std::max(0.02, std::min(0.98, texels[index].r * inv)));
-                out.albedo[offset + 1] = sdk_byte_from_unit(std::max(0.02, std::min(0.98, texels[index].g * inv)));
-                out.albedo[offset + 2] = sdk_byte_from_unit(std::max(0.02, std::min(0.98, texels[index].b * inv)));
+                out.albedo[offset + 0] = sdk_byte_from_unit(texels[index].r * inv);
+                out.albedo[offset + 1] = sdk_byte_from_unit(texels[index].g * inv);
+                out.albedo[offset + 2] = sdk_byte_from_unit(texels[index].b * inv);
                 out.albedo[offset + 3] = before_albedo.bytes[offset + 3];
                 write_scalar(out.metallic, before_metallic.bytes_per_pixel, index, sdk_byte_from_unit(texels[index].metallic * inv));
                 write_scalar(out.roughness, before_roughness.bytes_per_pixel, index, sdk_byte_from_unit(texels[index].roughness * inv));
@@ -6829,6 +7514,64 @@ namespace
                ",\"atlas_metallic_hash\":\"" + std::to_string(atlas.metallic_hash) + "\"" +
                ",\"atlas_roughness_hash\":\"" + std::to_string(atlas.roughness_hash) + "\"" +
                ",\"atlas_failure\":\"" + json_escape(atlas.failure) + "\"";
+    }
+
+    auto sdk_write_atlas_debug_artifacts(const SdkTextureAtlas& atlas) -> std::string
+    {
+        const int width = atlas.stats.width;
+        const int height = atlas.stats.height;
+        const std::size_t pixels = width > 0 && height > 0
+            ? static_cast<std::size_t>(width) * static_cast<std::size_t>(height)
+            : 0U;
+        bool coverage_json_written = false;
+        bool mask_written = false;
+        bool preview_written = false;
+
+        std::string coverage = "{";
+        coverage += "\"stage\":\"uv_coverage\",";
+        coverage += "\"width\":" + std::to_string(width) + ",";
+        coverage += "\"height\":" + std::to_string(height) + ",";
+        coverage += "\"direct_texels\":" + std::to_string(atlas.stats.direct_texels) + ",";
+        coverage += "\"filled_by_extension\":" + std::to_string(atlas.stats.filled_by_extension) + ",";
+        coverage += "\"preserved_original\":" + std::to_string(atlas.stats.preserved_original) + ",";
+        coverage += "\"source_samples\":" + std::to_string(atlas.stats.source_samples) + ",";
+        coverage += "\"worker_threads\":" + std::to_string(atlas.stats.worker_threads) + ",";
+        coverage += "\"hash\":\"" + std::to_string(atlas.hash) + "\",";
+        coverage += "\"metallic_hash\":\"" + std::to_string(atlas.metallic_hash) + "\",";
+        coverage += "\"roughness_hash\":\"" + std::to_string(atlas.roughness_hash) + "\",";
+        coverage += "\"failure\":\"" + json_escape(atlas.failure) + "\"";
+        coverage += "}\n";
+        coverage_json_written = write_runtime_artifact_text(L"uv_coverage.json", coverage);
+
+        if (pixels > 0 && atlas.painted_mask.size() >= pixels)
+        {
+            std::string pgm = "P5\n" + std::to_string(width) + " " + std::to_string(height) + "\n255\n";
+            pgm.reserve(pgm.size() + pixels);
+            for (std::size_t index = 0; index < pixels; ++index)
+            {
+                pgm.push_back(atlas.painted_mask[index] ? static_cast<char>(255) : static_cast<char>(0));
+            }
+            mask_written = write_runtime_artifact_binary(L"atlas_coverage_mask.pgm", pgm);
+        }
+
+        if (pixels > 0 && atlas.albedo.size() >= pixels * 4U)
+        {
+            std::string ppm = "P6\n" + std::to_string(width) + " " + std::to_string(height) + "\n255\n";
+            ppm.reserve(ppm.size() + pixels * 3U);
+            for (std::size_t index = 0; index < pixels; ++index)
+            {
+                const auto offset = index * 4U;
+                ppm.push_back(static_cast<char>(atlas.albedo[offset + 0]));
+                ppm.push_back(static_cast<char>(atlas.albedo[offset + 1]));
+                ppm.push_back(static_cast<char>(atlas.albedo[offset + 2]));
+            }
+            preview_written = write_runtime_artifact_binary(L"atlas_preview.ppm", ppm);
+        }
+
+        return std::string(",\"uv_coverage_dump_written\":") + json_bool(coverage_json_written) +
+               ",\"atlas_coverage_mask_written\":" + json_bool(mask_written) +
+               ",\"atlas_preview_written\":" + json_bool(preview_written) +
+               ",\"runtime_artifact_dir\":\"%LOCALAPPDATA%\\\\MecchaCamouflage\\\\runtime\"";
     }
 
     auto sdk_build_atlas_strokes(const SdkContext& ctx,
@@ -7331,11 +8074,21 @@ namespace
                                        request.find("\"route\":\"f10_texture_atlas_paint_api_stream\"") != std::string::npos;
         const bool front_metallic_texture_stream = request.find("\"native_apply_mode\":\"front_metallic_texture_paint_stream\"") != std::string::npos ||
                                                    request.find("\"route\":\"f10_front_metallic_texture_paint_stream\"") != std::string::npos;
+        const bool cpu_mesh_raycast_route = request.find("\"native_apply_mode\":\"cpu_mesh_raycast\"") != std::string::npos ||
+                                            request.find("\"route\":\"f10_cpu_mesh_raycast\"") != std::string::npos;
+        const bool cpu_mesh_probe_only = request.find("\"native_apply_mode\":\"cpu_mesh_probe_only\"") != std::string::npos ||
+                                         request.find("\"route\":\"f10_cpu_mesh_probe_only\"") != std::string::npos;
+        const bool cpu_mesh_texture_import = request.find("\"native_apply_mode\":\"cpu_mesh_texture_import_diagnostic\"") != std::string::npos ||
+                                             request.find("\"route\":\"f10_cpu_mesh_texture_import_diagnostic\"") != std::string::npos;
+        const bool cpu_mesh_texture_stream = request.find("\"native_apply_mode\":\"cpu_mesh_texture_paint_stream\"") != std::string::npos ||
+                                             request.find("\"route\":\"f10_cpu_mesh_texture_paint_stream\"") != std::string::npos;
+        const bool cpu_mesh_route = cpu_mesh_raycast_route || cpu_mesh_probe_only || cpu_mesh_texture_import || cpu_mesh_texture_stream;
         const bool front_metallic_texture_route = front_texture_import || front_metallic_texture_stream ||
                                                   (!legacy_diagnostic_import && !full_atlas_stream);
         const std::string route_name = diagnostic_import ? "sdk_texture_import_diagnostic" :
                                        (full_atlas_stream ? "sdk_texture_atlas_paint_api_stream" : "front_metallic_texture_paint_stream");
         static volatile LONG paint_busy = 0;
+        static volatile LONG dump_busy = 0;
         struct BusyGuard
         {
             volatile LONG* flag{nullptr};
@@ -7348,8 +8101,47 @@ namespace
                 }
             }
         } busy_guard{&paint_busy, false};
+        struct DumpGuard
+        {
+            volatile LONG* flag{nullptr};
+            bool active{false};
+            ~DumpGuard()
+            {
+                if (active && flag)
+                {
+                    InterlockedExchange(flag, 0);
+                }
+            }
+        } dump_guard{&dump_busy, false};
+        if (is_deep_probe)
+        {
+            if (paint_busy != 0)
+            {
+                return response_json(false,
+                                     "sdk_deep_probe_deferred",
+                                     0,
+                                     1,
+                                     "SDK deep probe deferred because paint is in progress",
+                                     "\"dump_deferred\":true,\"dump_deferred_reason\":\"paint_in_progress\"");
+            }
+            if (InterlockedCompareExchange(&dump_busy, 1, 0) != 0)
+            {
+                return response_json(false,
+                                     "sdk_deep_probe_deferred",
+                                     0,
+                                     1,
+                                     "SDK deep probe deferred because another dump is in progress",
+                                     "\"dump_deferred\":true,\"dump_deferred_reason\":\"dump_in_progress\"");
+            }
+            g_dump_cancel_requested.store(false);
+            dump_guard.active = true;
+        }
         if (!is_probe && !is_deep_probe)
         {
+            if (dump_busy != 0)
+            {
+                g_dump_cancel_requested.store(true);
+            }
             clear_bridge_progress();
             emit_progress("paint_started", "native paint request accepted", 0, 8, 0.0);
             if (InterlockedCompareExchange(&paint_busy, 1, 0) != 0)
@@ -7384,11 +8176,13 @@ namespace
         }
         if (is_deep_probe)
         {
+            write_bridge_progress("mesh_snapshot_started", "probing SDK mesh/component snapshot inputs", 0, 2, 0.0);
             const auto mesh = sdk_find_front_mesh(ref, ctx);
             const auto query = sdk_find_screen_space_brush_query(ref, ctx);
             const auto viewport = sdk_get_viewport_info(ref, ctx);
             const auto deproject_function = ref.find_function(ctx.controller, "DeprojectScreenPositionToWorld");
             const auto query_function = query ? ref.find_function(query, "QueryFromWorldRay") : 0;
+            const auto hit_test_function = ref.find_function(ctx.component, "HitTestAtScreenPosition");
             const auto get_skeletal_mesh_asset = mesh ? ref.find_function(mesh, "GetSkeletalMeshAsset") : 0;
             const auto get_skeletal_mesh = mesh ? ref.find_function(mesh, "GetSkeletalMesh") : 0;
             const auto get_static_mesh = mesh ? ref.find_function(mesh, "GetStaticMesh") : 0;
@@ -7410,48 +8204,209 @@ namespace
             const auto static_mesh_property_offset = property_offset_for_object(mesh, "StaticMesh");
             const bool mesh_component_available = mesh && live_uobject(mesh);
             const bool mesh_asset_function_available = get_skeletal_mesh_asset || get_skeletal_mesh || get_static_mesh;
-            std::string deep = metadata +
-                ",\"deep_probe_version\":1" +
-                ",\"deep_probe_paint_mutation\":false" +
-                ",\"deep_probe_import_mutation\":false" +
-                ",\"deep_probe_sidecar\":\"meccha-xenos-bridge.dll.deep_probe.json\"" +
-                ",\"viewport_width\":" + std::to_string(viewport.width) +
-                ",\"viewport_height\":" + std::to_string(viewport.height) +
-                ",\"mesh_component_available\":" + json_bool(mesh_component_available) +
-                ",\"mesh_component\":\"" + hex_address(mesh) + "\"" +
-                ",\"mesh_component_class\":\"" + json_escape(ref.class_name(mesh)) + "\"" +
-                ",\"mesh_component_to_world_offset\":" + std::to_string(component_to_world_offset) +
-                ",\"mesh_bounds_offset\":" + std::to_string(bounds_offset) +
-                ",\"mesh_skeletal_mesh_property_offset\":" + std::to_string(skeletal_mesh_property_offset) +
-                ",\"mesh_static_mesh_property_offset\":" + std::to_string(static_mesh_property_offset) +
-                ",\"function_get_skeletal_mesh_asset_available\":" + json_bool(get_skeletal_mesh_asset != 0) +
-                ",\"function_get_skeletal_mesh_available\":" + json_bool(get_skeletal_mesh != 0) +
-                ",\"function_get_static_mesh_available\":" + json_bool(get_static_mesh != 0) +
-                ",\"function_get_mesh_paint_uv_index_available\":" + json_bool(get_mesh_paint_uv_index != 0) +
-                ",\"function_deproject_available\":" + json_bool(deproject_function != 0) +
-                ",\"function_deproject_schema\":\"" + json_escape(function_param_schema(ref, deproject_function)) + "\"" +
-                ",\"screen_space_brush_query_available\":" + json_bool(query != 0) +
-                ",\"screen_space_brush_query\":\"" + hex_address(query) + "\"" +
-                ",\"screen_space_brush_query_class\":\"" + json_escape(ref.class_name(query)) + "\"" +
-                ",\"function_query_from_world_ray_available\":" + json_bool(query_function != 0) +
-                ",\"function_query_from_world_ray_schema\":\"" + json_escape(function_param_schema(ref, query_function)) + "\"" +
-                ",\"function_export_schema\":\"" + json_escape(function_param_schema(ref, ctx.export_function)) + "\"" +
-                ",\"function_import_schema\":\"" + json_escape(function_param_schema(ref, ctx.import_function)) + "\"" +
-                ",\"function_server_paint_batch_schema\":\"" + json_escape(function_param_schema(ref, ctx.server_paint_batch_function)) + "\"" +
-                ",\"function_paint_at_uv_with_brush_schema\":\"" + json_escape(function_param_schema(ref, ctx.paint_at_uv_with_brush_function)) + "\"" +
-                ",\"mesh_snapshot_probe_implemented\":false" +
-                ",\"mesh_render_data_available\":false" +
-                ",\"mesh_vertex_buffer_available\":false" +
-                ",\"mesh_index_buffer_available\":false" +
-                ",\"mesh_uv_buffer_available\":false" +
-                ",\"skinned_position_source_available\":false" +
-                ",\"cpu_mesh_raycast_candidate\":" + json_bool(mesh_component_available && mesh_asset_function_available) +
-                ",\"cpu_mesh_raycast_blocker\":\"" + std::string(mesh_component_available && mesh_asset_function_available ? "render_data_offsets_not_dumped_yet" : "mesh_component_or_asset_function_unavailable") + "\"" +
-                ",\"bridge_events\":[\"sdk_deep_probe\"]";
+            const auto skeletal_mesh_from_function = get_skeletal_mesh_asset ? call_no_params_return_object(ref, mesh, "GetSkeletalMeshAsset") : 0;
+            const auto skeletal_mesh_from_property = skeletal_mesh_property_offset >= 0
+                ? safe_read<std::uintptr_t>(mesh + static_cast<std::uintptr_t>(skeletal_mesh_property_offset))
+                : 0;
+            const auto selected_mesh_asset = live_uobject(skeletal_mesh_from_function)
+                ? skeletal_mesh_from_function
+                : (live_uobject(skeletal_mesh_from_property) ? skeletal_mesh_from_property : 0);
+            const bool mesh_asset_available = selected_mesh_asset && live_uobject(selected_mesh_asset);
+            const auto render_data_offset = selected_mesh_asset ? property_offset_for_object(selected_mesh_asset, "RenderData") : -1;
+            const auto imported_model_offset = selected_mesh_asset ? property_offset_for_object(selected_mesh_asset, "ImportedModel") : -1;
+            const auto lod_info_offset = selected_mesh_asset ? property_offset_for_object(selected_mesh_asset, "LODInfo") : -1;
+            const auto materials_offset = selected_mesh_asset ? property_offset_for_object(selected_mesh_asset, "Materials") : -1;
+            const auto skeleton_offset = selected_mesh_asset ? property_offset_for_object(selected_mesh_asset, "Skeleton") : -1;
+            const bool mesh_render_data_available = render_data_offset >= 0;
+            const bool mesh_snapshot_ready = false;
+            g_mesh_snapshot_ready.store(mesh_snapshot_ready);
+            std::string deep = metadata;
+            deep += ",\"deep_probe_version\":2";
+            deep += ",\"deep_probe_paint_mutation\":false";
+            deep += ",\"deep_probe_import_mutation\":false";
+            deep += ",\"deep_probe_sidecar\":\"meccha-xenos-bridge.dll.deep_probe.json\"";
+            deep += ",\"deep_probe_runtime_artifact\":\"sdk_deep_probe.json\"";
+            deep += ",\"viewport_width\":" + std::to_string(viewport.width);
+            deep += ",\"viewport_height\":" + std::to_string(viewport.height);
+            deep += std::string(",\"mesh_component_available\":") + json_bool(mesh_component_available);
+            deep += std::string(",\"mesh_component\":\"") + hex_address(mesh) + "\"";
+            deep += std::string(",\"mesh_component_class\":\"") + json_escape(ref.class_name(mesh)) + "\"";
+            deep += ",\"mesh_component_to_world_offset\":" + std::to_string(component_to_world_offset);
+            deep += ",\"mesh_bounds_offset\":" + std::to_string(bounds_offset);
+            deep += ",\"mesh_skeletal_mesh_property_offset\":" + std::to_string(skeletal_mesh_property_offset);
+            deep += ",\"mesh_static_mesh_property_offset\":" + std::to_string(static_mesh_property_offset);
+            deep += std::string(",\"mesh_asset_available\":") + json_bool(mesh_asset_available);
+            deep += std::string(",\"mesh_asset\":\"") + hex_address(selected_mesh_asset) + "\"";
+            deep += std::string(",\"mesh_asset_class\":\"") + json_escape(ref.class_name(selected_mesh_asset)) + "\"";
+            deep += std::string(",\"mesh_asset_from_function\":\"") + hex_address(skeletal_mesh_from_function) + "\"";
+            deep += std::string(",\"mesh_asset_from_property\":\"") + hex_address(skeletal_mesh_from_property) + "\"";
+            deep += ",\"mesh_asset_render_data_offset\":" + std::to_string(render_data_offset);
+            deep += ",\"mesh_asset_imported_model_offset\":" + std::to_string(imported_model_offset);
+            deep += ",\"mesh_asset_lod_info_offset\":" + std::to_string(lod_info_offset);
+            deep += ",\"mesh_asset_materials_offset\":" + std::to_string(materials_offset);
+            deep += ",\"mesh_asset_skeleton_offset\":" + std::to_string(skeleton_offset);
+            deep += std::string(",\"function_get_skeletal_mesh_asset_available\":") + json_bool(get_skeletal_mesh_asset != 0);
+            deep += std::string(",\"function_get_skeletal_mesh_available\":") + json_bool(get_skeletal_mesh != 0);
+            deep += std::string(",\"function_get_static_mesh_available\":") + json_bool(get_static_mesh != 0);
+            deep += std::string(",\"function_get_mesh_paint_uv_index_available\":") + json_bool(get_mesh_paint_uv_index != 0);
+            deep += std::string(",\"function_deproject_available\":") + json_bool(deproject_function != 0);
+            deep += std::string(",\"function_deproject_schema\":\"") + json_escape(function_param_schema(ref, deproject_function)) + "\"";
+            deep += std::string(",\"function_hit_test_at_screen_position_available\":") + json_bool(hit_test_function != 0);
+            deep += std::string(",\"function_hit_test_at_screen_position_schema\":\"") + json_escape(function_param_schema(ref, hit_test_function)) + "\"";
+            deep += std::string(",\"screen_space_brush_query_available\":") + json_bool(query != 0);
+            deep += std::string(",\"screen_space_brush_query\":\"") + hex_address(query) + "\"";
+            deep += std::string(",\"screen_space_brush_query_class\":\"") + json_escape(ref.class_name(query)) + "\"";
+            deep += std::string(",\"function_query_from_world_ray_available\":") + json_bool(query_function != 0);
+            deep += std::string(",\"function_query_from_world_ray_schema\":\"") + json_escape(function_param_schema(ref, query_function)) + "\"";
+            deep += std::string(",\"function_export_schema\":\"") + json_escape(function_param_schema(ref, ctx.export_function)) + "\"";
+            deep += std::string(",\"function_import_schema\":\"") + json_escape(function_param_schema(ref, ctx.import_function)) + "\"";
+            deep += std::string(",\"function_server_paint_batch_schema\":\"") + json_escape(function_param_schema(ref, ctx.server_paint_batch_function)) + "\"";
+            deep += std::string(",\"function_paint_at_uv_with_brush_schema\":\"") + json_escape(function_param_schema(ref, ctx.paint_at_uv_with_brush_function)) + "\"";
+            deep += ",\"mesh_snapshot_probe_implemented\":false";
+            deep += std::string(",\"mesh_snapshot_ready\":") + json_bool(mesh_snapshot_ready);
+            deep += ",\"mesh_snapshot_runtime_artifact\":\"mesh_snapshot.json\"";
+            deep += ",\"mesh_snapshot_v2_runtime_artifact\":\"mesh_snapshot_v2.json\"";
+            deep += ",\"cpu_raycast_validation_runtime_artifact\":\"cpu_raycast_validation.json\"";
+            deep += ",\"raycast_profile_runtime_artifact\":\"raycast_profile.json\"";
+            deep += ",\"uv_hit_heatmap_runtime_artifact\":\"uv_hit_heatmap.pgm\"";
+            deep += ",\"atlas_preview_runtime_artifact\":\"atlas_preview.ppm\"";
+            deep += std::string(",\"exact_layout_source\":\"") + meccha_mesh_layout::LayoutSource + "\"";
+            deep += std::string(",\"exact_layout_profile\":\"") + meccha_mesh_layout::LayoutProfile + "\"";
+            deep += std::string(",\"exact_layout_version\":\"") + meccha_mesh_layout::LayoutVersion + "\"";
+            deep += std::string(",\"generated_cppsdk_available\":") + json_bool(meccha_mesh_layout::GeneratedCppSdkAvailable);
+            deep += std::string(",\"generated_cppsdk_path\":\"") + json_escape(meccha_mesh_layout::GeneratedCppSdkPath) + "\"";
+            deep += std::string(",\"generated_sdk_version\":\"") + json_escape(meccha_mesh_layout::GeneratedSdkVersion) + "\"";
+            deep += std::string(",\"runtime_paint_sdk_available\":") + json_bool(meccha_mesh_layout::RuntimePaintSdkAvailable);
+            deep += std::string(",\"screen_space_brush_query_sdk_available\":") + json_bool(meccha_mesh_layout::ScreenSpaceBrushQuerySdkAvailable);
+            deep += std::string(",\"exact_layout_available\":") + json_bool(meccha_mesh_layout::ExactRenderDataLayoutAvailable);
+            deep += std::string(",\"sdk_layout_stage\":\"") + meccha_mesh_layout::FailureStage + "\"";
+            deep += std::string(",\"sdk_layout_failure_reason\":\"") + meccha_mesh_layout::FailureReason + "\"";
+            deep += std::string(",\"mesh_render_data_available\":") + json_bool(mesh_render_data_available);
+            deep += ",\"mesh_vertex_buffer_available\":false";
+            deep += ",\"mesh_index_buffer_available\":false";
+            deep += ",\"mesh_uv_buffer_available\":false";
+            deep += ",\"skinned_position_source_available\":false";
+            deep += std::string(",\"cpu_mesh_raycast_candidate\":") + json_bool(mesh_component_available && mesh_asset_function_available);
+            deep += std::string(",\"cpu_mesh_raycast_blocker\":\"") + (mesh_asset_available ? "vertex_index_uv_decode_not_implemented" : "mesh_component_or_asset_function_unavailable") + "\"";
+            deep += ",\"bridge_events\":[\"sdk_deep_probe\"]";
+            const std::string deep_payload = std::string("{\"success\":true,\"stage\":\"sdk_deep_probe\",\"metadata\":{\"bridge\":\"meccha-xenos-bridge\",") + deep + "}}\n";
+            std::string mesh_snapshot = "{\"success\":false,\"stage\":\"mesh_snapshot_unavailable\",\"metadata\":{";
+            mesh_snapshot += std::string("\"mesh_component_available\":") + json_bool(mesh_component_available) + ",";
+            mesh_snapshot += std::string("\"mesh_component\":\"") + hex_address(mesh) + "\",";
+            mesh_snapshot += std::string("\"mesh_component_class\":\"") + json_escape(ref.class_name(mesh)) + "\",";
+            mesh_snapshot += "\"mesh_component_properties\":" + property_list_json(ref, mesh, 96) + ",";
+            mesh_snapshot += "\"mesh_component_functions\":" + function_list_json(ref, mesh, 96) + ",";
+            mesh_snapshot += "\"mesh_component_array_headers\":" + array_header_scan_json(mesh, 0x1000, 96) + ",";
+            mesh_snapshot += "\"mesh_component_pointer_scan\":" + pointer_scan_json(mesh, 0x1000, 128) + ",";
+            mesh_snapshot += "\"mesh_component_pointer_target_arrays\":" + pointer_target_array_scan_json(mesh, 0x1000, 0x600, 64, 24) + ",";
+            mesh_snapshot += "\"mesh_component_to_world_offset\":" + std::to_string(component_to_world_offset) + ",";
+            mesh_snapshot += "\"mesh_bounds_offset\":" + std::to_string(bounds_offset) + ",";
+            mesh_snapshot += "\"mesh_skeletal_mesh_property_offset\":" + std::to_string(skeletal_mesh_property_offset) + ",";
+            mesh_snapshot += "\"mesh_static_mesh_property_offset\":" + std::to_string(static_mesh_property_offset) + ",";
+            mesh_snapshot += std::string("\"mesh_asset_available\":") + json_bool(mesh_asset_available) + ",";
+            mesh_snapshot += std::string("\"mesh_asset\":\"") + hex_address(selected_mesh_asset) + "\",";
+            mesh_snapshot += std::string("\"mesh_asset_class\":\"") + json_escape(ref.class_name(selected_mesh_asset)) + "\",";
+            mesh_snapshot += std::string("\"mesh_asset_from_function\":\"") + hex_address(skeletal_mesh_from_function) + "\",";
+            mesh_snapshot += std::string("\"mesh_asset_from_property\":\"") + hex_address(skeletal_mesh_from_property) + "\",";
+            mesh_snapshot += "\"mesh_asset_properties\":" + property_list_json(ref, selected_mesh_asset, 128) + ",";
+            mesh_snapshot += "\"mesh_asset_functions\":" + function_list_json(ref, selected_mesh_asset, 128) + ",";
+            mesh_snapshot += "\"mesh_asset_array_headers\":" + array_header_scan_json(selected_mesh_asset, 0x1800, 128) + ",";
+            mesh_snapshot += "\"mesh_asset_pointer_scan\":" + pointer_scan_json(selected_mesh_asset, 0x1800, 160) + ",";
+            mesh_snapshot += "\"mesh_asset_pointer_target_arrays\":" + pointer_target_array_scan_json(selected_mesh_asset, 0x1800, 0x900, 128, 32) + ",";
+            mesh_snapshot += "\"mesh_asset_render_data_offset\":" + std::to_string(render_data_offset) + ",";
+            mesh_snapshot += "\"mesh_asset_imported_model_offset\":" + std::to_string(imported_model_offset) + ",";
+            mesh_snapshot += "\"mesh_asset_lod_info_offset\":" + std::to_string(lod_info_offset) + ",";
+            mesh_snapshot += "\"mesh_asset_materials_offset\":" + std::to_string(materials_offset) + ",";
+            mesh_snapshot += "\"mesh_asset_skeleton_offset\":" + std::to_string(skeleton_offset) + ",";
+            mesh_snapshot += std::string("\"function_get_skeletal_mesh_asset_available\":") + json_bool(get_skeletal_mesh_asset != 0) + ",";
+            mesh_snapshot += std::string("\"function_get_skeletal_mesh_available\":") + json_bool(get_skeletal_mesh != 0) + ",";
+            mesh_snapshot += std::string("\"function_get_static_mesh_available\":") + json_bool(get_static_mesh != 0) + ",";
+            mesh_snapshot += std::string("\"function_get_mesh_paint_uv_index_available\":") + json_bool(get_mesh_paint_uv_index != 0) + ",";
+            mesh_snapshot += std::string("\"mesh_render_data_available\":") + json_bool(mesh_render_data_available) + ",";
+            mesh_snapshot += "\"mesh_vertex_buffer_available\":false,";
+            mesh_snapshot += "\"mesh_index_buffer_available\":false,";
+            mesh_snapshot += "\"mesh_uv_buffer_available\":false,";
+            mesh_snapshot += std::string("\"cpu_mesh_raycast_candidate\":") + json_bool(mesh_component_available && mesh_asset_function_available) + ",";
+            mesh_snapshot += std::string("\"cpu_mesh_raycast_blocker\":\"") + (mesh_asset_available ? "vertex_index_uv_decode_not_implemented" : "mesh_component_or_asset_function_unavailable") + "\"";
+            mesh_snapshot += "}}\n";
+            std::string mesh_buffer_candidates = "{\"success\":true,\"stage\":\"mesh_buffer_candidates_dumped\",\"metadata\":{";
+            mesh_buffer_candidates += std::string("\"mesh_component\":\"") + hex_address(mesh) + "\",";
+            mesh_buffer_candidates += std::string("\"mesh_component_class\":\"") + json_escape(ref.class_name(mesh)) + "\",";
+            mesh_buffer_candidates += std::string("\"mesh_asset\":\"") + hex_address(selected_mesh_asset) + "\",";
+            mesh_buffer_candidates += std::string("\"mesh_asset_class\":\"") + json_escape(ref.class_name(selected_mesh_asset)) + "\",";
+            mesh_buffer_candidates += "\"mesh_component_candidates\":" + mesh_buffer_candidates_json(ref, mesh, 0x1000, 0x600, 40) + ",";
+            mesh_buffer_candidates += "\"mesh_asset_candidates\":" + mesh_buffer_candidates_json(ref, selected_mesh_asset, 0x1800, 0x900, 80);
+            mesh_buffer_candidates += "}}\n";
+            std::string mesh_snapshot_v2 = "{\"success\":false,\"stage\":\"";
+            mesh_snapshot_v2 += meccha_mesh_layout::FailureStage;
+            mesh_snapshot_v2 += "\",\"metadata\":{";
+            mesh_snapshot_v2 += "\"schema_version\":2,";
+            mesh_snapshot_v2 += std::string("\"generated_cppsdk_available\":") + json_bool(meccha_mesh_layout::GeneratedCppSdkAvailable) + ",";
+            mesh_snapshot_v2 += std::string("\"generated_cppsdk_path\":\"") + json_escape(meccha_mesh_layout::GeneratedCppSdkPath) + "\",";
+            mesh_snapshot_v2 += std::string("\"generated_sdk_version\":\"") + json_escape(meccha_mesh_layout::GeneratedSdkVersion) + "\",";
+            mesh_snapshot_v2 += std::string("\"runtime_paint_sdk_available\":") + json_bool(meccha_mesh_layout::RuntimePaintSdkAvailable) + ",";
+            mesh_snapshot_v2 += std::string("\"screen_space_brush_query_sdk_available\":") + json_bool(meccha_mesh_layout::ScreenSpaceBrushQuerySdkAvailable) + ",";
+            mesh_snapshot_v2 += std::string("\"exact_layout_source\":\"") + meccha_mesh_layout::LayoutSource + "\",";
+            mesh_snapshot_v2 += std::string("\"exact_layout_profile\":\"") + meccha_mesh_layout::LayoutProfile + "\",";
+            mesh_snapshot_v2 += std::string("\"exact_layout_version\":\"") + meccha_mesh_layout::LayoutVersion + "\",";
+            mesh_snapshot_v2 += std::string("\"exact_layout_available\":") + json_bool(meccha_mesh_layout::ExactRenderDataLayoutAvailable) + ",";
+            mesh_snapshot_v2 += std::string("\"layout_failure_reason\":\"") + meccha_mesh_layout::FailureReason + "\",";
+            mesh_snapshot_v2 += "\"memory_scan_fallback_used\":false,";
+            mesh_snapshot_v2 += "\"screen_space_brush_query_generation_used\":false,";
+            mesh_snapshot_v2 += "\"mesh_component_available\":" + std::string(mesh_component_available ? "true" : "false") + ",";
+            mesh_snapshot_v2 += std::string("\"mesh_component\":\"") + hex_address(mesh) + "\",";
+            mesh_snapshot_v2 += std::string("\"mesh_component_class\":\"") + json_escape(ref.class_name(mesh)) + "\",";
+            mesh_snapshot_v2 += "\"mesh_asset_available\":" + std::string(mesh_asset_available ? "true" : "false") + ",";
+            mesh_snapshot_v2 += std::string("\"mesh_asset\":\"") + hex_address(selected_mesh_asset) + "\",";
+            mesh_snapshot_v2 += std::string("\"mesh_asset_class\":\"") + json_escape(ref.class_name(selected_mesh_asset)) + "\",";
+            mesh_snapshot_v2 += "\"mesh_variant\":\"unknown_until_exact_layout\",";
+            mesh_snapshot_v2 += "\"lod_index\":0,";
+            mesh_snapshot_v2 += "\"paint_uv_channel\":0,";
+            mesh_snapshot_v2 += "\"vertices\":0,";
+            mesh_snapshot_v2 += "\"indices\":0,";
+            mesh_snapshot_v2 += "\"triangles\":0,";
+            mesh_snapshot_v2 += "\"sections\":0,";
+            mesh_snapshot_v2 += "\"bones\":0,";
+            mesh_snapshot_v2 += "\"uv_channels\":0,";
+            mesh_snapshot_v2 += "\"skin_weight_available\":false,";
+            mesh_snapshot_v2 += "\"component_transform_available\":false,";
+            mesh_snapshot_v2 += "\"bone_transform_available\":false,";
+            mesh_snapshot_v2 += "\"cpu_mesh_raycast_route_ready\":false";
+            mesh_snapshot_v2 += "}}\n";
+            std::string cpu_validation = "{\"success\":false,\"stage\":\"mesh_snapshot_failed\",\"metadata\":{";
+            cpu_validation += "\"schema_version\":1,\"cpu_validation_executed\":false,\"reason\":\"mesh_snapshot_v2_not_ready\",";
+            cpu_validation += "\"cpu_vs_query_uv_delta_avg\":null,\"cpu_vs_query_uv_delta_p95\":null,\"cpu_vs_query_uv_delta_max\":null,";
+            cpu_validation += "\"cpu_vs_query_world_delta_avg\":null,\"cpu_vs_query_world_delta_p95\":null,\"cpu_vs_query_world_delta_max\":null";
+            cpu_validation += "}}\n";
+            std::string raycast_profile = "{\"success\":false,\"stage\":\"mesh_snapshot_failed\",\"metadata\":{";
+            raycast_profile += "\"worker_threads\":0,\"bvh_ms\":0,\"raycast_ms\":0,\"atlas_ms\":0,";
+            raycast_profile += "\"raycast_hits\":0,\"misses\":0,\"front_hits\":0,\"back_hits\":0";
+            raycast_profile += "}}\n";
+            const std::string uv_heatmap = std::string("P5\n1 1\n255\n") + std::string(1, '\0');
+            const std::string atlas_preview = std::string("P6\n1 1\n255\n") + std::string(3, '\0');
             const bool wrote_sidecar = write_bridge_sidecar_text(
                 L".deep_probe.json",
-                std::string("{\"success\":true,\"stage\":\"sdk_deep_probe\",\"metadata\":{\"bridge\":\"meccha-xenos-bridge\",") + deep + "}}\n");
+                deep_payload);
+            const bool wrote_runtime_probe = write_runtime_artifact_text(L"sdk_deep_probe.json", deep_payload);
+            const bool wrote_mesh_snapshot = write_runtime_artifact_text(L"mesh_snapshot.json", mesh_snapshot);
+            const bool wrote_mesh_buffer_candidates = write_runtime_artifact_text(L"mesh_buffer_candidates.json", mesh_buffer_candidates);
+            const bool wrote_mesh_snapshot_v2 = write_runtime_artifact_text(L"mesh_snapshot_v2.json", mesh_snapshot_v2);
+            const bool wrote_cpu_validation = write_runtime_artifact_text(L"cpu_raycast_validation.json", cpu_validation);
+            const bool wrote_raycast_profile = write_runtime_artifact_text(L"raycast_profile.json", raycast_profile);
+            const bool wrote_uv_heatmap = write_runtime_artifact_text(L"uv_hit_heatmap.pgm", uv_heatmap);
+            const bool wrote_atlas_preview = write_runtime_artifact_text(L"atlas_preview.ppm", atlas_preview);
             deep += std::string(",\"deep_probe_sidecar_written\":") + json_bool(wrote_sidecar);
+            deep += std::string(",\"sdk_deep_probe_runtime_written\":") + json_bool(wrote_runtime_probe);
+            deep += std::string(",\"mesh_snapshot_runtime_written\":") + json_bool(wrote_mesh_snapshot);
+            deep += std::string(",\"mesh_buffer_candidates_runtime_written\":") + json_bool(wrote_mesh_buffer_candidates);
+            deep += std::string(",\"mesh_snapshot_v2_runtime_written\":") + json_bool(wrote_mesh_snapshot_v2);
+            deep += std::string(",\"cpu_raycast_validation_runtime_written\":") + json_bool(wrote_cpu_validation);
+            deep += std::string(",\"raycast_profile_runtime_written\":") + json_bool(wrote_raycast_profile);
+            deep += std::string(",\"uv_hit_heatmap_runtime_written\":") + json_bool(wrote_uv_heatmap);
+            deep += std::string(",\"atlas_preview_runtime_written\":") + json_bool(wrote_atlas_preview);
+            deep += ",\"mesh_buffer_candidates_runtime_artifact\":\"mesh_buffer_candidates.json\"";
+            write_bridge_progress("mesh_snapshot_done", mesh_snapshot_ready ? "mesh snapshot is ready" : "mesh snapshot render data unavailable", 2, 2, 1.0,
+                                  "\"mesh_snapshot_ready\":" + std::string(mesh_snapshot_ready ? "true" : "false"));
             return response_json(true, "sdk_deep_probe", 0, 0, "SDK deep probe completed without paint/import mutation", deep);
         }
 
@@ -7481,6 +8436,37 @@ namespace
                     ",\"metallic_base_skipped\":" + json_bool(!front_metallic_texture_route || front_texture_import) +
                     ",\"metallic_base_skip_reason\":\"" + std::string(front_texture_import ? "skipped_for_38923_texture_parity" : "not_applicable") + "\"" +
                     ",\"target_channel\":\"Albedo\"";
+
+        if (!is_probe && !is_deep_probe && cpu_mesh_route && !g_mesh_snapshot_ready.load())
+        {
+            const char* cpu_stage = meccha_mesh_layout::ExactRenderDataLayoutAvailable ? "mesh_snapshot_failed" : meccha_mesh_layout::FailureStage;
+            emit_progress(cpu_stage, "CPU mesh snapshot is unavailable; exact render data layout is not ready", 1, 8, elapsed_now_ms());
+            metadata += ",\"mesh_snapshot_ready\":false" +
+                        std::string(",\"cpu_mesh_raycast_route_ready\":false") +
+                        std::string(",\"generated_cppsdk_available\":") + json_bool(meccha_mesh_layout::GeneratedCppSdkAvailable) +
+                        std::string(",\"generated_cppsdk_path\":\"") + json_escape(meccha_mesh_layout::GeneratedCppSdkPath) + "\"" +
+                        std::string(",\"generated_sdk_version\":\"") + json_escape(meccha_mesh_layout::GeneratedSdkVersion) + "\"" +
+                        std::string(",\"runtime_paint_sdk_available\":") + json_bool(meccha_mesh_layout::RuntimePaintSdkAvailable) +
+                        std::string(",\"screen_space_brush_query_sdk_available\":") + json_bool(meccha_mesh_layout::ScreenSpaceBrushQuerySdkAvailable) +
+                        std::string(",\"exact_layout_source\":\"") + meccha_mesh_layout::LayoutSource + "\"" +
+                        std::string(",\"exact_layout_profile\":\"") + meccha_mesh_layout::LayoutProfile + "\"" +
+                        std::string(",\"exact_layout_version\":\"") + meccha_mesh_layout::LayoutVersion + "\"" +
+                        std::string(",\"exact_layout_available\":") + json_bool(meccha_mesh_layout::ExactRenderDataLayoutAvailable) +
+                        std::string(",\"layout_failure_reason\":\"") + meccha_mesh_layout::FailureReason + "\"" +
+                        std::string(",\"cpu_mesh_probe_only\":") + json_bool(cpu_mesh_probe_only) +
+                        std::string(",\"cpu_mesh_texture_import_diagnostic\":") + json_bool(cpu_mesh_texture_import) +
+                        std::string(",\"cpu_mesh_texture_paint_stream\":") + json_bool(cpu_mesh_texture_stream) +
+                        ",\"screen_space_brush_query_fallback_used\":false" +
+                        ",\"front_sampling_ue_query_skipped\":true" +
+                        ",\"runtime_artifact_dir\":\"%LOCALAPPDATA%\\\\MecchaCamouflage\\\\runtime\"" +
+                        std::string(",\"bridge_events\":[\"") + cpu_stage + "\"]";
+            return response_json(false,
+                                 cpu_stage,
+                                 0,
+                                 1,
+                                 "CPU mesh snapshot is unavailable; cpu_mesh route requires exact Dumper7 render data layout",
+                                 metadata);
+        }
 
         auto before0 = sdk_export_channel_bytes(ref, ctx, 0);
         auto before1 = sdk_export_channel_bytes(ref, ctx, 1);
@@ -7841,6 +8827,22 @@ namespace
                     ",\"front_bbox_area_px\":" + std::to_string(front_bbox_area_px) +
                     ",\"viewport\":\"" + std::to_string(native_front.viewport_width) + "x" + std::to_string(native_front.viewport_height) + "\"" +
                     ",\"capture_fov_hint\":\"deproject_horizontal\"";
+        if (native_front.failure == "front_sampling_timeout_before_bridge_timeout")
+        {
+            emit_progress("front_sampling_timeout_before_bridge_timeout", "front sampling hit native time budget", front_metallic_texture_route ? 3 : 2, front_metallic_texture_route ? 9 : 8, elapsed_now_ms(),
+                          "\"front_hits\":" + std::to_string(native_front.samples.size()) +
+                              ",\"deproject_calls\":" + std::to_string(native_front.deproject_calls) +
+                              ",\"hit_test_calls\":" + std::to_string(native_front.hit_test_calls) +
+                              ",\"sampling_backend\":\"" + json_escape(native_front.sampling_backend) + "\"");
+            metadata += std::string(",\"stroke_count\":0") +
+                        "," + bridge_events + ",\"front_sampling_timeout_before_bridge_timeout\"]";
+            return response_json(false,
+                                 "front_sampling_timeout_before_bridge_timeout",
+                                 0,
+                                 1,
+                                 "front sampling exceeded native time budget before bridge timeout; no import/paint was dispatched",
+                                 metadata);
+        }
         if (static_cast<int>(native_front.samples.size()) < native_front.min_front_hits)
         {
             emit_progress("atlas_sampling_insufficient", "not enough valid surface hits", front_metallic_texture_route ? 3 : 2, front_metallic_texture_route ? 9 : 8, elapsed_now_ms(),
@@ -8014,6 +9016,7 @@ namespace
         }
         auto atlas = sdk_assemble_texture_atlas(atlas_base_albedo, atlas_base_metallic, atlas_base_roughness, atlas_samples);
         metadata += sdk_atlas_metadata(atlas) +
+                    sdk_write_atlas_debug_artifacts(atlas) +
                     ",\"atlas_base_source\":\"" + std::string(front_texture_import ? "full_body_white_metallic_remainder_front_texture_overlay" : "current_channels") + "\"" +
                     ",\"front_texture_back_metallic_white\":" + json_bool(front_texture_import) +
                     ",\"front_texture_side_back_texture_skipped\":" + json_bool(front_texture_import) +
@@ -8022,6 +9025,14 @@ namespace
                     ",\"atlas_base_roughness_hash\":\"" + std::to_string(atlas_base_roughness.hash) + "\"" +
                     ",\"front_hits\":" + std::to_string(captured_front.samples.size()) +
                     ",\"side_back_hits\":" + std::to_string(side_back.samples.size());
+        if (strict_38923_front_texture_import && atlas.stats.direct_texels < 500000)
+        {
+            emit_progress("front_texture_quality_warning", "front texture direct coverage is below 38923 parity floor; diagnostic import will continue", front_metallic_texture_route ? 7 : 6, front_metallic_texture_route ? 9 : 8, elapsed_now_ms(),
+                          "\"direct_texels\":" + std::to_string(atlas.stats.direct_texels) +
+                              ",\"min_direct_texels\":500000");
+            metadata += std::string(",\"front_texture_direct_coverage_below_parity\":true") +
+                        ",\"front_texture_min_direct_texels\":500000";
+        }
         if (!atlas.ok || atlas.stats.direct_texels < 2048)
         {
             emit_progress("atlas_quality_failed", "atlas assembly quality failed", front_metallic_texture_route ? 7 : 6, front_metallic_texture_route ? 9 : 8, elapsed_now_ms());

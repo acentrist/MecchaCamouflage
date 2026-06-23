@@ -195,6 +195,10 @@ def parse_args() -> argparse.Namespace:
             "front_metallic_texture_paint_stream",
             "texture_atlas_paint_api_stream",
             "texture_import_diagnostic",
+            "cpu_mesh_raycast",
+            "cpu_mesh_probe_only",
+            "cpu_mesh_texture_import_diagnostic",
+            "cpu_mesh_texture_paint_stream",
             "sdk_deep_probe_only",
         ),
         default="metallic_base_then_front_texture_import_diagnostic",
@@ -506,6 +510,14 @@ def _build_full_route_payload(args: argparse.Namespace, plan, process: ProcessIn
         route = "f10_front_metallic_texture_paint_stream"
     elif native_apply_mode == "front_metallic_texture_import_diagnostic":
         route = "f10_front_metallic_texture_import_diagnostic"
+    elif native_apply_mode == "cpu_mesh_raycast":
+        route = "f10_cpu_mesh_raycast"
+    elif native_apply_mode == "cpu_mesh_probe_only":
+        route = "f10_cpu_mesh_probe_only"
+    elif native_apply_mode == "cpu_mesh_texture_import_diagnostic":
+        route = "f10_cpu_mesh_texture_import_diagnostic"
+    elif native_apply_mode == "cpu_mesh_texture_paint_stream":
+        route = "f10_cpu_mesh_texture_paint_stream"
     elif native_apply_mode == "sdk_deep_probe_only":
         route = "sdk_deep_probe_only"
     else:
@@ -517,6 +529,8 @@ def _build_full_route_payload(args: argparse.Namespace, plan, process: ProcessIn
             "texture_import_diagnostic",
             "front_metallic_texture_import_diagnostic",
             "metallic_base_then_front_texture_import_diagnostic",
+            "cpu_mesh_probe_only",
+            "cpu_mesh_texture_import_diagnostic",
             "sdk_deep_probe_only",
         },
         "run_id": run_id,
@@ -991,8 +1005,10 @@ def _run_service(
     attached_process: ProcessInfo | None = None
     bridge_ready = False
     inject_attempted_for_pid = 0
-    sdk_probe_attempted_for_pid = 0
-    sdk_deep_probe_attempted_for_pid = 0
+    sdk_probe_ready_for_pid = 0
+    sdk_deep_probe_ready_for_pid = 0
+    last_sdk_probe_attempt = 0.0
+    last_sdk_deep_probe_attempt = 0.0
     last_bridge_log_state = ""
     last_bridge_log_time = 0.0
     signal.signal(signal.SIGINT, _stop_signal)
@@ -1032,8 +1048,10 @@ def _run_service(
         if attached_process is None or attached_process.pid != process.pid:
             attached_process = process
             inject_attempted_for_pid = 0
-            sdk_probe_attempted_for_pid = 0
-            sdk_deep_probe_attempted_for_pid = 0
+            sdk_probe_ready_for_pid = 0
+            sdk_deep_probe_ready_for_pid = 0
+            last_sdk_probe_attempt = 0.0
+            last_sdk_deep_probe_attempt = 0.0
             last_bridge_log_state = ""
             last_bridge_log_time = 0.0
             diagnostics.merge_status(process=_process_status(process, args.game_process_name))
@@ -1081,30 +1099,36 @@ def _run_service(
                 if injected:
                     bridge_ready, bridge_details = _check_native_bridge(args)
                     diagnostics.merge_status(bridge=_bridge_status(args, "ready" if bridge_ready else "not_ready", bridge_details))
-            if bridge_ready and sdk_probe_attempted_for_pid != process.pid:
-                sdk_probe_attempted_for_pid = process.pid
+            if bridge_ready and sdk_probe_ready_for_pid != process.pid and now - last_sdk_probe_attempt >= 10.0:
+                last_sdk_probe_attempt = now
                 sdk_probe_ready, sdk_probe_details = _sdk_probe_bridge(args)
                 bridge_details = {**bridge_details, "sdk_probe": sdk_probe_details}
                 diagnostics.merge_status(bridge=_bridge_status(args, "ready" if bridge_ready else "not_ready", bridge_details))
+                sdk_probe_stage = str(sdk_probe_details.get("stage", "sdk_probe"))
+                sdk_probe_context_pending = sdk_probe_stage in {"world_unavailable", "local_pawn_unavailable", "paint_component_unavailable", "sdk_context_unavailable"}
                 diagnostics.event(
                     "sdk_probe" if sdk_probe_ready else "sdk_probe_failed",
-                    level="info" if sdk_probe_ready else "error",
-                    stage=sdk_probe_details.get("stage", "sdk_probe"),
+                    level="info" if sdk_probe_ready else ("warning" if sdk_probe_context_pending else "error"),
+                    stage=sdk_probe_stage,
                     message=sdk_probe_details.get("message", ""),
-                    details=sdk_probe_details,
+                    details={**sdk_probe_details, "will_retry": not sdk_probe_ready},
                 )
-                if sdk_probe_ready and sdk_deep_probe_attempted_for_pid != process.pid:
-                    sdk_deep_probe_attempted_for_pid = process.pid
+                if sdk_probe_ready:
+                    sdk_probe_ready_for_pid = process.pid
+            if bridge_ready and sdk_probe_ready_for_pid == process.pid and sdk_deep_probe_ready_for_pid != process.pid and now - last_sdk_deep_probe_attempt >= 10.0:
+                    last_sdk_deep_probe_attempt = now
                     deep_probe_ready, deep_probe_details = _sdk_deep_probe_bridge(args)
                     bridge_details = {**bridge_details, "sdk_deep_probe": deep_probe_details}
                     diagnostics.merge_status(bridge=_bridge_status(args, "ready" if bridge_ready else "not_ready", bridge_details))
                     diagnostics.event(
                         "sdk_deep_probe" if deep_probe_ready else "sdk_deep_probe_failed",
-                        level="info" if deep_probe_ready else "error",
+                        level="info" if deep_probe_ready else "warning",
                         stage=deep_probe_details.get("stage", "sdk_deep_probe"),
                         message=deep_probe_details.get("message", ""),
-                        details=deep_probe_details,
+                        details={**deep_probe_details, "will_retry": not deep_probe_ready},
                     )
+                    if deep_probe_ready:
+                        sdk_deep_probe_ready_for_pid = process.pid
             last_bridge_check = now
 
         should_apply = apply_every_frame
@@ -1137,6 +1161,43 @@ def _run_service(
                     details={"frame": frame, "applies": apply_count, "bridge_ready": bridge_ready},
                 )
                 last_heartbeat = now
+            if args.frame_delay_ms > 0:
+                sleep(args.frame_delay_ms / 1000.0)
+            frame += 1
+            continue
+
+        if (
+            getattr(args, "adapter", "xenos") == "xenos"
+            and process is not None
+            and getattr(args, "native_apply_mode", "") != "sdk_deep_probe_only"
+            and (
+                sdk_probe_ready_for_pid != process.pid
+                or sdk_deep_probe_ready_for_pid != process.pid
+            )
+        ):
+            details = {
+                "trigger_source": trigger_source,
+                "pid": process.pid,
+                "sdk_probe_ready": sdk_probe_ready_for_pid == process.pid,
+                "sdk_deep_probe_ready": sdk_deep_probe_ready_for_pid == process.pid,
+                "will_retry": True,
+            }
+            diagnostics.event(
+                "paint_ignored_sdk_not_ready",
+                level="warning",
+                stage="sdk_context_pending",
+                message="paint trigger ignored until sdk_probe and sdk_deep_probe complete",
+                details=details,
+            )
+            diagnostics.merge_status(
+                last_run={
+                    "stage": "paint_ignored_sdk_not_ready",
+                    "success": False,
+                    "trigger_source": trigger_source,
+                    "process": _process_status(process, args.game_process_name),
+                    **details,
+                }
+            )
             if args.frame_delay_ms > 0:
                 sleep(args.frame_delay_ms / 1000.0)
             frame += 1

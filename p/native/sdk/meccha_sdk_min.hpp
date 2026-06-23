@@ -168,6 +168,27 @@ namespace meccha_sdk
         double Z{0.0};
     };
 
+    struct FScreenSpacePaintResult
+    {
+        bool bSuccess{false};
+        std::uint8_t Pad_1[0x7]{};
+        FVector2D HitUV{};
+        FVector HitWorldPosition{};
+        FVector HitNormal{};
+    };
+    static_assert(sizeof(FScreenSpacePaintResult) == 0x48, "FScreenSpacePaintResult layout mismatch");
+
+    struct RuntimePaintableComponent_HitTestAtScreenPosition
+    {
+        void* MeshComponent{nullptr};
+        FVector2D ScreenPosition{};
+        void* PlayerController{nullptr};
+        bool bUseCachedTriangles{true};
+        std::uint8_t Pad_21[0x7]{};
+        FScreenSpacePaintResult ReturnValue{};
+    };
+    static_assert(sizeof(RuntimePaintableComponent_HitTestAtScreenPosition) == 0x70, "HitTestAtScreenPosition params layout mismatch");
+
     struct FLinearColor
     {
         float R{0.0f};
