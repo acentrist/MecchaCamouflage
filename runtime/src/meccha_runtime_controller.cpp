@@ -754,12 +754,14 @@ namespace
     auto mode_to_route(const std::string& native_apply_mode) -> std::string
     {
         if (native_apply_mode == "texture_sync_strict_probe") return "f10_texture_sync_strict_probe";
+        if (native_apply_mode == "static_hybrid_front_side_probe") return "f10_static_hybrid_front_side_probe";
         return "unsupported_route";
     }
 
     auto is_supported_native_apply_mode(const std::string& native_apply_mode) -> bool
     {
-        return native_apply_mode == "texture_sync_strict_probe";
+        return native_apply_mode == "texture_sync_strict_probe" ||
+               native_apply_mode == "static_hybrid_front_side_probe";
     }
 
     auto paint_payload(const Config& config, const ProcessInfo& process) -> std::string
@@ -852,7 +854,7 @@ namespace
         if (!is_supported_native_apply_mode(config.native_apply_mode))
         {
             const std::string details = std::string("{\"native_apply_mode\":") + json_string(config.native_apply_mode) +
-                                        ",\"supported_native_apply_mode\":\"texture_sync_strict_probe\"}";
+                                        ",\"supported_native_apply_modes\":[\"texture_sync_strict_probe\",\"static_hybrid_front_side_probe\"]}";
             diagnostics.record_error("unsupported_route", "unsupported native apply mode", details, run_id);
             diagnostics.event("paint_failed", "error", "unsupported_route", "unsupported native apply mode", details, run_id);
             return false;

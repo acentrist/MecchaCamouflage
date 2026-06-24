@@ -7391,7 +7391,8 @@ namespace
                                              const SdkNativeFrontSampleResult& native_front,
                                              const std::vector<FrontSample>& direct_samples,
                                              int width,
-                                             int height) -> SdkAtlasSideBackResult
+                                             int height,
+                                             bool side_only = false) -> SdkAtlasSideBackResult
     {
         SdkAtlasSideBackResult out{};
         out.failure = "side_back_unavailable";
@@ -7406,9 +7407,10 @@ namespace
             out.failure = "side_back_query_unavailable";
             return out;
         }
-        out.backend = "screen_space_brush_query_virtual_views_bounded";
-        out.time_budget_ms = 36000.0;
-        out.attempt_budget = 140000;
+        out.backend = side_only ? "screen_space_brush_query_static_hybrid_front_side_probe"
+                                : "screen_space_brush_query_virtual_views_bounded";
+        out.time_budget_ms = side_only ? 16000.0 : 36000.0;
+        out.attempt_budget = side_only ? 70000 : 140000;
         const auto side_back_started = std::chrono::steady_clock::now();
         auto side_back_elapsed_ms = [&]() {
             return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - side_back_started).count();
@@ -7614,7 +7616,9 @@ namespace
             }
         };
 
-        const double yaw_offsets[]{-165.0, -150.0, -135.0, -120.0, -105.0, -90.0, -75.0, -60.0, 60.0, 75.0, 90.0, 105.0, 120.0, 135.0, 150.0, 165.0, 180.0};
+        const std::vector<double> yaw_offsets = side_only
+            ? std::vector<double>{-60.0, -45.0, -30.0, -15.0, 15.0, 30.0, 45.0, 60.0}
+            : std::vector<double>{-165.0, -150.0, -135.0, -120.0, -105.0, -90.0, -75.0, -60.0, 60.0, 75.0, 90.0, 105.0, 120.0, 135.0, 150.0, 165.0, 180.0};
         const double pitch_offsets[]{-30.0, -15.0, 0.0, 15.0, 30.0};
         constexpr int grid_x = 32;
         constexpr int grid_y = 48;
@@ -7651,7 +7655,7 @@ namespace
                         const auto lx = ((static_cast<double>(x) + 0.5) / static_cast<double>(grid_x) - 0.5) * 2.0;
                         const auto ly = ((static_cast<double>(y) + 0.5) / static_cast<double>(grid_y) - 0.5) * 2.0;
                         const auto target = sdk_vec_add(sdk_vec_add(center, sdk_vec_mul(view_right, lx * half_width)), sdk_vec_mul(view_up, ly * half_height));
-                        try_ray(origin, sdk_vec_normalize(sdk_vec_sub(target, origin)), std::abs(yaw) > 165.0);
+                        try_ray(origin, sdk_vec_normalize(sdk_vec_sub(target, origin)), !side_only && std::abs(yaw) > 165.0);
                     }
                 }
                 constexpr int direct_target_rays_per_view = 1536;
@@ -7666,7 +7670,7 @@ namespace
                     const auto jitter_y = (static_cast<double>((i * 23u + virtual_view_index * 5u) % 13u) - 6.0) * 1.2;
                     const auto target = sdk_vec_add(sdk_vec_add(direct_samples[seed_index].world_position, sdk_vec_mul(view_right, jitter_x)),
                                                     sdk_vec_mul(view_up, jitter_y));
-                    try_ray(origin, sdk_vec_normalize(sdk_vec_sub(target, origin)), std::abs(yaw) > 165.0);
+                    try_ray(origin, sdk_vec_normalize(sdk_vec_sub(target, origin)), !side_only && std::abs(yaw) > 165.0);
                     if (side_back_should_stop())
                     {
                         break;
@@ -7675,41 +7679,44 @@ namespace
                 ++virtual_view_index;
             }
         }
-        const double centerline_yaw_offsets[]{-60.0, -45.0, -30.0, -15.0, 0.0, 15.0, 30.0, 45.0, 60.0};
-        const double centerline_pitch_offsets[]{-45.0, -25.0, 0.0, 25.0, 45.0};
-        const double centerline_jitter[][2]{{0.0, 0.0}, {4.0, 0.0}, {-4.0, 0.0}, {0.0, 5.0}, {0.0, -5.0}};
-        for (const auto yaw : centerline_yaw_offsets)
+        if (!side_only)
         {
-            for (const auto pitch : centerline_pitch_offsets)
+            const double centerline_yaw_offsets[]{-60.0, -45.0, -30.0, -15.0, 0.0, 15.0, 30.0, 45.0, 60.0};
+            const double centerline_pitch_offsets[]{-45.0, -25.0, 0.0, 25.0, 45.0};
+            const double centerline_jitter[][2]{{0.0, 0.0}, {4.0, 0.0}, {-4.0, 0.0}, {0.0, 5.0}, {0.0, -5.0}};
+            for (const auto yaw : centerline_yaw_offsets)
             {
-                if (side_back_should_stop())
+                for (const auto pitch : centerline_pitch_offsets)
                 {
-                    break;
-                }
-                const auto outward = rotate_yaw_pitch(base_outward, yaw, pitch);
-                const auto origin = sdk_vec_add(center, sdk_vec_mul(outward, ray_distance));
-                const auto view_forward = sdk_vec_normalize(sdk_vec_sub(center, origin));
-                auto view_right = sdk_vec_normalize(sdk_vec_cross({0.0, 0.0, 1.0}, view_forward));
-                if (sdk_vec_len(view_right) < 0.01)
-                {
-                    view_right = frame_right;
-                }
-                auto view_up = sdk_vec_normalize(sdk_vec_cross(view_forward, view_right));
-                if (sdk_vec_len(view_up) < 0.01)
-                {
-                    view_up = frame_up;
-                }
-                for (const auto* target_seed : centerline_targets)
-                {
-                    for (const auto& jitter : centerline_jitter)
+                    if (side_back_should_stop())
                     {
-                        if (side_back_should_stop())
+                        break;
+                    }
+                    const auto outward = rotate_yaw_pitch(base_outward, yaw, pitch);
+                    const auto origin = sdk_vec_add(center, sdk_vec_mul(outward, ray_distance));
+                    const auto view_forward = sdk_vec_normalize(sdk_vec_sub(center, origin));
+                    auto view_right = sdk_vec_normalize(sdk_vec_cross({0.0, 0.0, 1.0}, view_forward));
+                    if (sdk_vec_len(view_right) < 0.01)
+                    {
+                        view_right = frame_right;
+                    }
+                    auto view_up = sdk_vec_normalize(sdk_vec_cross(view_forward, view_right));
+                    if (sdk_vec_len(view_up) < 0.01)
+                    {
+                        view_up = frame_up;
+                    }
+                    for (const auto* target_seed : centerline_targets)
+                    {
+                        for (const auto& jitter : centerline_jitter)
                         {
-                            break;
+                            if (side_back_should_stop())
+                            {
+                                break;
+                            }
+                            const auto target = sdk_vec_add(sdk_vec_add(target_seed->world_position, sdk_vec_mul(view_right, jitter[0])),
+                                                            sdk_vec_mul(view_up, jitter[1]));
+                            try_ray(origin, sdk_vec_normalize(sdk_vec_sub(target, origin)), std::abs(yaw) > 40.0);
                         }
-                        const auto target = sdk_vec_add(sdk_vec_add(target_seed->world_position, sdk_vec_mul(view_right, jitter[0])),
-                                                        sdk_vec_mul(view_up, jitter[1]));
-                        try_ray(origin, sdk_vec_normalize(sdk_vec_sub(target, origin)), std::abs(yaw) > 40.0);
                     }
                 }
             }
@@ -7719,10 +7726,11 @@ namespace
         {
             const auto pixels = static_cast<double>(std::max(1, width) * std::max(1, height));
             const auto density_radius = static_cast<int>(std::ceil(std::sqrt(pixels / static_cast<double>(out.samples.size())) * 0.18));
-            out.splat_radius = std::max(2, std::min(6, density_radius));
+            out.splat_radius = side_only ? 1 : std::max(2, std::min(6, density_radius));
             for (auto& sample : out.samples)
             {
-                sample.atlas_radius = std::max(sample.atlas_radius, out.splat_radius);
+                sample.atlas_radius = side_only ? std::min(std::max(sample.atlas_radius, 0), out.splat_radius)
+                                                : std::max(sample.atlas_radius, out.splat_radius);
                 sample.atlas_weight = std::max(sample.atlas_weight, sample.floor_like ? 70.0 : 60.0);
             }
         }
@@ -8291,6 +8299,119 @@ namespace
                ",\"runtime_artifact_dir\":\"%LOCALAPPDATA%\\\\MecchaCamouflage\\\\runtime\"";
     }
 
+    auto sdk_write_static_hybrid_artifacts(const SdkTextureAtlas& atlas,
+                                           int front_hits,
+                                           const SdkAtlasSideBackResult& side) -> std::string
+    {
+        const int width = atlas.stats.width;
+        const int height = atlas.stats.height;
+        const std::size_t pixels = width > 0 && height > 0
+            ? static_cast<std::size_t>(width) * static_cast<std::size_t>(height)
+            : 0U;
+        bool atlas_preview_written = false;
+        bool edge_weight_written = false;
+        bool chart_map_written = false;
+        bool coverage_written = false;
+        bool quality_written = false;
+
+        if (pixels > 0 && atlas.albedo.size() >= pixels * 4U)
+        {
+            std::string ppm = "P6\n" + std::to_string(width) + " " + std::to_string(height) + "\n255\n";
+            ppm.reserve(ppm.size() + pixels * 3U);
+            for (std::size_t index = 0; index < pixels; ++index)
+            {
+                const auto offset = index * 4U;
+                ppm.push_back(static_cast<char>(atlas.albedo[offset + 0]));
+                ppm.push_back(static_cast<char>(atlas.albedo[offset + 1]));
+                ppm.push_back(static_cast<char>(atlas.albedo[offset + 2]));
+            }
+            atlas_preview_written = write_runtime_artifact_binary(L"hybrid_atlas_preview.ppm", ppm);
+        }
+
+        if (pixels > 0 && atlas.painted_mask.size() >= pixels)
+        {
+            std::string edge = "P5\n" + std::to_string(width) + " " + std::to_string(height) + "\n255\n";
+            edge.reserve(edge.size() + pixels);
+            for (std::size_t index = 0; index < pixels; ++index)
+            {
+                edge.push_back(atlas.painted_mask[index] ? static_cast<char>(255) : static_cast<char>(0));
+            }
+            edge_weight_written = write_runtime_artifact_binary(L"hybrid_edge_weight.pgm", edge);
+
+            std::string chart = "P6\n" + std::to_string(width) + " " + std::to_string(height) + "\n255\n";
+            chart.reserve(chart.size() + pixels * 3U);
+            for (std::size_t index = 0; index < pixels; ++index)
+            {
+                if (atlas.painted_mask[index])
+                {
+                    chart.push_back(static_cast<char>(64));
+                    chart.push_back(static_cast<char>(196));
+                    chart.push_back(static_cast<char>(96));
+                }
+                else
+                {
+                    chart.push_back(static_cast<char>(0));
+                    chart.push_back(static_cast<char>(0));
+                    chart.push_back(static_cast<char>(0));
+                }
+            }
+            chart_map_written = write_runtime_artifact_binary(L"hybrid_uv_chart_map.ppm", chart);
+        }
+
+        const auto pixel_count = static_cast<double>(std::max<std::size_t>(1U, pixels));
+        std::string coverage = "{";
+        coverage += "\"stage\":\"hybrid_view_coverage\",";
+        coverage += "\"route\":\"static_hybrid_front_side_probe\",";
+        coverage += "\"width\":" + std::to_string(width) + ",";
+        coverage += "\"height\":" + std::to_string(height) + ",";
+        coverage += "\"front_hits\":" + std::to_string(front_hits) + ",";
+        coverage += "\"side_hits\":" + std::to_string(side.side_hits) + ",";
+        coverage += "\"back_hits\":0,";
+        coverage += "\"side_attempts\":" + std::to_string(side.attempts) + ",";
+        coverage += "\"side_success\":" + std::to_string(side.success) + ",";
+        coverage += "\"side_owner_hits\":" + std::to_string(side.owner_hits) + ",";
+        coverage += "\"side_uv_hits\":" + std::to_string(side.uv_hits) + ",";
+        coverage += "\"direct_texels\":" + std::to_string(atlas.stats.direct_texels) + ",";
+        coverage += "\"direct_texel_ratio\":" + std::to_string(static_cast<double>(atlas.stats.direct_texels) / pixel_count) + ",";
+        coverage += "\"side_backend\":\"" + json_escape(side.backend) + "\",";
+        coverage += "\"side_failure\":\"" + json_escape(side.failure) + "\",";
+        coverage += "\"views\":\"front_dominant_plus_side_-60_-45_-30_-15_15_30_45_60\"";
+        coverage += "}\n";
+        coverage_written = write_runtime_artifact_text(L"hybrid_view_coverage.json", coverage);
+
+        std::string quality = "{";
+        quality += "\"stage\":\"hybrid_quality\",";
+        quality += "\"route\":\"static_hybrid_front_side_probe\",";
+        quality += "\"mesh_chart_available\":false,";
+        quality += "\"chart_aware_fill_enabled\":false,";
+        quality += "\"chart_aware_fill_failure\":\"mesh_chart_unavailable\",";
+        quality += "\"fallback_used\":false,";
+        quality += "\"paint_used\":false,";
+        quality += "\"texture_import_used\":false,";
+        quality += "\"texture_sync_used\":false,";
+        quality += "\"back_views_used\":false,";
+        quality += "\"front_hits\":" + std::to_string(front_hits) + ",";
+        quality += "\"side_hits\":" + std::to_string(side.side_hits) + ",";
+        quality += "\"back_hits\":0,";
+        quality += "\"direct_texels\":" + std::to_string(atlas.stats.direct_texels) + ",";
+        quality += "\"direct_texel_ratio\":" + std::to_string(static_cast<double>(atlas.stats.direct_texels) / pixel_count) + ",";
+        quality += "\"metallic\":0.0,";
+        quality += "\"roughness_interior\":0.88,";
+        quality += "\"roughness_side\":0.94,";
+        quality += "\"roughness_edge\":0.98,";
+        quality += "\"albedo_space\":\"srgb_preview_linear_calculation_not_yet_enabled\",";
+        quality += "\"hybrid_stage\":\"front_side_probe_artifacts_only\"";
+        quality += "}\n";
+        quality_written = write_runtime_artifact_text(L"hybrid_quality.json", quality);
+
+        return std::string(",\"hybrid_atlas_preview_written\":") + json_bool(atlas_preview_written) +
+               ",\"hybrid_edge_weight_written\":" + json_bool(edge_weight_written) +
+               ",\"hybrid_view_coverage_written\":" + json_bool(coverage_written) +
+               ",\"hybrid_uv_chart_map_written\":" + json_bool(chart_map_written) +
+               ",\"hybrid_quality_written\":" + json_bool(quality_written) +
+               ",\"hybrid_runtime_artifact_dir\":\"%LOCALAPPDATA%\\\\MecchaCamouflage\\\\runtime\"";
+    }
+
     auto sdk_build_atlas_strokes(const SdkContext& ctx,
                                  const SdkTextureAtlas& atlas,
                                  meccha_sdk::EPaintChannel target_channel,
@@ -8784,6 +8905,8 @@ namespace
         const bool legacy_diagnostic_import = false;
         const bool texture_sync_probe = request.find("\"native_apply_mode\":\"texture_sync_strict_probe\"") != std::string::npos ||
                                         request.find("\"route\":\"f10_texture_sync_strict_probe\"") != std::string::npos;
+        const bool static_hybrid_probe = request.find("\"native_apply_mode\":\"static_hybrid_front_side_probe\"") != std::string::npos ||
+                                         request.find("\"route\":\"f10_static_hybrid_front_side_probe\"") != std::string::npos;
         const bool color_transfer_probe = false;
         const bool front_texture_import = texture_sync_probe;
         const bool strict_38923_front_texture_import = texture_sync_probe;
@@ -8797,16 +8920,17 @@ namespace
         const bool disabled_mesh_route = false;
         const bool front_metallic_texture_route = disabled_metallic_stream;
         const bool front_paint_route = false;
-        const std::string route_name = texture_sync_probe ? "texture_sync_strict_probe" : "unsupported_route";
-        if (!is_probe && !is_deep_probe && !texture_sync_probe)
+        const std::string route_name = static_hybrid_probe ? "static_hybrid_front_side_probe" :
+            (texture_sync_probe ? "texture_sync_strict_probe" : "unsupported_route");
+        if (!is_probe && !is_deep_probe && !texture_sync_probe && !static_hybrid_probe)
         {
             return response_json(false,
                                  "unsupported_route",
                                  0,
                                  1,
-                                 "unsupported native apply mode; only texture_sync_strict_probe is available",
+                                 "unsupported native apply mode; only texture_sync_strict_probe and static_hybrid_front_side_probe are available",
                                  std::string("\"route\":\"") + json_escape(route_name) + "\"" +
-                                     ",\"supported_native_apply_mode\":\"texture_sync_strict_probe\"");
+                                     ",\"supported_native_apply_modes\":[\"texture_sync_strict_probe\",\"static_hybrid_front_side_probe\"]");
         }
         static volatile LONG paint_busy = 0;
         static volatile LONG dump_busy = 0;
@@ -8886,7 +9010,7 @@ namespace
             const auto stage = is_probe ? ctx.stage : std::string("sdk_context_unavailable");
             return response_json(false, stage.c_str(), 0, 1, ctx.message, metadata);
         }
-        if (!front_texture_import && !is_probe && !is_deep_probe && !sdk_has_replicated_api(ctx))
+        if (!front_texture_import && !static_hybrid_probe && !is_probe && !is_deep_probe && !sdk_has_replicated_api(ctx))
         {
             return response_json(false,
                                  "replicated_api_unavailable",
@@ -9138,9 +9262,9 @@ namespace
         }
 
         metadata += ",\"render_target_albedo\":\"" + hex_address(sdk_get_render_target(ctx, 0)) + "\"" +
-                    ",\"route\":\"" + (texture_sync_probe ? std::string("texture_sync_strict_probe") : route_name) + "\"" +
+                    ",\"route\":\"" + route_name + "\"" +
                     ",\"replication\":\"component_server_paint_batch\"" +
-                    ",\"replicated_paint_used\":" + json_bool(!front_texture_import) +
+                    ",\"replicated_paint_used\":" + json_bool(!front_texture_import && !static_hybrid_probe) +
                     ",\"front_paint_stream_used\":" + json_bool(disabled_paint_stream || disabled_sample_stream || disabled_metallic_stream) +
                     ",\"disabled_paint_stream_used\":" + json_bool(disabled_paint_stream) +
                     ",\"disabled_sample_stream_used\":" + json_bool(disabled_sample_stream) +
@@ -9153,9 +9277,14 @@ namespace
                     ",\"image_bulk_calibration_ok\":false" +
                     ",\"texture_source_verified\":false" +
                     ",\"bulk_readback_failure\":\"pending_capture\"" +
-                    ",\"temporary_diagnostic_only\":" + json_bool(texture_sync_probe) +
-                    ",\"diagnostic_import_channels\":[\"albedo\"]" +
+                    ",\"temporary_diagnostic_only\":" + json_bool(texture_sync_probe || static_hybrid_probe) +
+                    ",\"diagnostic_import_channels\":" + std::string(front_texture_import ? "[\"albedo\"]" : "[]") +
                     ",\"texture_sync_probe\":" + json_bool(texture_sync_probe) +
+                    ",\"static_hybrid_front_side_probe\":" + json_bool(static_hybrid_probe) +
+                    ",\"static_hybrid_artifact_only\":" + json_bool(static_hybrid_probe) +
+                    ",\"static_hybrid_target_views\":\"front_dominant_plus_side_-60_-45_-30_-15_15_30_45_60\"" +
+                    ",\"static_hybrid_back_skipped\":true" +
+                    ",\"static_hybrid_apply_skipped\":true" +
                     ",\"color_transfer_probe\":" + json_bool(color_transfer_probe) +
                     ",\"multiplayer_sync_unverified\":" + json_bool(texture_sync_probe) +
                     ",\"front_payload_placement_used\":false" +
@@ -9512,16 +9641,18 @@ namespace
         SdkNativeFrontSampleResult native_front{};
         SdkFrontCaptureProbe front_capture{};
         SdkReplicatedStats atlas_stats{};
-        const std::string sampling_started_stage = front_paint_route ? "front_sampling_started" : "atlas_sampling_started";
-        const std::string sampling_done_stage = front_paint_route ? "front_sampling_done" : "atlas_sampling_done";
-        const std::string capture_started_stage = front_paint_route ? "front_capture_started" : "atlas_capture_started";
-        const std::string capture_done_stage = front_paint_route ? "front_capture_done" : "atlas_capture_done";
-        const std::string atlas_assembled_stage = front_paint_route ? "front_atlas_assembled" : "atlas_assembled";
+        const std::string sampling_started_stage = static_hybrid_probe ? "hybrid_front_sampling_started" : (front_paint_route ? "front_sampling_started" : "atlas_sampling_started");
+        const std::string sampling_done_stage = static_hybrid_probe ? "hybrid_front_sampling_done" : (front_paint_route ? "front_sampling_done" : "atlas_sampling_done");
+        const std::string capture_started_stage = static_hybrid_probe ? "hybrid_front_capture_started" : (front_paint_route ? "front_capture_started" : "atlas_capture_started");
+        const std::string capture_done_stage = static_hybrid_probe ? "hybrid_front_capture_done" : (front_paint_route ? "front_capture_done" : "atlas_capture_done");
+        const std::string atlas_assembled_stage = static_hybrid_probe ? "hybrid_atlas_assembled" : (front_paint_route ? "front_atlas_assembled" : "atlas_assembled");
         const std::string strokes_generated_stage = front_paint_route ? "front_strokes_generated" : "atlas_strokes_generated";
         const std::string stroke_budget_stage = front_paint_route ? "front_stroke_budget_exceeded" : "atlas_stroke_budget_exceeded";
-        std::string bridge_events = front_texture_import
+        std::string bridge_events = static_hybrid_probe
+                                        ? "\"bridge_events\":[\"static_hybrid_probe_ready\""
+                                        : (front_texture_import
                                         ? "\"bridge_events\":[\"texture_import_api_ready\""
-                                        : "\"bridge_events\":[\"replicated_api_ready\"";
+                                        : "\"bridge_events\":[\"replicated_api_ready\"");
         if (disabled_metallic_stream)
         {
             bridge_events += ",\"metallic_base_prepared\",\"metallic_base_apply_tick\",\"metallic_base_visible\",\"metallic_base_done\"";
@@ -9808,6 +9939,7 @@ namespace
         std::vector<FrontSample> atlas_samples = captured_front.samples;
         const bool mirror_side_back_for_texture = false;
         const bool collect_side_back_for_texture = texture_sync_probe;
+        const bool collect_static_hybrid_side = static_hybrid_probe;
         if (mirror_side_back_for_texture)
         {
             side_back = sdk_build_front_uv_mirror_side_back_samples(captured_front.samples, before0.width, before0.height);
@@ -9865,6 +9997,21 @@ namespace
             emit_progress("atlas_side_back_done", "side/back sample extension completed", 6, 8, elapsed_now_ms(),
                                   "\"side_back_hits\":" + std::to_string(side_back.samples.size()) +
                                       ",\"side_back_backend\":\"screen_space_brush_query_virtual_views_dense_small_splat\"");
+            atlas_samples.insert(atlas_samples.end(), side_back.samples.begin(), side_back.samples.end());
+        }
+        else if (collect_static_hybrid_side)
+        {
+            side_back = sdk_collect_atlas_side_back_samples(ref, ctx, native_front, captured_front.samples, before0.width, before0.height, true);
+            metadata += sdk_side_back_metadata(side_back) +
+                        ",\"static_hybrid_side_only\":true" +
+                        ",\"static_hybrid_back_skipped\":true" +
+                        ",\"static_hybrid_side_color_source\":\"front_nearest_proxy_until_inverse_matte_capture\"";
+            bridge_events += ",\"hybrid_side_sampling_done\"";
+            emit_progress("hybrid_side_sampling_done", "static hybrid side samples collected", 6, 8, elapsed_now_ms(),
+                              "\"front_hits\":" + std::to_string(captured_front.samples.size()) +
+                                  ",\"side_hits\":" + std::to_string(side_back.side_hits) +
+                                  ",\"back_hits\":0" +
+                                  ",\"side_attempts\":" + std::to_string(side_back.attempts));
             atlas_samples.insert(atlas_samples.end(), side_back.samples.begin(), side_back.samples.end());
         }
         else
@@ -9928,6 +10075,29 @@ namespace
                     ",\"target_unique_atlas_texels\":500000" +
                     ",\"precision_profile\":\"max_texture_probe\"" +
                     ",\"side_back_hits\":" + std::to_string(side_back.samples.size());
+        if (static_hybrid_probe)
+        {
+            metadata += sdk_write_static_hybrid_artifacts(atlas, static_cast<int>(captured_front.samples.size()), side_back) +
+                        ",\"static_hybrid_output\":\"artifacts_only\"" +
+                        ",\"static_hybrid_import_used\":false" +
+                        ",\"static_hybrid_texture_sync_used\":false" +
+                        ",\"static_hybrid_paint_used\":false" +
+                        ",\"static_hybrid_mesh_chart_available\":false" +
+                        ",\"static_hybrid_mesh_chart_failure\":\"mesh_chart_unavailable\"" +
+                        ",\"static_hybrid_back_applied\":false";
+            bridge_events += ",\"hybrid_artifacts_done\"";
+            emit_progress("hybrid_artifacts_done", "static hybrid front/side artifacts generated", 8, 8, elapsed_now_ms(),
+                          "\"front_hits\":" + std::to_string(captured_front.samples.size()) +
+                              ",\"side_hits\":" + std::to_string(side_back.side_hits) +
+                              ",\"direct_texels\":" + std::to_string(atlas.stats.direct_texels));
+            metadata += "," + bridge_events + ",\"hybrid_artifacts_done\"]";
+            return response_json(true,
+                                 "static_hybrid_front_side_probe_done",
+                                 0,
+                                 0,
+                                 "static hybrid front/side artifacts generated; no paint/import/sync was applied",
+                                 metadata);
+        }
         if (strict_38923_front_texture_import && atlas.stats.direct_texels < 500000)
         {
             emit_progress("front_texture_quality_warning", "front texture direct coverage is below 38923 parity floor; diagnostic import will continue", front_metallic_texture_route ? 7 : 6, front_metallic_texture_route ? 9 : 8, elapsed_now_ms(),
