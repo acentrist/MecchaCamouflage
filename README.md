@@ -2,65 +2,24 @@
   <img src="assets/meccha-camouflage-banner.png" alt="Meccha Camouflage banner" width="100%" />
 </p>
 
-# Meccha Camouflage Runtime
+# Meccha Camouflage
 
-This repository is centered on the Xenos-injected native runtime.
+Native Xenos-injected runtime for MECCHA CHAMELEON.
 
-- `native/`: C++ controller, injected bridge, and SDK-backed paint runtime.
-- `scripts/`: build, deploy, package, and SDK dump workflows.
-- `dumper-sdk/`: managed Dumper7 SDK output for the target game build.
-- `tools/Dumper-7/`: local Dumper-7 tool source.
+## Download
 
-The runtime release artifact is a single `meccha-camouflage.exe`. The bridge DLL is embedded in that EXE and extracted under `%LOCALAPPDATA%\MecchaCamouflage\runtime\native\` at startup before injection.
+Download the latest `meccha-camouflage.exe` from GitHub Releases:
 
-## Build
+- https://github.com/acentrist/MecchaCamouflage/releases/latest
 
-From the repository root:
+The EXE is self-contained and can be placed anywhere, including Downloads; it finds `PenguinHotel-Win64-Shipping.exe` by process name and injects the embedded bridge DLL from `%LOCALAPPDATA%\MecchaCamouflage\runtime\native\`.
 
-```bash
-./scripts/dev_flow.sh -Action build
-```
+## Use
 
-Build output is written under `.build/`:
-
-```text
-.build/
-  native/bin/meccha-camouflage.exe       # controller/runtime EXE
-  native/bin/meccha-xenos-bridge.dll     # embedded into the controller at build time
-  native/bin/meccha-xenos-injector.exe   # development helper for SDK tooling
-  native/obj/                            # native object/resource files
-```
-
-## Deploy
-
-```bash
-./scripts/dev_flow.sh -Action deploy -GameRoot 'C:\Program Files (x86)\Steam\steamapps\common\MECCHA CHAMELEON'
-```
-
-The deploy script installs `.build/native/bin/meccha-camouflage.exe` into:
-
-```text
-C:\Program Files (x86)\Steam\steamapps\common\MECCHA CHAMELEON\Chameleon\Binaries\Win64
-```
-
-If the target EXE is locked, deploy stages a `.pending.exe` and starts the replacement watcher.
-
-## Run
-
-The default runtime mode is the native Xenos service path:
-
-```bash
-./scripts/dev_flow.sh -Action run
-```
-
-Useful direct modes:
-
-```bash
-.build/native/bin/meccha-camouflage.exe --mode service
-.build/native/bin/meccha-camouflage.exe --mode probe
-.build/native/bin/meccha-camouflage.exe --mode apply --native-apply-mode texture_sync_strict_probe
-.build/native/bin/meccha-camouflage.exe --mode shutdown
-```
+1. Start MECCHA CHAMELEON.
+2. Start `meccha-camouflage.exe`.
+3. Wait for `sdk_probe` and `sdk_deep_probe` to complete.
+4. Press `F10` in game.
 
 Runtime diagnostics are written to:
 
@@ -70,13 +29,46 @@ Runtime diagnostics are written to:
 %LOCALAPPDATA%\MecchaCamouflage\runtime\runtime.log
 ```
 
-## Route policy
+## Current route policy
 
-Current route policy is documented in `native/README.md`.
+The default F10 route is `texture_sync_strict_probe`.
 
-High-level rules:
+- It imports the generated texture through the SDK and dispatches texture sync RPC candidates.
+- It is the current fast multiplayer candidate, but remote peer verification is still required.
+- `front_atlas_paint_stream` remains an explicit fallback for replicated paint API streaming, but it is slow.
+- Material swap, synthetic UV placement, local-only import routes, and memory-scan fallback are forbidden.
 
-- Active multiplayer candidates must go through Xenos/native SDK routes.
-- Local-only texture import is not a default runtime path.
-- Material swap, synthetic UV placement, and memory-scan fallback are forbidden.
-- Paint and texture quality changes are intentionally separate from runtime/controller refactors.
+Details are in `native/README.md`.
+
+## Development
+
+Windows/MSVC is the primary build environment. WSL can drive the PowerShell scripts when Windows tooling is installed.
+
+Common commands:
+
+```bash
+make build
+make copy-to-game GAME_ROOT='C:\Program Files (x86)\Steam\steamapps\common\MECCHA CHAMELEON'
+make service
+make probe
+make apply RUNTIME_ARGS='--native-apply-mode front_atlas_paint_stream'
+make package VERSION=0.1.0
+```
+
+Script equivalents remain available under `scripts/`, but the Makefile is the preferred entrypoint for local development.
+
+Build output:
+
+```text
+.build/native/bin/meccha-camouflage.exe       # self-contained runtime EXE
+.build/native/bin/meccha-xenos-bridge.dll     # embedded into the runtime EXE at build time
+.build/native/bin/meccha-xenos-injector.exe   # development helper for Dumper7/tooling
+.build/native/obj/                            # native object/resource files
+```
+
+Repository layout:
+
+- `native/`: C++ controller, injected bridge, and SDK-backed paint runtime.
+- `scripts/`: PowerShell build/package/tooling scripts.
+- `dumper-sdk/`: managed Dumper7 SDK output for the target game build.
+- `tools/Dumper-7/`: local Dumper-7 tool source.

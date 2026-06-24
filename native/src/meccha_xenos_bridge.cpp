@@ -7407,8 +7407,8 @@ namespace
             return out;
         }
         out.backend = "screen_space_brush_query_virtual_views_bounded";
-        out.time_budget_ms = 30000.0;
-        out.attempt_budget = 60000;
+        out.time_budget_ms = 36000.0;
+        out.attempt_budget = 140000;
         const auto side_back_started = std::chrono::steady_clock::now();
         auto side_back_elapsed_ms = [&]() {
             return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - side_back_started).count();
@@ -7454,8 +7454,8 @@ namespace
         }
         const auto center = sdk_vec_mul(sum_world, 1.0 / static_cast<double>(std::max<std::size_t>(1, direct_samples.size())));
         const auto extent = sdk_vec_sub(max_world, min_world);
-        const auto half_width = std::max(80.0, std::min(260.0, std::max(std::abs(extent.X), std::abs(extent.Y)) * 0.78));
-        const auto half_height = std::max(100.0, std::min(320.0, std::abs(extent.Z) * 0.78));
+        const auto half_width = std::max(90.0, std::min(300.0, std::max(std::abs(extent.X), std::abs(extent.Y)) * 0.86));
+        const auto half_height = std::max(120.0, std::min(360.0, std::abs(extent.Z) * 0.86));
         const auto ray_distance = std::max(260.0, std::min(820.0, std::max({std::abs(extent.X), std::abs(extent.Y), std::abs(extent.Z), 160.0}) * 2.8));
         auto base_outward = sdk_vec_sub(native_front.first_ray_location, center);
         base_outward.Z = 0.0;
@@ -7601,8 +7601,8 @@ namespace
             sample.radius = std::max(0.0015, nearest->radius);
             sample.floor_like = nearest->floor_like;
             sample.atlas_priority = sample.floor_like ? 8 : 7;
-            sample.atlas_radius = 5;
-            sample.atlas_weight = sample.floor_like ? 48.0 : 42.0;
+            sample.atlas_radius = 2;
+            sample.atlas_weight = sample.floor_like ? 56.0 : 48.0;
             out.samples.push_back(sample);
             if (back_view)
             {
@@ -7614,10 +7614,10 @@ namespace
             }
         };
 
-        const double yaw_offsets[]{-150.0, -120.0, -90.0, -60.0, 60.0, 90.0, 120.0, 150.0, 180.0};
-        const double pitch_offsets[]{-22.0, 0.0, 22.0};
-        constexpr int grid_x = 24;
-        constexpr int grid_y = 36;
+        const double yaw_offsets[]{-165.0, -150.0, -135.0, -120.0, -105.0, -90.0, -75.0, -60.0, 60.0, 75.0, 90.0, 105.0, 120.0, 135.0, 150.0, 165.0, 180.0};
+        const double pitch_offsets[]{-30.0, -15.0, 0.0, 15.0, 30.0};
+        constexpr int grid_x = 32;
+        constexpr int grid_y = 48;
         std::size_t virtual_view_index = 0;
         for (const auto yaw : yaw_offsets)
         {
@@ -7654,7 +7654,7 @@ namespace
                         try_ray(origin, sdk_vec_normalize(sdk_vec_sub(target, origin)), std::abs(yaw) > 165.0);
                     }
                 }
-                constexpr int direct_target_rays_per_view = 1024;
+                constexpr int direct_target_rays_per_view = 1536;
                 const auto seed_count = direct_samples.size();
                 const auto stride = std::max<std::size_t>(1, seed_count / static_cast<std::size_t>(direct_target_rays_per_view));
                 const auto view_offset = (virtual_view_index * 131u) % std::max<std::size_t>(1, seed_count);
@@ -7675,8 +7675,8 @@ namespace
                 ++virtual_view_index;
             }
         }
-        const double centerline_yaw_offsets[]{-45.0, -30.0, 0.0, 30.0, 45.0};
-        const double centerline_pitch_offsets[]{-38.0, 0.0, 38.0};
+        const double centerline_yaw_offsets[]{-60.0, -45.0, -30.0, -15.0, 0.0, 15.0, 30.0, 45.0, 60.0};
+        const double centerline_pitch_offsets[]{-45.0, -25.0, 0.0, 25.0, 45.0};
         const double centerline_jitter[][2]{{0.0, 0.0}, {4.0, 0.0}, {-4.0, 0.0}, {0.0, 5.0}, {0.0, -5.0}};
         for (const auto yaw : centerline_yaw_offsets)
         {
@@ -7718,12 +7718,12 @@ namespace
         if (!out.samples.empty())
         {
             const auto pixels = static_cast<double>(std::max(1, width) * std::max(1, height));
-            const auto density_radius = static_cast<int>(std::ceil(std::sqrt(pixels / static_cast<double>(out.samples.size())) * 0.42));
-            out.splat_radius = std::max(7, std::min(18, density_radius));
+            const auto density_radius = static_cast<int>(std::ceil(std::sqrt(pixels / static_cast<double>(out.samples.size())) * 0.18));
+            out.splat_radius = std::max(2, std::min(6, density_radius));
             for (auto& sample : out.samples)
             {
                 sample.atlas_radius = std::max(sample.atlas_radius, out.splat_radius);
-                sample.atlas_weight = std::max(sample.atlas_weight, sample.floor_like ? 74.0 : 64.0);
+                sample.atlas_weight = std::max(sample.atlas_weight, sample.floor_like ? 70.0 : 60.0);
             }
         }
         if (!out.timed_out && !out.attempt_budget_exhausted)
@@ -9866,7 +9866,7 @@ namespace
             bridge_events += ",\"atlas_side_back_done\"";
             emit_progress("atlas_side_back_done", "side/back sample extension completed", 6, 8, elapsed_now_ms(),
                                   "\"side_back_hits\":" + std::to_string(side_back.samples.size()) +
-                                      ",\"side_back_backend\":\"screen_space_brush_query_virtual_views\"");
+                                      ",\"side_back_backend\":\"screen_space_brush_query_virtual_views_dense_small_splat\"");
             atlas_samples.insert(atlas_samples.end(), side_back.samples.begin(), side_back.samples.end());
         }
         else
