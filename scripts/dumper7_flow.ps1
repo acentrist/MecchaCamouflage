@@ -62,7 +62,7 @@ if (-not (Test-Path $DumperDll)) {
     throw "Dumper-7 DLL not found: $DumperDll"
 }
 if (-not (Test-Path $Injector)) {
-    throw "Injector not found. Run scripts/build_native.ps1 first. Expected: $Injector"
+    throw "Injector not found. Run scripts/build_runtime.ps1 first. Expected: $Injector"
 }
 
 New-Item -ItemType Directory -Force -Path $GlobalConfigDir | Out-Null

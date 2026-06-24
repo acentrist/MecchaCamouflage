@@ -38,7 +38,7 @@ jobs:
 
       - name: Build runtime
         shell: pwsh
-        run: .\scripts\build_native.ps1
+        run: .\scripts\build_runtime.ps1
 
       - name: Package
         shell: pwsh

@@ -4,7 +4,7 @@
 
 # Meccha Camouflage
 
-Native runtime for MECCHA CHAMELEON.
+A standalone Windows tool for MECCHA CHAMELEON camouflage experiments.
 
 ## Download
 
@@ -12,7 +12,7 @@ Download the latest `meccha-camouflage.exe` from GitHub Releases:
 
 - https://github.com/acentrist/MecchaCamouflage/releases/latest
 
-The EXE is self-contained. It can be placed anywhere, including Downloads. It finds `PenguinHotel-Win64-Shipping.exe` by process name and extracts its embedded bridge DLL under `%LOCALAPPDATA%\MecchaCamouflage\runtime\`.
+The EXE is self-contained. It does not need to be placed next to `PenguinHotel-Win64-Shipping.exe`; it finds the running game process by name.
 
 ## Usage
 
@@ -20,25 +20,68 @@ The EXE is self-contained. It can be placed anywhere, including Downloads. It fi
 2. Start `meccha-camouflage.exe`.
 3. Press `F10` in game.
 
-Runtime diagnostics are written to `%LOCALAPPDATA%\MecchaCamouflage\runtime\`.
+## Logs
+
+Logs and status files are written under:
+
+```text
+%LOCALAPPDATA%\MecchaCamouflage\runtime\
+```
+
+Useful files:
+
+- `events.jsonl`: structured runtime events.
+- `last_status.json`: latest success or failure summary.
+- `.progress.json`: transient progress state used by the controller.
+
+If the game crashes after a MECCHA CHAMELEON update, the tracked SDK may need to be regenerated and reviewed.
 
 ## Development
 
-The primary development environment is Windows with MSVC.
+Use Windows with Visual Studio 2022 Build Tools. PowerShell 7 is recommended.
 
 ```bash
+git clone https://github.com/acentrist/MecchaCamouflage.git
+cd MecchaCamouflage
 make build
-make run
-make probe
-make copy-to-game
-make package
 ```
 
-Development defaults are defined at the top of `Makefile`:
+The development EXE is generated at:
 
-- `GAME_ROOT`
-- `NATIVE_APPLY_MODE`
-- `DEV_PROBE_ARGS`
-- `VERSION`
+```text
+.build/bin/meccha-camouflage.exe
+```
 
-The managed Dumper7 SDK output is stored in `dumper-sdk/`. The Dumper-7 tool source is stored in `dumper-sdk/tool/`.
+To run the controller from the repo:
+
+```bash
+make run
+```
+
+The default development mode is configured at the top of `Makefile`.
+
+## Updating the game SDK
+
+The managed Dumper-7 SDK is stored in `dumper-sdk/`. The current tracked game SDK folder is:
+
+```text
+dumper-sdk/5.6.1-44394996+++UE5+Release-5.6-Chameleon/CppSDK
+```
+
+When a game update changes SDK layouts or causes startup crashes, regenerate the SDK:
+
+```bash
+make sdk-dump
+```
+
+Requirements:
+
+1. Build once with `make build`.
+2. Start MECCHA CHAMELEON and wait until the game process is running.
+3. Run `make sdk-dump`.
+4. Review and commit the generated SDK changes under `dumper-sdk/`.
+5. Open a pull request with the SDK folder changes and any required runtime layout fixes.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE.txt).

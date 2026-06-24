@@ -11,7 +11,7 @@ $ErrorActionPreference = "Stop"
 if (-not $OutDir) { $OutDir = Join-Path $RuntimeRoot ".build\package" }
 $ArtifactName = "meccha-camouflage-$Version"
 if (-not $ExePath) { $ExePath = Join-Path $RuntimeRoot ".build\bin\meccha-camouflage.exe" }
-if (-not (Test-Path $ExePath -PathType Leaf)) { throw "Executable not found: $ExePath. Run scripts/build_native.ps1 first." }
+if (-not (Test-Path $ExePath -PathType Leaf)) { throw "Executable not found: $ExePath. Run scripts/build_runtime.ps1 first." }
 
 $TmpRoot = Join-Path $OutDir "tmp-release"
 Remove-Item -Recurse -Force $TmpRoot -ErrorAction SilentlyContinue

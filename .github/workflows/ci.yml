@@ -22,14 +22,14 @@ jobs:
 
       - name: Build runtime
         shell: pwsh
-        run: .\scripts\build_native.ps1
+        run: .\scripts\build_runtime.ps1
 
       - name: Static checks
         shell: pwsh
         run: |
           if (-not (Test-Path ".build/bin/meccha-camouflage.exe")) { throw "runtime exe missing" }
           if (-not (Test-Path ".build/bin/meccha-xenos-bridge.dll")) { throw "bridge dll missing" }
-          foreach ($path in @("native", "src", "pyproject.toml", "requirements.txt", "scripts/build_exe.ps1")) {
+          foreach ($path in @("native", "src", "pyproject.toml", "requirements.txt")) {
             if (Test-Path $path) { throw "removed path still exists: $path" }
           }
 

@@ -1,28 +1,11 @@
 param(
-    [ValidateSet("all", "build", "deploy", "run", "none")]
-    [string]$Action = "all",
-    [string]$GameRoot = "C:\Program Files (x86)\Steam\steamapps\common\MECCHA CHAMELEON",
     [string]$RuntimeRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
     [string]$ExeName = "meccha-camouflage.exe",
-    [int]$LoopFrames = 10,
-    [int]$FrameDelayMs = 16,
-    [int]$RunForever = 1,
-    [switch]$Quick,
-    [string]$Adapter = "xenos",
-    [string]$BridgePath = "",
-    [int]$ServiceMaxFrames = 0,
-    [float]$ServiceMaxDurationSeconds = 0.0,
-    [string]$ServiceStopFile = "",
-    [Alias("RuntimeStopKey")]
-    [string]$ServiceStopKey = "",
     [string[]]$RuntimeArgs,
     [string]$RuntimeArgString = ""
 )
 
 $ErrorActionPreference = "Stop"
-
-$BuildScript = Join-Path $PSScriptRoot "build_native.ps1"
-$DeployScript = Join-Path $PSScriptRoot "deploy_to_game.ps1"
 $RuntimeName = [System.IO.Path]::GetFileNameWithoutExtension($ExeName)
 
 function Invoke-PipelineStep {
@@ -71,38 +54,12 @@ if ($RuntimeArgString) {
     $RuntimeArgs = @($stringArgs + $RuntimeArgs)
 }
 
-if ($Action -eq "build" -or $Action -eq "all") {
-    Write-Host "Building runtime exe..."
-    Invoke-PipelineStep -Name "build_native.ps1" -ScriptBlock { & $BuildScript -RuntimeRoot $RuntimeRoot -ExeName $RuntimeName }
+$ExePath = Resolve-RuntimeExe -RuntimeRoot $RuntimeRoot -RuntimeName $RuntimeName
+if (-not (Test-Path $ExePath)) { throw "Executable not found: $ExePath. Run make build first." }
+if (-not $RuntimeArgs -or $RuntimeArgs.Count -eq 0) {
+    $RuntimeArgs = @("--mode", "service")
 }
 
-if ($Action -eq "deploy" -or $Action -eq "all") {
-    Write-Host "Copying runtime exe to game folder..."
-    $ExePath = Resolve-RuntimeExe -RuntimeRoot $RuntimeRoot -RuntimeName $RuntimeName
-    if (-not $ExePath) { throw "Executable not found in .build/bin." }
-    Write-Host ("Using runtime exe: " + $ExePath)
-    Invoke-PipelineStep -Name "deploy_to_game.ps1" -ScriptBlock { & $DeployScript -GameRoot $GameRoot -ExePath $ExePath -ExeName $ExeName }
-}
-
-if ($Action -eq "run" -or $Action -eq "all") {
-    $ExePath = Resolve-RuntimeExe -RuntimeRoot $RuntimeRoot -RuntimeName $RuntimeName
-    if (-not (Test-Path $ExePath)) { throw "Executable not found: $ExePath" }
-    Write-Host "Using runtime exe: $ExePath"
-    if (-not $RuntimeArgs -or $RuntimeArgs.Count -eq 0) {
-        if ($Quick) {
-            $RuntimeArgs = @("--mode", "probe", "--print-summary")
-        } elseif ($RunForever -ne 0) {
-            $RuntimeArgs = @("--mode", "service", "--frame-delay-ms", [string]$FrameDelayMs, "--auto-sdk-probe", "--auto-sdk-deep-probe", "--print-summary")
-            if ($ServiceMaxFrames -gt 0) { $RuntimeArgs += @("--service-max-frames", [string]$ServiceMaxFrames) }
-            if ($ServiceMaxDurationSeconds -gt 0) { $RuntimeArgs += @("--service-max-duration-seconds", [string]$ServiceMaxDurationSeconds) }
-            if ($ServiceStopFile) { $RuntimeArgs += @("--service-stop-file", $ServiceStopFile) }
-            if ($ServiceStopKey) { $RuntimeArgs += @("--service-stop-key", $ServiceStopKey) }
-        } else {
-            $RuntimeArgs = @("--mode", "probe", "--service-max-frames", [string]$LoopFrames, "--frame-delay-ms", [string]$FrameDelayMs, "--print-summary")
-        }
-    }
-    Write-Host "Runtime args: $($RuntimeArgs -join ' ')"
-    Invoke-PipelineStep -Name "runtime execution" -ScriptBlock { & $ExePath @RuntimeArgs }
-}
-
-Write-Host "Done: action=$Action"
+Write-Host "Using runtime exe: $ExePath"
+Write-Host "Runtime args: $($RuntimeArgs -join ' ')"
+Invoke-PipelineStep -Name "runtime execution" -ScriptBlock { & $ExePath @RuntimeArgs }
