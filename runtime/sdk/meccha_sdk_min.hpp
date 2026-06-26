@@ -5,14 +5,6 @@
 
 namespace meccha_sdk
 {
-    namespace Offsets
-    {
-        constexpr std::uintptr_t GObjects = 0x09F32450;
-        constexpr std::uintptr_t GWorld = 0x09C7B620;
-        constexpr std::uintptr_t ProcessEvent = 0x015D0950;
-        constexpr int ProcessEventIdx = 0x0000004C;
-    }
-
     namespace FieldOffsets
     {
         constexpr std::uintptr_t UWorld_OwningGameInstance = 0x0228;
@@ -347,7 +339,7 @@ namespace meccha_sdk
         std::uint8_t Pad_1A[0x6]{};
     };
 
-    static_assert(sizeof(TArray<std::uint8_t>) == 0x10, "Dumper7 TArray layout mismatch");
+    static_assert(sizeof(TArray<std::uint8_t>) == 0x10, "TArray layout mismatch");
     static_assert(sizeof(FVector2D) == 0x10, "FVector2D layout mismatch");
     static_assert(sizeof(FVector) == 0x18, "FVector layout mismatch");
     static_assert(sizeof(FLinearColor) == 0x10, "FLinearColor layout mismatch");

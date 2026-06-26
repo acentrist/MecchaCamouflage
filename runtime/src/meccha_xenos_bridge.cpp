@@ -18,9 +18,11 @@
 #include <initializer_list>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "../sdk/meccha_sdk_min.hpp"
@@ -33,7 +35,7 @@ namespace
     constexpr int DefaultBridgePort = 47654;
     constexpr int IdleShutdownSeconds = 15;
     constexpr std::size_t MaxRequestBytes = 8 * 1024 * 1024;
-    constexpr int ProcessEventVtableIndex = meccha_sdk::Offsets::ProcessEventIdx;
+    constexpr int ProcessEventVtableIndex = 0x4C;
     constexpr UINT PaintDispatchMessage = WM_APP + 0x4D43;
 
     constexpr std::uintptr_t OffClass = 0x10;
@@ -1446,15 +1448,6 @@ namespace
         auto target = g_original_process_event.load();
         if (!target)
         {
-            const auto module = main_module_range();
-            const auto sdk_target = module.base ? module.base + meccha_sdk::Offsets::ProcessEvent : 0;
-            if (sdk_target && address_in_main_module(sdk_target))
-            {
-                target = sdk_target;
-            }
-        }
-        if (!target)
-        {
             const auto vtable = safe_read<std::uintptr_t>(object);
             if (!vtable)
             {
@@ -1467,6 +1460,11 @@ namespace
                 failure = "process_event_unavailable";
                 return false;
             }
+        }
+        if (!address_in_main_module(target))
+        {
+            failure = "process_event_target_outside_main_module";
+            return false;
         }
         __try
         {
@@ -2165,18 +2163,30 @@ namespace
         return value ? "true" : "false";
     }
 
+    struct SdkResolutionException : std::runtime_error
+    {
+        std::string stage;
+
+        SdkResolutionException(std::string stage_text, std::string message_text)
+            : std::runtime_error(message_text), stage(std::move(stage_text))
+        {
+        }
+    };
+
+    [[noreturn]] auto throw_sdk_update_required(const std::string& message) -> void
+    {
+        throw SdkResolutionException("sdk_update_required", message);
+    }
+
     struct SdkContext
     {
         bool ok{false};
         std::string stage{"sdk_unavailable"};
         std::string message{"sdk unavailable"};
         std::uintptr_t module_base{0};
-        std::uintptr_t expected_guobject_array{0};
         std::uintptr_t actual_guobject_array{0};
-        std::uintptr_t expected_gworld{0};
-        std::uintptr_t resolved_gworld_address{0};
-        bool guobject_runtime_address_used{false};
-        std::string gworld_source{"sdk_offset"};
+        std::string world_source{"runtime_object_scan"};
+        std::string process_event_source{"uobject_vtable"};
         std::uintptr_t process_event{0};
         std::uintptr_t world{0};
         std::uintptr_t game_instance{0};
@@ -2579,26 +2589,13 @@ namespace
 
     auto sdk_context_metadata(Reflection& ref, const SdkContext& ctx) -> std::string
     {
-        const auto guobject_delta = ctx.expected_guobject_array >= ctx.actual_guobject_array
-            ? static_cast<long long>(ctx.expected_guobject_array - ctx.actual_guobject_array)
-            : -static_cast<long long>(ctx.actual_guobject_array - ctx.expected_guobject_array);
-        const bool guobject_offsets_match = ctx.expected_guobject_array != 0 && ctx.expected_guobject_array == ctx.actual_guobject_array;
-        const bool guobject_offsets_compatible = guobject_offsets_match || guobject_delta == 0x10 || guobject_delta == -0x10 ||
-            ctx.guobject_runtime_address_used;
-        return "\"sdk_version\":\"chameleonEsp_dumper7_1_7_0_min\"" +
+        return "\"sdk_version\":\"runtime_dynamic_reflection_min\"" +
                std::string(",\"sdk_route\":\"sdk_server_paint_batch_strokes\"") +
                ",\"module_base\":\"" + hex_address(ctx.module_base) + "\"" +
-               ",\"expected_guobject_array\":\"" + hex_address(ctx.expected_guobject_array) + "\"" +
-               ",\"actual_guobject_array\":\"" + hex_address(ctx.actual_guobject_array) + "\"" +
-               ",\"guobject_offset_delta\":" + std::to_string(guobject_delta) +
-               ",\"guobject_offsets_match\":" + std::string(json_bool(guobject_offsets_match)) +
-               ",\"guobject_offsets_compatible\":" + std::string(json_bool(guobject_offsets_compatible)) +
-               ",\"guobject_runtime_address_used\":" + std::string(json_bool(ctx.guobject_runtime_address_used)) +
-               ",\"expected_gworld\":\"" + hex_address(ctx.expected_gworld) + "\"" +
-               ",\"resolved_gworld_address\":\"" + hex_address(ctx.resolved_gworld_address) + "\"" +
-               ",\"gworld_source\":\"" + json_escape(ctx.gworld_source) + "\"" +
-               ",\"process_event\":\"" + hex_address(ctx.process_event) + "\"" +
-               ",\"process_event_offset\":\"" + hex_address(meccha_sdk::Offsets::ProcessEvent) + "\"" +
+               ",\"guobject_array\":\"" + hex_address(ctx.actual_guobject_array) + "\"" +
+               ",\"global_offset_source\":\"runtime_pattern_scan\"" +
+               ",\"world_source\":\"" + json_escape(ctx.world_source) + "\"" +
+               ",\"process_event_source\":\"" + json_escape(ctx.process_event_source) + "\"" +
                ",\"process_event_vtable_index\":" + std::to_string(ProcessEventVtableIndex) +
                ",\"world\":\"" + hex_address(ctx.world) + "\"" +
                ",\"game_instance\":\"" + hex_address(ctx.game_instance) + "\"" +
@@ -2634,30 +2631,10 @@ namespace
             ctx.message = "main module unavailable";
             return ctx;
         }
-        ctx.expected_guobject_array = module.base + meccha_sdk::Offsets::GObjects;
-        ctx.expected_gworld = module.base + meccha_sdk::Offsets::GWorld;
-        ctx.process_event = module.base + meccha_sdk::Offsets::ProcessEvent;
-        const auto guobject_delta = ctx.expected_guobject_array >= ctx.actual_guobject_array
-            ? static_cast<long long>(ctx.expected_guobject_array - ctx.actual_guobject_array)
-            : -static_cast<long long>(ctx.actual_guobject_array - ctx.expected_guobject_array);
-        const bool guobject_offsets_compatible = ctx.expected_guobject_array == ctx.actual_guobject_array ||
-            guobject_delta == 0x10 || guobject_delta == -0x10;
-        ctx.guobject_runtime_address_used = !guobject_offsets_compatible && ctx.actual_guobject_array != 0;
-        if (!address_in_main_module(ctx.process_event))
+        if (!ctx.actual_guobject_array)
         {
-            ctx.stage = "sdk_mismatch";
-            ctx.message = "Dumper7 ProcessEvent offset is outside the main module";
-            return ctx;
+            throw_sdk_update_required("runtime GUObjectArray pattern scan failed");
         }
-
-        auto read_world_from_gworld = [&](std::uintptr_t gworld_address) -> std::uintptr_t {
-            if (!address_in_main_module(gworld_address))
-            {
-                return 0;
-            }
-            const auto world = safe_read<std::uintptr_t>(gworld_address);
-            return live_uobject(world) ? world : 0;
-        };
         auto world_has_local_context = [&](std::uintptr_t world) -> bool {
             if (!live_uobject(world))
             {
@@ -2672,44 +2649,34 @@ namespace
             return local_players.Data && local_players.Num > 0 && local_players.Num <= 8;
         };
 
-        ctx.resolved_gworld_address = ctx.expected_gworld;
-        ctx.gworld_source = "sdk_offset";
-        ctx.world = read_world_from_gworld(ctx.expected_gworld);
-        if (!world_has_local_context(ctx.world) && ctx.expected_guobject_array && ctx.actual_guobject_array)
+        const auto world_class = ref.find_class("World");
+        if (!world_class)
         {
-            const auto runtime_shift = static_cast<std::intptr_t>(ctx.actual_guobject_array) -
-                static_cast<std::intptr_t>(ctx.expected_guobject_array);
-            const auto shifted_gworld = static_cast<std::uintptr_t>(
-                static_cast<std::intptr_t>(ctx.expected_gworld) + runtime_shift);
-            const auto shifted_world = read_world_from_gworld(shifted_gworld);
-            if (world_has_local_context(shifted_world))
-            {
-                ctx.resolved_gworld_address = shifted_gworld;
-                ctx.gworld_source = "gobjects_delta_shift";
-                ctx.world = shifted_world;
-            }
+            throw_sdk_update_required("UWorld class unavailable from runtime object scan");
         }
+        ref.for_each_object([&](std::uintptr_t object) {
+            if (ref.class_ptr(object) == world_class && world_has_local_context(object))
+            {
+                ctx.world = object;
+                return true;
+            }
+            return false;
+        });
         if (!live_uobject(ctx.world))
         {
-            ctx.stage = "world_unavailable";
-            ctx.message = "UWorld::GetWorld returned null or invalid object";
-            return ctx;
+            throw_sdk_update_required("runtime object scan found no active UWorld with LocalPlayers");
         }
         ctx.game_instance = safe_read<std::uintptr_t>(ctx.world + meccha_sdk::FieldOffsets::UWorld_OwningGameInstance);
         if (!live_uobject(ctx.game_instance))
         {
-            ctx.stage = "world_unavailable";
-            ctx.message = "UWorld::OwningGameInstance unavailable";
-            return ctx;
+            throw_sdk_update_required("UWorld::OwningGameInstance unavailable");
         }
 
         const auto local_players = safe_read<meccha_sdk::TArray<std::uintptr_t>>(ctx.game_instance + meccha_sdk::FieldOffsets::UGameInstance_LocalPlayers);
         ctx.local_players_count = local_players.Num;
         if (!local_players.Data || local_players.Num <= 0 || local_players.Num > 8)
         {
-            ctx.stage = "local_pawn_unavailable";
-            ctx.message = "GameInstance.LocalPlayers is empty or invalid";
-            return ctx;
+            throw_sdk_update_required("GameInstance.LocalPlayers is empty or invalid");
         }
         ctx.local_player = safe_read<std::uintptr_t>(reinterpret_cast<std::uintptr_t>(local_players.Data));
         if (!live_uobject(ctx.local_player))
@@ -3580,22 +3547,6 @@ namespace
                ",\"" + key + "_max_strokes_per_tick\":" + std::to_string(snapshot.pressure.MaxStrokesPerTick) +
                ",\"" + key + "_estimated_ticks_to_drain\":" + std::to_string(snapshot.pressure.EstimatedTicksToDrain) +
                ",\"" + key + "_failure\":\"" + json_escape(snapshot.failure) + "\"";
-    }
-
-    auto sdk_copy_current_brush(const SdkContext& ctx, double radius) -> meccha_sdk::FRuntimeBrushSettings
-    {
-        meccha_sdk::FRuntimeBrushSettings brush{};
-        safe_copy(&brush,
-                  reinterpret_cast<void*>(ctx.component + meccha_sdk::FieldOffsets::RuntimePaintable_CurrentBrushSettings),
-                  sizeof(brush));
-        brush.Radius = static_cast<float>(std::max(0.001, std::min(0.12, radius)));
-        brush.Hardness = 1.0f;
-        brush.Opacity = 1.0f;
-        brush.Spacing = std::min(brush.Spacing > 0.0f ? brush.Spacing : 0.25f, 0.25f);
-        brush.Falloff = meccha_sdk::EBrushFalloff::Spherical;
-        brush.BlendMode = meccha_sdk::EPaintBlendMode::Normal;
-        brush.Rotation = 0.0f;
-        return brush;
     }
 
     auto sdk_srgb_to_linear_unit(double value) -> double
@@ -5417,7 +5368,7 @@ namespace
         int server_batch_failures{0};
         int server_batch_calls{0};
         int server_strokes_sent{0};
-        int server_batch_limit{512};
+        int server_batch_limit{50};
         int commit_pulses{0};
         int progress_percent{-1};
         double template_point_elapsed_ms{0.0};
@@ -5433,6 +5384,7 @@ namespace
         bool explicit_stroke_batch_used{false};
         SdkReplicationSnapshot replication_after_explicit_batches{};
         double brush_radius{0.008};
+        double brush_radius_raw{0.008};
         double rgb_min{1.0};
         double rgb_max{0.0};
         double rgb_sum_r{0.0};
@@ -5669,10 +5621,30 @@ namespace
         if (!ref.init(failure))
         {
             complete_template_uv_brush_job(std::make_shared<TemplateUvBrushAsyncJob>(TemplateUvBrushAsyncJob{queued_job}),
-                                           response_json(false, "sdk_unavailable", 0, 1, failure));
+                                           response_json(false,
+                                                         "sdk_update_required",
+                                                         0,
+                                                         1,
+                                                         failure.empty() ? "SDK reflection init failed" : failure,
+                                                         "\"route\":\"template_brush_paint\",\"sdk_resolution_exception\":true"));
             return true;
         }
-        const auto ctx = sdk_resolve_context(ref);
+        SdkContext ctx{};
+        try
+        {
+            ctx = sdk_resolve_context(ref);
+        }
+        catch (const SdkResolutionException& ex)
+        {
+            complete_template_uv_brush_job(std::make_shared<TemplateUvBrushAsyncJob>(TemplateUvBrushAsyncJob{queued_job}),
+                                           response_json(false,
+                                                         ex.stage.c_str(),
+                                                         0,
+                                                         1,
+                                                         ex.what(),
+                                                         "\"route\":\"template_brush_paint\",\"sdk_resolution_exception\":true"));
+            return true;
+        }
         std::string metadata = sdk_context_metadata(ref, ctx);
         metadata += ",\"route\":\"template_brush_paint\"";
         metadata += ",\"template_apply_backend\":\"server_paint_batch\"";
@@ -5695,7 +5667,10 @@ namespace
         metadata += ",\"template_paint_albedo_transfer\":\"basecolor_srgb_to_linear_flinearcolor\"";
         metadata += ",\"template_color_source\":\"scene_capture_basecolor_bulk_readback\"";
         metadata += ",\"template_profile\":\"high_density_basecolor_scene_capture_template\"";
-        metadata += ",\"inferred_fields\":[\"brush_radius_formula\",\"scene_capture_basecolor_srgb_to_linear\"]";
+        metadata += ",\"inferred_fields\":[\"brush_radius_fixed_0_02\",\"scene_capture_basecolor_srgb_to_linear\"]";
+        metadata += ",\"phase0_lower_rescan_used\":false";
+        metadata += ",\"template_fill_enabled\":false";
+        metadata += ",\"template_clone_enabled\":false";
         if (!ctx.ok)
         {
             complete_template_uv_brush_job(std::make_shared<TemplateUvBrushAsyncJob>(TemplateUvBrushAsyncJob{queued_job}),
@@ -5753,7 +5728,7 @@ namespace
                                                          "template_server_batch_unavailable",
                                                          0,
                                                          1,
-                                                         "ServerPaintBatch is unavailable; local paint fallback is disabled",
+                                                         "ServerPaintBatch is unavailable; local paint path is disabled",
                                                          metadata));
             return true;
         }
@@ -5777,7 +5752,7 @@ namespace
         job->brush.Spacing = 0.18f;
         job->brush.Falloff = meccha_sdk::EBrushFalloff::Spherical;
         job->brush.BlendMode = meccha_sdk::EPaintBlendMode::Normal;
-        job->server_batch_limit = 512;
+        job->server_batch_limit = 50;
         job->metadata = metadata;
         job->metadata += ",\"template_base_cols\":" + std::to_string(job->base_cols);
         job->metadata += ",\"template_base_rows\":" + std::to_string(job->base_rows);
@@ -5983,6 +5958,14 @@ namespace
                     return a.y < b.y;
                 });
                 job->source_sorted = true;
+                write_bridge_progress("template_points_done",
+                                      "phase0 direct surface samples complete",
+                                      34,
+                                      100,
+                                      job_elapsed_ms(),
+                                      "\"points\":" + std::to_string(job->points.size()) +
+                                          ",\"sampler_probe_attempts\":" + std::to_string(job->sampler_probe_attempts) +
+                                          ",\"sampler_probe_misses\":" + std::to_string(job->sampler_probe_misses));
                 job->progress_percent = -1;
                 job->phase = TemplateUvBrushAsyncJob::Phase::CaptureSource;
             }
@@ -6000,13 +5983,17 @@ namespace
             std::string init_failure{};
             if (!ref.init(init_failure))
             {
-                fail_job("sdk_unavailable", init_failure.empty() ? "SDK reflection init failed" : init_failure);
+                fail_job("sdk_update_required", init_failure.empty() ? "SDK reflection init failed" : init_failure);
                 return;
             }
-            const auto ctx = sdk_resolve_context(ref);
-            if (!ctx.ok)
+            SdkContext ctx{};
+            try
             {
-                fail_job(ctx.stage.c_str(), ctx.message);
+                ctx = sdk_resolve_context(ref);
+            }
+            catch (const SdkResolutionException& ex)
+            {
+                fail_job(ex.stage.c_str(), ex.what());
                 return;
             }
             const auto live_viewport = sdk_get_viewport_info(ref, ctx);
@@ -6136,7 +6123,8 @@ namespace
                 fail_job("template_points_unavailable", "template route produced no direct template points");
                 return;
             }
-            const double radius = std::max(0.0012, std::min(0.0030, 0.58 / std::sqrt(static_cast<double>(std::max(1, template_count)))));
+            constexpr double radius = 0.02;
+            job->brush_radius_raw = radius;
             job->brush_radius = radius;
             job->brush.Radius = static_cast<float>(radius);
             job->brush.Spacing = 0.08f;
@@ -6153,6 +6141,9 @@ namespace
                                       ",\"paint_target_channel\":\"Albedo\"" +
                                       ",\"material_channel_overwrite\":false" +
                                       ",\"local_paint_used\":false" +
+                                      ",\"brush_radius_mode\":\"fixed\"" +
+                                      ",\"brush_radius_formula\":\"fixed(0.02)\"" +
+                                      ",\"brush_radius_raw\":" + std::to_string(job->brush_radius_raw) +
                                       ",\"brush_radius\":" + std::to_string(job->brush_radius) +
                                       ",\"server_rpc\":\"ServerPaintBatch\"" +
                                       ",\"server_batch_limit\":" + std::to_string(job->server_batch_limit));
@@ -6266,6 +6257,11 @@ namespace
             metadata += ",\"runtime_hit_test_attempts\":" + std::to_string(job->runtime_hit_test_attempts);
             metadata += ",\"runtime_hit_test_hits\":" + std::to_string(job->runtime_hit_test_hits);
             metadata += ",\"runtime_hit_test_failures\":" + std::to_string(job->runtime_hit_test_failures);
+            metadata += ",\"template_fill_enabled\":false";
+            metadata += ",\"template_fill_strategy\":\"disabled\"";
+            metadata += ",\"template_clone_enabled\":false";
+            metadata += ",\"template_clone_strategy\":\"disabled\"";
+            metadata += ",\"phase0_lower_rescan_used\":false";
             metadata += ",\"template_points\":" + std::to_string(job->points.size());
             metadata += ",\"template_color_sample_hard_cap\":" + std::to_string(job->point_target);
             metadata += std::string(",\"template_dense_early_stopped\":false");
@@ -6274,6 +6270,10 @@ namespace
             metadata += ",\"paint_sample_success\":" + std::to_string(job->paint_sample_success);
             metadata += ",\"paint_sample_failures\":" + std::to_string(job->paint_sample_failures);
             metadata += ",\"template_dedupe_skipped\":" + std::to_string(job->dedupe_skipped);
+            metadata += ",\"template_brush_radius_mode\":\"fixed\"";
+            metadata += ",\"template_brush_radius_formula\":\"fixed(0.02)\"";
+            metadata += ",\"template_brush_radius_raw\":" + std::to_string(job->brush_radius_raw);
+            metadata += ",\"template_brush_radius_fixed\":0.02";
             metadata += ",\"template_brush_radius\":" + std::to_string(job->brush_radius);
             metadata += ",\"template_point_elapsed_ms\":" + std::to_string(job->template_point_elapsed_ms);
             metadata += ",\"capture_elapsed_ms\":" + std::to_string(job->template_capture_elapsed_ms);
@@ -6361,9 +6361,29 @@ namespace
         std::string failure{};
         if (!ref.init(failure))
         {
-            return response_json(false, "sdk_unavailable", 0, 1, failure);
+            return response_json(false,
+                                 "sdk_update_required",
+                                 0,
+                                 1,
+                                 failure.empty() ? "SDK reflection init failed" : failure,
+                                 std::string("\"route\":\"") + (is_deep_probe ? "sdk_deep_probe" : "sdk_probe") +
+                                     "\",\"sdk_resolution_exception\":true");
         }
-        const auto ctx = sdk_resolve_context(ref);
+        SdkContext ctx{};
+        try
+        {
+            ctx = sdk_resolve_context(ref);
+        }
+        catch (const SdkResolutionException& ex)
+        {
+            return response_json(false,
+                                 ex.stage.c_str(),
+                                 0,
+                                 1,
+                                 ex.what(),
+                                 std::string("\"route\":\"") + (is_deep_probe ? "sdk_deep_probe" : "sdk_probe") +
+                                     "\",\"sdk_resolution_exception\":true");
+        }
         std::string metadata = sdk_context_metadata(ref, ctx);
         metadata += std::string(",\"route\":\"") + (is_deep_probe ? "sdk_deep_probe" : "sdk_probe") + "\"";
         metadata += ",\"probe_read_only\":true";
@@ -6507,7 +6527,7 @@ namespace
             return "{\"success\":true,\"stage\":\"capabilities\",\"applied\":0,\"failures\":0,"
                    "\"message\":\"ok\",\"timing_ms\":{},"
                    "\"metadata\":{\"commands\":[\"ping\",\"capabilities\",\"sdk_probe\",\"sdk_deep_probe\",\"paint_full_route\",\"shutdown\"],"
-                   "\"sdk\":\"chameleonEsp_dumper7_1_7_0_min\","
+                   "\"sdk\":\"runtime_dynamic_reflection_min\","
                    "\"paint_full_route\":\"template_brush_paint\","
                    "\"texture_import_used\":false,"
                    "\"local_paint_used\":false,"

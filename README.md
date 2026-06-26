@@ -64,27 +64,12 @@ make run
 
 The default development mode is configured at the top of `Makefile`.
 
-## Updating the game SDK
+## Runtime SDK Resolution
 
-The managed Dumper-7 SDK is stored in `dumper-sdk/`. The current tracked game SDK folder is:
-
-```text
-dumper-sdk/5.6.1-44394996+++UE5+Release-5.6-Chameleon/CppSDK
-```
-
-When a game update changes SDK layouts or causes startup crashes, regenerate the SDK:
-
-```bash
-make sdk-dump
-```
-
-Requirements:
-
-1. Build once with `make build`.
-2. Start MECCHA CHAMELEON and wait until the game process is running.
-3. Run `make sdk-dump`.
-4. Review and commit the generated SDK changes under `dumper-sdk/`.
-5. Open a pull request with the SDK folder changes and any required runtime layout fixes.
+The runtime resolves the global object/name tables at startup and uses the
+minimal declarations in `runtime/sdk/meccha_sdk_min.hpp`. Generated SDK output
+is not part of this repository. If a game update breaks runtime
+reflection or a field layout, update the minimal runtime declarations directly.
 
 ## License
 

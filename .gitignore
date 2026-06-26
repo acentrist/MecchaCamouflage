@@ -24,11 +24,6 @@
 *.utoc
 *.sig
 
-# Dumper-7 tool build output
-/dumper-sdk/tool/build/
-/dumper-sdk/tool/out/
-/dumper-sdk/tool/.vs/
-
 # IDE / OS noise
 /.vs/
 /.vscode/
