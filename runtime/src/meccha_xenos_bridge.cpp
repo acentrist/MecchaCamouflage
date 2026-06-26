@@ -11,7 +11,6 @@
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
-#include <cmath>
 #include <cstdio>
 #include <cstdint>
 #include <cstdlib>
@@ -26,24 +25,36 @@
 
 #include "../sdk/meccha_mesh_layout.hpp"
 #include "../sdk/meccha_sdk_min.hpp"
+#include "util/raii_win32.hpp"
+#include "util/seh_guard.hpp"
+#include "util/diagnostics.hpp"
+#include "reflection/reflection.hpp"
+#include "protocol/protocol.hpp"
+#include "paint/paint_engine.hpp"
 
 #pragma comment(lib, "Ws2_32.lib")
 #pragma comment(lib, "Gdi32.lib")
 
+using namespace util;
+using namespace reflection;
+using namespace protocol;
+using namespace paint;
+
+// backward compatibility aliases for legacy bridge code
+template <typename T>
+inline auto safe_read(std::uintptr_t address, T fallback = T{}) -> T { return seh_read<T>(address, fallback); }
+inline auto safe_copy(void* dest, const void* src, std::size_t size) -> bool { return seh_copy(dest, src, size); }
+
 namespace
 {
-    constexpr int DefaultBridgePort = 47654;
     constexpr int IdleShutdownSeconds = 15;
-    constexpr std::size_t MaxRequestBytes = 8 * 1024 * 1024;
-    constexpr int PaintChannelAlbedoMetallicRoughness = 5;
     constexpr int ProcessEventVtableIndex = meccha_sdk::Offsets::ProcessEventIdx;
     constexpr UINT PaintDispatchMessage = WM_APP + 0x4D43;
-
     constexpr std::uintptr_t OffClass = 0x10;
     constexpr std::uintptr_t OffName = 0x18;
-    constexpr std::uintptr_t OffOuter = 0x20;
     constexpr std::uintptr_t OffObjectFlags = 0x08;
     constexpr std::uint32_t RFClassDefaultObject = 0x10;
+    constexpr std::uintptr_t OffOuter = 0x20;
     constexpr std::uintptr_t OffSuperStruct = 0x40;
     constexpr std::uintptr_t OffChildren = 0x48;
     constexpr std::uintptr_t OffChildProperties = 0x50;
@@ -88,32 +99,6 @@ namespace
     void __fastcall hooked_process_event(void* object, void* function, void* params);
     LRESULT CALLBACK message_hook_proc(int code, WPARAM wparam, LPARAM lparam);
 
-    template <typename T>
-    auto safe_read(std::uintptr_t address, T fallback = T{}) -> T
-    {
-        __try
-        {
-            return *reinterpret_cast<T*>(address);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return fallback;
-        }
-    }
-
-    auto safe_copy(void* dest, const void* src, std::size_t size) -> bool
-    {
-        __try
-        {
-            std::memcpy(dest, src, size);
-            return true;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
-    }
-
     auto lower_copy(std::string text) -> std::string
     {
         std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -123,72 +108,6 @@ namespace
     auto contains_text(const std::string& text, const char* needle) -> bool
     {
         return text.find(needle) != std::string::npos;
-    }
-
-    auto json_escape(const std::string& text) -> std::string
-    {
-        std::string out{};
-        out.reserve(text.size() + 8);
-        for (const char c : text)
-        {
-            const auto value = static_cast<unsigned char>(c);
-            if (c == '\\' || c == '"')
-            {
-                out.push_back('\\');
-                out.push_back(c);
-            }
-            else if (c == '\n')
-            {
-                out += "\\n";
-            }
-            else if (c == '\r')
-            {
-                out += "\\r";
-            }
-            else if (c == '\t')
-            {
-                out += "\\t";
-            }
-            else if (value < 0x20)
-            {
-                static constexpr char digits[] = "0123456789abcdef";
-                out += "\\u00";
-                out.push_back(digits[(value >> 4) & 0x0f]);
-                out.push_back(digits[value & 0x0f]);
-            }
-            else
-            {
-                out.push_back(c);
-            }
-        }
-        return out;
-    }
-
-    auto response_json(bool success,
-                       const char* stage,
-                       int applied,
-                       int failures,
-                       const std::string& message,
-                       const std::string& metadata = "") -> std::string
-    {
-        std::string out = "{\"success\":";
-        out += success ? "true" : "false";
-        out += ",\"stage\":\"";
-        out += stage;
-        out += "\",\"applied\":";
-        out += std::to_string(applied);
-        out += ",\"failures\":";
-        out += std::to_string(failures);
-        out += ",\"message\":\"";
-        out += json_escape(message);
-        out += "\",\"timing_ms\":{},\"metadata\":{\"bridge\":\"meccha-xenos-bridge\"";
-        if (!metadata.empty())
-        {
-            out += ",";
-            out += metadata;
-        }
-        out += "}}\n";
-        return out;
     }
 
     auto resolve_bridge_port() -> int
@@ -401,600 +320,15 @@ namespace
         return write_runtime_artifact_binary(filename, bytes);
     }
 
-    struct ModuleRange
-    {
-        std::uintptr_t base{0};
-        std::size_t size{0};
-    };
-
-    auto main_module_range() -> ModuleRange
-    {
-        auto* base = reinterpret_cast<std::uint8_t*>(GetModuleHandleW(nullptr));
-        if (!base)
-        {
-            return {};
-        }
-        auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(base);
-        if (dos->e_magic != IMAGE_DOS_SIGNATURE)
-        {
-            return {};
-        }
-        auto* nt = reinterpret_cast<IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
-        if (nt->Signature != IMAGE_NT_SIGNATURE)
-        {
-            return {};
-        }
-        return {reinterpret_cast<std::uintptr_t>(base), nt->OptionalHeader.SizeOfImage};
-    }
-
-    auto address_in_main_module(std::uintptr_t address) -> bool
-    {
-        const auto module = main_module_range();
-        return module.base && address >= module.base && address < module.base + module.size;
-    }
-
-    auto live_uobject(std::uintptr_t object) -> bool
-    {
-        if (!object || address_in_main_module(object))
-        {
-            return false;
-        }
-        const auto flags = safe_read<std::uint32_t>(object + OffObjectFlags, 0);
-        return (flags & RFClassDefaultObject) == 0;
-    }
-
-    auto match_pattern(const std::uint8_t* data, const std::uint8_t* pattern, const std::uint8_t* mask, std::size_t length) -> bool
-    {
-        for (std::size_t i = 0; i < length; ++i)
-        {
-            if (mask[i] && data[i] != pattern[i])
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    auto scan_pattern(const std::vector<std::uint8_t>& pattern, const std::vector<std::uint8_t>& mask) -> std::uintptr_t
-    {
-        const auto module = main_module_range();
-        if (!module.base || !module.size || pattern.empty() || pattern.size() != mask.size())
-        {
-            return 0;
-        }
-        const auto* base = reinterpret_cast<const std::uint8_t*>(module.base);
-        const std::size_t length = pattern.size();
-        for (std::size_t offset = 0; offset + length < module.size; ++offset)
-        {
-            __try
-            {
-                if (match_pattern(base + offset, pattern.data(), mask.data(), length))
-                {
-                    return module.base + offset;
-                }
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-            }
-        }
-        return 0;
-    }
-
-    struct FNameResolver
-    {
-        std::uintptr_t pool{0};
-        int table_offset{0x10};
-        int style{1};
-        const int offsets[14]{0x8, 0x10, 0x18, 0x20, 0x28, 0x30, 0x38, 0x40, 0x48, 0x50, 0x58, 0x60, 0x68, 0x70};
-
-        auto entry(std::uint32_t id, int table, int entry_style) const -> std::string
-        {
-            const auto block_index = id >> 16;
-            const auto within = (id & 0xFFFF) << 1;
-            const auto block = safe_read<std::uintptr_t>(pool + table + static_cast<std::uintptr_t>(block_index) * 8);
-            if (!block)
-            {
-                return {};
-            }
-            const auto header = safe_read<std::uint16_t>(block + within);
-            bool wide = false;
-            int length = 0;
-            if (entry_style == 0)
-            {
-                wide = (header & 1) != 0;
-                length = header >> 1;
-            }
-            else if (entry_style == 2)
-            {
-                wide = (header & 1) != 0;
-                length = (header >> 6) & 0x3FF;
-            }
-            else
-            {
-                length = header & 0x3FF;
-                wide = ((header >> 10) & 1) != 0;
-            }
-            if (length <= 0 || length > 512)
-            {
-                return {};
-            }
-            if (wide)
-            {
-                std::wstring text(length, L'\0');
-                if (!safe_copy(text.data(), reinterpret_cast<void*>(block + within + 2), static_cast<std::size_t>(length) * sizeof(wchar_t)))
-                {
-                    return {};
-                }
-                std::string out{};
-                out.reserve(text.size());
-                for (wchar_t c : text)
-                {
-                    out.push_back(c >= 0 && c < 128 ? static_cast<char>(c) : '?');
-                }
-                return out;
-            }
-            std::string text(length, '\0');
-            if (!safe_copy(text.data(), reinterpret_cast<void*>(block + within + 2), static_cast<std::size_t>(length)))
-            {
-                return {};
-            }
-            return text;
-        }
-
-        auto detect() -> void
-        {
-            for (const int off : offsets)
-            {
-                for (const int st : {2, 1, 0})
-                {
-                    if (entry(0, off, st) == "None")
-                    {
-                        table_offset = off;
-                        style = st;
-                        return;
-                    }
-                }
-            }
-        }
-
-        auto resolve(std::uint32_t id) -> std::string
-        {
-            auto name = entry(id, table_offset, style);
-            if (!name.empty())
-            {
-                return name;
-            }
-            for (const int off : offsets)
-            {
-                for (const int st : {2, 1, 0})
-                {
-                    name = entry(id, off, st);
-                    if (!name.empty())
-                    {
-                        table_offset = off;
-                        style = st;
-                        return name;
-                    }
-                }
-            }
-            return {};
-        }
-    };
-
-    struct Reflection
-    {
-        std::uintptr_t guobject_array{0};
-        std::uintptr_t fname_pool{0};
-        FNameResolver names{};
-        std::uintptr_t meta_class{0};
-
-        auto init(std::string& failure) -> bool
-        {
-            static const std::vector<std::uint8_t> gu_sig{0x48, 0x8D, 0x05, 0, 0, 0, 0, 0x48, 0x89, 0x01, 0x45, 0x8B, 0xD1};
-            static const std::vector<std::uint8_t> gu_mask{1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1};
-            const auto gu_ref = scan_pattern(gu_sig, gu_mask);
-            if (!gu_ref)
-            {
-                failure = "guobject_pattern_not_found";
-                return false;
-            }
-            const auto rel = safe_read<std::int32_t>(gu_ref + 3);
-            guobject_array = gu_ref + 7 + rel;
-            const auto delta_candidate = guobject_array - 0xE3B40;
-            names.pool = delta_candidate;
-            names.detect();
-            if (names.resolve(0) == "None")
-            {
-                fname_pool = delta_candidate;
-                return true;
-            }
-
-            const std::vector<std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>>> patterns{
-                {{0x48, 0x8D, 0x0D, 0, 0, 0, 0, 0xE8, 0, 0, 0, 0, 0x4C, 0x8B, 0xC0}, {1, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1}},
-                {{0x48, 0x8D, 0x0D, 0, 0, 0, 0, 0xE8, 0, 0, 0, 0, 0x48, 0x8B}, {1, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1}},
-                {{0x48, 0x8D, 0x35, 0, 0, 0, 0}, {1, 1, 1, 0, 0, 0, 0}},
-                {{0x48, 0x8D, 0x3D, 0, 0, 0, 0}, {1, 1, 1, 0, 0, 0, 0}},
-            };
-            for (const auto& [sig, mask] : patterns)
-            {
-                const auto ref = scan_pattern(sig, mask);
-                if (!ref)
-                {
-                    continue;
-                }
-                const auto fname_rel = safe_read<std::int32_t>(ref + 3);
-                names.pool = ref + 7 + fname_rel;
-                names.detect();
-                if (names.resolve(0) == "None")
-                {
-                    fname_pool = names.pool;
-                    return true;
-                }
-            }
-            failure = "fname_pool_not_found";
-            return false;
-        }
-
-        auto object_name(std::uintptr_t object) -> std::string
-        {
-            if (!object)
-            {
-                return {};
-            }
-            auto out = names.resolve(safe_read<std::uint32_t>(object + OffName));
-            const auto slash = out.find_last_of("/.");
-            if (slash != std::string::npos)
-            {
-                out = out.substr(slash + 1);
-            }
-            if (out.rfind("Default__", 0) == 0)
-            {
-                out = out.substr(9);
-            }
-            return out;
-        }
-
-        auto class_ptr(std::uintptr_t object) -> std::uintptr_t
-        {
-            return object ? safe_read<std::uintptr_t>(object + OffClass) : 0;
-        }
-
-        auto class_name(std::uintptr_t object) -> std::string
-        {
-            return object_name(class_ptr(object));
-        }
-
-        template <typename Fn>
-        auto for_each_object(Fn fn) -> void
-        {
-            const auto chunks = safe_read<std::uintptr_t>(guobject_array + 0x10);
-            if (!chunks)
-            {
-                return;
-            }
-            for (int ci = 0; ci < 64; ++ci)
-            {
-                const auto chunk = safe_read<std::uintptr_t>(chunks + static_cast<std::uintptr_t>(ci) * 8);
-                if (!chunk)
-                {
-                    break;
-                }
-                for (int wi = 0; wi < 65536; ++wi)
-                {
-                    const auto obj = safe_read<std::uintptr_t>(chunk + static_cast<std::uintptr_t>(wi) * 0x18);
-                    if (obj && fn(obj))
-                    {
-                        return;
-                    }
-                }
-            }
-        }
-
-        auto find_meta_class() -> std::uintptr_t
-        {
-            if (meta_class)
-            {
-                return meta_class;
-            }
-            for_each_object([&](std::uintptr_t obj) {
-                if (object_name(obj) == "Class")
-                {
-                    meta_class = obj;
-                    return true;
-                }
-                return false;
-            });
-            return meta_class;
-        }
-
-        auto find_class(const char* name) -> std::uintptr_t
-        {
-            const auto meta = find_meta_class();
-            if (!meta)
-            {
-                return 0;
-            }
-            std::uintptr_t found = 0;
-            for_each_object([&](std::uintptr_t obj) {
-                if (class_ptr(obj) == meta && object_name(obj) == name)
-                {
-                    found = obj;
-                    return true;
-                }
-                return false;
-            });
-            return found;
-        }
-
-        auto find_first_instance(const char* class_name_text) -> std::uintptr_t
-        {
-            const auto cls = find_class(class_name_text);
-            if (!cls)
-            {
-                return 0;
-            }
-            std::uintptr_t found = 0;
-            for_each_object([&](std::uintptr_t obj) {
-                if (class_ptr(obj) == cls && object_name(obj).rfind("Default__", 0) != 0)
-                {
-                    found = obj;
-                    return true;
-                }
-                return false;
-            });
-            return found;
-        }
-
-        auto find_property(std::uintptr_t structure, const char* property_name) -> std::uintptr_t
-        {
-            for (auto prop = safe_read<std::uintptr_t>(structure + OffChildProperties); prop; prop = safe_read<std::uintptr_t>(prop + OffFFieldNext))
-            {
-                if (names.resolve(safe_read<std::uint32_t>(prop + OffFFieldName)) == property_name)
-                {
-                    return prop;
-                }
-            }
-            return 0;
-        }
-
-        auto resolve_property_offset(const char* class_name_text, const char* property_name) -> int
-        {
-            auto cls = find_class(class_name_text);
-            for (int depth = 0; cls && depth < 32; ++depth)
-            {
-                const auto prop = find_property(cls, property_name);
-                if (prop)
-                {
-                    return safe_read<int>(prop + OffFPropertyOffset, -1);
-                }
-                cls = safe_read<std::uintptr_t>(cls + OffSuperStruct);
-            }
-            return -1;
-        }
-
-        auto find_function(std::uintptr_t object, const char* function_name) -> std::uintptr_t
-        {
-            auto cls = class_ptr(object);
-            for (int depth = 0; cls && depth < 64; ++depth)
-            {
-                for (auto child = safe_read<std::uintptr_t>(cls + OffChildren); child; child = safe_read<std::uintptr_t>(child + OffUFieldNext))
-                {
-                    if (object_name(child) == function_name)
-                    {
-                        return child;
-                    }
-                }
-                cls = safe_read<std::uintptr_t>(cls + OffSuperStruct);
-            }
-            return 0;
-        }
-    };
-
-    struct Color
-    {
-        double r{1.0};
-        double g{1.0};
-        double b{1.0};
-        double roughness{0.0};
-        double metallic{1.0};
-        int apply_mode{0};
-    };
-
-    struct PaintCallStats
-    {
-        int server_success{0};
-        int server_failure{0};
-        int local_success{0};
-        int local_failure{0};
-        std::string first_failure{};
-    };
-
-    struct ScriptArrayParam
-    {
-        void* data{nullptr};
-        int num{0};
-        int max{0};
-    };
-
-    struct ChannelBuffer
-    {
-        bool ok{false};
-        int channel{0};
-        int width{0};
-        int height{0};
-        int bytes_per_pixel{1};
-        std::uint64_t hash{1469598103934665603ULL};
-        std::string failure{};
-        std::vector<std::uint8_t> bytes{};
-    };
-
-    struct FrontSample
-    {
-        double u{0.5};
-        double v{0.5};
-        double r{1.0};
-        double g{1.0};
-        double b{1.0};
-        double roughness{0.65};
-        double metallic{0.0};
-        double radius{0.012};
-        bool floor_like{false};
-        int atlas_priority{0};
-        int atlas_radius{2};
-        double atlas_weight{0.0};
-        double screen_nx{0.5};
-        double screen_ny{0.5};
-        double capture_nx{-1.0};
-        double capture_ny{-1.0};
-        bool has_world_position{false};
-        meccha_sdk::FVector world_position{};
-        meccha_sdk::FVector normal{};
-    };
-
     auto clamp01(double value) -> double;
     auto prop_offset(std::uintptr_t prop) -> int;
     auto prop_element_size(std::uintptr_t prop) -> int;
     auto write_number(Reflection& ref, std::uintptr_t prop, std::uint8_t* container, double value) -> bool;
     auto process_event(std::uintptr_t object, std::uintptr_t function, std::uint8_t* params, std::string& failure) -> bool;
     auto read_return_bool(Reflection& ref, std::uintptr_t function, std::uint8_t* params) -> bool;
-
-    auto fnv1a_update(std::uint64_t hash, const void* data, std::size_t size) -> std::uint64_t
-    {
-        const auto* bytes = static_cast<const std::uint8_t*>(data);
-        for (std::size_t i = 0; i < size; ++i)
-        {
-            hash ^= static_cast<std::uint64_t>(bytes[i]);
-            hash *= 1099511628211ULL;
-        }
-        return hash;
-    }
-
-    auto hash_bytes(const std::vector<std::uint8_t>& bytes) -> std::uint64_t
-    {
-        return bytes.empty() ? 1469598103934665603ULL : fnv1a_update(1469598103934665603ULL, bytes.data(), bytes.size());
-    }
-
-    auto infer_channel_dimensions(std::size_t byte_count) -> std::pair<int, int>
-    {
-        if (byte_count == 0)
-        {
-            return {0, 0};
-        }
-        const auto pixels_rgba = byte_count % 4 == 0 ? byte_count / 4 : byte_count;
-        int width = static_cast<int>(std::sqrt(static_cast<double>(pixels_rgba)));
-        width = std::max(1, width);
-        while (width > 1 && pixels_rgba % static_cast<std::size_t>(width) != 0)
-        {
-            --width;
-        }
-        const int height = static_cast<int>(pixels_rgba / static_cast<std::size_t>(width));
-        return {width, std::max(1, height)};
-    }
-
-    auto find_array_param(Reflection& ref, std::uintptr_t function) -> std::uintptr_t
-    {
-        std::uintptr_t fallback = 0;
-        const auto params_size = safe_read<int>(function + OffPropertiesSize, 0);
-        for (auto prop = safe_read<std::uintptr_t>(function + OffChildProperties); prop; prop = safe_read<std::uintptr_t>(prop + OffFFieldNext))
-        {
-            const auto name = lower_copy(ref.names.resolve(safe_read<std::uint32_t>(prop + OffFFieldName)));
-            if (name == "returnvalue" || contains_text(name, "channel"))
-            {
-                continue;
-            }
-            const auto offset = prop_offset(prop);
-            if (offset >= 0 && params_size > 0 && offset + static_cast<int>(sizeof(ScriptArrayParam)) <= params_size)
-            {
-                if (!fallback)
-                {
-                    fallback = prop;
-                }
-                if (contains_text(name, "byte") || contains_text(name, "data") || contains_text(name, "buffer") ||
-                    contains_text(name, "array") || contains_text(name, "out"))
-                {
-                    return prop;
-                }
-            }
-        }
-        return fallback;
-    }
-
-    auto write_channel_param(Reflection& ref, std::uintptr_t function, std::uint8_t* params, int channel) -> bool
-    {
-        bool wrote = false;
-        for (auto prop = safe_read<std::uintptr_t>(function + OffChildProperties); prop; prop = safe_read<std::uintptr_t>(prop + OffFFieldNext))
-        {
-            const auto name = lower_copy(ref.names.resolve(safe_read<std::uint32_t>(prop + OffFFieldName)));
-            if (contains_text(name, "channel"))
-            {
-                wrote = write_number(ref, prop, params, static_cast<double>(channel)) || wrote;
-            }
-        }
-        return wrote;
-    }
-
-    auto export_channel_bytes(Reflection& ref, std::uintptr_t component, int channel) -> ChannelBuffer
-    {
-        ChannelBuffer out{};
-        out.channel = channel;
-        const auto function = ref.find_function(component, "ExportChannelToBytes");
-        if (!function)
-        {
-            out.failure = "export_unavailable";
-            return out;
-        }
-        const auto params_size = safe_read<int>(function + OffPropertiesSize, 0);
-        if (params_size <= 0 || params_size > 8192)
-        {
-            out.failure = "export_params_size_invalid";
-            return out;
-        }
-        const auto array_prop = find_array_param(ref, function);
-        if (!array_prop)
-        {
-            out.failure = "export_array_param_unavailable";
-            return out;
-        }
-        const auto array_offset = prop_offset(array_prop);
-        if (array_offset < 0)
-        {
-            out.failure = "export_array_offset_invalid";
-            return out;
-        }
-        std::vector<std::uint8_t> params(static_cast<std::size_t>(params_size), 0);
-        write_channel_param(ref, function, params.data(), channel);
-        std::string failure{};
-        if (!process_event(component, function, params.data(), failure))
-        {
-            out.failure = "export_process_event_failed:" + failure;
-            return out;
-        }
-        const bool return_ok = read_return_bool(ref, function, params.data());
-        const auto array = safe_read<ScriptArrayParam>(reinterpret_cast<std::uintptr_t>(params.data() + array_offset));
-        if (!array.data || array.num <= 0 || array.num > 128 * 1024 * 1024)
-        {
-            out.failure = return_ok ? "export_array_invalid" : "export_return_false_array_invalid";
-            return out;
-        }
-        out.bytes.resize(static_cast<std::size_t>(array.num));
-        if (!safe_copy(out.bytes.data(), array.data, out.bytes.size()))
-        {
-            out.failure = "export_array_copy_failed";
-            out.bytes.clear();
-            return out;
-        }
-        out.hash = hash_bytes(out.bytes);
-        const auto [width, height] = infer_channel_dimensions(out.bytes.size());
-        out.width = width;
-        out.height = height;
-        out.bytes_per_pixel = (width > 0 && height > 0 && out.bytes.size() == static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4) ? 4 : 1;
-        out.ok = true;
-        if (!return_ok)
-        {
-            out.failure = "export_return_false_but_array_observed";
-        }
-        return out;
-    }
+    auto find_array_param(Reflection& ref, std::uintptr_t function) -> std::uintptr_t;
+    auto write_channel_param(Reflection& ref, std::uintptr_t function, std::uint8_t* params, int channel) -> bool;
+    auto export_channel_bytes(Reflection& ref, std::uintptr_t component, int channel) -> ChannelBuffer;
 
     auto import_channel_bytes(Reflection& ref, std::uintptr_t component, int channel, const std::vector<std::uint8_t>& bytes, std::string& failure) -> bool
     {
@@ -1044,6 +378,69 @@ namespace
             failure = "import_return_false_observation_required";
         }
         return true;
+    }
+
+    auto find_array_param(Reflection& ref, std::uintptr_t function) -> std::uintptr_t
+    {
+        std::uintptr_t fallback = 0;
+        const auto psz = safe_read<int>(function + OffPropertiesSize, 0);
+        for (auto prop = safe_read<std::uintptr_t>(function + OffChildProperties); prop;
+             prop = safe_read<std::uintptr_t>(prop + OffFFieldNext))
+        {
+            const auto name = lower_copy(ref.names.resolve(safe_read<std::uint32_t>(prop + OffFFieldName)));
+            if (name == "returnvalue" || contains_text(name, "channel")) continue;
+            const auto off = prop_offset(prop);
+            if (off >= 0 && psz > 0 && off + static_cast<int>(sizeof(protocol::ScriptArrayParam)) <= psz)
+            {
+                if (!fallback) fallback = prop;
+                if (contains_text(name, "byte") || contains_text(name, "data") || contains_text(name, "buffer") ||
+                    contains_text(name, "array") || contains_text(name, "out")) return prop;
+            }
+        }
+        return fallback;
+    }
+
+    auto write_channel_param(Reflection& ref, std::uintptr_t function, std::uint8_t* params, int channel) -> bool
+    {
+        bool wrote = false;
+        for (auto prop = safe_read<std::uintptr_t>(function + OffChildProperties); prop;
+             prop = safe_read<std::uintptr_t>(prop + OffFFieldNext))
+        {
+            const auto name = lower_copy(ref.names.resolve(safe_read<std::uint32_t>(prop + OffFFieldName)));
+            if (contains_text(name, "channel"))
+                wrote = write_number(ref, prop, params, static_cast<double>(channel)) || wrote;
+        }
+        return wrote;
+    }
+
+    auto export_channel_bytes(Reflection& ref, std::uintptr_t component, int channel) -> ChannelBuffer
+    {
+        ChannelBuffer out{};
+        out.channel = channel;
+        const auto function = ref.find_function(component, "ExportChannelToBytes");
+        if (!function) { out.failure = "export_unavailable"; return out; }
+        const auto psz = safe_read<int>(function + OffPropertiesSize, 0);
+        if (psz <= 0 || psz > 8192) { out.failure = "export_params_size_invalid"; return out; }
+        const auto array_prop = find_array_param(ref, function);
+        if (!array_prop) { out.failure = "export_array_param_unavailable"; return out; }
+        const auto array_offset = prop_offset(array_prop);
+        if (array_offset < 0) { out.failure = "export_array_offset_invalid"; return out; }
+        std::vector<std::uint8_t> params(static_cast<std::size_t>(psz), 0);
+        write_channel_param(ref, function, params.data(), channel);
+        std::string failure{};
+        if (!process_event(component, function, params.data(), failure)) { out.failure = "export_failed:" + failure; return out; }
+        const bool return_ok = read_return_bool(ref, function, params.data());
+        const auto array = safe_read<ScriptArrayParam>(reinterpret_cast<std::uintptr_t>(params.data() + array_offset));
+        if (!array.data || array.num <= 0 || array.num > 128 * 1024 * 1024) { out.failure = return_ok ? "export_array_invalid" : "export_false"; return out; }
+        out.bytes.resize(static_cast<std::size_t>(array.num));
+        if (!seh_copy(out.bytes.data(), array.data, out.bytes.size())) { out.failure = "copy_failed"; out.bytes.clear(); return out; }
+        out.hash = hash_bytes(out.bytes);
+        const auto [width, height] = infer_channel_dimensions(out.bytes.size());
+        out.width = width; out.height = height;
+        out.bytes_per_pixel = (width > 0 && height > 0 && out.bytes.size() == static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4) ? 4 : 1;
+        out.ok = true;
+        if (!return_ok) out.failure = "export_false";
+        return out;
     }
 
     auto parse_front_samples(const std::string& request, int limit = 4096) -> std::vector<FrontSample>
@@ -1105,113 +502,6 @@ namespace
         return samples;
     }
 
-    auto fill_channel(std::vector<std::uint8_t>& bytes, std::uint8_t r, std::uint8_t g, std::uint8_t b, std::uint8_t a) -> void
-    {
-        if (bytes.empty())
-        {
-            return;
-        }
-        if (bytes.size() % 4 == 0)
-        {
-            for (std::size_t i = 0; i + 3 < bytes.size(); i += 4)
-            {
-                bytes[i + 0] = r;
-                bytes[i + 1] = g;
-                bytes[i + 2] = b;
-                bytes[i + 3] = a;
-            }
-            return;
-        }
-        std::fill(bytes.begin(), bytes.end(), r);
-    }
-
-    auto paint_disc(std::vector<std::uint8_t>& bytes, int width, int height, const FrontSample& sample, bool albedo) -> void
-    {
-        if (bytes.empty() || width <= 0 || height <= 0)
-        {
-            return;
-        }
-        const bool rgba = bytes.size() == static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4;
-        const int cx = std::min(width - 1, std::max(0, static_cast<int>(sample.u * static_cast<double>(width))));
-        const int cy = std::min(height - 1, std::max(0, static_cast<int>((1.0 - sample.v) * static_cast<double>(height))));
-        const int radius = std::max(1, static_cast<int>(sample.radius * static_cast<double>(std::min(width, height))));
-        const int r2 = radius * radius;
-        const auto rb = static_cast<std::uint8_t>(std::round(clamp01(sample.r) * 255.0));
-        const auto gb = static_cast<std::uint8_t>(std::round(clamp01(sample.g) * 255.0));
-        const auto bb = static_cast<std::uint8_t>(std::round(clamp01(sample.b) * 255.0));
-        const auto scalar = static_cast<std::uint8_t>(std::round(clamp01(sample.roughness) * 255.0));
-        for (int y = std::max(0, cy - radius); y <= std::min(height - 1, cy + radius); ++y)
-        {
-            for (int x = std::max(0, cx - radius); x <= std::min(width - 1, cx + radius); ++x)
-            {
-                const int dx = x - cx;
-                const int dy = y - cy;
-                if ((dx * dx + dy * dy) > r2)
-                {
-                    continue;
-                }
-                const auto pixel = static_cast<std::size_t>(y) * static_cast<std::size_t>(width) + static_cast<std::size_t>(x);
-                if (rgba)
-                {
-                    const auto offset = pixel * 4;
-                    bytes[offset + 0] = albedo ? rb : scalar;
-                    bytes[offset + 1] = albedo ? gb : scalar;
-                    bytes[offset + 2] = albedo ? bb : scalar;
-                    bytes[offset + 3] = 255;
-                }
-                else if (pixel < bytes.size())
-                {
-                    bytes[pixel] = albedo ? rb : scalar;
-                }
-            }
-        }
-    }
-
-    auto normalize_material_channel_layout(ChannelBuffer& channel, const ChannelBuffer& albedo) -> void
-    {
-        if (!channel.ok || !albedo.ok || albedo.width <= 0 || albedo.height <= 0)
-        {
-            return;
-        }
-        const auto pixels = static_cast<std::size_t>(albedo.width) * static_cast<std::size_t>(albedo.height);
-        if (pixels == 0)
-        {
-            return;
-        }
-        if (channel.bytes.size() == pixels)
-        {
-            channel.width = albedo.width;
-            channel.height = albedo.height;
-            channel.bytes_per_pixel = 1;
-        }
-        else if (channel.bytes.size() == pixels * 4)
-        {
-            channel.width = albedo.width;
-            channel.height = albedo.height;
-            channel.bytes_per_pixel = 4;
-        }
-    }
-
-    auto fill_material_channel(std::vector<std::uint8_t>& bytes, int bytes_per_pixel, std::uint8_t value) -> void
-    {
-        if (bytes.empty())
-        {
-            return;
-        }
-        if (bytes_per_pixel >= 4)
-        {
-            for (std::size_t i = 0; i + 3 < bytes.size(); i += 4)
-            {
-                bytes[i + 0] = value;
-                bytes[i + 1] = value;
-                bytes[i + 2] = value;
-                bytes[i + 3] = 255;
-            }
-            return;
-        }
-        std::fill(bytes.begin(), bytes.end(), value);
-    }
-
     auto paint_material_disc(std::vector<std::uint8_t>& bytes,
                              int width,
                              int height,
@@ -1254,56 +544,13 @@ namespace
                 else
                 {
                     bytes[offset] = value;
-                }
-            }
+                }}
         }
     }
 
     auto clamp01(double value) -> double
     {
         return std::max(0.0, std::min(1.0, value));
-    }
-
-    auto sdk_luma(const Color& color) -> double
-    {
-        return color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722;
-    }
-
-    auto sdk_is_red_paint_artifact(const Color& color) -> bool
-    {
-        return color.r > 0.78 && color.g < 0.22 && color.b < 0.22;
-    }
-
-    auto sdk_infer_surface_material(Color color, bool floor_like) -> Color
-    {
-        if (floor_like)
-        {
-            color.roughness = std::max(0.86, std::min(0.99, std::max(color.roughness, 0.86)));
-            color.metallic = std::max(0.0, std::min(0.12, color.metallic));
-            return color;
-        }
-        color.roughness = std::max(0.35, std::min(0.99, color.roughness <= 0.0 ? 0.92 : color.roughness));
-        color.metallic = clamp01(color.metallic);
-        return color;
-    }
-
-    auto sdk_sanitize_background_color(const Color& captured, const Color& material_hint) -> Color
-    {
-        if (!sdk_is_red_paint_artifact(captured))
-        {
-            return captured;
-        }
-        Color fallback = material_hint;
-        if (sdk_is_red_paint_artifact(fallback))
-        {
-            fallback = Color{0.34, 0.37, 0.31, 0.94, 0.0};
-        }
-        fallback.r = std::max(0.05, std::min(0.72, fallback.r));
-        fallback.g = std::max(0.08, std::min(0.76, fallback.g));
-        fallback.b = std::max(0.06, std::min(0.70, fallback.b));
-        fallback.roughness = std::max(0.72, std::min(0.98, fallback.roughness));
-        fallback.metallic = 0.0;
-        return fallback;
     }
 
     auto sdk_compensate_projected_albedo_preserve_material(Color color, bool floor_like) -> Color
@@ -10327,8 +9574,8 @@ namespace
                 fail_job("template_points_unavailable", "template route produced no direct template points");
                 return;
             }
-            job->paint_tick_budget_ms = 6.0;
-            job->max_paints_per_tick = 4096;
+            job->paint_tick_budget_ms = 30.0;
+            job->max_paints_per_tick = 16384;
             job->auto_flush_threshold = std::max(8192, std::min(32768, template_count));
             const bool enabled = true;
             const bool disabled = false;
@@ -10684,7 +9931,7 @@ namespace
         const bool strict_38923_front_texture_import = texture_sync_probe;
         const bool diagnostic_import = texture_sync_probe || static_hybrid_probe;
         const bool disabled_full_stream = false;
-        const bool disabled_paint_stream = false;
+        const bool disabled_paint_stream = true;
         const bool disabled_sample_stream = false;
         const bool disabled_metallic_stream = false;
         const bool disabled_mesh_probe_only = false;
@@ -12666,7 +11913,13 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
     {
         DisableThreadLibraryCalls(module);
         g_module = module;
-        std::thread(bridge_thread).detach();
+        __try
+        {
+            std::thread(bridge_thread).detach();
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
     }
     if (reason == DLL_PROCESS_DETACH)
     {
