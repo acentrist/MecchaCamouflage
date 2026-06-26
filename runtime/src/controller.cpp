@@ -680,7 +680,7 @@ namespace
         const auto native_dir = log_dir / L"native";
         std::error_code ec;
         std::filesystem::create_directories(native_dir, ec);
-        const auto bridge_path = native_dir / utf8_to_wide("meccha-xenos-bridge-" + hash + "-" + std::to_string(port) + ".dll");
+        const auto bridge_path = native_dir / utf8_to_wide("runtime-bridge-" + hash + "-" + std::to_string(port) + ".dll");
         bool write = true;
         if (std::filesystem::exists(bridge_path, ec))
         {

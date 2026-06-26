@@ -28,7 +28,7 @@ jobs:
         shell: pwsh
         run: |
           if (-not (Test-Path ".build/bin/meccha-camouflage.exe")) { throw "runtime exe missing" }
-          if (-not (Test-Path ".build/bin/meccha-xenos-bridge.dll")) { throw "bridge dll missing" }
+          if (-not (Test-Path ".build/bin/runtime-bridge.dll")) { throw "bridge dll missing" }
 
       - name: Package dry run
         shell: pwsh

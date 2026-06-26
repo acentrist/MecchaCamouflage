@@ -13,9 +13,9 @@ New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $ObjDir = Join-Path $RuntimeRoot ".build\obj"
 New-Item -ItemType Directory -Force -Path $ObjDir | Out-Null
 
-$BridgeSource = Join-Path $RuntimeRoot "runtime\src\meccha_xenos_bridge.cpp"
-$InjectorSource = Join-Path $RuntimeRoot "runtime\src\meccha_xenos_injector.cpp"
-$ControllerSource = Join-Path $RuntimeRoot "runtime\src\meccha_runtime_controller.cpp"
+$BridgeSource = Join-Path $RuntimeRoot "runtime\src\bridge.cpp"
+$InjectorSource = Join-Path $RuntimeRoot "runtime\src\injector.cpp"
+$ControllerSource = Join-Path $RuntimeRoot "runtime\src\controller.cpp"
 foreach ($source in @($BridgeSource, $InjectorSource, $ControllerSource)) {
     if (-not (Test-Path $source)) {
         throw "Source not found: $source"
@@ -70,34 +70,34 @@ $ExeName = Get-ExeBaseName -Name $ExeName
 
 Push-Location $RuntimeRoot
 try {
-    $BridgeOutput = Join-Path $OutDir "meccha-xenos-bridge.dll"
-    $InjectorOutput = Join-Path $OutDir "meccha-xenos-injector.exe"
+    $BridgeOutput = Join-Path $OutDir "runtime-bridge.dll"
+    $InjectorOutput = Join-Path $OutDir "runtime-injector.exe"
     $ControllerOutput = Join-Path $OutDir "$ExeName.exe"
 
     Invoke-VsToolCommand -ToolName "cl.exe" -ToolArgs @(
         "/nologo", "/std:c++17", "/EHsc", "/O2", "/LD", $BridgeSource,
-        "/Fo:$(Join-Path $ObjDir 'meccha_xenos_bridge.obj')",
+        "/Fo:$(Join-Path $ObjDir 'bridge.obj')",
         "/Fe:$BridgeOutput",
         "Ws2_32.lib",
         "User32.lib"
     )
     Invoke-VsToolCommand -ToolName "cl.exe" -ToolArgs @(
         "/nologo", "/EHsc", "/O2", $InjectorSource,
-        "/Fo:$(Join-Path $ObjDir 'meccha_xenos_injector.obj')",
+        "/Fo:$(Join-Path $ObjDir 'injector.obj')",
         "/Fe:$InjectorOutput"
     )
 
     if (-not (Test-Path $BridgeOutput)) { throw "Bridge DLL was not produced: $BridgeOutput" }
 
-    $ResourceRc = Join-Path $ObjDir "meccha_runtime_controller.rc"
-    $ResourceRes = Join-Path $ObjDir "meccha_runtime_controller.res"
+    $ResourceRc = Join-Path $ObjDir "controller.rc"
+    $ResourceRes = Join-Path $ObjDir "controller.res"
     $BridgeResourcePath = ((Resolve-Path $BridgeOutput).Path -replace '\\', '\\')
     Set-Content -Encoding ASCII -Path $ResourceRc -Value "101 RCDATA `"$BridgeResourcePath`"`r`n"
     Invoke-VsToolCommand -ToolName "rc.exe" -ToolArgs @("/nologo", "/fo", $ResourceRes, $ResourceRc)
 
     Invoke-VsToolCommand -ToolName "cl.exe" -ToolArgs @(
         "/nologo", "/std:c++17", "/EHsc", "/O2", $ControllerSource, $ResourceRes,
-        "/Fo:$(Join-Path $ObjDir 'meccha_runtime_controller.obj')",
+        "/Fo:$(Join-Path $ObjDir 'controller.obj')",
         "/Fe:$ControllerOutput",
         "Ws2_32.lib",
         "User32.lib"
@@ -112,5 +112,5 @@ finally {
 
 Write-Host "Built runtime artifacts:"
 Write-Host "  $(Join-Path $OutDir "$ExeName.exe")"
-Write-Host "  $(Join-Path $OutDir 'meccha-xenos-bridge.dll')"
-Write-Host "  $(Join-Path $OutDir 'meccha-xenos-injector.exe')"
+Write-Host "  $(Join-Path $OutDir 'runtime-bridge.dll')"
+Write-Host "  $(Join-Path $OutDir 'runtime-injector.exe')"

@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace meccha_sdk
+namespace sdk
 {
     namespace FieldOffsets
     {

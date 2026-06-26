@@ -93,7 +93,7 @@ int wmain(int argc, wchar_t** argv)
 {
     if (argc < 3)
     {
-        std::wcerr << L"usage: meccha-xenos-injector.exe <process.exe> <bridge.dll>\n";
+        std::wcerr << L"usage: runtime-injector.exe <process.exe> <bridge.dll>\n";
         return 64;
     }
     const std::wstring process_name = argv[1];

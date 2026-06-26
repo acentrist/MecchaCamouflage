@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <initializer_list>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -25,7 +26,7 @@
 #include <utility>
 #include <vector>
 
-#include "../sdk/meccha_sdk_min.hpp"
+#include "../include/sdk.hpp"
 
 #pragma comment(lib, "Ws2_32.lib")
 #pragma comment(lib, "Gdi32.lib")
@@ -180,7 +181,7 @@ namespace
         out += std::to_string(failures);
         out += ",\"message\":\"";
         out += json_escape(message);
-        out += "\",\"timing_ms\":{},\"metadata\":{\"bridge\":\"meccha-xenos-bridge\"";
+        out += "\",\"timing_ms\":{},\"metadata\":{\"bridge\":\"runtime-bridge\"";
         if (!metadata.empty())
         {
             out += ",";
@@ -738,7 +739,7 @@ namespace
         double screen_nx{0.5};
         double screen_ny{0.5};
         bool has_world_position{false};
-        meccha_sdk::FVector world_position{};
+        sdk::FVector world_position{};
     };
 
     auto clamp01(double value) -> double;
@@ -2196,7 +2197,7 @@ namespace
         std::uintptr_t k2_get_pawn_function{0};
         std::uintptr_t pawn{0};
         std::uintptr_t k2_get_actor_location_function{0};
-        meccha_sdk::FVector body_world_position{};
+        sdk::FVector body_world_position{};
         std::uintptr_t component{0};
         std::uintptr_t server_paint_batch_function{0};
     };
@@ -2211,41 +2212,41 @@ namespace
     {
         bool ok{false};
         std::string failure{};
-        meccha_sdk::FVector location{};
-        meccha_sdk::FVector direction{};
+        sdk::FVector location{};
+        sdk::FVector direction{};
     };
 
-    auto sdk_vec_add(const meccha_sdk::FVector& a, const meccha_sdk::FVector& b) -> meccha_sdk::FVector
+    auto sdk_vec_add(const sdk::FVector& a, const sdk::FVector& b) -> sdk::FVector
     {
         return {a.X + b.X, a.Y + b.Y, a.Z + b.Z};
     }
 
-    auto sdk_vec_sub(const meccha_sdk::FVector& a, const meccha_sdk::FVector& b) -> meccha_sdk::FVector
+    auto sdk_vec_sub(const sdk::FVector& a, const sdk::FVector& b) -> sdk::FVector
     {
         return {a.X - b.X, a.Y - b.Y, a.Z - b.Z};
     }
 
-    auto sdk_vec_mul(const meccha_sdk::FVector& a, double scale) -> meccha_sdk::FVector
+    auto sdk_vec_mul(const sdk::FVector& a, double scale) -> sdk::FVector
     {
         return {a.X * scale, a.Y * scale, a.Z * scale};
     }
 
-    auto sdk_vec_dot(const meccha_sdk::FVector& a, const meccha_sdk::FVector& b) -> double
+    auto sdk_vec_dot(const sdk::FVector& a, const sdk::FVector& b) -> double
     {
         return a.X * b.X + a.Y * b.Y + a.Z * b.Z;
     }
 
-    auto sdk_vec_cross(const meccha_sdk::FVector& a, const meccha_sdk::FVector& b) -> meccha_sdk::FVector
+    auto sdk_vec_cross(const sdk::FVector& a, const sdk::FVector& b) -> sdk::FVector
     {
         return {a.Y * b.Z - a.Z * b.Y, a.Z * b.X - a.X * b.Z, a.X * b.Y - a.Y * b.X};
     }
 
-    auto sdk_vec_len(const meccha_sdk::FVector& a) -> double
+    auto sdk_vec_len(const sdk::FVector& a) -> double
     {
         return std::sqrt(a.X * a.X + a.Y * a.Y + a.Z * a.Z);
     }
 
-    auto sdk_vec_normalize(const meccha_sdk::FVector& a) -> meccha_sdk::FVector
+    auto sdk_vec_normalize(const sdk::FVector& a) -> sdk::FVector
     {
         const auto len = sdk_vec_len(a);
         if (len <= 0.000001)
@@ -2313,7 +2314,7 @@ namespace
         return offset < 0 ? 0 : safe_read<std::uintptr_t>(reinterpret_cast<std::uintptr_t>(container + offset));
     }
 
-    auto sdk_write_vector3(Reflection& ref, std::uintptr_t prop, std::uint8_t* container, const meccha_sdk::FVector& value) -> bool
+    auto sdk_write_vector3(Reflection& ref, std::uintptr_t prop, std::uint8_t* container, const sdk::FVector& value) -> bool
     {
         const auto offset = prop_offset(prop);
         if (offset < 0)
@@ -2364,7 +2365,7 @@ namespace
         return false;
     }
 
-    auto sdk_read_vector3(Reflection& ref, std::uintptr_t prop, std::uint8_t* container, meccha_sdk::FVector& out) -> bool
+    auto sdk_read_vector3(Reflection& ref, std::uintptr_t prop, std::uint8_t* container, sdk::FVector& out) -> bool
     {
         const auto offset = prop_offset(prop);
         if (offset < 0)
@@ -2640,12 +2641,12 @@ namespace
             {
                 return false;
             }
-            const auto game_instance = safe_read<std::uintptr_t>(world + meccha_sdk::FieldOffsets::UWorld_OwningGameInstance);
+            const auto game_instance = safe_read<std::uintptr_t>(world + sdk::FieldOffsets::UWorld_OwningGameInstance);
             if (!live_uobject(game_instance))
             {
                 return false;
             }
-            const auto local_players = safe_read<meccha_sdk::TArray<std::uintptr_t>>(game_instance + meccha_sdk::FieldOffsets::UGameInstance_LocalPlayers);
+            const auto local_players = safe_read<sdk::TArray<std::uintptr_t>>(game_instance + sdk::FieldOffsets::UGameInstance_LocalPlayers);
             return local_players.Data && local_players.Num > 0 && local_players.Num <= 8;
         };
 
@@ -2666,13 +2667,13 @@ namespace
         {
             throw_sdk_update_required("runtime object scan found no active UWorld with LocalPlayers");
         }
-        ctx.game_instance = safe_read<std::uintptr_t>(ctx.world + meccha_sdk::FieldOffsets::UWorld_OwningGameInstance);
+        ctx.game_instance = safe_read<std::uintptr_t>(ctx.world + sdk::FieldOffsets::UWorld_OwningGameInstance);
         if (!live_uobject(ctx.game_instance))
         {
             throw_sdk_update_required("UWorld::OwningGameInstance unavailable");
         }
 
-        const auto local_players = safe_read<meccha_sdk::TArray<std::uintptr_t>>(ctx.game_instance + meccha_sdk::FieldOffsets::UGameInstance_LocalPlayers);
+        const auto local_players = safe_read<sdk::TArray<std::uintptr_t>>(ctx.game_instance + sdk::FieldOffsets::UGameInstance_LocalPlayers);
         ctx.local_players_count = local_players.Num;
         if (!local_players.Data || local_players.Num <= 0 || local_players.Num > 8)
         {
@@ -2685,7 +2686,7 @@ namespace
             ctx.message = "LocalPlayers[0] unavailable";
             return ctx;
         }
-        ctx.controller = safe_read<std::uintptr_t>(ctx.local_player + meccha_sdk::FieldOffsets::UPlayer_PlayerController);
+        ctx.controller = safe_read<std::uintptr_t>(ctx.local_player + sdk::FieldOffsets::UPlayer_PlayerController);
         if (!live_uobject(ctx.controller))
         {
             ctx.stage = "local_pawn_unavailable";
@@ -2699,7 +2700,7 @@ namespace
             ctx.message = "PlayerController.K2_GetPawn unavailable";
             return ctx;
         }
-        meccha_sdk::Controller_K2_GetPawn pawn_params{};
+        sdk::Controller_K2_GetPawn pawn_params{};
         std::string process_failure{};
         if (!process_event(ctx.controller, ctx.k2_get_pawn_function, reinterpret_cast<std::uint8_t*>(&pawn_params), process_failure))
         {
@@ -2717,14 +2718,14 @@ namespace
         ctx.k2_get_actor_location_function = ref.find_function(ctx.pawn, "K2_GetActorLocation");
         if (ctx.k2_get_actor_location_function)
         {
-            meccha_sdk::Actor_K2_GetActorLocation location_params{};
+            sdk::Actor_K2_GetActorLocation location_params{};
             std::string location_failure{};
             if (process_event(ctx.pawn, ctx.k2_get_actor_location_function, reinterpret_cast<std::uint8_t*>(&location_params), location_failure))
             {
                 ctx.body_world_position = location_params.ReturnValue;
             }
         }
-        ctx.component = safe_read<std::uintptr_t>(ctx.pawn + meccha_sdk::FieldOffsets::BP_FirstPersonCharacter_RuntimePaintable);
+        ctx.component = safe_read<std::uintptr_t>(ctx.pawn + sdk::FieldOffsets::BP_FirstPersonCharacter_RuntimePaintable);
         auto component_class = lower_copy(ref.class_name(ctx.component));
         if (!live_uobject(ctx.component) || !contains_text(component_class, "runtimepaint"))
         {
@@ -2803,8 +2804,8 @@ namespace
         std::string camera_location_source{"deproject_center"};
         std::string camera_rotation_source{"deproject_center_ray"};
         std::string camera_fov_source{"deproject_horizontal"};
-        meccha_sdk::FVector capture_location{};
-        meccha_sdk::FVector capture_direction{};
+        sdk::FVector capture_location{};
+        sdk::FVector capture_direction{};
         int project_attempts{0};
         int project_success{0};
         int project_failed{0};
@@ -3339,7 +3340,7 @@ namespace
             }
             else if (contains_text(name, "worlddirection") || contains_text(name, "world_direction") || contains_text(name, "direction"))
             {
-                meccha_sdk::FVector direction{};
+                sdk::FVector direction{};
                 if (sdk_read_vector3(ref, prop, params.data(), direction))
                 {
                     out.direction = sdk_vec_normalize(direction);
@@ -3564,9 +3565,9 @@ namespace
                           double b,
                           double metallic,
                           double roughness,
-                          meccha_sdk::EPaintChannelApplyMode apply_mode) -> meccha_sdk::FPaintChannelData
+                          sdk::EPaintChannelApplyMode apply_mode) -> sdk::FPaintChannelData
     {
-        meccha_sdk::FPaintChannelData data{};
+        sdk::FPaintChannelData data{};
         data.AlbedoColor.R = static_cast<float>(clamp01(r));
         data.AlbedoColor.G = static_cast<float>(clamp01(g));
         data.AlbedoColor.B = static_cast<float>(clamp01(b));
@@ -3580,12 +3581,12 @@ namespace
 
     auto sdk_make_stroke(double u,
                          double v,
-                         const meccha_sdk::FPaintChannelData& channel,
-                         const meccha_sdk::FRuntimeBrushSettings& brush,
-                         meccha_sdk::EPaintChannel target_channel,
-                         const meccha_sdk::FVector& world_position) -> meccha_sdk::FPaintStroke
+                         const sdk::FPaintChannelData& channel,
+                         const sdk::FRuntimeBrushSettings& brush,
+                         sdk::EPaintChannel target_channel,
+                         const sdk::FVector& world_position) -> sdk::FPaintStroke
     {
-        meccha_sdk::FPaintStroke stroke{};
+        sdk::FPaintStroke stroke{};
         stroke.Uv.X = clamp01(u);
         stroke.Uv.Y = clamp01(v);
         stroke.WorldPosition = world_position;
@@ -3606,9 +3607,9 @@ namespace
 
     auto sdk_make_uv_stroke(double u,
                             double v,
-                            const meccha_sdk::FPaintChannelData& channel,
-                            const meccha_sdk::FRuntimeBrushSettings& brush,
-                            meccha_sdk::EPaintChannel target_channel) -> meccha_sdk::FPaintStroke
+                            const sdk::FPaintChannelData& channel,
+                            const sdk::FRuntimeBrushSettings& brush,
+                            sdk::EPaintChannel target_channel) -> sdk::FPaintStroke
     {
         auto stroke = sdk_make_stroke(u, v, channel, brush, target_channel, {});
         stroke.bHasWorldPosition = false;
@@ -3617,7 +3618,7 @@ namespace
     }
 
     auto sdk_call_server_paint_batch(const SdkContext& ctx,
-                                     const std::vector<meccha_sdk::FPaintStroke>& strokes,
+                                     const std::vector<sdk::FPaintStroke>& strokes,
                                      std::size_t offset,
                                      std::size_t count,
                                      std::string& failure) -> bool
@@ -3632,8 +3633,8 @@ namespace
             failure = "paint_component_unavailable";
             return false;
         }
-        meccha_sdk::RuntimePaintableComponent_ServerPaintBatch params{};
-        params.Batch.Strokes.Data = const_cast<meccha_sdk::FPaintStroke*>(strokes.data() + offset);
+        sdk::RuntimePaintableComponent_ServerPaintBatch params{};
+        params.Batch.Strokes.Data = const_cast<sdk::FPaintStroke*>(strokes.data() + offset);
         params.Batch.Strokes.Num = static_cast<std::int32_t>(count);
         params.Batch.Strokes.Max = static_cast<std::int32_t>(count);
         if (!process_event(ctx.component, ctx.server_paint_batch_function, reinterpret_cast<std::uint8_t*>(&params), failure))
@@ -3653,7 +3654,7 @@ namespace
         bool all_whiteish{false};
     };
 
-    auto sdk_front_color_stats(const std::vector<meccha_sdk::FPaintStroke>& strokes) -> SdkFrontColorStats
+    auto sdk_front_color_stats(const std::vector<sdk::FPaintStroke>& strokes) -> SdkFrontColorStats
     {
         SdkFrontColorStats stats{};
         stats.count = static_cast<int>(strokes.size());
@@ -3762,7 +3763,7 @@ namespace
         return false;
     }
 
-    auto sdk_read_rotator(Reflection& ref, std::uintptr_t prop, std::uint8_t* container, meccha_sdk::FRotator& out) -> bool
+    auto sdk_read_rotator(Reflection& ref, std::uintptr_t prop, std::uint8_t* container, sdk::FRotator& out) -> bool
     {
         const auto offset = prop_offset(prop);
         if (offset < 0)
@@ -3795,7 +3796,7 @@ namespace
         return false;
     }
 
-    auto sdk_read_return_vector3_param(Reflection& ref, std::uintptr_t function, std::uint8_t* params, meccha_sdk::FVector& value) -> bool
+    auto sdk_read_return_vector3_param(Reflection& ref, std::uintptr_t function, std::uint8_t* params, sdk::FVector& value) -> bool
     {
         for (auto prop = safe_read<std::uintptr_t>(function + OffChildProperties); prop; prop = safe_read<std::uintptr_t>(prop + OffFFieldNext))
         {
@@ -3807,7 +3808,7 @@ namespace
         return false;
     }
 
-    auto sdk_read_return_rotator_param(Reflection& ref, std::uintptr_t function, std::uint8_t* params, meccha_sdk::FRotator& value) -> bool
+    auto sdk_read_return_rotator_param(Reflection& ref, std::uintptr_t function, std::uint8_t* params, sdk::FRotator& value) -> bool
     {
         for (auto prop = safe_read<std::uintptr_t>(function + OffChildProperties); prop; prop = safe_read<std::uintptr_t>(prop + OffFFieldNext))
         {
@@ -3860,7 +3861,7 @@ namespace
                sdk_read_return_number_param(ref, function, params.data(), value);
     }
 
-    auto sdk_call_no_params_return_vector3(Reflection& ref, std::uintptr_t object, const char* function_name, meccha_sdk::FVector& value) -> bool
+    auto sdk_call_no_params_return_vector3(Reflection& ref, std::uintptr_t object, const char* function_name, sdk::FVector& value) -> bool
     {
         const auto function = ref.find_function(object, function_name);
         if (!function)
@@ -3878,7 +3879,7 @@ namespace
                sdk_read_return_vector3_param(ref, function, params.data(), value);
     }
 
-    auto sdk_call_no_params_return_rotator(Reflection& ref, std::uintptr_t object, const char* function_name, meccha_sdk::FRotator& value) -> bool
+    auto sdk_call_no_params_return_rotator(Reflection& ref, std::uintptr_t object, const char* function_name, sdk::FRotator& value) -> bool
     {
         const auto function = ref.find_function(object, function_name);
         if (!function)
@@ -3999,7 +4000,7 @@ namespace
         return wrote;
     }
 
-    auto sdk_write_transform(Reflection& ref, std::uintptr_t prop, std::uint8_t* container, const meccha_sdk::FVector& location) -> bool
+    auto sdk_write_transform(Reflection& ref, std::uintptr_t prop, std::uint8_t* container, const sdk::FVector& location) -> bool
     {
         const auto offset = prop_offset(prop);
         const auto structure = struct_type(ref, prop, {"Rotation", "Translation", "Scale3D"});
@@ -4019,7 +4020,7 @@ namespace
         }
         if (const auto p = find_property_any(ref, structure, {"Scale3D", "Scale"}))
         {
-            meccha_sdk::FVector scale{};
+            sdk::FVector scale{};
             scale.X = 1.0;
             scale.Y = 1.0;
             scale.Z = 1.0;
@@ -4028,7 +4029,7 @@ namespace
         return wrote;
     }
 
-    auto sdk_write_rotator(Reflection& ref, std::uintptr_t prop, std::uint8_t* container, const meccha_sdk::FVector& direction) -> bool
+    auto sdk_write_rotator(Reflection& ref, std::uintptr_t prop, std::uint8_t* container, const sdk::FVector& direction) -> bool
     {
         const auto offset = prop_offset(prop);
         const auto structure = struct_type(ref, prop, {"Pitch", "Yaw", "Roll"});
@@ -4047,17 +4048,17 @@ namespace
         return wrote;
     }
 
-    auto sdk_make_rotator(const meccha_sdk::FVector& direction) -> meccha_sdk::FRotator
+    auto sdk_make_rotator(const sdk::FVector& direction) -> sdk::FRotator
     {
         const auto horizontal = std::sqrt(direction.X * direction.X + direction.Y * direction.Y);
-        meccha_sdk::FRotator rot{};
+        sdk::FRotator rot{};
         rot.Pitch = std::atan2(direction.Z, std::max(0.000001, horizontal)) * 180.0 / 3.14159265358979323846;
         rot.Yaw = std::atan2(direction.Y, direction.X) * 180.0 / 3.14159265358979323846;
         rot.Roll = 0.0;
         return rot;
     }
 
-    auto sdk_rotator_forward(const meccha_sdk::FRotator& rotator) -> meccha_sdk::FVector
+    auto sdk_rotator_forward(const sdk::FRotator& rotator) -> sdk::FVector
     {
         const auto pitch = rotator.Pitch * 3.14159265358979323846 / 180.0;
         const auto yaw = rotator.Yaw * 3.14159265358979323846 / 180.0;
@@ -4065,9 +4066,9 @@ namespace
         return sdk_vec_normalize({cp * std::cos(yaw), cp * std::sin(yaw), std::sin(pitch)});
     }
 
-    auto sdk_make_transform(const meccha_sdk::FVector& location) -> meccha_sdk::FTransform
+    auto sdk_make_transform(const sdk::FVector& location) -> sdk::FTransform
     {
-        meccha_sdk::FTransform transform{};
+        sdk::FTransform transform{};
         transform.Rotation.W = 1.0;
         transform.Translation = location;
         transform.Scale3D.X = 1.0;
@@ -4091,16 +4092,16 @@ namespace
             failure = "create_render_target_params_size_invalid";
             return 0;
         }
-        if (params_size != static_cast<int>(sizeof(meccha_sdk::KismetRenderingLibrary_CreateRenderTarget2D)))
+        if (params_size != static_cast<int>(sizeof(sdk::KismetRenderingLibrary_CreateRenderTarget2D)))
         {
             failure = "create_render_target_typed_params_size_mismatch";
             return 0;
         }
-        meccha_sdk::KismetRenderingLibrary_CreateRenderTarget2D params{};
+        sdk::KismetRenderingLibrary_CreateRenderTarget2D params{};
         params.WorldContextObject = reinterpret_cast<void*>(ctx.pawn);
         params.Width = width;
         params.Height = height;
-        params.Format = meccha_sdk::ETextureRenderTargetFormat::RTF_RGBA8_SRGB;
+        params.Format = sdk::ETextureRenderTargetFormat::RTF_RGBA8_SRGB;
         params.ClearColor.R = 0.0f;
         params.ClearColor.G = 0.0f;
         params.ClearColor.B = 0.0f;
@@ -4123,7 +4124,7 @@ namespace
     auto sdk_spawn_actor_from_class(Reflection& ref,
                                     const SdkContext& ctx,
                                     std::uintptr_t actor_class,
-                                    const meccha_sdk::FVector& location,
+                                    const sdk::FVector& location,
                                     std::string& failure) -> std::uintptr_t
     {
         const auto function = sdk_find_object_named(ref, "BeginDeferredActorSpawnFromClass");
@@ -4134,19 +4135,19 @@ namespace
             return 0;
         }
         const auto params_size = safe_read<int>(function + OffPropertiesSize, 0);
-        if (params_size != static_cast<int>(sizeof(meccha_sdk::GameplayStatics_BeginDeferredActorSpawnFromClass)))
+        if (params_size != static_cast<int>(sizeof(sdk::GameplayStatics_BeginDeferredActorSpawnFromClass)))
         {
             failure = "begin_deferred_spawn_typed_params_size_mismatch";
             return 0;
         }
         const auto transform = sdk_make_transform(location);
-        meccha_sdk::GameplayStatics_BeginDeferredActorSpawnFromClass params{};
+        sdk::GameplayStatics_BeginDeferredActorSpawnFromClass params{};
         params.WorldContextObject = reinterpret_cast<void*>(ctx.pawn);
         params.ActorClass = reinterpret_cast<void*>(actor_class);
         params.SpawnTransform = transform;
-        params.CollisionHandlingOverride = meccha_sdk::ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+        params.CollisionHandlingOverride = sdk::ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
         params.Owner = reinterpret_cast<void*>(ctx.pawn);
-        params.TransformScaleMethod = meccha_sdk::ESpawnActorScaleMethod::SelectDefaultAtRuntime;
+        params.TransformScaleMethod = sdk::ESpawnActorScaleMethod::SelectDefaultAtRuntime;
         std::string begin_failure{};
         if (!process_event(caller, function, reinterpret_cast<std::uint8_t*>(&params), begin_failure) || !params.ReturnValue)
         {
@@ -4158,12 +4159,12 @@ namespace
         const auto finish = sdk_find_object_named(ref, "FinishSpawningActor");
         const auto finish_caller = sdk_function_caller(ref, finish);
         const auto finish_size = safe_read<int>(finish + OffPropertiesSize, 0);
-        if (finish && finish_caller && finish_size == static_cast<int>(sizeof(meccha_sdk::GameplayStatics_FinishSpawningActor)))
+        if (finish && finish_caller && finish_size == static_cast<int>(sizeof(sdk::GameplayStatics_FinishSpawningActor)))
         {
-            meccha_sdk::GameplayStatics_FinishSpawningActor finish_params{};
+            sdk::GameplayStatics_FinishSpawningActor finish_params{};
             finish_params.Actor = reinterpret_cast<void*>(actor);
             finish_params.SpawnTransform = transform;
-            finish_params.TransformScaleMethod = meccha_sdk::ESpawnActorScaleMethod::SelectDefaultAtRuntime;
+            finish_params.TransformScaleMethod = sdk::ESpawnActorScaleMethod::SelectDefaultAtRuntime;
             std::string finish_failure{};
             if (process_event(finish_caller, finish, reinterpret_cast<std::uint8_t*>(&finish_params), finish_failure) && finish_params.ReturnValue)
             {
@@ -4176,16 +4177,16 @@ namespace
 
     auto sdk_set_actor_capture_transform(Reflection& ref,
                                          std::uintptr_t actor,
-                                         const meccha_sdk::FVector& location,
-                                         const meccha_sdk::FVector& direction) -> bool
+                                         const sdk::FVector& location,
+                                         const sdk::FVector& direction) -> bool
     {
         bool ok = false;
         if (const auto function = ref.find_function(actor, "K2_SetActorLocation"))
         {
             const auto params_size = safe_read<int>(function + OffPropertiesSize, 0);
-            if (params_size == static_cast<int>(sizeof(meccha_sdk::Actor_K2_SetActorLocation)))
+            if (params_size == static_cast<int>(sizeof(sdk::Actor_K2_SetActorLocation)))
             {
-                meccha_sdk::Actor_K2_SetActorLocation params{};
+                sdk::Actor_K2_SetActorLocation params{};
                 params.NewLocation = location;
                 params.bSweep = false;
                 params.bTeleport = true;
@@ -4196,9 +4197,9 @@ namespace
         if (const auto function = ref.find_function(actor, "K2_SetActorRotation"))
         {
             const auto params_size = safe_read<int>(function + OffPropertiesSize, 0);
-            if (params_size == static_cast<int>(sizeof(meccha_sdk::Actor_K2_SetActorRotation)))
+            if (params_size == static_cast<int>(sizeof(sdk::Actor_K2_SetActorRotation)))
             {
-                meccha_sdk::Actor_K2_SetActorRotation params{};
+                sdk::Actor_K2_SetActorRotation params{};
                 params.NewRotation = sdk_make_rotator(direction);
                 params.bTeleportPhysics = true;
                 std::string failure{};
@@ -4210,7 +4211,7 @@ namespace
 
     auto sdk_project_world_to_screen(Reflection& ref,
                                      const SdkContext& ctx,
-                                     const meccha_sdk::FVector& world,
+                                     const sdk::FVector& world,
                                      double& x,
                                      double& y) -> bool
     {
@@ -4306,11 +4307,11 @@ namespace
             return false;
         }
         const auto params_size = safe_read<int>(function + OffPropertiesSize, 0);
-        if (params_size != static_cast<int>(sizeof(meccha_sdk::KismetRenderingLibrary_ReadRenderTargetPixel)))
+        if (params_size != static_cast<int>(sizeof(sdk::KismetRenderingLibrary_ReadRenderTargetPixel)))
         {
             return false;
         }
-        meccha_sdk::KismetRenderingLibrary_ReadRenderTargetPixel params{};
+        sdk::KismetRenderingLibrary_ReadRenderTargetPixel params{};
         params.WorldContextObject = reinterpret_cast<void*>(ctx.pawn);
         params.TextureRenderTarget = reinterpret_cast<void*>(render_target);
         params.X = x;
@@ -4480,8 +4481,8 @@ namespace
         {
             if (!is_raw_function)
             {
-                std::vector<meccha_sdk::FColor> raw(static_cast<std::size_t>(expected));
-                if (safe_copy(raw.data(), reinterpret_cast<void*>(data), raw.size() * sizeof(meccha_sdk::FColor)))
+                std::vector<sdk::FColor> raw(static_cast<std::size_t>(expected));
+                if (safe_copy(raw.data(), reinterpret_cast<void*>(data), raw.size() * sizeof(sdk::FColor)))
                 {
                     auto image = make_base();
                     image.inner_type = "FColor";
@@ -4501,8 +4502,8 @@ namespace
             }
             if (is_raw_function)
             {
-                std::vector<meccha_sdk::FLinearColor> raw(static_cast<std::size_t>(expected));
-                if (safe_copy(raw.data(), reinterpret_cast<void*>(data), raw.size() * sizeof(meccha_sdk::FLinearColor)))
+                std::vector<sdk::FLinearColor> raw(static_cast<std::size_t>(expected));
+                if (safe_copy(raw.data(), reinterpret_cast<void*>(data), raw.size() * sizeof(sdk::FLinearColor)))
                 {
                     auto image = make_base();
                     image.inner_type = "FLinearColor";
@@ -4620,11 +4621,11 @@ namespace
                 {
                     const auto offset = prop_offset(prop);
                     const auto element_size = prop_element_size(prop);
-                    if (offset < 0 || offset + static_cast<int>(sizeof(meccha_sdk::TArray<std::uint8_t>)) > params_size)
+                    if (offset < 0 || offset + static_cast<int>(sizeof(sdk::TArray<std::uint8_t>)) > params_size)
                     {
                         continue;
                     }
-                    const auto array = *reinterpret_cast<meccha_sdk::TArray<std::uint8_t>*>(params.data() + offset);
+                    const auto array = *reinterpret_cast<sdk::TArray<std::uint8_t>*>(params.data() + offset);
                     const bool plausible_array =
                         array.Data != nullptr &&
                         array.Num > 0 &&
@@ -4679,17 +4680,17 @@ namespace
         }
         __try
         {
-            *reinterpret_cast<std::uintptr_t*>(capture_component + meccha_sdk::FieldOffsets::SceneCaptureComponent2D_TextureTarget) = render_target;
-            *reinterpret_cast<std::uint8_t*>(capture_component + meccha_sdk::FieldOffsets::SceneCaptureComponent_CaptureSource) =
-                static_cast<std::uint8_t>(meccha_sdk::ESceneCaptureSource::BaseColor);
-            auto* capture_flags = reinterpret_cast<std::uint8_t*>(capture_component + meccha_sdk::FieldOffsets::SceneCaptureComponent_CaptureFlags);
+            *reinterpret_cast<std::uintptr_t*>(capture_component + sdk::FieldOffsets::SceneCaptureComponent2D_TextureTarget) = render_target;
+            *reinterpret_cast<std::uint8_t*>(capture_component + sdk::FieldOffsets::SceneCaptureComponent_CaptureSource) =
+                static_cast<std::uint8_t>(sdk::ESceneCaptureSource::BaseColor);
+            auto* capture_flags = reinterpret_cast<std::uint8_t*>(capture_component + sdk::FieldOffsets::SceneCaptureComponent_CaptureFlags);
             *capture_flags = static_cast<std::uint8_t>(*capture_flags & ~0x03);
-            *reinterpret_cast<bool*>(capture_component + meccha_sdk::FieldOffsets::SceneCaptureComponent_bAlwaysPersistRenderingState) = true;
-            *reinterpret_cast<std::uint8_t*>(capture_component + meccha_sdk::FieldOffsets::SceneCaptureComponent2D_ProjectionType) =
-                static_cast<std::uint8_t>(meccha_sdk::ECameraProjectionMode::Perspective);
+            *reinterpret_cast<bool*>(capture_component + sdk::FieldOffsets::SceneCaptureComponent_bAlwaysPersistRenderingState) = true;
+            *reinterpret_cast<std::uint8_t*>(capture_component + sdk::FieldOffsets::SceneCaptureComponent2D_ProjectionType) =
+                static_cast<std::uint8_t>(sdk::ECameraProjectionMode::Perspective);
             const auto fov = std::isfinite(fov_degrees) ? std::max(10.0, std::min(150.0, fov_degrees)) : 90.0;
-            *reinterpret_cast<float*>(capture_component + meccha_sdk::FieldOffsets::SceneCaptureComponent2D_FOVAngle) = static_cast<float>(fov);
-            return *reinterpret_cast<std::uintptr_t*>(capture_component + meccha_sdk::FieldOffsets::SceneCaptureComponent2D_TextureTarget) == render_target;
+            *reinterpret_cast<float*>(capture_component + sdk::FieldOffsets::SceneCaptureComponent2D_FOVAngle) = static_cast<float>(fov);
+            return *reinterpret_cast<std::uintptr_t*>(capture_component + sdk::FieldOffsets::SceneCaptureComponent2D_TextureTarget) == render_target;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -4781,7 +4782,7 @@ namespace
         if (!live_uobject(out.camera_manager) && ctx.controller)
         {
             const auto field_camera_manager = safe_read<std::uintptr_t>(
-                ctx.controller + meccha_sdk::FieldOffsets::PlayerController_PlayerCameraManager,
+                ctx.controller + sdk::FieldOffsets::PlayerController_PlayerCameraManager,
                 0);
             if (live_uobject(field_camera_manager))
             {
@@ -4791,14 +4792,14 @@ namespace
         }
         if (live_uobject(out.camera_manager))
         {
-            meccha_sdk::FVector camera_location{};
+            sdk::FVector camera_location{};
             if (sdk_call_no_params_return_vector3(ref, out.camera_manager, "GetCameraLocation", camera_location))
             {
                 capture_location = camera_location;
                 out.camera_location_used = true;
                 out.camera_location_source = "player_camera_manager";
             }
-            meccha_sdk::FRotator camera_rotation{};
+            sdk::FRotator camera_rotation{};
             if (sdk_call_no_params_return_rotator(ref, out.camera_manager, "GetCameraRotation", camera_rotation))
             {
                 const auto camera_forward = sdk_rotator_forward(camera_rotation);
@@ -4835,9 +4836,9 @@ namespace
         }
         if (!out.camera_rotation_used && ctx.controller)
         {
-            const auto control_rotation = safe_read<meccha_sdk::FRotator>(
-                ctx.controller + meccha_sdk::FieldOffsets::Controller_ControlRotation,
-                meccha_sdk::FRotator{});
+            const auto control_rotation = safe_read<sdk::FRotator>(
+                ctx.controller + sdk::FieldOffsets::Controller_ControlRotation,
+                sdk::FRotator{});
             const auto control_forward = sdk_rotator_forward(control_rotation);
             const auto center_forward = sdk_vec_normalize(center_ray.direction);
             const auto dot = sdk_vec_dot(sdk_vec_normalize(control_forward), center_forward);
@@ -4870,7 +4871,7 @@ namespace
             return out;
         }
         sdk_set_actor_capture_transform(ref, out.capture_actor, out.capture_location, out.capture_direction);
-        out.capture_component = safe_read<std::uintptr_t>(out.capture_actor + meccha_sdk::FieldOffsets::SceneCapture2D_CaptureComponent2D, 0);
+        out.capture_component = safe_read<std::uintptr_t>(out.capture_actor + sdk::FieldOffsets::SceneCapture2D_CaptureComponent2D, 0);
         if (!out.capture_component)
         {
             out.capture_component = sdk_call_no_params_return_object(ref, out.capture_actor, "GetCaptureComponent2D", failure);
@@ -5322,6 +5323,8 @@ namespace
             double b{0.0};
             double metallic{0.0};
             double roughness{0.85};
+            double stroke_radius{0.09};
+            int paint_pass{0};
             bool has_color{false};
         };
 
@@ -5358,6 +5361,10 @@ namespace
         int candidate_count{0};
         int points_before_downsample{0};
         int downsample_removed{0};
+        int sample_pool_points{0};
+        int fill_sample_target{0};
+        int coverage_strokes{0};
+        int detail_strokes{0};
         double silhouette_area_px{0.0};
         int base_attempts{0};
         int base_hits{0};
@@ -5379,22 +5386,26 @@ namespace
         double template_point_elapsed_ms{0.0};
         double template_capture_elapsed_ms{0.0};
         double server_batch_elapsed_ms{0.0};
+        double base_probe_radius{0.030};
         double base_probe_spacing_px{0.0};
         double coverage_brush_screen_radius_px{0.0};
         double coverage_sample_spacing_px{0.0};
+        double fill_sample_spacing_px{0.0};
+        double detail_sample_spacing_px{0.0};
         double coverage_candidate_spacing_px{0.0};
         double coverage_estimated_acceptance{0.0};
+        double sampling_brush_radius{0.009};
         double bbox_min_nx{1.0};
         double bbox_min_ny{1.0};
         double bbox_max_nx{0.0};
         double bbox_max_ny{0.0};
         bool source_sorted{false};
-        meccha_sdk::FRuntimeBrushSettings old_brush{};
-        meccha_sdk::FRuntimeBrushSettings brush{};
+        sdk::FRuntimeBrushSettings old_brush{};
+        sdk::FRuntimeBrushSettings brush{};
         bool explicit_stroke_batch_used{false};
         SdkReplicationSnapshot replication_after_explicit_batches{};
-        double brush_radius{0.008};
-        double brush_radius_raw{0.008};
+        double brush_radius{0.09};
+        double brush_radius_raw{0.09};
         double rgb_min{1.0};
         double rgb_max{0.0};
         double rgb_sum_r{0.0};
@@ -5407,6 +5418,7 @@ namespace
         std::string server_batch_rpc{"<none>"};
         std::string color_source{"scene_capture_basecolor_bulk_readback"};
         std::vector<TemplatePoint> points{};
+        std::vector<TemplatePoint> sample_pool{};
         std::vector<ScreenCandidate> dense_candidates{};
         std::vector<int> silhouette_min_ix{};
         std::vector<int> silhouette_max_ix{};
@@ -5483,9 +5495,9 @@ namespace
     auto template_hit_to_point(const std::shared_ptr<TemplateUvBrushAsyncJob>& job, double screen_x, double screen_y) -> bool
     {
         ++job->runtime_hit_test_attempts;
-        meccha_sdk::RuntimePaintableComponent_HitTestAtScreenPosition hit{};
+        sdk::RuntimePaintableComponent_HitTestAtScreenPosition hit{};
         hit.MeshComponent = reinterpret_cast<void*>(job->mesh);
-        hit.ScreenPosition = meccha_sdk::FVector2D{screen_x, screen_y};
+        hit.ScreenPosition = sdk::FVector2D{screen_x, screen_y};
         hit.PlayerController = reinterpret_cast<void*>(job->controller);
         hit.bUseCachedTriangles = true;
         std::string failure{};
@@ -5586,12 +5598,20 @@ namespace
             return;
         }
 
-        const double brush_radius = std::max(0.0001, job->brush_radius);
+        const double paint_radius = std::max(0.0001, job->brush_radius);
+        const double sampling_radius = std::max(0.0001, job->sampling_brush_radius);
         const double viewport_short_px = static_cast<double>(std::max(1, std::min(job->viewport_width, job->viewport_height)));
-        job->coverage_brush_screen_radius_px = std::max(1.0, viewport_short_px * brush_radius);
-        job->coverage_sample_spacing_px = std::max(1.0, job->coverage_brush_screen_radius_px * 0.25);
-        job->coverage_sample_target = std::max(
+        job->coverage_brush_screen_radius_px = std::max(1.0, viewport_short_px * paint_radius);
+        job->fill_sample_spacing_px = std::max(1.0, job->coverage_brush_screen_radius_px * 0.25);
+        job->fill_sample_target = std::max(
             1,
+            static_cast<int>(std::ceil(job->silhouette_area_px /
+                                       std::max(1.0, job->fill_sample_spacing_px * job->fill_sample_spacing_px))));
+        const double sampling_brush_screen_radius_px = std::max(1.0, viewport_short_px * sampling_radius);
+        job->detail_sample_spacing_px = std::max(1.0, sampling_brush_screen_radius_px * 0.25);
+        job->coverage_sample_spacing_px = job->detail_sample_spacing_px;
+        job->coverage_sample_target = std::max(
+            job->fill_sample_target,
             static_cast<int>(std::ceil(job->silhouette_area_px /
                                        std::max(1.0, job->coverage_sample_spacing_px * job->coverage_sample_spacing_px))));
         const double base_acceptance = job->base_attempts > 0
@@ -5653,6 +5673,38 @@ namespace
         job->candidate_count = static_cast<int>(job->dense_candidates.size());
     }
 
+    auto template_point_yx_less(const TemplateUvBrushAsyncJob::TemplatePoint& a,
+                                const TemplateUvBrushAsyncJob::TemplatePoint& b) -> bool
+    {
+        if (a.y == b.y) return a.x < b.x;
+        return a.y < b.y;
+    }
+
+    auto template_select_uniform_yx(std::vector<TemplateUvBrushAsyncJob::TemplatePoint> source,
+                                    int target) -> std::vector<TemplateUvBrushAsyncJob::TemplatePoint>
+    {
+        if (target <= 0 || static_cast<int>(source.size()) <= target)
+        {
+            std::sort(source.begin(), source.end(), template_point_yx_less);
+            return source;
+        }
+
+        std::sort(source.begin(), source.end(), template_point_yx_less);
+        std::vector<TemplateUvBrushAsyncJob::TemplatePoint> selected{};
+        selected.reserve(static_cast<std::size_t>(target));
+        const auto source_count = source.size();
+        for (int i = 0; i < target; ++i)
+        {
+            const auto index = static_cast<std::size_t>(
+                std::min<double>(
+                    static_cast<double>(source_count - 1),
+                    std::floor(((static_cast<double>(i) + 0.5) * static_cast<double>(source_count)) /
+                               static_cast<double>(target))));
+            selected.push_back(source[index]);
+        }
+        return selected;
+    }
+
     auto template_downsample_points_to_target(const std::shared_ptr<TemplateUvBrushAsyncJob>& job) -> void
     {
         if (!job)
@@ -5663,27 +5715,12 @@ namespace
         job->downsample_removed = 0;
         if (job->point_target <= 0 || static_cast<int>(job->points.size()) <= job->point_target)
         {
+            std::sort(job->points.begin(), job->points.end(), template_point_yx_less);
             return;
         }
 
-        std::sort(job->points.begin(), job->points.end(), [](const auto& a, const auto& b) {
-            if (a.y == b.y) return a.x < b.x;
-            return a.y < b.y;
-        });
-
-        std::vector<TemplateUvBrushAsyncJob::TemplatePoint> selected{};
-        selected.reserve(static_cast<std::size_t>(job->point_target));
-        const auto source_count = job->points.size();
-        for (int i = 0; i < job->point_target; ++i)
-        {
-            const auto index = static_cast<std::size_t>(
-                std::min<double>(
-                    static_cast<double>(source_count - 1),
-                    std::floor(((static_cast<double>(i) + 0.5) * static_cast<double>(source_count)) /
-                               static_cast<double>(job->point_target))));
-            selected.push_back(job->points[index]);
-        }
-        job->downsample_removed = static_cast<int>(source_count - selected.size());
+        auto selected = template_select_uniform_yx(job->points, job->point_target);
+        job->downsample_removed = static_cast<int>(job->points.size() - selected.size());
         job->points.swap(selected);
     }
 
@@ -5694,8 +5731,8 @@ namespace
             return;
         }
         const double root = std::sqrt(static_cast<double>(std::max(1, total_points)));
-        job->server_batch_limit = std::max(1, static_cast<int>(std::ceil(root * 0.42)));
-        job->server_batch_delay_ms = std::max(1, static_cast<int>(std::ceil(1000.0 / root)));
+        job->server_batch_limit = std::max(1, std::min(200, static_cast<int>(std::ceil(root * 0.75))));
+        job->server_batch_delay_ms = std::max(1, static_cast<int>(std::ceil(650.0 / root)));
     }
 
     auto start_template_uv_brush_async_job(const std::string& request, const std::shared_ptr<QueuedPaintJob>& queued_job) -> bool
@@ -5760,14 +5797,17 @@ namespace
         metadata += ",\"scene_capture_basecolor_required\":true";
         metadata += ",\"template_min_direct_points\":0";
         metadata += ",\"template_sample_count_fixed\":false";
-        metadata += ",\"template_sample_target_mode\":\"brush_coverage_dynamic\"";
+        metadata += ",\"template_sample_target_mode\":\"sampling_radius_dynamic\"";
+        metadata += ",\"two_pass_enabled\":true";
+        metadata += ",\"single_pass_enabled\":false";
+        metadata += ",\"two_pass_strategy\":\"fill_then_full_detail\"";
         metadata += ",\"template_paint_target_channel\":\"Albedo\"";
         metadata += ",\"template_material_channel_overwrite\":false";
         metadata += ",\"template_material_source\":\"preserve_existing_material_channels\"";
         metadata += ",\"template_paint_albedo_transfer\":\"basecolor_srgb_to_linear_flinearcolor\"";
         metadata += ",\"template_color_source\":\"scene_capture_basecolor_bulk_readback\"";
         metadata += ",\"template_profile\":\"high_density_basecolor_scene_capture_template\"";
-        metadata += ",\"inferred_fields\":[\"brush_radius_fixed_0_02\",\"scene_capture_basecolor_srgb_to_linear\"]";
+        metadata += ",\"inferred_fields\":[\"brush_radius_two_pass_0_03_0_006\",\"scene_capture_basecolor_srgb_to_linear\"]";
         metadata += ",\"phase0_lower_rescan_used\":false";
         metadata += ",\"template_fill_enabled\":false";
         metadata += ",\"template_clone_enabled\":false";
@@ -5833,7 +5873,7 @@ namespace
             return true;
         }
 
-        constexpr std::uintptr_t OffCurrentBrushSettings = meccha_sdk::FieldOffsets::RuntimePaintable_CurrentBrushSettings;
+        constexpr std::uintptr_t OffCurrentBrushSettings = sdk::FieldOffsets::RuntimePaintable_CurrentBrushSettings;
 
         auto job = std::make_shared<TemplateUvBrushAsyncJob>();
         job->queued = queued_job;
@@ -5849,27 +5889,36 @@ namespace
         job->brush = job->old_brush;
         job->brush.Hardness = 1.0f;
         job->brush.Opacity = 1.0f;
-        job->brush_radius_raw = 0.02;
-        job->brush_radius = 0.02;
+        job->brush_radius_raw = 0.09;
+        job->brush_radius = 0.09;
+        job->sampling_brush_radius = 0.009;
+        job->base_probe_radius = std::min(job->brush_radius, 0.03);
         job->brush.Radius = static_cast<float>(job->brush_radius);
         const double visible_probe_width_px = std::max(1.0, static_cast<double>(job->viewport_width) * 0.88);
         const double visible_probe_height_px = std::max(1.0, static_cast<double>(job->viewport_height) * 0.96);
         job->base_probe_spacing_px = std::max(
             1.0,
-            std::sqrt(visible_probe_width_px * visible_probe_height_px) * job->brush_radius * 0.75);
+            std::sqrt(visible_probe_width_px * visible_probe_height_px) * job->base_probe_radius * 0.75);
         job->base_cols = std::max(1, static_cast<int>(std::ceil(visible_probe_width_px / job->base_probe_spacing_px)));
         job->base_rows = std::max(1, static_cast<int>(std::ceil(visible_probe_height_px / job->base_probe_spacing_px)));
         job->brush.Spacing = 0.18f;
-        job->brush.Falloff = meccha_sdk::EBrushFalloff::Spherical;
-        job->brush.BlendMode = meccha_sdk::EPaintBlendMode::Normal;
+        job->brush.Falloff = sdk::EBrushFalloff::Spherical;
+        job->brush.BlendMode = sdk::EPaintBlendMode::Normal;
         job->metadata = metadata;
         job->metadata += ",\"template_base_cols\":" + std::to_string(job->base_cols);
         job->metadata += ",\"template_base_rows\":" + std::to_string(job->base_rows);
         job->metadata += ",\"template_base_probe_spacing_px\":" + std::to_string(job->base_probe_spacing_px);
-        job->metadata += ",\"template_base_probe_formula\":\"ceil(visible_probe_extent/(sqrt(visible_probe_area)*brush_radius*0.75))\"";
+        job->metadata += ",\"template_base_probe_radius\":" + std::to_string(job->base_probe_radius);
+        job->metadata += ",\"template_base_probe_policy\":\"min(fill_radius,0.03)\"";
+        job->metadata += ",\"template_base_probe_formula\":\"ceil(visible_probe_extent/(sqrt(visible_probe_area)*base_probe_radius*0.75))\"";
         job->metadata += ",\"template_explicit_stroke_batch_enabled\":true";
         job->metadata += ",\"template_explicit_stroke_batch_mode\":\"sqrt_dynamic_timer_drained\"";
         job->metadata += ",\"template_dense_order\":\"front_silhouette_interval_top_down\"";
+        job->metadata += ",\"template_hittest_tick_chunk\":256";
+        job->metadata += ",\"two_pass_fill_radius\":0.09";
+        job->metadata += ",\"two_pass_detail_radius\":0.009";
+        job->metadata += ",\"template_sampling_radius_policy\":\"detail_pass_sampling_radius\"";
+        job->metadata += ",\"template_sampling_brush_radius\":" + std::to_string(job->sampling_brush_radius);
         job->started = std::chrono::steady_clock::now();
         job->last_tick = job->started;
 
@@ -5971,7 +6020,7 @@ namespace
         {
         case TemplateUvBrushAsyncJob::Phase::Phase0BaseGrid:
         {
-            constexpr int chunk = 768;
+            constexpr int chunk = 256;
             const int total = job->base_cols * job->base_rows;
             if (job->silhouette_min_ix.empty() || job->silhouette_max_ix.empty())
             {
@@ -5989,9 +6038,9 @@ namespace
                 const double screen_y = ny * static_cast<double>(job->viewport_height);
                 ++job->base_attempts;
 
-                meccha_sdk::RuntimePaintableComponent_HitTestAtScreenPosition hit{};
+                sdk::RuntimePaintableComponent_HitTestAtScreenPosition hit{};
                 hit.MeshComponent = reinterpret_cast<void*>(job->mesh);
-                hit.ScreenPosition = meccha_sdk::FVector2D{screen_x, screen_y};
+                hit.ScreenPosition = sdk::FVector2D{screen_x, screen_y};
                 hit.PlayerController = reinterpret_cast<void*>(job->controller);
                 hit.bUseCachedTriangles = true;
                 std::string failure{};
@@ -6051,7 +6100,7 @@ namespace
         }
         case TemplateUvBrushAsyncJob::Phase::Phase0Dense:
         {
-            constexpr int chunk = 768;
+            constexpr int chunk = 256;
             const int total = static_cast<int>(job->dense_candidates.size());
             const int end = std::min(total, job->next_index + chunk);
             for (; job->next_index < end; ++job->next_index)
@@ -6083,13 +6132,12 @@ namespace
             {
                 job->sampler_probe_attempts = job->base_attempts + job->dense_attempts;
                 job->sampler_probe_misses = std::max(0, job->sampler_probe_attempts - job->base_hits - job->dense_hits);
+                job->sample_pool = job->points;
+                job->sample_pool_points = static_cast<int>(job->sample_pool.size());
                 template_downsample_points_to_target(job);
                 job->template_point_elapsed_ms = job_elapsed_ms();
                 job->progress_percent = -1;
-                std::sort(job->points.begin(), job->points.end(), [](const auto& a, const auto& b) {
-                    if (a.y == b.y) return a.x < b.x;
-                    return a.y < b.y;
-                });
+                std::sort(job->points.begin(), job->points.end(), template_point_yx_less);
                 job->source_sorted = true;
                 write_bridge_progress("template_points_done",
                                       "phase0 direct surface samples complete",
@@ -6097,6 +6145,7 @@ namespace
                                       100,
                                       job_elapsed_ms(),
                                       "\"points\":" + std::to_string(job->points.size()) +
+                                          ",\"sample_pool_points\":" + std::to_string(job->sample_pool_points) +
                                           ",\"points_before_downsample\":" + std::to_string(job->points_before_downsample) +
                                           ",\"downsample_removed\":" + std::to_string(job->downsample_removed) +
                                           ",\"sampler_probe_attempts\":" + std::to_string(job->sampler_probe_attempts) +
@@ -6109,7 +6158,12 @@ namespace
         }
         case TemplateUvBrushAsyncJob::Phase::CaptureSource:
         {
-            if (job->points.empty())
+            if (job->sample_pool.empty())
+            {
+                job->sample_pool = job->points;
+                job->sample_pool_points = static_cast<int>(job->sample_pool.size());
+            }
+            if (job->sample_pool.empty())
             {
                 fail_job("template_phase0_no_template_points", "template phase0 produced no template points");
                 return;
@@ -6142,6 +6196,11 @@ namespace
                     point.x *= sx;
                     point.y *= sy;
                 }
+                for (auto& point : job->sample_pool)
+                {
+                    point.x *= sx;
+                    point.y *= sy;
+                }
                 job->viewport_width = live_viewport.width;
                 job->viewport_height = live_viewport.height;
                 job->metadata += ",\"template_viewport_refreshed_before_capture\":true";
@@ -6155,11 +6214,11 @@ namespace
             native_front.viewport_width = job->viewport_width;
             native_front.viewport_height = job->viewport_height;
             native_front.sampling_backend = "template_points_cached_hit_test";
-            native_front.min_front_hits = std::max(64, std::min(2048, static_cast<int>(job->points.size())));
-            native_front.target_front_hits = static_cast<int>(job->points.size());
+            native_front.min_front_hits = std::max(64, std::min(2048, static_cast<int>(job->sample_pool.size())));
+            native_front.target_front_hits = static_cast<int>(job->sample_pool.size());
             native_front.hard_attempt_budget = job->base_attempts + job->dense_attempts;
-            native_front.samples.reserve(job->points.size());
-            for (const auto& point : job->points)
+            native_front.samples.reserve(job->sample_pool.size());
+            for (const auto& point : job->sample_pool)
             {
                 FrontSample sample{};
                 sample.u = clamp01(point.u);
@@ -6177,6 +6236,7 @@ namespace
                                   100,
                                   job_elapsed_ms(),
                                   "\"template_points\":" + std::to_string(job->points.size()) +
+                                      ",\"sample_pool_points\":" + std::to_string(job->sample_pool.size()) +
                                       ",\"color_source\":\"scene_capture_basecolor_bulk_readback\"");
 
             constexpr int kTemplateCaptureMaxDimension = 4096;
@@ -6203,8 +6263,8 @@ namespace
                 fail_job("template_basecolor_capture_unavailable", "SceneCapture BaseColor bulk capture failed: " + capture.failure);
                 return;
             }
-            job->points.clear();
-            job->points.reserve(capture.samples.size());
+            job->sample_pool.clear();
+            job->sample_pool.reserve(capture.samples.size());
             for (const auto& sample : capture.samples)
             {
                 TemplateUvBrushAsyncJob::TemplatePoint point{};
@@ -6217,8 +6277,10 @@ namespace
                 point.b = sdk_srgb_to_linear_component(sample.b);
                 point.metallic = clamp01(sample.metallic);
                 point.roughness = clamp01(std::max(0.35, sample.roughness));
+                point.stroke_radius = job->brush_radius;
+                point.paint_pass = 0;
                 point.has_color = true;
-                job->points.push_back(point);
+                job->sample_pool.push_back(point);
                 ++job->basecolor_samples;
                 job->rgb_min = std::min(job->rgb_min, std::min(point.r, std::min(point.g, point.b)));
                 job->rgb_max = std::max(job->rgb_max, std::max(point.r, std::max(point.g, point.b)));
@@ -6228,14 +6290,27 @@ namespace
                 job->metallic_sum += point.metallic;
                 job->roughness_sum += point.roughness;
             }
+            job->sample_pool_points = static_cast<int>(job->sample_pool.size());
             job->color_source = "scene_capture_basecolor_bulk_readback";
+            auto coverage_points = template_select_uniform_yx(job->sample_pool, job->fill_sample_target);
+            for (auto& point : coverage_points)
+            {
+                point.stroke_radius = job->brush_radius;
+                point.paint_pass = 0;
+            }
+            job->coverage_strokes = static_cast<int>(coverage_points.size());
+            auto detail_points = template_select_uniform_yx(job->sample_pool, job->point_target);
+            for (auto& point : detail_points)
+            {
+                point.stroke_radius = job->sampling_brush_radius;
+                point.paint_pass = 1;
+            }
+            job->detail_strokes = static_cast<int>(detail_points.size());
+            job->points = std::move(coverage_points);
+            job->points.insert(job->points.end(), detail_points.begin(), detail_points.end());
             job->paint_sample_attempts = static_cast<int>(job->points.size());
             job->paint_sample_success = static_cast<int>(job->points.size());
             job->paint_sample_failures = 0;
-            std::sort(job->points.begin(), job->points.end(), [](const auto& a, const auto& b) {
-                if (a.y == b.y) return a.x < b.x;
-                return a.y < b.y;
-            });
             write_bridge_progress("template_phase0_basecolor_capture_done",
                                   "SceneCapture BaseColor bulk capture done",
                                   60,
@@ -6244,6 +6319,8 @@ namespace
                                   std::string("\"color_source\":\"scene_capture_basecolor_bulk_readback\"") +
                                       ",\"bulk_readback_used\":" + json_bool(capture.bulk_readback_used) +
                                       ",\"capture_samples\":" + std::to_string(capture.samples.size()) +
+                                      ",\"coverage_strokes\":" + std::to_string(job->coverage_strokes) +
+                                      ",\"detail_strokes\":" + std::to_string(job->detail_strokes) +
                                       ",\"bulk_backend\":\"" + json_escape(capture.bulk_backend) + "\"");
             job->phase = TemplateUvBrushAsyncJob::Phase::BeginPaint;
             job->progress_percent = -1;
@@ -6258,10 +6335,8 @@ namespace
                 fail_job("template_points_unavailable", "template route produced no direct template points");
                 return;
             }
-            constexpr double radius = 0.02;
-            job->brush_radius_raw = radius;
-            job->brush_radius = radius;
-            job->brush.Radius = static_cast<float>(radius);
+            job->brush_radius_raw = job->brush_radius;
+            job->brush.Radius = static_cast<float>(job->brush_radius);
             job->brush.Spacing = 0.08f;
             template_configure_server_batch_stream(job, template_count);
             job->server_batch_started = std::chrono::steady_clock::now();
@@ -6271,21 +6346,32 @@ namespace
                                   100,
                                   job_elapsed_ms(),
                                       "\"template_points\":" + std::to_string(job->points.size()) +
+                                      ",\"sample_pool_points\":" + std::to_string(job->sample_pool_points) +
+                                      ",\"fill_sample_target\":" + std::to_string(job->fill_sample_target) +
+                                      ",\"detail_sample_target\":" + std::to_string(job->point_target) +
+                                      ",\"coverage_strokes\":" + std::to_string(job->coverage_strokes) +
+                                      ",\"detail_strokes\":" + std::to_string(job->detail_strokes) +
                                       ",\"basecolor_samples\":" + std::to_string(job->basecolor_samples) +
                                       ",\"color_source\":\"" + json_escape(job->color_source) + "\"" +
                                       ",\"albedo_transfer\":\"basecolor_srgb_to_linear_flinearcolor\"" +
                                       ",\"paint_target_channel\":\"Albedo\"" +
                                       ",\"material_channel_overwrite\":false" +
                                       ",\"local_paint_used\":false" +
-                                      ",\"brush_radius_mode\":\"fixed\"" +
-                                      ",\"brush_radius_formula\":\"fixed(0.02)\"" +
+                                      ",\"brush_radius_mode\":\"two_pass_fixed_full_detail\"" +
+                                      ",\"brush_radius_formula\":\"fill=0.09,detail=0.009\"" +
                                       ",\"brush_radius_raw\":" + std::to_string(job->brush_radius_raw) +
                                       ",\"brush_radius\":" + std::to_string(job->brush_radius) +
+                                      ",\"two_pass_enabled\":true" +
+                                      ",\"single_pass_enabled\":false" +
+                                      ",\"fill_radius\":" + std::to_string(job->brush_radius) +
+                                      ",\"detail_radius\":" + std::to_string(job->sampling_brush_radius) +
+                                      ",\"coverage_radius\":" + std::to_string(job->brush_radius) +
+                                      ",\"paint_send_order\":\"fill_pass_then_full_detail_pass\"" +
                                       ",\"server_rpc\":\"ServerPaintBatch\"" +
                                       ",\"server_batch_limit\":" + std::to_string(job->server_batch_limit) +
-                                      ",\"server_batch_limit_formula\":\"ceil(sqrt(paint_samples)*0.42)\"" +
+                                      ",\"server_batch_limit_formula\":\"min(200,ceil(sqrt(paint_samples)*0.75))\"" +
                                       ",\"server_batch_delay_ms\":" + std::to_string(job->server_batch_delay_ms) +
-                                      ",\"server_batch_delay_formula\":\"ceil(1000/sqrt(paint_samples))\"");
+                                      ",\"server_batch_delay_formula\":\"ceil(650/sqrt(paint_samples))\"");
             job->replicate_index = 0;
             job->phase = TemplateUvBrushAsyncJob::Phase::ReplicateStrokes;
             post_next();
@@ -6321,22 +6407,24 @@ namespace
             job->server_next_batch_time = {};
 
             const int count = std::max(1, std::min(job->server_batch_limit, total_points - job->replicate_index));
-            std::vector<meccha_sdk::FPaintStroke> strokes{};
+            std::vector<sdk::FPaintStroke> strokes{};
             strokes.reserve(static_cast<std::size_t>(count));
             for (int i = 0; i < count; ++i)
             {
                 const auto& point = job->points[static_cast<std::size_t>(job->replicate_index + i)];
+                auto stroke_brush = job->brush;
+                stroke_brush.Radius = static_cast<float>(point.stroke_radius > 0.0 ? point.stroke_radius : job->brush_radius);
                 const auto channel = sdk_make_channel(point.r,
                                                       point.g,
                                                       point.b,
                                                       point.metallic,
                                                       point.roughness,
-                                                      meccha_sdk::EPaintChannelApplyMode::Override);
+                                                      sdk::EPaintChannelApplyMode::Override);
                 strokes.push_back(sdk_make_uv_stroke(point.u,
                                                      point.v,
                                                      channel,
-                                                     job->brush,
-                                                     meccha_sdk::EPaintChannel::Albedo));
+                                                     stroke_brush,
+                                                     sdk::EPaintChannel::Albedo));
             }
 
             SdkContext ctx{};
@@ -6384,6 +6472,8 @@ namespace
                                       job_elapsed_ms(),
                                       "\"server_strokes_sent\":" + std::to_string(job->server_strokes_sent) +
                                           ",\"points\":" + std::to_string(job->points.size()) +
+                                          ",\"coverage_strokes\":" + std::to_string(job->coverage_strokes) +
+                                          ",\"detail_strokes\":" + std::to_string(job->detail_strokes) +
                                           ",\"server_batch_calls\":" + std::to_string(job->server_batch_calls) +
                                           ",\"server_batch_rpc\":\"" + json_escape(job->server_batch_rpc) + "\"" +
                                           ",\"server_batch_limit\":" + std::to_string(job->server_batch_limit) +
@@ -6410,12 +6500,15 @@ namespace
             metadata += ",\"dense_candidate_count\":" + std::to_string(job->candidate_count);
             metadata += ",\"silhouette_area_px\":" + std::to_string(job->silhouette_area_px);
             metadata += ",\"template_sample_count_fixed\":false";
-            metadata += ",\"template_sample_target_mode\":\"brush_coverage_dynamic\"";
-            metadata += ",\"template_sample_target_formula\":\"ceil(silhouette_area_px / pow(min(viewport_width,viewport_height)*brush_radius*0.25,2))\"";
+            metadata += ",\"template_sample_target_mode\":\"sampling_radius_dynamic\"";
+            metadata += ",\"template_sample_target_formula\":\"detail=ceil(silhouette_area_px / pow(min(viewport_width,viewport_height)*detail_radius*0.25,2)); fill=ceil(silhouette_area_px / pow(min(viewport_width,viewport_height)*fill_radius*0.25,2))\"";
+            metadata += ",\"fill_sample_target\":" + std::to_string(job->fill_sample_target);
             metadata += ",\"template_sample_target\":" + std::to_string(job->coverage_sample_target);
             metadata += ",\"template_candidate_target_formula\":\"ceil(template_sample_target / estimated_dense_acceptance)\"";
             metadata += ",\"template_candidate_target\":" + std::to_string(job->coverage_candidate_target);
             metadata += ",\"template_brush_screen_radius_px\":" + std::to_string(job->coverage_brush_screen_radius_px);
+            metadata += ",\"fill_sample_spacing_px\":" + std::to_string(job->fill_sample_spacing_px);
+            metadata += ",\"detail_sample_spacing_px\":" + std::to_string(job->detail_sample_spacing_px);
             metadata += ",\"template_sample_spacing_px\":" + std::to_string(job->coverage_sample_spacing_px);
             metadata += ",\"template_candidate_spacing_px\":" + std::to_string(job->coverage_candidate_spacing_px);
             metadata += ",\"template_estimated_dense_acceptance\":" + std::to_string(job->coverage_estimated_acceptance);
@@ -6430,22 +6523,34 @@ namespace
             metadata += ",\"template_clone_strategy\":\"disabled\"";
             metadata += ",\"phase0_lower_rescan_used\":false";
             metadata += ",\"template_points\":" + std::to_string(job->points.size());
+            metadata += ",\"paint_samples_total\":" + std::to_string(job->points.size());
+            metadata += ",\"sample_pool_points\":" + std::to_string(job->sample_pool_points);
             metadata += ",\"template_points_before_downsample\":" + std::to_string(job->points_before_downsample);
             metadata += ",\"template_downsample_removed\":" + std::to_string(job->downsample_removed);
             metadata += ",\"template_downsample_strategy\":\"uniform_yx_after_full_candidate_scan\"";
             metadata += ",\"template_color_sample_target\":" + std::to_string(job->point_target);
             metadata += std::string(",\"template_dense_early_stopped\":") +
                         json_bool(job->next_index < job->candidate_count);
+            metadata += ",\"two_pass_enabled\":true";
+            metadata += ",\"single_pass_enabled\":false";
+            metadata += ",\"two_pass_strategy\":\"fill_then_full_detail\"";
+            metadata += ",\"coverage_strokes\":" + std::to_string(job->coverage_strokes);
+            metadata += ",\"detail_strokes\":" + std::to_string(job->detail_strokes);
+            metadata += ",\"paint_send_order\":\"fill_pass_then_full_detail_pass\"";
             metadata += ",\"paint_samples\":" + std::to_string(job->paint_sample_success);
             metadata += ",\"paint_sample_attempts\":" + std::to_string(job->paint_sample_attempts);
             metadata += ",\"paint_sample_success\":" + std::to_string(job->paint_sample_success);
             metadata += ",\"paint_sample_failures\":" + std::to_string(job->paint_sample_failures);
             metadata += ",\"template_dedupe_skipped\":" + std::to_string(job->dedupe_skipped);
-            metadata += ",\"template_brush_radius_mode\":\"fixed\"";
-            metadata += ",\"template_brush_radius_formula\":\"fixed(0.02)\"";
+            metadata += ",\"template_brush_radius_mode\":\"two_pass_fixed_full_detail\"";
+            metadata += ",\"template_brush_radius_formula\":\"fill=0.09,detail=0.009\"";
             metadata += ",\"template_brush_radius_raw\":" + std::to_string(job->brush_radius_raw);
-            metadata += ",\"template_brush_radius_fixed\":0.02";
             metadata += ",\"template_brush_radius\":" + std::to_string(job->brush_radius);
+            metadata += ",\"coverage_radius\":" + std::to_string(job->brush_radius);
+            metadata += ",\"fill_radius\":" + std::to_string(job->brush_radius);
+            metadata += ",\"detail_radius\":" + std::to_string(job->sampling_brush_radius);
+            metadata += ",\"template_sampling_radius_policy\":\"detail_pass_sampling_radius\"";
+            metadata += ",\"template_sampling_brush_radius\":" + std::to_string(job->sampling_brush_radius);
             metadata += ",\"template_point_elapsed_ms\":" + std::to_string(job->template_point_elapsed_ms);
             metadata += ",\"capture_elapsed_ms\":" + std::to_string(job->template_capture_elapsed_ms);
             metadata += ",\"server_batch_elapsed_ms\":" + std::to_string(job->server_batch_elapsed_ms);
@@ -6465,9 +6570,9 @@ namespace
             metadata += ",\"server_paint_batch_used\":true";
             metadata += ",\"server_batch_rpc\":\"" + json_escape(job->server_batch_rpc) + "\"";
             metadata += ",\"server_batch_limit\":" + std::to_string(job->server_batch_limit);
-            metadata += ",\"server_batch_limit_formula\":\"ceil(sqrt(paint_samples)*0.42)\"";
+            metadata += ",\"server_batch_limit_formula\":\"min(200,ceil(sqrt(paint_samples)*0.75))\"";
             metadata += ",\"server_batch_delay_ms\":" + std::to_string(job->server_batch_delay_ms);
-            metadata += ",\"server_batch_delay_formula\":\"ceil(1000/sqrt(paint_samples))\"";
+            metadata += ",\"server_batch_delay_formula\":\"ceil(650/sqrt(paint_samples))\"";
             metadata += ",\"server_batch_schedule\":\"timer_drained\"";
             metadata += ",\"server_batch_calls\":" + std::to_string(job->server_batch_calls);
             metadata += ",\"server_batch_success\":" + std::to_string(job->server_batch_success);
@@ -6492,6 +6597,7 @@ namespace
                                   job_elapsed_ms(),
                                   "\"server_strokes_sent\":" + std::to_string(job->server_strokes_sent) +
                                       ",\"basecolor_samples\":" + std::to_string(job->basecolor_samples) +
+                                      ",\"coverage_strokes\":" + std::to_string(job->coverage_strokes) +
                                       ",\"points\":" + std::to_string(job->points.size()));
             const bool explicit_replication_ok = job->explicit_stroke_batch_used &&
                                                  job->server_strokes_sent > 0 &&
