@@ -5323,7 +5323,7 @@ namespace
             double b{0.0};
             double metallic{0.0};
             double roughness{0.85};
-            double stroke_radius{0.09};
+            double stroke_radius{0.01};
             int paint_pass{0};
             bool has_color{false};
         };
@@ -5386,7 +5386,7 @@ namespace
         double template_point_elapsed_ms{0.0};
         double template_capture_elapsed_ms{0.0};
         double server_batch_elapsed_ms{0.0};
-        double base_probe_radius{0.030};
+        double base_probe_radius{0.010};
         double base_probe_spacing_px{0.0};
         double coverage_brush_screen_radius_px{0.0};
         double coverage_sample_spacing_px{0.0};
@@ -5394,7 +5394,7 @@ namespace
         double detail_sample_spacing_px{0.0};
         double coverage_candidate_spacing_px{0.0};
         double coverage_estimated_acceptance{0.0};
-        double sampling_brush_radius{0.009};
+        double sampling_brush_radius{0.010};
         double bbox_min_nx{1.0};
         double bbox_min_ny{1.0};
         double bbox_max_nx{0.0};
@@ -5404,8 +5404,8 @@ namespace
         sdk::FRuntimeBrushSettings brush{};
         bool explicit_stroke_batch_used{false};
         SdkReplicationSnapshot replication_after_explicit_batches{};
-        double brush_radius{0.09};
-        double brush_radius_raw{0.09};
+        double brush_radius{0.01};
+        double brush_radius_raw{0.01};
         double rgb_min{1.0};
         double rgb_max{0.0};
         double rgb_sum_r{0.0};
@@ -5731,8 +5731,8 @@ namespace
             return;
         }
         const double root = std::sqrt(static_cast<double>(std::max(1, total_points)));
-        job->server_batch_limit = std::max(1, std::min(200, static_cast<int>(std::ceil(root * 0.75))));
-        job->server_batch_delay_ms = std::max(1, static_cast<int>(std::ceil(650.0 / root)));
+        job->server_batch_limit = std::max(1, static_cast<int>(std::ceil(root * 0.42)));
+        job->server_batch_delay_ms = std::max(1, static_cast<int>(std::ceil(1000.0 / root)));
     }
 
     auto start_template_uv_brush_async_job(const std::string& request, const std::shared_ptr<QueuedPaintJob>& queued_job) -> bool
@@ -5798,16 +5798,16 @@ namespace
         metadata += ",\"template_min_direct_points\":0";
         metadata += ",\"template_sample_count_fixed\":false";
         metadata += ",\"template_sample_target_mode\":\"sampling_radius_dynamic\"";
-        metadata += ",\"two_pass_enabled\":true";
-        metadata += ",\"single_pass_enabled\":false";
-        metadata += ",\"two_pass_strategy\":\"fill_then_full_detail\"";
+        metadata += ",\"two_pass_enabled\":false";
+        metadata += ",\"single_pass_enabled\":true";
+        metadata += ",\"single_pass_strategy\":\"fixed_radius_server_batch\"";
         metadata += ",\"template_paint_target_channel\":\"Albedo\"";
         metadata += ",\"template_material_channel_overwrite\":false";
         metadata += ",\"template_material_source\":\"preserve_existing_material_channels\"";
         metadata += ",\"template_paint_albedo_transfer\":\"basecolor_srgb_to_linear_flinearcolor\"";
         metadata += ",\"template_color_source\":\"scene_capture_basecolor_bulk_readback\"";
         metadata += ",\"template_profile\":\"high_density_basecolor_scene_capture_template\"";
-        metadata += ",\"inferred_fields\":[\"brush_radius_two_pass_0_03_0_006\",\"scene_capture_basecolor_srgb_to_linear\"]";
+        metadata += ",\"inferred_fields\":[\"brush_radius_fixed_0_01\",\"scene_capture_basecolor_srgb_to_linear\"]";
         metadata += ",\"phase0_lower_rescan_used\":false";
         metadata += ",\"template_fill_enabled\":false";
         metadata += ",\"template_clone_enabled\":false";
@@ -5889,10 +5889,10 @@ namespace
         job->brush = job->old_brush;
         job->brush.Hardness = 1.0f;
         job->brush.Opacity = 1.0f;
-        job->brush_radius_raw = 0.09;
-        job->brush_radius = 0.09;
-        job->sampling_brush_radius = 0.009;
-        job->base_probe_radius = std::min(job->brush_radius, 0.03);
+        job->brush_radius_raw = 0.01;
+        job->brush_radius = 0.01;
+        job->sampling_brush_radius = job->brush_radius;
+        job->base_probe_radius = job->brush_radius;
         job->brush.Radius = static_cast<float>(job->brush_radius);
         const double visible_probe_width_px = std::max(1.0, static_cast<double>(job->viewport_width) * 0.88);
         const double visible_probe_height_px = std::max(1.0, static_cast<double>(job->viewport_height) * 0.96);
@@ -5909,15 +5909,14 @@ namespace
         job->metadata += ",\"template_base_rows\":" + std::to_string(job->base_rows);
         job->metadata += ",\"template_base_probe_spacing_px\":" + std::to_string(job->base_probe_spacing_px);
         job->metadata += ",\"template_base_probe_radius\":" + std::to_string(job->base_probe_radius);
-        job->metadata += ",\"template_base_probe_policy\":\"min(fill_radius,0.03)\"";
+        job->metadata += ",\"template_base_probe_policy\":\"fixed_brush_radius\"";
         job->metadata += ",\"template_base_probe_formula\":\"ceil(visible_probe_extent/(sqrt(visible_probe_area)*base_probe_radius*0.75))\"";
         job->metadata += ",\"template_explicit_stroke_batch_enabled\":true";
         job->metadata += ",\"template_explicit_stroke_batch_mode\":\"sqrt_dynamic_timer_drained\"";
         job->metadata += ",\"template_dense_order\":\"front_silhouette_interval_top_down\"";
         job->metadata += ",\"template_hittest_tick_chunk\":256";
-        job->metadata += ",\"two_pass_fill_radius\":0.09";
-        job->metadata += ",\"two_pass_detail_radius\":0.009";
-        job->metadata += ",\"template_sampling_radius_policy\":\"detail_pass_sampling_radius\"";
+        job->metadata += ",\"single_pass_radius\":0.01";
+        job->metadata += ",\"template_sampling_radius_policy\":\"fixed_brush_radius\"";
         job->metadata += ",\"template_sampling_brush_radius\":" + std::to_string(job->sampling_brush_radius);
         job->started = std::chrono::steady_clock::now();
         job->last_tick = job->started;
@@ -6292,22 +6291,15 @@ namespace
             }
             job->sample_pool_points = static_cast<int>(job->sample_pool.size());
             job->color_source = "scene_capture_basecolor_bulk_readback";
-            auto coverage_points = template_select_uniform_yx(job->sample_pool, job->fill_sample_target);
-            for (auto& point : coverage_points)
+            auto paint_points = template_select_uniform_yx(job->sample_pool, job->point_target);
+            for (auto& point : paint_points)
             {
                 point.stroke_radius = job->brush_radius;
                 point.paint_pass = 0;
             }
-            job->coverage_strokes = static_cast<int>(coverage_points.size());
-            auto detail_points = template_select_uniform_yx(job->sample_pool, job->point_target);
-            for (auto& point : detail_points)
-            {
-                point.stroke_radius = job->sampling_brush_radius;
-                point.paint_pass = 1;
-            }
-            job->detail_strokes = static_cast<int>(detail_points.size());
-            job->points = std::move(coverage_points);
-            job->points.insert(job->points.end(), detail_points.begin(), detail_points.end());
+            job->coverage_strokes = static_cast<int>(paint_points.size());
+            job->detail_strokes = 0;
+            job->points = std::move(paint_points);
             job->paint_sample_attempts = static_cast<int>(job->points.size());
             job->paint_sample_success = static_cast<int>(job->points.size());
             job->paint_sample_failures = 0;
@@ -6357,21 +6349,18 @@ namespace
                                       ",\"paint_target_channel\":\"Albedo\"" +
                                       ",\"material_channel_overwrite\":false" +
                                       ",\"local_paint_used\":false" +
-                                      ",\"brush_radius_mode\":\"two_pass_fixed_full_detail\"" +
-                                      ",\"brush_radius_formula\":\"fill=0.09,detail=0.009\"" +
+                                      ",\"brush_radius_mode\":\"fixed\"" +
+                                      ",\"brush_radius_formula\":\"fixed(0.01)\"" +
                                       ",\"brush_radius_raw\":" + std::to_string(job->brush_radius_raw) +
                                       ",\"brush_radius\":" + std::to_string(job->brush_radius) +
-                                      ",\"two_pass_enabled\":true" +
-                                      ",\"single_pass_enabled\":false" +
-                                      ",\"fill_radius\":" + std::to_string(job->brush_radius) +
-                                      ",\"detail_radius\":" + std::to_string(job->sampling_brush_radius) +
-                                      ",\"coverage_radius\":" + std::to_string(job->brush_radius) +
-                                      ",\"paint_send_order\":\"fill_pass_then_full_detail_pass\"" +
+                                      ",\"two_pass_enabled\":false" +
+                                      ",\"single_pass_enabled\":true" +
+                                      ",\"paint_send_order\":\"single_pass_top_down\"" +
                                       ",\"server_rpc\":\"ServerPaintBatch\"" +
                                       ",\"server_batch_limit\":" + std::to_string(job->server_batch_limit) +
-                                      ",\"server_batch_limit_formula\":\"min(200,ceil(sqrt(paint_samples)*0.75))\"" +
+                                      ",\"server_batch_limit_formula\":\"ceil(sqrt(paint_samples)*0.42)\"" +
                                       ",\"server_batch_delay_ms\":" + std::to_string(job->server_batch_delay_ms) +
-                                      ",\"server_batch_delay_formula\":\"ceil(650/sqrt(paint_samples))\"");
+                                      ",\"server_batch_delay_formula\":\"ceil(1000/sqrt(paint_samples))\"");
             job->replicate_index = 0;
             job->phase = TemplateUvBrushAsyncJob::Phase::ReplicateStrokes;
             post_next();
@@ -6501,7 +6490,7 @@ namespace
             metadata += ",\"silhouette_area_px\":" + std::to_string(job->silhouette_area_px);
             metadata += ",\"template_sample_count_fixed\":false";
             metadata += ",\"template_sample_target_mode\":\"sampling_radius_dynamic\"";
-            metadata += ",\"template_sample_target_formula\":\"detail=ceil(silhouette_area_px / pow(min(viewport_width,viewport_height)*detail_radius*0.25,2)); fill=ceil(silhouette_area_px / pow(min(viewport_width,viewport_height)*fill_radius*0.25,2))\"";
+            metadata += ",\"template_sample_target_formula\":\"ceil(silhouette_area_px / pow(min(viewport_width,viewport_height)*brush_radius*0.25,2))\"";
             metadata += ",\"fill_sample_target\":" + std::to_string(job->fill_sample_target);
             metadata += ",\"template_sample_target\":" + std::to_string(job->coverage_sample_target);
             metadata += ",\"template_candidate_target_formula\":\"ceil(template_sample_target / estimated_dense_acceptance)\"";
@@ -6531,25 +6520,22 @@ namespace
             metadata += ",\"template_color_sample_target\":" + std::to_string(job->point_target);
             metadata += std::string(",\"template_dense_early_stopped\":") +
                         json_bool(job->next_index < job->candidate_count);
-            metadata += ",\"two_pass_enabled\":true";
-            metadata += ",\"single_pass_enabled\":false";
-            metadata += ",\"two_pass_strategy\":\"fill_then_full_detail\"";
+            metadata += ",\"two_pass_enabled\":false";
+            metadata += ",\"single_pass_enabled\":true";
+            metadata += ",\"single_pass_strategy\":\"fixed_radius_server_batch\"";
             metadata += ",\"coverage_strokes\":" + std::to_string(job->coverage_strokes);
             metadata += ",\"detail_strokes\":" + std::to_string(job->detail_strokes);
-            metadata += ",\"paint_send_order\":\"fill_pass_then_full_detail_pass\"";
+            metadata += ",\"paint_send_order\":\"single_pass_top_down\"";
             metadata += ",\"paint_samples\":" + std::to_string(job->paint_sample_success);
             metadata += ",\"paint_sample_attempts\":" + std::to_string(job->paint_sample_attempts);
             metadata += ",\"paint_sample_success\":" + std::to_string(job->paint_sample_success);
             metadata += ",\"paint_sample_failures\":" + std::to_string(job->paint_sample_failures);
             metadata += ",\"template_dedupe_skipped\":" + std::to_string(job->dedupe_skipped);
-            metadata += ",\"template_brush_radius_mode\":\"two_pass_fixed_full_detail\"";
-            metadata += ",\"template_brush_radius_formula\":\"fill=0.09,detail=0.009\"";
+            metadata += ",\"template_brush_radius_mode\":\"fixed\"";
+            metadata += ",\"template_brush_radius_formula\":\"fixed(0.01)\"";
             metadata += ",\"template_brush_radius_raw\":" + std::to_string(job->brush_radius_raw);
             metadata += ",\"template_brush_radius\":" + std::to_string(job->brush_radius);
-            metadata += ",\"coverage_radius\":" + std::to_string(job->brush_radius);
-            metadata += ",\"fill_radius\":" + std::to_string(job->brush_radius);
-            metadata += ",\"detail_radius\":" + std::to_string(job->sampling_brush_radius);
-            metadata += ",\"template_sampling_radius_policy\":\"detail_pass_sampling_radius\"";
+            metadata += ",\"template_sampling_radius_policy\":\"fixed_brush_radius\"";
             metadata += ",\"template_sampling_brush_radius\":" + std::to_string(job->sampling_brush_radius);
             metadata += ",\"template_point_elapsed_ms\":" + std::to_string(job->template_point_elapsed_ms);
             metadata += ",\"capture_elapsed_ms\":" + std::to_string(job->template_capture_elapsed_ms);
@@ -6570,9 +6556,9 @@ namespace
             metadata += ",\"server_paint_batch_used\":true";
             metadata += ",\"server_batch_rpc\":\"" + json_escape(job->server_batch_rpc) + "\"";
             metadata += ",\"server_batch_limit\":" + std::to_string(job->server_batch_limit);
-            metadata += ",\"server_batch_limit_formula\":\"min(200,ceil(sqrt(paint_samples)*0.75))\"";
+            metadata += ",\"server_batch_limit_formula\":\"ceil(sqrt(paint_samples)*0.42)\"";
             metadata += ",\"server_batch_delay_ms\":" + std::to_string(job->server_batch_delay_ms);
-            metadata += ",\"server_batch_delay_formula\":\"ceil(650/sqrt(paint_samples))\"";
+            metadata += ",\"server_batch_delay_formula\":\"ceil(1000/sqrt(paint_samples))\"";
             metadata += ",\"server_batch_schedule\":\"timer_drained\"";
             metadata += ",\"server_batch_calls\":" + std::to_string(job->server_batch_calls);
             metadata += ",\"server_batch_success\":" + std::to_string(job->server_batch_success);
