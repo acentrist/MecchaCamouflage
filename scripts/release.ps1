@@ -19,6 +19,9 @@ New-Item -ItemType Directory -Force -Path $TmpRoot | Out-Null
 
 Copy-Item -Force $ExePath (Join-Path $TmpRoot $([System.IO.Path]::GetFileName($ExePath)))
 Copy-Item -Force (Join-Path $RuntimeRoot "README.md") (Join-Path $TmpRoot "README.md")
+$AssetOutDir = Join-Path $TmpRoot "assets"
+New-Item -ItemType Directory -Force -Path $AssetOutDir | Out-Null
+Copy-Item -Force (Join-Path $RuntimeRoot "assets\icon.png") (Join-Path $AssetOutDir "icon.png")
 
 Set-Content -Encoding ASCII -Path (Join-Path $TmpRoot "runtime-config.json") -Value @'
 {
