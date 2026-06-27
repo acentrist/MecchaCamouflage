@@ -21,7 +21,7 @@ build:
 	$(call RUN_POWERSHELL,$(BUILD_PS),)
 
 run: build
-	$(call RUN_POWERSHELL,$(RUN_PS),-RuntimeArgString "--mode service --native-apply-mode $(NATIVE_APPLY_MODE)")
+	$(call RUN_POWERSHELL,$(RUN_PS),-NativeApplyMode $(NATIVE_APPLY_MODE))
 
 package: build
 	$(call RUN_POWERSHELL,$(PACKAGE_PS),-Version $(VERSION))

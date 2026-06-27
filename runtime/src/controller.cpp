@@ -4,54 +4,98 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 #include <tlhelp32.h>
+#include <shellapi.h>
+#include <d3d11.h>
+#include <dwmapi.h>
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cctype>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <deque>
 #include <fstream>
+#include <functional>
 #include <future>
 #include <iomanip>
 #include <iostream>
+#include <mutex>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <vector>
 #include <filesystem>
 
+#include "controller_events.hpp"
+#include "controller_hotkeys.hpp"
+#include "controller_settings.hpp"
+#include "controller_ui.hpp"
+
+#include "imgui.h"
+#include "imgui_impl_dx11.h"
+#include "imgui_impl_win32.h"
+
 #pragma comment(lib, "Ws2_32.lib")
 #pragma comment(lib, "User32.lib")
+#pragma comment(lib, "Gdi32.lib")
+#pragma comment(lib, "D3d11.lib")
+#pragma comment(lib, "Shell32.lib")
+#pragma comment(lib, "Dwmapi.lib")
+
+#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
+#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
+#endif
+
+#ifndef DWMWA_BORDER_COLOR
+#define DWMWA_BORDER_COLOR 34
+#endif
+
+#ifndef DWMWA_CAPTION_COLOR
+#define DWMWA_CAPTION_COLOR 35
+#endif
+
+#ifndef DWMWA_TEXT_COLOR
+#define DWMWA_TEXT_COLOR 36
+#endif
+
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 
 namespace
 {
     constexpr int BridgeResourceId = 101;
-    constexpr wchar_t DefaultGameProcessName[] = L"PenguinHotel-Win64-Shipping.exe";
+    constexpr int AppIconResourceId = 201;
+    constexpr LONG MinAppWindowWidth = 1180;
+    constexpr LONG MinAppWindowHeight = 860;
+    constexpr LONG DefaultAppWindowInset = 80;
     constexpr char DefaultBridgeHost[] = "127.0.0.1";
     constexpr int DefaultBridgePort = 0;
-    constexpr UINT HotkeyId = 0x4D43;
-    constexpr UINT HotkeyVk = VK_F10;
+    using meccha::AppSettings;
+    using meccha::HotkeyBinding;
+    using meccha::OverlayHotkeyState;
+    using meccha::OverlayHotkeys;
+    using meccha::PaintTuning;
+    using meccha::RuntimeEvent;
+    using meccha::RuntimeEventBuffer;
+    using meccha::TraceLogBuffer;
 
     struct Config
     {
         std::wstring mode{L"service"};
-        std::wstring game_process_name{DefaultGameProcessName};
+        std::wstring game_process_name{meccha::DefaultGameProcessName};
         std::wstring log_dir{};
         std::string bridge_host{DefaultBridgeHost};
         int bridge_port{DefaultBridgePort};
         double bridge_timeout_seconds{240.0};
-        double process_poll_seconds{1.0};
         double status_interval_seconds{2.0};
         double frame_delay_ms{16.0};
-        int service_max_frames{0};
-        double service_max_duration_seconds{0.0};
-        std::wstring service_stop_file{};
         std::string native_apply_mode{"template_brush_paint"};
-        bool auto_sdk_probe{false};
-        bool auto_sdk_deep_probe{false};
-        bool print_summary{false};
+        DWORD parent_pid{0};
+        PaintTuning tuning{};
     };
 
     struct ProcessInfo
@@ -160,6 +204,20 @@ namespace
         return std::filesystem::temp_directory_path() / L"MecchaCamouflage" / L"runtime";
     }
 
+    auto default_app_dir() -> std::filesystem::path
+    {
+        wchar_t buffer[32768]{};
+        const DWORD size = GetEnvironmentVariableW(L"LOCALAPPDATA", buffer, static_cast<DWORD>(std::size(buffer)));
+        if (size > 0 && size < std::size(buffer))
+            return std::filesystem::path(buffer) / L"MecchaCamouflage";
+        return std::filesystem::temp_directory_path() / L"MecchaCamouflage";
+    }
+
+    auto config_path() -> std::filesystem::path
+    {
+        return default_app_dir() / L"config.json";
+    }
+
     auto read_text_file(const std::filesystem::path& path) -> std::string
     {
         std::ifstream file(path, std::ios::binary);
@@ -188,6 +246,24 @@ namespace
         std::ofstream file(path, std::ios::binary | std::ios::app);
         if (file)
             file << text;
+    }
+
+    auto date_from_timestamp(const std::string& timestamp) -> std::string
+    {
+        return timestamp.size() >= 10 ? timestamp.substr(0, 10) : "unknown-date";
+    }
+
+    auto clock_from_timestamp(const std::string& timestamp) -> std::string
+    {
+        return timestamp.size() >= 19 ? timestamp.substr(11, 8) : "--:--:--";
+    }
+
+    auto pretty_text(std::string text) -> std::string
+    {
+        std::replace(text.begin(), text.end(), '_', ' ');
+        if (!text.empty())
+            text[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(text[0])));
+        return text;
     }
 
     auto fnv1a64(const void* data, std::size_t size) -> std::uint64_t
@@ -258,13 +334,17 @@ namespace
         return end == begin ? fallback : value;
     }
 
-    auto extract_json_bool(const std::string& text, const std::string& key) -> bool
+    auto extract_json_bool(const std::string& text, const std::string& key, bool fallback = false) -> bool
     {
         const std::string needle = std::string("\"") + key + "\":";
         const auto start = text.find(needle);
         if (start == std::string::npos)
+            return fallback;
+        auto pos = start + needle.size();
+        while (pos < text.size() && std::isspace(static_cast<unsigned char>(text[pos])))
+            ++pos;
+        if (text.compare(pos, 5, "false") == 0)
             return false;
-        const auto pos = start + needle.size();
         return text.compare(pos, 4, "true") == 0;
     }
 
@@ -316,24 +396,33 @@ namespace
     class Diagnostics
     {
     public:
-        explicit Diagnostics(std::filesystem::path log_dir)
+        explicit Diagnostics(std::filesystem::path log_dir, RuntimeEventBuffer* events = nullptr, int retention_days = 14)
             : log_dir_(std::move(log_dir)),
-              events_path_(log_dir_ / L"events.jsonl"),
-              runtime_log_path_(log_dir_ / L"runtime.log"),
-              status_path_(log_dir_ / L"last_status.json")
+              status_path_(log_dir_ / L"last_status.json"),
+              latest_error_path_(log_dir_ / L"latest_error.json"),
+              events_(events),
+              retention_days_(std::max(1, retention_days))
         {
             std::error_code ec;
             std::filesystem::create_directories(log_dir_, ec);
+            prune_old_logs();
         }
 
         auto log_dir() const -> const std::filesystem::path& { return log_dir_; }
         auto status_path() const -> const std::filesystem::path& { return status_path_; }
 
-        void set_process(std::string json) { process_json_ = std::move(json); write_status(); }
-        void set_bridge(std::string json) { bridge_json_ = std::move(json); write_status(); }
-        void set_hotkey(std::string json) { hotkey_json_ = std::move(json); write_status(); }
-        void set_last_run(std::string json) { last_run_json_ = std::move(json); write_status(); }
-        void clear_error() { last_error_json_ = "null"; write_status(); }
+        void set_process(std::string json) { std::lock_guard<std::mutex> lock(mutex_); process_json_ = std::move(json); write_status_locked(); }
+        void set_bridge(std::string json) { std::lock_guard<std::mutex> lock(mutex_); bridge_json_ = std::move(json); write_status_locked(); }
+        void set_hotkey(std::string json) { std::lock_guard<std::mutex> lock(mutex_); hotkey_json_ = std::move(json); write_status_locked(); }
+        void set_last_run(std::string json) { std::lock_guard<std::mutex> lock(mutex_); last_run_json_ = std::move(json); write_status_locked(); }
+        void clear_error()
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            last_error_json_ = "null";
+            std::error_code ec;
+            std::filesystem::remove(latest_error_path_, ec);
+            write_status_locked();
+        }
 
         void event(const std::string& name,
                    const std::string& level,
@@ -342,72 +431,53 @@ namespace
                    const std::string& details_json = "{}",
                    const std::string& run_id = "")
         {
-            const std::string ts = now_utc_iso();
             const std::string details = details_json.empty() ? "{}" : details_json;
-            const std::string entry = std::string("{\"timestamp\":") + json_string(ts) +
+            RuntimeEvent event_record = meccha::make_runtime_event(name, level, stage, message, details, run_id);
+
+            const std::string entry = std::string("{\"timestamp\":") + json_string(event_record.timestamp) +
                                       ",\"level\":" + json_string(level) +
+                                      ",\"domain\":" + json_string(event_record.domain) +
                                       ",\"event\":" + json_string(name) +
+                                      ",\"title\":" + json_string(event_record.title) +
                                       ",\"run_id\":" + json_string(run_id) +
                                       ",\"stage\":" + json_string(stage) +
                                       ",\"message\":" + json_string(message) +
+                                      ",\"progress\":" + (event_record.progress >= 0.0 ? std::to_string(event_record.progress) : "null") +
                                       ",\"details\":" + details + "}";
-            append_text_file(events_path_, entry + "\n");
-            append_text_file(runtime_log_path_, ts + " " + upper(level) + " " + name + " stage=" + stage + " run_id=" + run_id + " " + message + " " + details + "\n");
-            const auto level_tag = level == "warning" ? "WARN" : upper(level);
-            if (name == "paint_progress")
+            const std::string line = event_record.clock + " " + event_record.level + " " + event_record.domain + " " +
+                                     event_record.title + " " + message + "\n";
             {
-                if (progress_line_active_ && stage != active_progress_stage_)
-                {
-                    std::cout << "\r" << active_progress_line_ << " 100% done" << std::string(12, ' ') << std::endl;
-                }
-                active_progress_stage_ = stage;
-                active_progress_line_ = "[" + std::string(level_tag) + "] progress " + pretty(stage) + " " + message;
-                std::cout << "\r" << active_progress_line_ << "          " << std::flush;
-                progress_line_active_ = true;
-                return;
+                std::lock_guard<std::mutex> lock(mutex_);
+                append_text_file(events_path_for(event_record.timestamp), entry + "\n");
+                append_text_file(runtime_log_path_for(event_record.timestamp), line);
             }
-            if (progress_line_active_)
-            {
-                std::cout << "\r" << active_progress_line_ << " 100% done" << std::string(12, ' ') << std::endl;
-                progress_line_active_ = false;
-                active_progress_stage_.clear();
-                active_progress_line_.clear();
-            }
-            if (name == "service_idle")
-            {
-                return;
-            }
-            if (name == "waiting_for_hotkey")
-            {
-                std::cout << "[READY] waiting for user to press F10..." << std::endl;
-                return;
-            }
-            if (name == "paint_done")
-            {
-                std::cout << "[DONE] " << message << std::endl;
-                return;
-            }
-            std::cout << "[" << level_tag << "] " << pretty(name) << " stage=" << pretty(stage) << " " << message << std::endl;
-            if (level == "error")
-            {
-                std::cout << "  log_dir=" << wide_to_utf8(log_dir_.wstring()) << std::endl;
-                std::cout << "  status=" << wide_to_utf8(status_path_.wstring()) << std::endl;
-                std::cout << "  details=events.jsonl" << std::endl;
-            }
+            if (events_)
+                events_->push(std::move(event_record));
         }
 
         void record_error(const std::string& stage, const std::string& message, const std::string& details_json = "{}", const std::string& run_id = "")
         {
-            last_error_json_ = std::string("{\"timestamp\":") + json_string(now_utc_iso()) +
-                               ",\"stage\":" + json_string(stage) +
-                               ",\"message\":" + json_string(message) +
-                               ",\"details\":" + (details_json.empty() ? "{}" : details_json) +
-                               ",\"run_id\":" + json_string(run_id) + "}";
-            write_status();
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                last_error_json_ = std::string("{\"timestamp\":") + json_string(now_utc_iso()) +
+                                   ",\"stage\":" + json_string(stage) +
+                                   ",\"message\":" + json_string(message) +
+                                   ",\"details\":" + (details_json.empty() ? "{}" : details_json) +
+                                   ",\"run_id\":" + json_string(run_id) + "}";
+                write_text_file(latest_error_path_, last_error_json_ + "\n");
+                write_status_locked();
+            }
             event("runtime_error", "error", stage, message, details_json, run_id);
         }
 
         void write_status()
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            write_status_locked();
+        }
+
+    private:
+        void write_status_locked()
         {
             const std::string status = std::string("{\n") +
                 "  \"process\": " + (process_json_.empty() ? "{}" : process_json_) + ",\n" +
@@ -429,8 +499,33 @@ namespace
                 }
             }
         }
+        auto events_path_for(const std::string& timestamp) const -> std::filesystem::path
+        {
+            return log_dir_ / utf8_to_wide("events-" + date_from_timestamp(timestamp) + ".jsonl");
+        }
 
-    private:
+        auto runtime_log_path_for(const std::string& timestamp) const -> std::filesystem::path
+        {
+            return log_dir_ / utf8_to_wide("runtime-" + date_from_timestamp(timestamp) + ".log");
+        }
+
+        void prune_old_logs()
+        {
+            std::error_code ec;
+            const auto cutoff = std::filesystem::file_time_type::clock::now() - std::chrono::hours(24 * retention_days_);
+            for (const auto& entry : std::filesystem::directory_iterator(log_dir_, ec))
+            {
+                if (ec || !entry.is_regular_file(ec))
+                    continue;
+                const auto name = wide_to_utf8(entry.path().filename().wstring());
+                const bool rotated = name.rfind("events-", 0) == 0 || name.rfind("runtime-", 0) == 0;
+                if (!rotated)
+                    continue;
+                if (entry.last_write_time(ec) < cutoff)
+                    std::filesystem::remove(entry.path(), ec);
+            }
+        }
+
         static auto upper(std::string text) -> std::string
         {
             std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
@@ -443,18 +538,17 @@ namespace
             return text;
         }
 
+        mutable std::mutex mutex_;
         std::filesystem::path log_dir_;
-        std::filesystem::path events_path_;
-        std::filesystem::path runtime_log_path_;
         std::filesystem::path status_path_;
+        std::filesystem::path latest_error_path_;
+        RuntimeEventBuffer* events_{nullptr};
+        int retention_days_{14};
         std::string process_json_{};
         std::string bridge_json_{};
         std::string hotkey_json_{};
         std::string last_run_json_{};
         std::string last_error_json_{"null"};
-        bool progress_line_active_{false};
-        std::string active_progress_stage_{};
-        std::string active_progress_line_{};
     };
 
     auto process_json(const ProcessInfo& process, const std::wstring& target_name) -> std::string
@@ -706,50 +800,164 @@ namespace
         return std::filesystem::path(bridge_path.wstring() + L".progress.json");
     }
 
-    class Hotkey
+    struct OverlayServiceState
     {
-    public:
-        Hotkey()
-        {
-            registered_ = RegisterHotKey(nullptr, HotkeyId, MOD_NOREPEAT, HotkeyVk) != FALSE;
-            last_error_ = registered_ ? 0 : GetLastError();
-        }
-        ~Hotkey()
-        {
-            if (registered_)
-                UnregisterHotKey(nullptr, HotkeyId);
-        }
-        auto backend() const -> std::string
-        {
-            if (registered_)
-                return "register_hotkey";
-            return std::string("async_state(register_hotkey_failed win32=") + std::to_string(last_error_) + ")";
-        }
-        auto consume() -> bool
-        {
-            if (registered_)
-            {
-                MSG msg{};
-                while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
-                {
-                    if (msg.message == WM_HOTKEY && msg.wParam == HotkeyId)
-                        return true;
-                    TranslateMessage(&msg);
-                    DispatchMessageW(&msg);
-                }
-                return false;
-            }
-            const bool down = (GetAsyncKeyState(HotkeyVk) & 0x8000) != 0;
-            const bool edge = down && !last_async_down_;
-            last_async_down_ = down;
-            return edge;
-        }
-
-    private:
-        bool registered_{false};
-        DWORD last_error_{0};
-        bool last_async_down_{false};
+        ProcessInfo process{};
+        bool bridge_ready{false};
+        bool waiting_for_hotkey_logged{false};
+        bool paint_running{false};
+        std::string bridge_state{"not_ready"};
+        std::string paint_state{"Idle"};
+        std::string last_result{"Waiting"};
+        std::future<bool> paint_future{};
+        bool paint_future_active{false};
+        double paint_started_at{0.0};
+        DWORD injected_pid{0};
+        bool waiting_for_process_logged{false};
+        double last_bridge_check{0.0};
     };
+
+    struct OverlayD3DState
+    {
+        ID3D11Device* device{nullptr};
+        ID3D11DeviceContext* context{nullptr};
+        IDXGISwapChain* swap_chain{nullptr};
+        ID3D11RenderTargetView* render_target{nullptr};
+    };
+
+    OverlayD3DState g_overlay_d3d{};
+
+    auto create_render_target() -> void
+    {
+        ID3D11Texture2D* back_buffer = nullptr;
+        if (g_overlay_d3d.swap_chain &&
+            SUCCEEDED(g_overlay_d3d.swap_chain->GetBuffer(0, IID_PPV_ARGS(&back_buffer))))
+        {
+            g_overlay_d3d.device->CreateRenderTargetView(back_buffer, nullptr, &g_overlay_d3d.render_target);
+            back_buffer->Release();
+        }
+    }
+
+    auto cleanup_render_target() -> void
+    {
+        if (g_overlay_d3d.render_target)
+        {
+            g_overlay_d3d.render_target->Release();
+            g_overlay_d3d.render_target = nullptr;
+        }
+    }
+
+    auto create_device_d3d(HWND hwnd) -> bool
+    {
+        DXGI_SWAP_CHAIN_DESC sd{};
+        sd.BufferCount = 2;
+        sd.BufferDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        sd.OutputWindow = hwnd;
+        sd.SampleDesc.Count = 1;
+        sd.Windowed = TRUE;
+        sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+        sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+
+        UINT create_device_flags = 0;
+        D3D_FEATURE_LEVEL feature_level{};
+        const D3D_FEATURE_LEVEL levels[]{D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0};
+        const HRESULT hr = D3D11CreateDeviceAndSwapChain(nullptr,
+                                                         D3D_DRIVER_TYPE_HARDWARE,
+                                                         nullptr,
+                                                         create_device_flags,
+                                                         levels,
+                                                         2,
+                                                         D3D11_SDK_VERSION,
+                                                         &sd,
+                                                         &g_overlay_d3d.swap_chain,
+                                                         &g_overlay_d3d.device,
+                                                         &feature_level,
+                                                         &g_overlay_d3d.context);
+        if (FAILED(hr))
+            return false;
+        create_render_target();
+        return true;
+    }
+
+    auto cleanup_device_d3d() -> void
+    {
+        cleanup_render_target();
+        if (g_overlay_d3d.swap_chain) { g_overlay_d3d.swap_chain->Release(); g_overlay_d3d.swap_chain = nullptr; }
+        if (g_overlay_d3d.context) { g_overlay_d3d.context->Release(); g_overlay_d3d.context = nullptr; }
+        if (g_overlay_d3d.device) { g_overlay_d3d.device->Release(); g_overlay_d3d.device = nullptr; }
+    }
+
+    LRESULT CALLBACK overlay_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+    {
+        if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam))
+            return true;
+        switch (msg)
+        {
+        case WM_GETMINMAXINFO:
+        {
+            auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
+            info->ptMinTrackSize.x = MinAppWindowWidth;
+            info->ptMinTrackSize.y = MinAppWindowHeight;
+            return 0;
+        }
+        case WM_SIZE:
+            if (g_overlay_d3d.device && wparam != SIZE_MINIMIZED)
+            {
+                cleanup_render_target();
+                g_overlay_d3d.swap_chain->ResizeBuffers(0, LOWORD(lparam), HIWORD(lparam), DXGI_FORMAT_UNKNOWN, 0);
+                create_render_target();
+            }
+            return 0;
+        case WM_DESTROY:
+            PostQuitMessage(0);
+            return 0;
+        }
+        return DefWindowProcW(hwnd, msg, wparam, lparam);
+    }
+
+    auto primary_overlay_rect() -> RECT
+    {
+        RECT rect{};
+        rect.left = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        rect.top = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        rect.right = rect.left + GetSystemMetrics(SM_CXVIRTUALSCREEN);
+        rect.bottom = rect.top + GetSystemMetrics(SM_CYVIRTUALSCREEN);
+        return rect;
+    }
+
+    auto initial_app_rect(const AppSettings& settings) -> RECT
+    {
+        const RECT desktop = primary_overlay_rect();
+        const LONG width = static_cast<LONG>(std::max(static_cast<float>(MinAppWindowWidth), settings.panel_width));
+        const LONG height = static_cast<LONG>(std::max(static_cast<float>(MinAppWindowHeight), settings.panel_height));
+        RECT rect{};
+        if (settings.panel_x >= 0.0f && settings.panel_y >= 0.0f)
+        {
+            rect.left = static_cast<LONG>(settings.panel_x);
+            rect.top = static_cast<LONG>(settings.panel_y);
+        }
+        else
+        {
+            rect.left = desktop.left + DefaultAppWindowInset;
+            rect.top = desktop.top + DefaultAppWindowInset;
+        }
+        rect.right = rect.left + width;
+        rect.bottom = rect.top + height;
+        return rect;
+    }
+
+    auto is_process_alive(DWORD pid) -> bool
+    {
+        if (!pid)
+            return true;
+        HANDLE process = OpenProcess(SYNCHRONIZE, FALSE, pid);
+        if (!process)
+            return false;
+        const DWORD wait = WaitForSingleObject(process, 0);
+        CloseHandle(process);
+        return wait == WAIT_TIMEOUT;
+    }
 
     auto mode_to_route(const std::string& native_apply_mode) -> std::string
     {
@@ -767,7 +975,12 @@ namespace
         return std::string("{\"native_apply_mode\":") + json_string(config.native_apply_mode) +
                ",\"route\":" + json_string(mode_to_route(config.native_apply_mode)) +
                ",\"process\":{\"pid\":" + std::to_string(process.pid) +
-               ",\"name\":" + json_string(wide_to_utf8(process.name)) + "}}";
+               ",\"name\":" + json_string(wide_to_utf8(process.name)) + "}" +
+               ",\"tuning\":{\"brush_radius\":" + std::to_string(config.tuning.brush_radius) +
+               ",\"brush_spacing\":" + std::to_string(config.tuning.brush_spacing) +
+               ",\"server_brush_spacing\":" + std::to_string(config.tuning.server_brush_spacing) +
+               ",\"server_batch_limit\":" + std::to_string(config.tuning.server_batch_limit) +
+               ",\"server_batch_delay_ms\":" + std::to_string(config.tuning.server_batch_delay_ms) + "}}";
     }
 
     auto wait_for_bridge_ready(const Config& config, const std::filesystem::path& bridge_path, Diagnostics& diagnostics, double seconds = 5.0) -> bool
@@ -820,32 +1033,43 @@ namespace
         return wait_for_bridge_ready(config, bridge_path, diagnostics, 5.0);
     }
 
-    auto run_bridge_command(const Config& config, const std::filesystem::path& bridge_path, const std::string& command, const std::string& payload = "{}") -> BridgeResponse
+    auto truncate_for_trace(const std::string& text, std::size_t limit = 1200) -> std::string
     {
-        (void)bridge_path;
-        BridgeClient client(config.bridge_host, config.bridge_port, config.bridge_timeout_seconds);
-        return client.request(command, payload);
+        if (text.size() <= limit)
+            return text;
+        return text.substr(0, limit) + "...";
     }
 
-    void log_probe_result(Diagnostics& diagnostics, const std::string& event_name, const BridgeResponse& response)
+    auto run_bridge_command(const Config& config,
+                            const std::filesystem::path& bridge_path,
+                            const std::string& command,
+                            const std::string& payload = "{}",
+                            TraceLogBuffer* trace = nullptr) -> BridgeResponse
     {
-        const bool context_pending = response.stage == "world_unavailable" ||
-                                     response.stage == "local_pawn_unavailable" ||
-                                     response.stage == "paint_component_unavailable" ||
-                                     response.stage == "sdk_context_unavailable";
-        diagnostics.event(response.success ? event_name : event_name + "_failed",
-                          response.success ? "info" : (context_pending ? "warning" : "error"),
-                          response.stage.empty() ? event_name : response.stage,
-                          "dev_context_check " + event_name + ": " + response.message,
-                          std::string("{\"probe\":") + json_string(event_name) +
-                          ",\"response\":" + (response.raw.empty() ? "{}" : response.raw) +
-                          ",\"will_retry\":" + (response.success ? "false" : "true") + "}");
+        (void)bridge_path;
+        if (trace)
+            trace->push("bridge", "request", std::string("{\"command\":") + json_string(command) +
+                                             ",\"payload\":" + truncate_for_trace(payload) + "}");
+        BridgeClient client(config.bridge_host, config.bridge_port, config.bridge_timeout_seconds);
+        BridgeResponse response = client.request(command, payload);
+        if (trace)
+        {
+            trace->push("bridge",
+                        "response",
+                        std::string("{\"command\":") + json_string(command) +
+                        ",\"success\":" + (response.success ? "true" : "false") +
+                        ",\"stage\":" + json_string(response.stage) +
+                        ",\"message\":" + json_string(response.message.empty() ? response.transport_error : response.message) +
+                        ",\"raw\":" + truncate_for_trace(response.raw.empty() ? "{}" : response.raw) + "}");
+        }
+        return response;
     }
 
     auto run_paint(const Config& config,
                    const std::filesystem::path& bridge_path,
                    const ProcessInfo& process,
-                   Diagnostics& diagnostics) -> bool
+                   Diagnostics& diagnostics,
+                   TraceLogBuffer* trace = nullptr) -> bool
     {
         const std::string run_id = hex64(GetTickCount64()) + hex64(process.pid);
         const double start = seconds_now();
@@ -865,21 +1089,25 @@ namespace
                           std::string("{\"adapter\":\"bridge\",\"native_apply_mode\":") + json_string(config.native_apply_mode) + "}", run_id);
         const std::string payload = paint_payload(config, process);
         auto future = std::async(std::launch::async, [&]() {
-            return run_bridge_command(config, bridge_path, "paint_full_route", payload);
+            return run_bridge_command(config, bridge_path, "paint_full_route", payload, trace);
         });
         const auto progress_path = bridge_progress_file(bridge_path);
         std::string last_signature;
+        bool waiting_commit_logged = false;
+        double last_progress_change = seconds_now();
         while (future.wait_for(std::chrono::milliseconds(500)) != std::future_status::ready)
         {
             const std::string progress = read_text_file(progress_path);
             if (!progress.empty())
             {
                 const std::string stage = extract_json_string(progress, "stage");
-                const int percent = static_cast<int>(extract_json_number(progress, "progress", 0.0) * 100.0 + 0.5);
+                const double progress_value = extract_json_number(progress, "progress", 0.0);
+                const int percent = static_cast<int>(progress_value * 100.0 + 0.5);
                 const std::string signature = stage + ":" + std::to_string(percent);
-                if (!stage.empty() && signature != last_signature)
+                if (!waiting_commit_logged && !stage.empty() && signature != last_signature)
                 {
                     last_signature = signature;
+                    last_progress_change = seconds_now();
                     std::string summary = std::to_string(percent) + "%";
                     const auto front_hits = extract_json_number(progress, "front_hits", -1.0);
                     const auto unique_texels = extract_json_number(progress, "unique_atlas_texels", -1.0);
@@ -938,6 +1166,18 @@ namespace
                                              ",\"stage\":" + json_string(stage) +
                                              ",\"success\":false,\"progress\":" + progress + "}");
                 }
+                const bool high_progress_stalled = progress_value >= 0.95 && seconds_now() - last_progress_change >= 1.5;
+                if (!waiting_commit_logged && (progress_value >= 0.99 || high_progress_stalled))
+                {
+                    waiting_commit_logged = true;
+                    diagnostics.event("paint_waiting_commit",
+                                      "info",
+                                      "paint_commit",
+                                      "Applying paint...",
+                                      std::string("{\"elapsed_ms\":") + std::to_string((seconds_now() - start) * 1000.0) +
+                                      ",\"last_progress\":" + progress + "}",
+                                      run_id);
+                }
             }
         }
         BridgeResponse response = future.get();
@@ -973,6 +1213,549 @@ namespace
         return false;
     }
 
+    void apply_window_opacity(HWND hwnd, float opacity)
+    {
+        const float clamped = std::min(1.0f, std::max(0.35f, std::isfinite(opacity) ? opacity : 1.0f));
+        LONG_PTR ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        if ((ex_style & WS_EX_LAYERED) == 0)
+        {
+            ex_style |= WS_EX_LAYERED;
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style);
+        }
+        const auto alpha = static_cast<BYTE>(std::max(1, std::min(255, static_cast<int>(clamped * 255.0f + 0.5f))));
+        SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA);
+    }
+
+    void apply_dark_title_bar(HWND hwnd)
+    {
+        BOOL dark = TRUE;
+        if (FAILED(DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark))))
+        {
+            constexpr DWORD LegacyDarkModeAttribute = 19;
+            DwmSetWindowAttribute(hwnd, LegacyDarkModeAttribute, &dark, sizeof(dark));
+        }
+        const COLORREF black = RGB(0, 0, 0);
+        const COLORREF border = RGB(37, 37, 37);
+        const COLORREF text = RGB(240, 242, 244);
+        DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, &black, sizeof(black));
+        DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, &border, sizeof(border));
+        DwmSetWindowAttribute(hwnd, DWMWA_TEXT_COLOR, &text, sizeof(text));
+    }
+
+    auto run_overlay_service(Config config,
+                             const std::filesystem::path& bridge_path,
+                             Diagnostics& diagnostics,
+                             RuntimeEventBuffer& event_buffer,
+                             AppSettings& settings) -> int
+    {
+        WNDCLASSEXW wc{};
+        wc.cbSize = sizeof(wc);
+        wc.style = CS_CLASSDC;
+        wc.lpfnWndProc = overlay_wnd_proc;
+        wc.hInstance = GetModuleHandleW(nullptr);
+        wc.lpszClassName = L"MecchaCamouflageOverlay";
+        wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
+        wc.hIcon = LoadIconW(wc.hInstance, MAKEINTRESOURCEW(AppIconResourceId));
+        wc.hIconSm = LoadIconW(wc.hInstance, MAKEINTRESOURCEW(AppIconResourceId));
+        RegisterClassExW(&wc);
+
+        RECT rect = initial_app_rect(settings);
+        HWND hwnd = CreateWindowExW(0,
+                                    wc.lpszClassName,
+                                    L"Meccha Camouflage",
+                                    WS_OVERLAPPEDWINDOW,
+                                    rect.left,
+                                    rect.top,
+                                    rect.right - rect.left,
+                                    rect.bottom - rect.top,
+                                    nullptr,
+                                    nullptr,
+                                    wc.hInstance,
+                                    nullptr);
+        if (!hwnd)
+        {
+            diagnostics.record_error("overlay_create_failed", "failed to create overlay window");
+            UnregisterClassW(wc.lpszClassName, wc.hInstance);
+            return 2;
+        }
+        if (wc.hIcon)
+            SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(wc.hIcon));
+        if (wc.hIconSm)
+            SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(wc.hIconSm));
+        if (!create_device_d3d(hwnd))
+        {
+            diagnostics.record_error("overlay_d3d_failed", "failed to create D3D11 overlay device");
+            DestroyWindow(hwnd);
+            UnregisterClassW(wc.lpszClassName, wc.hInstance);
+            return 2;
+        }
+        ShowWindow(hwnd, SW_SHOWDEFAULT);
+        UpdateWindow(hwnd);
+        apply_dark_title_bar(hwnd);
+        SetWindowPos(hwnd,
+                     settings.always_on_top ? HWND_TOPMOST : HWND_NOTOPMOST,
+                     0,
+                     0,
+                     0,
+                     0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        apply_window_opacity(hwnd, settings.opacity);
+
+        IMGUI_CHECKVERSION();
+        ImGui::CreateContext();
+        ImGuiIO& io = ImGui::GetIO();
+        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+        io.IniFilename = nullptr;
+        meccha::apply_meccha_theme();
+        meccha::load_meccha_fonts();
+        ImGui_ImplWin32_Init(hwnd);
+        ImGui_ImplDX11_Init(g_overlay_d3d.device, g_overlay_d3d.context);
+
+        AppSettings persisted_settings = settings;
+        TraceLogBuffer trace_buffer{};
+        bool app_editing = false;
+        bool paint_editing = false;
+        bool recording_hotkey = false;
+        std::string hotkey_error{};
+        float applied_opacity = settings.opacity;
+        bool applied_topmost = settings.always_on_top;
+        OverlayServiceState service{};
+        OverlayHotkeyState hotkey_state{};
+        OverlayHotkeys hotkeys{meccha::parse_hotkey_binding(settings.paint_hotkey)};
+        diagnostics.set_hotkey(std::string("{\"paint\":") + json_string(meccha::hotkey_to_string(hotkeys.paint_binding())) +
+                               ",\"backend\":" + hotkeys.backend_json() + "}");
+        trace_buffer.push("hotkey", "register", std::string("{\"paint\":") + json_string(meccha::hotkey_to_string(hotkeys.paint_binding())) +
+                                               ",\"backend\":" + hotkeys.backend_json() + "}");
+        diagnostics.event("runtime_start", "info", "startup", "desktop service started",
+                          std::string("{\"pid\":") + std::to_string(GetCurrentProcessId()) +
+                          ",\"log_dir\":" + json_string(wide_to_utf8(diagnostics.log_dir().wstring())) +
+                          ",\"game_process_name\":" + json_string(wide_to_utf8(config.game_process_name)) +
+                          ",\"bridge_host\":" + json_string(config.bridge_host) +
+                          ",\"bridge_port\":" + std::to_string(config.bridge_port) +
+                          ",\"parent_pid\":" + std::to_string(config.parent_pid) + "}");
+        trace_buffer.push("app", "start",
+                          std::string("{\"pid\":") + std::to_string(GetCurrentProcessId()) +
+                          ",\"parent_pid\":" + std::to_string(config.parent_pid) + "}");
+
+        bool done = false;
+
+        auto start_paint = [&](const char* trigger) {
+            if (service.paint_future_active || !service.process.pid || !service.bridge_ready)
+                return;
+            if (paint_editing)
+            {
+                diagnostics.event("paint_hotkey_ignored", "warning", "settings", "Paint settings are being edited; hotkey ignored.");
+                return;
+            }
+            meccha::clamp_settings(persisted_settings);
+            config.tuning = persisted_settings.tuning;
+            diagnostics.event("paint_triggered", "info", "paint", std::string("paint trigger detected: ") + trigger);
+            trace_buffer.push("paint.start",
+                              "",
+                              std::string("{\"trigger\":") + json_string(trigger) +
+                              ",\"hotkey\":" + json_string(meccha::hotkey_to_string(hotkeys.paint_binding())) +
+                              ",\"brush_radius\":" + std::to_string(persisted_settings.tuning.brush_radius) +
+                              ",\"brush_spacing\":" + std::to_string(persisted_settings.tuning.brush_spacing) +
+                              ",\"server_brush_spacing\":" + std::to_string(persisted_settings.tuning.server_brush_spacing) +
+                              ",\"server_batch_limit\":" + std::to_string(persisted_settings.tuning.server_batch_limit) +
+                              ",\"server_batch_delay_ms\":" + std::to_string(persisted_settings.tuning.server_batch_delay_ms) + "}");
+            service.paint_running = true;
+            service.paint_state = "Running";
+            service.last_result = "Painting";
+            service.paint_started_at = seconds_now();
+            const Config paint_config = config;
+            const ProcessInfo paint_process = service.process;
+            service.paint_future = std::async(std::launch::async, [paint_config, bridge_path, paint_process, &diagnostics, &trace_buffer]() {
+                return run_paint(paint_config, bridge_path, paint_process, diagnostics, &trace_buffer);
+            });
+            service.paint_future_active = true;
+        };
+
+        auto copy_app_fields = [](AppSettings& dst, const AppSettings& src) {
+            dst.layout_version = src.layout_version;
+            dst.panel_x = src.panel_x;
+            dst.panel_y = src.panel_y;
+            dst.panel_width = src.panel_width;
+            dst.panel_height = src.panel_height;
+            dst.log_retention_days = src.log_retention_days;
+            dst.game_process_name = src.game_process_name;
+            dst.always_on_top = src.always_on_top;
+            dst.opacity = src.opacity;
+            dst.paint_hotkey = src.paint_hotkey;
+            dst.show_info = src.show_info;
+            dst.show_warning = src.show_warning;
+            dst.show_error = src.show_error;
+        };
+
+        auto copy_editable_app_fields = [](AppSettings& dst, const AppSettings& src) {
+            dst.always_on_top = src.always_on_top;
+            dst.opacity = src.opacity;
+            dst.paint_hotkey = src.paint_hotkey;
+        };
+
+        auto capture_window_layout = [&]() {
+            RECT window_rect{};
+            if (GetWindowRect(hwnd, &window_rect))
+            {
+                settings.panel_x = static_cast<float>(window_rect.left);
+                settings.panel_y = static_cast<float>(window_rect.top);
+                settings.panel_width = static_cast<float>(std::max(1L, window_rect.right - window_rect.left));
+                settings.panel_height = static_cast<float>(std::max(1L, window_rect.bottom - window_rect.top));
+            }
+        };
+
+        while (!done)
+        {
+            MSG msg{};
+            while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
+            {
+                if (msg.message == WM_QUIT)
+                {
+                    done = true;
+                    continue;
+                }
+                if (recording_hotkey)
+                {
+                    HotkeyBinding captured{};
+                    std::string capture_error{};
+                    bool cancel = false;
+                    const bool captured_ok = meccha::try_capture_hotkey_from_message(msg, captured, capture_error, cancel);
+                    if (cancel)
+                    {
+                        recording_hotkey = false;
+                        hotkey_error.clear();
+                        diagnostics.event("hotkey_record_canceled", "info", "settings", "Hotkey recording canceled.");
+                        continue;
+                    }
+                    if (!capture_error.empty())
+                    {
+                        diagnostics.event("hotkey_record_rejected", "warning", "settings", capture_error);
+                        continue;
+                    }
+                    if (captured_ok)
+                    {
+                        settings.paint_hotkey = meccha::hotkey_to_string(captured);
+                        hotkey_error.clear();
+                        recording_hotkey = false;
+                        diagnostics.event("hotkey_recorded", "info", "settings", "Hotkey draft recorded: " + settings.paint_hotkey);
+                        continue;
+                    }
+                }
+                hotkeys.handle_message(msg, hotkey_state);
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+            hotkeys.poll_fallback(hotkey_state);
+
+            meccha::clamp_settings(settings);
+            meccha::clamp_settings(persisted_settings);
+            config.game_process_name = persisted_settings.game_process_name.empty() ? std::wstring(meccha::DefaultGameProcessName) : persisted_settings.game_process_name;
+            config.tuning = persisted_settings.tuning;
+            const double now = seconds_now();
+            if (config.parent_pid && !is_process_alive(config.parent_pid))
+            {
+                diagnostics.event("parent_process_gone", "warning", "runtime", "parent process exited; shutting down controller");
+                done = true;
+            }
+
+            if (service.paint_future_active &&
+                service.paint_future.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready)
+            {
+                const bool ok = service.paint_future.get();
+                service.paint_future_active = false;
+                service.paint_running = false;
+                service.paint_state = ok ? "Done" : "Failed";
+                service.last_result = ok ? "Paint dispatched" : "Paint failed";
+            }
+
+            ProcessInfo process = find_process_by_name(config.game_process_name);
+            if (process.pid == 0)
+            {
+                service.process = {};
+                service.bridge_ready = false;
+                service.bridge_state = "Waiting";
+                service.injected_pid = 0;
+                service.waiting_for_hotkey_logged = false;
+                service.last_bridge_check = 0.0;
+                diagnostics.set_process(process_json(process, config.game_process_name));
+                if (!service.waiting_for_process_logged)
+                {
+                    diagnostics.event("waiting_for_process", "info", "process_wait", "waiting for " + wide_to_utf8(config.game_process_name),
+                                      std::string("{\"game_process_name\":") + json_string(wide_to_utf8(config.game_process_name)) + "}");
+                    service.waiting_for_process_logged = true;
+                }
+            }
+            else
+            {
+                if (service.process.pid != process.pid)
+                {
+                    service.process = process;
+                    service.bridge_ready = false;
+                    service.bridge_state = "Attaching";
+                    service.injected_pid = 0;
+                    service.waiting_for_hotkey_logged = false;
+                    service.waiting_for_process_logged = false;
+                    service.last_bridge_check = 0.0;
+                    diagnostics.set_process(process_json(process, config.game_process_name));
+                    diagnostics.event("process_attached", "info", "process", "attached to " + wide_to_utf8(process.name), process_json(process, config.game_process_name));
+                }
+                if (!service.paint_running && now - service.last_bridge_check >= config.status_interval_seconds)
+                {
+                    service.bridge_state = "Injecting";
+                    service.bridge_ready = ensure_bridge(config, bridge_path, process, diagnostics, service.injected_pid);
+                    service.bridge_state = service.bridge_ready ? "Ready" : "Not ready";
+                    service.last_bridge_check = now;
+                    if (service.bridge_ready && !service.waiting_for_hotkey_logged)
+                    {
+                        diagnostics.event("waiting_for_hotkey", "info", "ready",
+                                          std::string("waiting for ") + meccha::hotkey_to_string(hotkeys.paint_binding()));
+                        service.waiting_for_hotkey_logged = true;
+                    }
+                }
+            }
+
+            if (hotkey_state.paint_requested)
+            {
+                if (paint_editing)
+                    diagnostics.event("paint_hotkey_ignored", "warning", "settings", "Paint settings are being edited; hotkey ignored.");
+                else if (service.process.pid && service.bridge_ready && !service.paint_running)
+                    start_paint("Hotkey");
+                else
+                {
+                    diagnostics.event("paint_ignored_not_ready", "warning", "not_ready", "paint trigger ignored until game and bridge are ready");
+                }
+                hotkey_state.paint_requested = false;
+            }
+
+            ImGui_ImplDX11_NewFrame();
+            ImGui_ImplWin32_NewFrame();
+            ImGui::NewFrame();
+
+            auto events = event_buffer.snapshot();
+            const std::string human_log_text = meccha::build_human_log_text(events,
+                                                                             settings.show_info,
+                                                                             settings.show_warning,
+                                                                             settings.show_error,
+                                                                             true);
+            const std::string full_human_log_text = meccha::build_human_log_text(events, true, true, true, false);
+            const std::string trace_log_text = trace_buffer.text();
+            meccha::UiRuntimeState ui_runtime{};
+            ui_runtime.target_process = wide_to_utf8(config.game_process_name);
+            ui_runtime.process_name = service.process.pid ? wide_to_utf8(service.process.name) : "";
+            ui_runtime.pid = static_cast<unsigned long>(service.process.pid);
+            ui_runtime.bridge_state = service.bridge_state;
+            ui_runtime.bridge_ready = service.bridge_ready;
+            ui_runtime.app_editing = app_editing;
+            ui_runtime.paint_editing = paint_editing;
+            ui_runtime.recording_hotkey = recording_hotkey;
+            ui_runtime.hotkey_error = hotkey_error;
+            ui_runtime.log_dir = wide_to_utf8(diagnostics.log_dir().wstring());
+
+            meccha::UiActions actions{};
+            meccha::draw_app_ui(settings,
+                                persisted_settings,
+                                ui_runtime,
+                                human_log_text,
+                                trace_log_text,
+                                actions);
+
+            if (actions.open_logs_clicked)
+            {
+                const auto logs = diagnostics.log_dir().wstring();
+                ShellExecuteW(nullptr, L"open", logs.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+                diagnostics.event("logs_opened", "info", "ui", "Opened log directory.");
+                trace_buffer.push("shell", "open", std::string("{\"path\":") + json_string(wide_to_utf8(logs)) + "}");
+            }
+            if (actions.copy_log_clicked)
+            {
+                ImGui::SetClipboardText(full_human_log_text.c_str());
+                diagnostics.event("log_copied", "info", "ui", "Log copied.");
+            }
+            if (actions.copy_trace_clicked)
+            {
+                ImGui::SetClipboardText(trace_log_text.c_str());
+                diagnostics.event("trace_copied", "info", "ui", "Trace copied.");
+            }
+            if (actions.edit_app_clicked)
+            {
+                copy_editable_app_fields(settings, persisted_settings);
+                app_editing = true;
+                diagnostics.event("app_settings_edit_started", "info", "settings", "Editing App Settings.");
+            }
+            if (actions.cancel_app_clicked)
+            {
+                copy_editable_app_fields(settings, persisted_settings);
+                app_editing = false;
+                recording_hotkey = false;
+                diagnostics.event("app_settings_edit_canceled", "info", "settings", "App Settings changes canceled.");
+            }
+            if (actions.edit_paint_clicked)
+            {
+                settings.tuning = persisted_settings.tuning;
+                paint_editing = true;
+                diagnostics.event("paint_settings_edit_started", "info", "settings", "Editing Paint Settings.");
+            }
+            if (actions.cancel_paint_clicked)
+            {
+                settings.tuning = persisted_settings.tuning;
+                paint_editing = false;
+                diagnostics.event("paint_settings_edit_canceled", "info", "settings", "Paint Settings changes canceled.");
+            }
+            if (actions.reset_app_clicked && app_editing)
+            {
+                AppSettings defaults{};
+                settings.always_on_top = defaults.always_on_top;
+                settings.opacity = defaults.opacity;
+                settings.paint_hotkey = defaults.paint_hotkey;
+                diagnostics.event("app_settings_reset", "info", "settings", "App Settings reset to defaults.");
+            }
+            if (actions.reset_paint_clicked && paint_editing)
+            {
+                settings.tuning = meccha::default_tuning();
+                meccha::clamp_settings(settings);
+                diagnostics.event("paint_settings_reset", "info", "settings", "Paint Settings reset to defaults.");
+            }
+            if (actions.start_hotkey_recording && app_editing)
+            {
+                recording_hotkey = true;
+                hotkey_error.clear();
+                diagnostics.event("hotkey_record_started", "info", "settings", "Recording paint hotkey.");
+            }
+            if (actions.settings_changed)
+            {
+                meccha::clamp_settings(settings);
+            }
+            if (actions.save_app_clicked && app_editing)
+            {
+                capture_window_layout();
+                meccha::clamp_settings(settings);
+                AppSettings next = persisted_settings;
+                copy_app_fields(next, settings);
+                next.tuning = persisted_settings.tuning;
+
+                const HotkeyBinding previous_hotkey = hotkeys.paint_binding();
+                std::string register_error;
+                const bool hotkey_registered = hotkeys.set_paint_hotkey(meccha::parse_hotkey_binding(next.paint_hotkey), &register_error);
+                if (!hotkey_registered)
+                {
+                    diagnostics.event("hotkey_register_failed", "error", "settings", register_error.empty() ? "RegisterHotKey failed." : register_error);
+                    trace_buffer.push("hotkey", "register", std::string("{\"success\":false,\"error\":") +
+                                                       json_string(register_error.empty() ? "RegisterHotKey failed." : register_error) + "}");
+                    settings.paint_hotkey = persisted_settings.paint_hotkey;
+                }
+                else if (meccha::save_settings(next))
+                {
+                    persisted_settings = next;
+                    app_editing = false;
+                    recording_hotkey = false;
+                    const bool opacity_changed = std::abs(persisted_settings.opacity - applied_opacity) > 0.001f;
+                    const bool topmost_changed = persisted_settings.always_on_top != applied_topmost;
+                    applied_opacity = persisted_settings.opacity;
+                    apply_window_opacity(hwnd, applied_opacity);
+                    applied_topmost = persisted_settings.always_on_top;
+                    SetWindowPos(hwnd,
+                                 persisted_settings.always_on_top ? HWND_TOPMOST : HWND_NOTOPMOST,
+                                 0,
+                                 0,
+                                 0,
+                                 0,
+                                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                    if (opacity_changed)
+                        trace_buffer.push("window", "opacity", std::string("{\"opacity\":") + std::to_string(persisted_settings.opacity) + "}");
+                    if (topmost_changed)
+                        trace_buffer.push("window", "topmost", std::string("{\"always_on_top\":") + (persisted_settings.always_on_top ? "true" : "false") + "}");
+                    diagnostics.set_hotkey(std::string("{\"paint\":") + json_string(persisted_settings.paint_hotkey) +
+                                           ",\"backend\":" + hotkeys.backend_json() + "}");
+                    trace_buffer.push("hotkey", "register", std::string("{\"paint\":") + json_string(persisted_settings.paint_hotkey) +
+                                                       ",\"backend\":" + hotkeys.backend_json() + "}");
+                    trace_buffer.push("config", "save", std::string("{\"path\":") + json_string(wide_to_utf8(meccha::config_path().wstring())) +
+                                                     ",\"scope\":\"app\"}");
+                    diagnostics.event("app_settings_saved", "info", "settings", "App Settings saved.");
+                }
+                else
+                {
+                    std::string revert_error;
+                    hotkeys.set_paint_hotkey(previous_hotkey, &revert_error);
+                    settings.paint_hotkey = persisted_settings.paint_hotkey;
+                    trace_buffer.push("config", "save", std::string("{\"success\":false,\"path\":") + json_string(wide_to_utf8(meccha::config_path().wstring())) +
+                                                     ",\"scope\":\"app\"}");
+                    diagnostics.event("app_settings_save_failed", "error", "settings", "Failed to save App Settings.");
+                }
+            }
+            if (actions.save_paint_clicked && paint_editing)
+            {
+                meccha::clamp_settings(settings);
+                AppSettings next = persisted_settings;
+                next.tuning = settings.tuning;
+                if (meccha::save_settings(next))
+                {
+                    persisted_settings = next;
+                    paint_editing = false;
+                    trace_buffer.push("config", "save", std::string("{\"path\":") + json_string(wide_to_utf8(meccha::config_path().wstring())) +
+                                                     ",\"scope\":\"paint\"}");
+                    diagnostics.event("paint_settings_saved", "info", "settings", "Paint Settings saved.");
+                }
+                else
+                {
+                    trace_buffer.push("config", "save", std::string("{\"success\":false,\"path\":") + json_string(wide_to_utf8(meccha::config_path().wstring())) +
+                                                     ",\"scope\":\"paint\"}");
+                    diagnostics.event("paint_settings_save_failed", "error", "settings", "Failed to save Paint Settings.");
+                }
+            }
+            if (recording_hotkey && !ImGui::IsWindowFocused(ImGuiFocusedFlags_AnyWindow))
+            {
+                recording_hotkey = false;
+                diagnostics.event("hotkey_record_canceled", "info", "settings", "Hotkey recording canceled.");
+            }
+            RECT window_rect{};
+            if (GetWindowRect(hwnd, &window_rect))
+            {
+                const float x = static_cast<float>(window_rect.left);
+                const float y = static_cast<float>(window_rect.top);
+                const float width = static_cast<float>(std::max(1L, window_rect.right - window_rect.left));
+                const float height = static_cast<float>(std::max(1L, window_rect.bottom - window_rect.top));
+                if (std::abs(settings.panel_x - x) > 0.5f ||
+                    std::abs(settings.panel_y - y) > 0.5f ||
+                    std::abs(settings.panel_width - width) > 0.5f ||
+                    std::abs(settings.panel_height - height) > 0.5f)
+                {
+                    settings.panel_x = x;
+                    settings.panel_y = y;
+                    settings.panel_width = width;
+                    settings.panel_height = height;
+                }
+            }
+
+            ImGui::Render();
+            const float clear_color[4]{0.08f, 0.09f, 0.10f, 1.0f};
+            g_overlay_d3d.context->OMSetRenderTargets(1, &g_overlay_d3d.render_target, nullptr);
+            g_overlay_d3d.context->ClearRenderTargetView(g_overlay_d3d.render_target, clear_color);
+            ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+            g_overlay_d3d.swap_chain->Present(1, 0);
+            Sleep(static_cast<DWORD>(std::max(1.0, config.frame_delay_ms)));
+        }
+
+        if (service.paint_future_active)
+            service.paint_future.wait();
+        {
+            Config shutdown_config = config;
+            shutdown_config.bridge_timeout_seconds = 2.0;
+            auto response = run_bridge_command(shutdown_config, bridge_path, "shutdown", "{}", &trace_buffer);
+            diagnostics.event(response.success ? "bridge_shutdown" : "bridge_shutdown_failed",
+                              response.success ? "info" : "warning",
+                              response.stage,
+                              response.message.empty() ? response.transport_error : response.message,
+                              std::string("{\"response\":") + (response.raw.empty() ? "{}" : response.raw) + "}");
+        }
+        ImGui_ImplDX11_Shutdown();
+        ImGui_ImplWin32_Shutdown();
+        ImGui::DestroyContext();
+        cleanup_device_d3d();
+        DestroyWindow(hwnd);
+        UnregisterClassW(wc.lpszClassName, wc.hInstance);
+        return 0;
+    }
+
     auto parse_config(int argc, wchar_t** argv) -> Config
     {
         Config config{};
@@ -988,18 +1771,10 @@ namespace
             else if (key == L"--bridge-host") config.bridge_host = next_s();
             else if (key == L"--bridge-port") config.bridge_port = std::max(0, _wtoi(next_w().c_str()));
             else if (key == L"--bridge-timeout-seconds") config.bridge_timeout_seconds = std::max(0.1, _wtof(next_w().c_str()));
-            else if (key == L"--process-poll-seconds") config.process_poll_seconds = std::max(0.1, _wtof(next_w().c_str()));
             else if (key == L"--status-interval-seconds") config.status_interval_seconds = std::max(0.5, _wtof(next_w().c_str()));
             else if (key == L"--frame-delay-ms") config.frame_delay_ms = std::max(0.0, _wtof(next_w().c_str()));
-            else if (key == L"--service-max-frames") config.service_max_frames = std::max(0, _wtoi(next_w().c_str()));
-            else if (key == L"--service-max-duration-seconds") config.service_max_duration_seconds = std::max(0.0, _wtof(next_w().c_str()));
-            else if (key == L"--service-stop-file") config.service_stop_file = next_w();
             else if (key == L"--native-apply-mode") config.native_apply_mode = next_s();
-            else if (key == L"--auto-sdk-probe") config.auto_sdk_probe = true;
-            else if (key == L"--auto-sdk-deep-probe") { config.auto_sdk_probe = true; config.auto_sdk_deep_probe = true; }
-            else if (key == L"--print-summary") config.print_summary = true;
-            else if (key == L"--adapter" || key == L"--service-trigger-key" || key == L"--service-stop-key" || key == L"--service-trigger-file" || key == L"--native-root" || key == L"--bridge-path" || key == L"--bridge-transport") { if (has_value()) ++i; }
-            else if (key == L"--service-apply-on-start" || key == L"--service-apply-every-frame" || key == L"--quick" || key == L"--dry-run") {}
+            else if (key == L"--parent-pid") config.parent_pid = static_cast<DWORD>(std::max(0, _wtoi(next_w().c_str())));
             else if (key.rfind(L"--", 0) == 0 && has_value()) { ++i; }
         }
         if (config.bridge_port <= 0 && config.mode != L"shutdown")
@@ -1007,22 +1782,7 @@ namespace
         return config;
     }
 
-    auto run_probe_sequence(const Config& config, const std::filesystem::path& bridge_path, Diagnostics& diagnostics, bool deep) -> bool
-    {
-        auto probe = run_bridge_command(config, bridge_path, "sdk_probe");
-        log_probe_result(diagnostics, "sdk_probe", probe);
-        if (!probe.success)
-            return false;
-        if (deep)
-        {
-            auto deep_probe = run_bridge_command(config, bridge_path, "sdk_deep_probe");
-            log_probe_result(diagnostics, "sdk_deep_probe", deep_probe);
-            return deep_probe.success;
-        }
-        return true;
-    }
-
-    auto run_apply_once(const Config& config, const std::filesystem::path& bridge_path, Diagnostics& diagnostics, bool paint) -> int
+    auto run_apply_once(const Config& config, const std::filesystem::path& bridge_path, Diagnostics& diagnostics) -> int
     {
         const ProcessInfo process = find_process_by_name(config.game_process_name);
         diagnostics.set_process(process_json(process, config.game_process_name));
@@ -1036,147 +1796,37 @@ namespace
         DWORD injected_pid = 0;
         if (!ensure_bridge(config, bridge_path, process, diagnostics, injected_pid))
             return 2;
-        if (!paint)
-            return run_probe_sequence(config, bridge_path, diagnostics, true) ? 0 : 3;
-        if ((config.auto_sdk_probe || config.auto_sdk_deep_probe) &&
-            !run_probe_sequence(config, bridge_path, diagnostics, config.auto_sdk_deep_probe))
-            return 3;
-        if (paint)
-            return run_paint(config, bridge_path, process, diagnostics) ? 0 : 4;
-        return 0;
+        return run_paint(config, bridge_path, process, diagnostics) ? 0 : 4;
     }
 
-    auto run_service(const Config& config, const std::filesystem::path& bridge_path, Diagnostics& diagnostics) -> int
-    {
-        Hotkey hotkey{};
-        diagnostics.set_hotkey(std::string("{\"trigger_key\":\"f10\",\"trigger_backend\":") + json_string(hotkey.backend()) + "}");
-        diagnostics.event("hotkey_ready", "info", "startup", "hotkey backend=" + hotkey.backend(),
-                          std::string("{\"trigger_key\":\"f10\",\"trigger_backend\":") + json_string(hotkey.backend()) + "}");
-        diagnostics.event("runtime_start", "info", "startup", "service started",
-                          std::string("{\"pid\":") + std::to_string(GetCurrentProcessId()) +
-                          ",\"log_dir\":" + json_string(wide_to_utf8(diagnostics.log_dir().wstring())) +
-                          ",\"game_process_name\":" + json_string(wide_to_utf8(config.game_process_name)) +
-                          ",\"bridge_host\":" + json_string(config.bridge_host) +
-                          ",\"bridge_port\":" + std::to_string(config.bridge_port) + "}");
-        ProcessInfo attached{};
-        DWORD injected_pid = 0;
-        DWORD sdk_probe_pid = 0;
-        DWORD sdk_deep_probe_pid = 0;
-        double last_process_log = 0.0;
-        double last_bridge_check = 0.0;
-        double last_sdk_probe = 0.0;
-        double last_sdk_deep_probe = 0.0;
-        double last_idle = seconds_now();
-        bool waiting_for_hotkey_logged = false;
-        int frame = 0;
-        const double deadline = config.service_max_duration_seconds > 0.0 ? seconds_now() + config.service_max_duration_seconds : 0.0;
-        while (true)
-        {
-            if (config.service_max_frames > 0 && frame >= config.service_max_frames)
-                return 0;
-            if (deadline > 0.0 && seconds_now() >= deadline)
-                return 0;
-            if (!config.service_stop_file.empty() && std::filesystem::exists(config.service_stop_file))
-            {
-                diagnostics.event("service_stop", "info", "shutdown", "stop-file detected");
-                return 0;
-            }
-
-            const double now = seconds_now();
-            ProcessInfo process = find_process_by_name(config.game_process_name);
-            if (process.pid == 0)
-            {
-                attached = {};
-                injected_pid = sdk_probe_pid = sdk_deep_probe_pid = 0;
-                waiting_for_hotkey_logged = false;
-                diagnostics.set_process(process_json(process, config.game_process_name));
-                if (now - last_process_log >= config.status_interval_seconds)
-                {
-                    diagnostics.event("waiting_for_process", "info", "process_wait", "waiting for " + wide_to_utf8(config.game_process_name),
-                                      std::string("{\"game_process_name\":") + json_string(wide_to_utf8(config.game_process_name)) + "}");
-                    last_process_log = now;
-                }
-                Sleep(static_cast<DWORD>(config.process_poll_seconds * 1000.0));
-                ++frame;
-                continue;
-            }
-            if (attached.pid != process.pid)
-            {
-                attached = process;
-                injected_pid = sdk_probe_pid = sdk_deep_probe_pid = 0;
-                waiting_for_hotkey_logged = false;
-                last_bridge_check = last_sdk_probe = last_sdk_deep_probe = 0.0;
-                diagnostics.set_process(process_json(process, config.game_process_name));
-                diagnostics.event("process_attached", "info", "process", "attached to " + wide_to_utf8(process.name), process_json(process, config.game_process_name));
-            }
-            if (now - last_bridge_check >= config.status_interval_seconds)
-            {
-                ensure_bridge(config, bridge_path, process, diagnostics, injected_pid);
-                last_bridge_check = now;
-                if (injected_pid == process.pid && !waiting_for_hotkey_logged)
-                {
-                    diagnostics.event("waiting_for_hotkey", "info", "ready", "waiting for user to press F10");
-                    waiting_for_hotkey_logged = true;
-                }
-            }
-            if (config.auto_sdk_probe && injected_pid == process.pid && sdk_probe_pid != process.pid && now - last_sdk_probe >= 10.0)
-            {
-                last_sdk_probe = now;
-                auto probe = run_bridge_command(config, bridge_path, "sdk_probe");
-                log_probe_result(diagnostics, "sdk_probe", probe);
-                if (probe.success)
-                    sdk_probe_pid = process.pid;
-            }
-            if (config.auto_sdk_deep_probe && sdk_probe_pid == process.pid && sdk_deep_probe_pid != process.pid && now - last_sdk_deep_probe >= 10.0)
-            {
-                last_sdk_deep_probe = now;
-                auto deep = run_bridge_command(config, bridge_path, "sdk_deep_probe");
-                log_probe_result(diagnostics, "sdk_deep_probe", deep);
-                if (deep.success)
-                    sdk_deep_probe_pid = process.pid;
-            }
-            if (hotkey.consume())
-            {
-                diagnostics.event("f10_triggered", "info", "hotkey", "F10 trigger detected");
-                const bool probe_required = config.auto_sdk_probe && sdk_probe_pid != process.pid;
-                const bool deep_probe_required = config.auto_sdk_deep_probe && sdk_deep_probe_pid != process.pid;
-                if (probe_required || deep_probe_required)
-                {
-                    diagnostics.event("paint_ignored_sdk_not_ready", "warning", "sdk_context_pending", "paint trigger ignored until SDK probes complete",
-                                      std::string("{\"pid\":") + std::to_string(process.pid) +
-                                      ",\"sdk_probe_ready\":" + (sdk_probe_pid == process.pid ? "true" : "false") +
-                                      ",\"sdk_deep_probe_ready\":" + (sdk_deep_probe_pid == process.pid ? "true" : "false") + "}");
-                }
-                else
-                {
-                    run_paint(config, bridge_path, process, diagnostics);
-                    diagnostics.event("waiting_for_hotkey", "info", "ready", "waiting for user to press F10");
-                    waiting_for_hotkey_logged = true;
-                }
-            }
-            if (now - last_idle >= 60.0)
-            {
-                last_idle = now;
-            }
-            Sleep(static_cast<DWORD>(std::max(1.0, config.frame_delay_ms)));
-            ++frame;
-        }
-    }
 }
 
-int wmain(int argc, wchar_t** argv)
+int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 {
+    int argc = 0;
+    wchar_t** argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (!argv)
+        return 2;
+
     WSADATA data{};
     if (WSAStartup(MAKEWORD(2, 2), &data) != 0)
     {
-        std::cerr << "WSAStartup failed\n";
+        LocalFree(argv);
         return 2;
     }
-    try
-    {
+
+    const auto run = [&]() -> int {
+        AppSettings settings = meccha::load_settings();
         Config config = parse_config(argc, argv);
+        if (config.game_process_name == meccha::DefaultGameProcessName && !settings.game_process_name.empty())
+            config.game_process_name = settings.game_process_name;
+        else
+            settings.game_process_name = config.game_process_name;
+        meccha::clamp_settings(settings);
+        config.tuning = settings.tuning;
         const std::filesystem::path log_dir = config.log_dir.empty() ? default_log_dir() : std::filesystem::path(config.log_dir);
-        Diagnostics diagnostics(log_dir);
+        RuntimeEventBuffer event_buffer{};
+        Diagnostics diagnostics(log_dir, &event_buffer, settings.log_retention_days);
         if (config.mode == L"shutdown")
         {
             if (config.bridge_port <= 0)
@@ -1187,7 +1837,6 @@ int wmain(int argc, wchar_t** argv)
             if (config.bridge_port <= 0)
             {
                 diagnostics.record_error("shutdown_unavailable", "bridge port is unknown");
-                WSACleanup();
                 return 1;
             }
             BridgeClient client(config.bridge_host, config.bridge_port, config.bridge_timeout_seconds);
@@ -1197,7 +1846,6 @@ int wmain(int argc, wchar_t** argv)
                               response.stage,
                               response.message.empty() ? response.transport_error : response.message,
                               std::string("{\"response\":") + (response.raw.empty() ? "{}" : response.raw) + "}");
-            WSACleanup();
             return response.success ? 0 : 1;
         }
         if (config.bridge_port <= 0)
@@ -1206,24 +1854,25 @@ int wmain(int argc, wchar_t** argv)
         write_bridge_port_file(bridge_path, config.bridge_port);
         if (config.mode == L"apply")
         {
-            const int code = run_apply_once(config, bridge_path, diagnostics, true);
-            WSACleanup();
+            const int code = run_apply_once(config, bridge_path, diagnostics);
             return code;
         }
-        if (config.mode == L"probe")
-        {
-            const int code = run_apply_once(config, bridge_path, diagnostics, false);
-            WSACleanup();
-            return code;
-        }
-        const int code = run_service(config, bridge_path, diagnostics);
-        WSACleanup();
-        return code;
+        return run_overlay_service(config, bridge_path, diagnostics, event_buffer, settings);
+    };
+
+    int code = 1;
+    try
+    {
+        code = run();
     }
     catch (const std::exception& exc)
     {
-        std::cerr << "fatal: " << exc.what() << "\n";
-        WSACleanup();
-        return 1;
+        RuntimeEventBuffer event_buffer{};
+        Diagnostics diagnostics(default_log_dir(), &event_buffer, 14);
+        diagnostics.record_error("fatal", exc.what());
+        code = 1;
     }
+    WSACleanup();
+    LocalFree(argv);
+    return code;
 }

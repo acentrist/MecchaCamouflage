@@ -39,7 +39,7 @@ namespace
     constexpr int ProcessEventVtableIndex = 0x4C;
     constexpr UINT PaintDispatchMessage = WM_APP + 0x4D43;
     constexpr int ServerPaintBatchStrokeLimit = 50;
-    constexpr int ServerPaintBatchDelayMs = 150;
+    constexpr int ServerPaintBatchDelayMs = 300;
 
     constexpr std::uintptr_t OffClass = 0x10;
     constexpr std::uintptr_t OffName = 0x18;
@@ -125,6 +125,31 @@ namespace
     auto contains_text(const std::string& text, const char* needle) -> bool
     {
         return text.find(needle) != std::string::npos;
+    }
+
+    auto clamp_range(double value, double min_value, double max_value) -> double
+    {
+        if (!std::isfinite(value))
+            return min_value;
+        return std::min(max_value, std::max(min_value, value));
+    }
+
+    auto json_number_field(const std::string& text, const std::string& key, double fallback) -> double
+    {
+        const std::string needle = std::string("\"") + key + "\":";
+        const auto start = text.find(needle);
+        if (start == std::string::npos)
+            return fallback;
+        const char* begin = text.c_str() + start + needle.size();
+        char* end = nullptr;
+        const double value = std::strtod(begin, &end);
+        return end == begin || !std::isfinite(value) ? fallback : value;
+    }
+
+    auto json_int_field(const std::string& text, const std::string& key, int fallback, int min_value, int max_value) -> int
+    {
+        const double value = json_number_field(text, key, static_cast<double>(fallback));
+        return std::max(min_value, std::min(max_value, static_cast<int>(value)));
     }
 
     auto json_escape(const std::string& text) -> std::string
@@ -5397,6 +5422,8 @@ namespace
         double coverage_candidate_spacing_px{0.0};
         double coverage_estimated_acceptance{0.0};
         double sampling_brush_radius{0.010};
+        double brush_spacing{0.18};
+        double server_brush_spacing{0.08};
         double bbox_min_nx{1.0};
         double bbox_min_ny{1.0};
         double bbox_max_nx{0.0};
@@ -5733,8 +5760,10 @@ namespace
             return;
         }
         (void)total_points;
-        job->server_batch_limit = ServerPaintBatchStrokeLimit;
-        job->server_batch_delay_ms = ServerPaintBatchDelayMs;
+        if (job->server_batch_limit <= 0)
+            job->server_batch_limit = ServerPaintBatchStrokeLimit;
+        if (job->server_batch_delay_ms <= 0)
+            job->server_batch_delay_ms = ServerPaintBatchDelayMs;
     }
 
     auto start_template_uv_brush_async_job(const std::string& request, const std::shared_ptr<QueuedPaintJob>& queued_job) -> bool
@@ -5809,7 +5838,7 @@ namespace
         metadata += ",\"template_paint_albedo_transfer\":\"basecolor_srgb_to_linear_flinearcolor\"";
         metadata += ",\"template_color_source\":\"scene_capture_basecolor_bulk_readback\"";
         metadata += ",\"template_profile\":\"high_density_basecolor_scene_capture_template\"";
-        metadata += ",\"inferred_fields\":[\"brush_radius_fixed_0_01\",\"scene_capture_basecolor_srgb_to_linear\"]";
+        metadata += ",\"inferred_fields\":[\"brush_radius_ui_tuning\",\"scene_capture_basecolor_srgb_to_linear\"]";
         metadata += ",\"phase0_lower_rescan_used\":false";
         metadata += ",\"template_fill_enabled\":false";
         metadata += ",\"template_clone_enabled\":false";
@@ -5876,6 +5905,11 @@ namespace
         }
 
         constexpr std::uintptr_t OffCurrentBrushSettings = sdk::FieldOffsets::RuntimePaintable_CurrentBrushSettings;
+        const double tuning_brush_radius = clamp_range(json_number_field(request, "brush_radius", 0.01), 0.001, 0.05);
+        const double tuning_brush_spacing = clamp_range(json_number_field(request, "brush_spacing", 0.18), 0.01, 0.5);
+        const double tuning_server_brush_spacing = clamp_range(json_number_field(request, "server_brush_spacing", 0.08), 0.01, 0.5);
+        const int tuning_server_batch_limit = json_int_field(request, "server_batch_limit", ServerPaintBatchStrokeLimit, 1, 500);
+        const int tuning_server_batch_delay_ms = json_int_field(request, "server_batch_delay_ms", ServerPaintBatchDelayMs, 1, 1000);
 
         auto job = std::make_shared<TemplateUvBrushAsyncJob>();
         job->queued = queued_job;
@@ -5891,10 +5925,14 @@ namespace
         job->brush = job->old_brush;
         job->brush.Hardness = 1.0f;
         job->brush.Opacity = 1.0f;
-        job->brush_radius_raw = 0.01;
-        job->brush_radius = 0.01;
+        job->brush_radius_raw = tuning_brush_radius;
+        job->brush_radius = tuning_brush_radius;
         job->sampling_brush_radius = job->brush_radius;
         job->base_probe_radius = job->brush_radius;
+        job->brush_spacing = tuning_brush_spacing;
+        job->server_brush_spacing = tuning_server_brush_spacing;
+        job->server_batch_limit = tuning_server_batch_limit;
+        job->server_batch_delay_ms = tuning_server_batch_delay_ms;
         job->brush.Radius = static_cast<float>(job->brush_radius);
         const double visible_probe_width_px = std::max(1.0, static_cast<double>(job->viewport_width) * 0.88);
         const double visible_probe_height_px = std::max(1.0, static_cast<double>(job->viewport_height) * 0.96);
@@ -5903,7 +5941,7 @@ namespace
             std::sqrt(visible_probe_width_px * visible_probe_height_px) * job->base_probe_radius * 0.75);
         job->base_cols = std::max(1, static_cast<int>(std::ceil(visible_probe_width_px / job->base_probe_spacing_px)));
         job->base_rows = std::max(1, static_cast<int>(std::ceil(visible_probe_height_px / job->base_probe_spacing_px)));
-        job->brush.Spacing = 0.18f;
+        job->brush.Spacing = static_cast<float>(job->brush_spacing);
         job->brush.Falloff = sdk::EBrushFalloff::Spherical;
         job->brush.BlendMode = sdk::EPaintBlendMode::Normal;
         job->metadata = metadata;
@@ -5914,10 +5952,14 @@ namespace
         job->metadata += ",\"template_base_probe_policy\":\"fixed_brush_radius\"";
         job->metadata += ",\"template_base_probe_formula\":\"ceil(visible_probe_extent/(sqrt(visible_probe_area)*base_probe_radius*0.75))\"";
         job->metadata += ",\"template_explicit_stroke_batch_enabled\":true";
-        job->metadata += ",\"template_explicit_stroke_batch_mode\":\"fixed_50_strokes_150ms_timer_drained\"";
+        job->metadata += ",\"template_explicit_stroke_batch_mode\":\"ui_tuned_server_batch_timer_drained\"";
         job->metadata += ",\"template_dense_order\":\"front_silhouette_interval_top_down\"";
         job->metadata += ",\"template_hittest_tick_chunk\":256";
-        job->metadata += ",\"single_pass_radius\":0.01";
+        job->metadata += ",\"single_pass_radius\":" + std::to_string(job->brush_radius);
+        job->metadata += ",\"tuning_brush_spacing\":" + std::to_string(job->brush_spacing);
+        job->metadata += ",\"tuning_server_brush_spacing\":" + std::to_string(job->server_brush_spacing);
+        job->metadata += ",\"tuning_server_batch_limit\":" + std::to_string(job->server_batch_limit);
+        job->metadata += ",\"tuning_server_batch_delay_ms\":" + std::to_string(job->server_batch_delay_ms);
         job->metadata += ",\"template_sampling_radius_policy\":\"fixed_brush_radius\"";
         job->metadata += ",\"template_sampling_brush_radius\":" + std::to_string(job->sampling_brush_radius);
         job->started = std::chrono::steady_clock::now();
@@ -6331,7 +6373,7 @@ namespace
             }
             job->brush_radius_raw = job->brush_radius;
             job->brush.Radius = static_cast<float>(job->brush_radius);
-            job->brush.Spacing = 0.08f;
+            job->brush.Spacing = static_cast<float>(job->server_brush_spacing);
             template_configure_server_batch_stream(job, template_count);
             job->server_batch_started = std::chrono::steady_clock::now();
             write_bridge_progress("template_server_batch_begin",
@@ -6351,19 +6393,21 @@ namespace
                                       ",\"paint_target_channel\":\"Albedo\"" +
                                       ",\"material_channel_overwrite\":false" +
                                       ",\"local_paint_used\":false" +
-                                      ",\"brush_radius_mode\":\"fixed\"" +
-                                      ",\"brush_radius_formula\":\"fixed(0.01)\"" +
+                                      ",\"brush_radius_mode\":\"ui_tuning\"" +
+                                      ",\"brush_radius_formula\":\"config.brush_radius\"" +
                                       ",\"brush_radius_raw\":" + std::to_string(job->brush_radius_raw) +
                                       ",\"brush_radius\":" + std::to_string(job->brush_radius) +
+                                      ",\"brush_spacing\":" + std::to_string(job->brush_spacing) +
+                                      ",\"server_brush_spacing\":" + std::to_string(job->server_brush_spacing) +
                                       ",\"two_pass_enabled\":false" +
                                       ",\"single_pass_enabled\":true" +
                                       ",\"paint_send_order\":\"single_pass_top_down\"" +
                                       ",\"server_rpc\":\"ServerPaintBatch\"" +
                                       ",\"server_batch_limit\":" + std::to_string(job->server_batch_limit) +
-                                      ",\"server_batch_limit_formula\":\"fixed_50_strokes_per_rpc\"" +
+                                      ",\"server_batch_limit_formula\":\"config.server_batch_limit\"" +
                                       ",\"server_batch_delay_ms\":" + std::to_string(job->server_batch_delay_ms) +
-                                      ",\"server_batch_delay_formula\":\"fixed_150ms\"" +
-                                      ",\"server_batch_pacing_profile\":\"50_strokes_per_150ms\"");
+                                      ",\"server_batch_delay_formula\":\"config.server_batch_delay_ms\"" +
+                                      ",\"server_batch_pacing_profile\":\"ui_tuned\"");
             job->replicate_index = 0;
             job->phase = TemplateUvBrushAsyncJob::Phase::ReplicateStrokes;
             post_next();
@@ -6534,10 +6578,12 @@ namespace
             metadata += ",\"paint_sample_success\":" + std::to_string(job->paint_sample_success);
             metadata += ",\"paint_sample_failures\":" + std::to_string(job->paint_sample_failures);
             metadata += ",\"template_dedupe_skipped\":" + std::to_string(job->dedupe_skipped);
-            metadata += ",\"template_brush_radius_mode\":\"fixed\"";
-            metadata += ",\"template_brush_radius_formula\":\"fixed(0.01)\"";
+            metadata += ",\"template_brush_radius_mode\":\"ui_tuning\"";
+            metadata += ",\"template_brush_radius_formula\":\"config.brush_radius\"";
             metadata += ",\"template_brush_radius_raw\":" + std::to_string(job->brush_radius_raw);
             metadata += ",\"template_brush_radius\":" + std::to_string(job->brush_radius);
+            metadata += ",\"template_brush_spacing\":" + std::to_string(job->brush_spacing);
+            metadata += ",\"server_brush_spacing\":" + std::to_string(job->server_brush_spacing);
             metadata += ",\"template_sampling_radius_policy\":\"fixed_brush_radius\"";
             metadata += ",\"template_sampling_brush_radius\":" + std::to_string(job->sampling_brush_radius);
             metadata += ",\"template_point_elapsed_ms\":" + std::to_string(job->template_point_elapsed_ms);
@@ -6559,10 +6605,10 @@ namespace
             metadata += ",\"server_paint_batch_used\":true";
             metadata += ",\"server_batch_rpc\":\"" + json_escape(job->server_batch_rpc) + "\"";
             metadata += ",\"server_batch_limit\":" + std::to_string(job->server_batch_limit);
-            metadata += ",\"server_batch_limit_formula\":\"fixed_50_strokes_per_rpc\"";
+            metadata += ",\"server_batch_limit_formula\":\"config.server_batch_limit\"";
             metadata += ",\"server_batch_delay_ms\":" + std::to_string(job->server_batch_delay_ms);
-            metadata += ",\"server_batch_delay_formula\":\"fixed_150ms\"";
-            metadata += ",\"server_batch_pacing_profile\":\"50_strokes_per_150ms\"";
+            metadata += ",\"server_batch_delay_formula\":\"config.server_batch_delay_ms\"";
+            metadata += ",\"server_batch_pacing_profile\":\"ui_tuned\"";
             metadata += ",\"server_batch_schedule\":\"timer_drained\"";
             metadata += ",\"server_batch_calls\":" + std::to_string(job->server_batch_calls);
             metadata += ",\"server_batch_success\":" + std::to_string(job->server_batch_success);
@@ -6613,84 +6659,15 @@ namespace
     }
 
 
-    auto sdk_paint_full_route_native_direct(const std::string& request) -> std::string
-    {
-        const bool is_probe = request.find("\"type\":\"sdk_probe\"") != std::string::npos;
-        const bool is_deep_probe = request.find("\"type\":\"sdk_deep_probe\"") != std::string::npos ||
-                                   request.find("\"native_apply_mode\":\"sdk_deep_probe_only\"") != std::string::npos;
-        if (!is_probe && !is_deep_probe)
-        {
-            return response_json(false,
-                                 "unsupported_route",
-                                 0,
-                                 1,
-                                 "unsupported native apply mode; only template_brush_paint is available",
-                                 "\"supported_native_apply_modes\":[\"template_brush_paint\"]");
-        }
-
-        Reflection ref{};
-        std::string failure{};
-        if (!ref.init(failure))
-        {
-            return response_json(false,
-                                 "sdk_update_required",
-                                 0,
-                                 1,
-                                 failure.empty() ? "SDK reflection init failed" : failure,
-                                 std::string("\"route\":\"") + (is_deep_probe ? "sdk_deep_probe" : "sdk_probe") +
-                                     "\",\"sdk_resolution_exception\":true");
-        }
-        SdkContext ctx{};
-        try
-        {
-            ctx = sdk_resolve_context(ref);
-        }
-        catch (const SdkResolutionException& ex)
-        {
-            return response_json(false,
-                                 ex.stage.c_str(),
-                                 0,
-                                 1,
-                                 ex.what(),
-                                 std::string("\"route\":\"") + (is_deep_probe ? "sdk_deep_probe" : "sdk_probe") +
-                                     "\",\"sdk_resolution_exception\":true");
-        }
-        std::string metadata = sdk_context_metadata(ref, ctx);
-        metadata += std::string(",\"route\":\"") + (is_deep_probe ? "sdk_deep_probe" : "sdk_probe") + "\"";
-        metadata += ",\"probe_read_only\":true";
-        metadata += ",\"texture_import_used\":false";
-        metadata += ",\"local_paint_used\":false";
-        metadata += ",\"paint_at_uv_with_brush_used\":false";
-        metadata += ",\"paint_at_screen_position_used\":false";
-        metadata += ",\"server_paint_batch_used\":false";
-        if (!ctx.ok)
-        {
-            return response_json(false, ctx.stage.c_str(), 0, 1, ctx.message, metadata);
-        }
-
-        const auto viewport = sdk_get_viewport_info(ref, ctx);
-        const auto mesh_candidates = sdk_collect_front_mesh_candidates(ref, ctx);
-        const auto hit_test_function = ref.find_function(ctx.component, "HitTestAtScreenPosition");
-        metadata += std::string(",\"viewport_available\":") + json_bool(viewport.width > 0 && viewport.height > 0);
-        metadata += ",\"viewport_width\":" + std::to_string(viewport.width);
-        metadata += ",\"viewport_height\":" + std::to_string(viewport.height);
-        metadata += ",\"front_mesh_candidate_count\":" + std::to_string(mesh_candidates.size());
-        metadata += ",\"front_mesh_candidates\":" + sdk_front_mesh_candidates_json(ref, mesh_candidates);
-        metadata += std::string(",\"front_mesh_available\":") + json_bool(!mesh_candidates.empty());
-        metadata += std::string(",\"function_hit_test_at_screen_position_available\":") + json_bool(hit_test_function != 0);
-        metadata += std::string(",\"function_server_paint_batch_available_for_production\":") + json_bool(ctx.server_paint_batch_function != 0);
-        return response_json(true,
-                             is_deep_probe ? "sdk_deep_probe" : "sdk_probe",
-                             0,
-                             0,
-                             "SDK context probe completed without paint mutation",
-                             metadata);
-    }
-
-
     auto paint_full_route_native_direct(const std::string& request) -> std::string
     {
-        return sdk_paint_full_route_native_direct(request);
+        (void)request;
+        return response_json(false,
+                             "unsupported_route",
+                             0,
+                             1,
+                             "unsupported native command",
+                             "\"supported_native_apply_modes\":[\"template_brush_paint\"]");
     }
 
     auto drain_paint_jobs_on_game_thread() -> void
@@ -6795,15 +6772,16 @@ namespace
         }
         if (line.find("\"type\":\"capabilities\"") != std::string::npos)
         {
-            return "{\"success\":true,\"stage\":\"capabilities\",\"applied\":0,\"failures\":0,"
-                   "\"message\":\"ok\",\"timing_ms\":{},"
-                   "\"metadata\":{\"commands\":[\"ping\",\"capabilities\",\"sdk_probe\",\"sdk_deep_probe\",\"paint_full_route\",\"shutdown\"],"
-                   "\"sdk\":\"runtime_dynamic_reflection_min\","
-                   "\"paint_full_route\":\"template_brush_paint\","
-                   "\"texture_import_used\":false,"
-                   "\"local_paint_used\":false,"
-                   "\"paint_at_uv_with_brush_used\":false,"
-                   "\"replication\":\"server_paint_batch\","
+            std::string commands = "[\"ping\",\"capabilities\",\"paint_full_route\",\"shutdown\"]";
+            return std::string("{\"success\":true,\"stage\":\"capabilities\",\"applied\":0,\"failures\":0,") +
+                   "\"message\":\"ok\",\"timing_ms\":{}," +
+                   "\"metadata\":{\"commands\":" + commands + "," +
+                   "\"sdk\":\"runtime_dynamic_reflection_min\"," +
+                   "\"paint_full_route\":\"template_brush_paint\"," +
+                   "\"texture_import_used\":false," +
+                   "\"local_paint_used\":false," +
+                   "\"paint_at_uv_with_brush_used\":false," +
+                   "\"replication\":\"server_paint_batch\"," +
                    "\"multiplayer_replicated\":true}}\n";
         }
         if (line.find("\"type\":\"shutdown\"") != std::string::npos)
@@ -6811,14 +6789,6 @@ namespace
             uninstall_process_event_hook();
             g_running.store(false);
             return response_json(true, "shutdown", 0, 0, "bridge shutdown requested");
-        }
-        if (line.find("\"type\":\"sdk_probe\"") != std::string::npos)
-        {
-            return paint_full_route_native(line);
-        }
-        if (line.find("\"type\":\"sdk_deep_probe\"") != std::string::npos)
-        {
-            return paint_full_route_native(line);
         }
         if (line.find("\"type\":\"paint_full_route\"") != std::string::npos)
         {
