@@ -211,7 +211,8 @@ Remove or migrate:
 Add:
 
 - `Quality preset`: `Balanced`, `High`, `Ultra`
-- `Stroke size`: texels, default `4.0`
+- `Stroke size`: texels, default `4.0`; replay converts this to normalized UV
+  brush radius using the selected profile texture size.
 - `Coverage step`: texels, default `6.0`
 - `Side guard`: UV distance, default `0.08`
 - `Front/back guard`: UV distance, default `0.45`

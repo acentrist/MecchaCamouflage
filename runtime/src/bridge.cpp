@@ -5278,13 +5278,14 @@ namespace
             }
             const auto world_normal = sdk_vec_normalize(sdk_vec_cross(sdk_vec_sub(triangle.world[1], triangle.world[0]),
                                                                       sdk_vec_sub(triangle.world[2], triangle.world[0])));
-            auto local_normal = sdk_vec_normalize(sdk_vec_cross(sdk_vec_sub(triangle.local[1], triangle.local[0]),
-                                                               sdk_vec_sub(triangle.local[2], triangle.local[0])));
-            if (sdk_vec_len(local_normal) <= 0.000001)
+            const auto runtime_local_normal = sdk_vec_normalize(sdk_vec_cross(sdk_vec_sub(triangle.local[1], triangle.local[0]),
+                                                                              sdk_vec_sub(triangle.local[2], triangle.local[0])));
+            auto region_normal = sdk_vec_normalize(meta.local_normal);
+            if (sdk_vec_len(region_normal) <= 0.000001)
             {
-                local_normal = sdk_vec_normalize(meta.local_normal);
+                region_normal = runtime_local_normal;
             }
-            if (sdk_vec_len(world_normal) <= 0.000001 || sdk_vec_len(local_normal) <= 0.000001)
+            if (sdk_vec_len(world_normal) <= 0.000001 || sdk_vec_len(region_normal) <= 0.000001)
             {
                 ++stats.degenerate_triangles;
                 continue;
@@ -5292,7 +5293,7 @@ namespace
             const double camera_facing = sdk_vec_dot(world_normal, camera_direction);
             const auto world_center = sdk_vec_mul(sdk_vec_add(sdk_vec_add(triangle.world[0], triangle.world[1]), triangle.world[2]), 1.0 / 3.0);
             const double camera_depth = sdk_vec_dot(sdk_vec_sub(world_center, camera_location), camera_direction);
-            const double mesh_facing = mesh_first_axis_component(local_normal, region_axis);
+            const double mesh_facing = mesh_first_axis_component(region_normal, region_axis);
             const bool source_candidate = camera_depth > 0.0 && camera_facing < kMeshSourceFacingThreshold;
             if (camera_depth <= 0.0)
             {
@@ -6143,6 +6144,7 @@ namespace
         const char region_axis = mesh_first_region_axis(profile);
         metadata += ",\"mesh_region_axis\":\"" + std::string(mesh_first_region_axis_label(region_axis)) + "\"";
         metadata += ",\"mesh_region_axis_selection\":\"profile_min_horizontal_extent\"";
+        metadata += ",\"mesh_region_normal_source\":\"profile_v2_triangle_local_normal\"";
 
         write_bridge_progress("pose_resolve",
                               "Resolving current skinned pose",
@@ -6547,6 +6549,8 @@ namespace
         metadata += ",\"first_stroke_barycentric_x\":" + std::to_string(first_stroke.SkeletalTriangleBarycentric.X);
         metadata += ",\"first_stroke_barycentric_y\":" + std::to_string(first_stroke.SkeletalTriangleBarycentric.Y);
         metadata += ",\"first_stroke_barycentric_z\":" + std::to_string(first_stroke.SkeletalTriangleBarycentric.Z);
+        metadata += ",\"first_stroke_brush_radius\":" + std::to_string(first_stroke.BrushSettings.Radius);
+        metadata += ",\"first_stroke_brush_spacing\":" + std::to_string(first_stroke.BrushSettings.Spacing);
         metadata += ",\"first_stroke_albedo_r\":" + std::to_string(first_stroke.ChannelData.AlbedoColor.R);
         metadata += ",\"first_stroke_albedo_g\":" + std::to_string(first_stroke.ChannelData.AlbedoColor.G);
         metadata += ",\"first_stroke_albedo_b\":" + std::to_string(first_stroke.ChannelData.AlbedoColor.B);
