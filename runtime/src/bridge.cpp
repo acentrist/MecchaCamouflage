@@ -6603,8 +6603,8 @@ namespace
 
         std::vector<sdk::FPaintStroke> strokes{};
         strokes.reserve(static_cast<std::size_t>(plan_stats.enabled_samples));
-        const bool use_mesh_anchors = profile_available && runtime_triangle_cache_mode == "profile_verified";
-        metadata += ",\"replay_anchor_policy\":\"" + std::string(use_mesh_anchors ? "profile_verified_triangle_anchor" : "uv_only_dynamic_runtime") + "\"";
+        const bool use_mesh_anchors = false;
+        metadata += ",\"replay_anchor_policy\":\"uv_only\"";
         int replay_front = 0;
         int replay_side = 0;
         int replay_back = 0;
