@@ -6242,6 +6242,7 @@ namespace
         int server_batch_limit{ServerPaintBatchStrokeLimit};
         int server_batch_delay_ms{ServerPaintBatchDelayMs};
         int local_visual_sync_batch_limit{64};
+        bool local_visual_sync_required{false};
         int replay_front{0};
         int replay_side{0};
         int replay_back{0};
@@ -6390,6 +6391,19 @@ namespace
                                  1,
                                  "ServerPaintBatch is unavailable; mesh-first paint cannot replay",
                                  metadata);
+        }
+
+        const auto replication_preflight = mesh_first_capture_replication_snapshot(ref, ctx.component);
+        const int preflight_pending_strokes = mesh_first_pending_replication_strokes(replication_preflight);
+        metadata += mesh_first_replication_snapshot_metadata("mesh_rep_preflight", replication_preflight);
+        if (preflight_pending_strokes > 0)
+        {
+            return response_json(false,
+                                 "paint_queue_busy",
+                                 0,
+                                 1,
+                                 "previous paint is still draining; wait before starting another paint",
+                                 metadata + ",\"replay_blocked\":true");
         }
 
         const auto mesh_candidates = sdk_collect_front_mesh_candidates(ref, ctx);
@@ -6919,12 +6933,13 @@ namespace
         metadata += ",\"replay_triangle_anchors\":" + std::to_string(replay_triangle_anchors);
         metadata += ",\"server_batch_rpc\":\"ServerPaintBatch\"";
         metadata += ",\"server_paint_batch_used\":true";
-        const auto local_paint_at_uv_function = ref.find_function(ctx.component, "PaintAtUVWithBrush");
+        const auto local_paint_at_uv_function = std::uintptr_t{0};
         metadata += ",\"local_paint_rpc\":\"PaintAtUVWithBrush\"";
-        metadata += ",\"local_paint_available\":" + std::string(json_bool(local_paint_at_uv_function != 0));
-        metadata += ",\"local_visual_sync_required\":true";
-        metadata += ",\"local_visual_sync_after_server_success\":true";
-        metadata += ",\"authoritative_replay\":\"server_paint_batch_then_local_visual_sync\"";
+        metadata += ",\"local_paint_available\":false";
+        metadata += ",\"local_visual_sync_required\":false";
+        metadata += ",\"local_visual_sync_after_server_success\":false";
+        metadata += ",\"paint_at_uv_with_brush_production_used\":false";
+        metadata += ",\"authoritative_replay\":\"server_paint_batch_only\"";
 
         const auto albedo_before = mesh_first_export_channel_checksum(ref, ctx.component, sdk::EPaintChannel::Albedo);
         metadata += ",\"albedo_export_before_ok\":" + std::string(json_bool(albedo_before.ok));
@@ -6958,6 +6973,7 @@ namespace
             async_job->replication_before = replication_before;
             async_job->server_batch_limit = std::max(1, tuning_server_batch_limit);
             async_job->server_batch_delay_ms = std::max(1, tuning_server_batch_delay_ms);
+            async_job->local_visual_sync_required = false;
             async_job->replay_front = replay_front;
             async_job->replay_side = replay_side;
             async_job->replay_back = replay_back;
@@ -7179,7 +7195,9 @@ namespace
 
         const std::size_t local_target_offset =
             std::min<std::size_t>(job->offset, job->strokes.size());
-        if (job->local_visual_sync_failure.empty() && job->local_offset < local_target_offset)
+        if (job->local_visual_sync_required &&
+            job->local_visual_sync_failure.empty() &&
+            job->local_offset < local_target_offset)
         {
             if (!job->local_sync_started)
             {
@@ -7257,8 +7275,9 @@ namespace
                     ? std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - job->local_sync_started_at).count()
                     : 0.0;
             const bool local_visual_sync_ok =
-                job->local_visual_sync_failure.empty() &&
-                job->local_stroke_success == static_cast<int>(job->strokes.size());
+                !job->local_visual_sync_required ||
+                (job->local_visual_sync_failure.empty() &&
+                 job->local_stroke_success == static_cast<int>(job->strokes.size()));
             const std::string final_failure = !job->first_failure.empty() ? job->first_failure : job->local_visual_sync_failure;
             if (local_visual_sync_ok && final_failure.empty())
             {
@@ -7282,7 +7301,7 @@ namespace
             metadata += ",\"local_stroke_calls\":" + std::to_string(job->local_stroke_calls);
             metadata += ",\"local_stroke_success\":" + std::to_string(job->local_stroke_success);
             metadata += ",\"local_stroke_failures\":" + std::to_string(job->local_stroke_failures);
-            metadata += ",\"local_visual_sync_used\":" + std::string(json_bool(job->local_paint_at_uv_function != 0));
+            metadata += ",\"local_visual_sync_used\":" + std::string(json_bool(job->local_visual_sync_required && job->local_paint_at_uv_function != 0));
             metadata += ",\"local_visual_sync_ok\":" + std::string(json_bool(local_visual_sync_ok));
             metadata += ",\"local_visual_sync_failure\":\"" + json_escape(job->local_visual_sync_failure) + "\"";
             metadata += ",\"local_visual_sync_elapsed_ms\":" + std::to_string(local_sync_elapsed_ms);
@@ -7330,8 +7349,8 @@ namespace
                                       ",\"server_batch_elapsed_ms\":" + std::to_string(server_elapsed_ms) +
                                       ",\"local_visual_sync_elapsed_ms\":" + std::to_string(local_sync_elapsed_ms) +
                                       ",\"apply_queue_elapsed_ms\":" + std::to_string(apply_queue_elapsed_ms) +
-                                      ",\"apply_initial_pending_strokes\":" + std::to_string(job->apply_initial_pending_strokes) +
-                                      ",\"apply_pending_strokes\":" + std::to_string(std::max(0, job->apply_last_pending_strokes)) +
+                                      ",\"apply_initial_pending_strokes\":" + std::to_string(final_pending_strokes) +
+                                      ",\"apply_pending_strokes\":" + std::to_string(std::max(0, final_pending_strokes)) +
                                       ",\"front_strokes\":" + std::to_string(job->replay_front) +
                                       ",\"side_strokes\":" + std::to_string(job->replay_side) +
                                       ",\"back_strokes\":" + std::to_string(job->replay_back));
@@ -7341,7 +7360,7 @@ namespace
                                                         job->server_strokes_sent,
                                                         local_visual_sync_ok ? 0 : 1,
                                                         local_visual_sync_ok
-                                                            ? "mesh-first paint dispatched through ServerPaintBatch and local visual sync"
+                                                            ? "mesh-first paint dispatched through ServerPaintBatch"
                                                             : "ServerPaintBatch succeeded but local visual sync failed: " + final_failure,
                                                         metadata));
             return;

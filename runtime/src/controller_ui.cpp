@@ -14,6 +14,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace meccha
@@ -247,6 +248,34 @@ namespace meccha
             }
             ImGui::EndChild();
             ImGui::PopStyleColor();
+            if (g_log_font)
+                ImGui::PopFont();
+        }
+
+        void draw_selectable_log_box(const char* id, const std::string& text, const ImVec2& size, std::size_t& previous_size)
+        {
+            const bool text_changed = text.size() != previous_size;
+            previous_size = text.size();
+
+            static std::string buffer;
+            buffer = text.empty() ? "No log events.\n" : text;
+            if (buffer.empty() || buffer.back() != '\0')
+                buffer.push_back('\0');
+
+            if (g_log_font)
+                ImGui::PushFont(g_log_font);
+            ImGui::PushStyleColor(ImGuiCol_FrameBg, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_Text));
+            ImGui::InputTextMultiline(id,
+                                      buffer.data(),
+                                      buffer.size(),
+                                      size,
+                                      ImGuiInputTextFlags_ReadOnly | ImGuiInputTextFlags_NoHorizontalScroll);
+            if (text_changed && !ImGui::IsItemActive())
+            {
+                ImGui::SetItemDefaultFocus();
+            }
+            ImGui::PopStyleColor(2);
             if (g_log_font)
                 ImGui::PopFont();
         }
@@ -1018,7 +1047,7 @@ namespace meccha
                     ImGui::PopStyleVar();
                     ImGui::PopStyleColor(3);
                     ImGui::Spacing();
-                    draw_colored_log_box("##MainLog", human_log_text, ImGui::GetContentRegionAvail(), previous_log_size);
+                    draw_selectable_log_box("##MainLog", human_log_text, ImGui::GetContentRegionAvail(), previous_log_size);
                 }
                 end_panel();
             }
