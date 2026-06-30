@@ -43,7 +43,6 @@ namespace
     constexpr int ServerPaintBatchDelayMs = 300;
     constexpr int MeshFirstServerBatchMinDelayMs = 15;
     constexpr int MeshFirstApplySafePendingStrokes = 1000;
-    constexpr int MeshFirstApplyPollMs = 1000;
     constexpr int MeshFirstApplyTimeoutMs = 240000;
 
     constexpr std::uintptr_t OffClass = 0x10;
@@ -4761,7 +4760,7 @@ namespace
 
     struct MeshFirstRuntimeTriangleProjectionSelection
     {
-        std::string mode{"field0_world_field1_local"};
+        std::string mode{"stable_runtime_coordinates"};
         int samples{0};
         int source_candidates{0};
         int project_ok{0};
@@ -4939,6 +4938,7 @@ namespace
         {
             return 'x';
         }
+
         const double range_x = max_x - min_x;
         const double range_y = max_y - min_y;
         if (std::isfinite(range_x) && std::isfinite(range_y) && range_y > 0.001 && range_y < range_x)
@@ -5258,42 +5258,9 @@ namespace
         return out;
     }
 
-    auto mesh_first_runtime_triangle_with_coordinate_mode(const MeshFirstRuntimeTriangle& raw,
-                                                          const sdk::FTransform& component_to_world,
-                                                          const std::string& mode) -> MeshFirstRuntimeTriangle
-    {
-        MeshFirstRuntimeTriangle out = raw;
-        if (mode == "field1_world_field0_local")
-        {
-            for (int vertex = 0; vertex < 3; ++vertex)
-            {
-                out.world[vertex] = raw.local[vertex];
-                out.local[vertex] = raw.world[vertex];
-            }
-        }
-        else if (mode == "field0_local_component_world")
-        {
-            for (int vertex = 0; vertex < 3; ++vertex)
-            {
-                out.local[vertex] = raw.world[vertex];
-                out.world[vertex] = mesh_first_transform_apply_point(component_to_world, raw.world[vertex]);
-            }
-        }
-        else if (mode == "field1_local_component_world")
-        {
-            for (int vertex = 0; vertex < 3; ++vertex)
-            {
-                out.local[vertex] = raw.local[vertex];
-                out.world[vertex] = mesh_first_transform_apply_point(component_to_world, raw.local[vertex]);
-            }
-        }
-        return out;
-    }
-
     auto mesh_first_select_runtime_triangle_projection_coordinates(Reflection& ref,
                                                                   const SdkContext& ctx,
                                                                   std::vector<MeshFirstRuntimeTriangle>& triangles,
-                                                                  const sdk::FTransform& component_to_world,
                                                                   const sdk::FVector& camera_location,
                                                                   const sdk::FVector& camera_direction,
                                                                   const SdkViewportInfo& viewport) -> MeshFirstRuntimeTriangleProjectionSelection
@@ -5313,10 +5280,7 @@ namespace
             int score{0};
         };
         std::vector<Candidate> candidates{
-            {"field0_world_field1_local"},
-            {"field1_world_field0_local"},
-            {"field0_local_component_world"},
-            {"field1_local_component_world"},
+            {"stable_runtime_coordinates"},
         };
         const int step = std::max(1, static_cast<int>(triangles.size() / 256));
         const auto view_direction = sdk_vec_normalize(camera_direction);
@@ -5324,7 +5288,7 @@ namespace
         {
             for (std::size_t tri = 0; tri < triangles.size(); tri += static_cast<std::size_t>(step))
             {
-                const auto triangle = mesh_first_runtime_triangle_with_coordinate_mode(triangles[tri], component_to_world, candidate.mode);
+                const auto& triangle = triangles[tri];
                 const auto world_normal = sdk_vec_normalize(sdk_vec_cross(sdk_vec_sub(triangle.world[1], triangle.world[0]),
                                                                           sdk_vec_sub(triangle.world[2], triangle.world[0])));
                 if (sdk_vec_len(world_normal) <= 0.000001)
@@ -5381,13 +5345,6 @@ namespace
                            ",project=" + std::to_string(candidate.project_ok) +
                            ",inside=" + std::to_string(candidate.inside_view) +
                            ",score=" + std::to_string(candidate.score);
-        }
-        if (best.mode != "field0_world_field1_local")
-        {
-            for (auto& triangle : triangles)
-            {
-                triangle = mesh_first_runtime_triangle_with_coordinate_mode(triangle, component_to_world, best.mode);
-            }
         }
         return out;
     }
@@ -6593,21 +6550,6 @@ namespace
                                  metadata);
         }
 
-        const auto replication_preflight = mesh_first_capture_replication_snapshot(ref, ctx.component);
-        const int preflight_pending_strokes = mesh_first_pending_replication_strokes(replication_preflight);
-        if (preflight_pending_strokes > MeshFirstApplySafePendingStrokes)
-        {
-            return response_json(false,
-                                 "paint_queue_busy",
-                                 0,
-                                 1,
-                                 "previous paint is still applying; wait before starting another paint",
-                                 metadata + mesh_first_replication_snapshot_metadata("mesh_rep_preflight", replication_preflight) +
-                                     ",\"apply_pending_strokes\":" + std::to_string(preflight_pending_strokes) +
-                                     ",\"apply_safe_pending_strokes\":" + std::to_string(MeshFirstApplySafePendingStrokes) +
-                                     ",\"replay_blocked\":true");
-        }
-
         const auto mesh_candidates = sdk_collect_front_mesh_candidates(ref, ctx);
         metadata += ",\"front_mesh_candidate_count\":" + std::to_string(mesh_candidates.size());
         metadata += ",\"front_mesh_candidates\":" + sdk_front_mesh_candidates_json(ref, mesh_candidates);
@@ -6784,6 +6726,14 @@ namespace
                                  "RuntimePaintable cached current triangles are unavailable; mesh-first paint cannot plan safely",
                                  metadata + ",\"replay_blocked\":true");
         }
+        const auto runtime_coordinate_selection =
+            mesh_first_select_runtime_triangle_coordinates(runtime_triangle_cache.triangles, component_to_world);
+        metadata += ",\"runtime_triangle_coordinate_mode\":\"" + json_escape(runtime_coordinate_selection.mode) + "\"";
+        metadata += ",\"runtime_triangle_coordinates_swapped\":" + std::string(runtime_coordinate_selection.swapped ? "true" : "false");
+        metadata += ",\"runtime_triangle_coordinate_samples\":" + std::to_string(runtime_coordinate_selection.samples);
+        metadata += ",\"runtime_triangle_coordinate_direct_avg_error\":" + std::to_string(runtime_coordinate_selection.direct_avg_error);
+        metadata += ",\"runtime_triangle_coordinate_swapped_avg_error\":" + std::to_string(runtime_coordinate_selection.swapped_avg_error);
+        metadata += ",\"runtime_triangle_coordinate_selected_avg_error\":" + std::to_string(runtime_coordinate_selection.selected_avg_error);
         const int active_texture_size = profile_available ? profile.texture_size : 1024;
         const char region_axis = profile_available ? mesh_first_region_axis(profile)
                                                    : mesh_first_region_axis_from_runtime_triangles(runtime_triangle_cache.triangles);
@@ -6791,15 +6741,6 @@ namespace
         metadata += ",\"mesh_region_axis_selection\":\"" + std::string(profile_available ? "profile_min_horizontal_extent" : "runtime_triangle_min_horizontal_extent") + "\"";
         metadata += ",\"mesh_region_normal_source\":\"" + std::string(profile_available ? "profile_v2_triangle_local_normal" : "runtime_triangle_local_normal") + "\"";
         metadata += ",\"texture_size\":" + std::to_string(active_texture_size);
-        auto runtime_coordinate_probe_triangles = runtime_triangle_cache.triangles;
-        const auto runtime_coordinate_selection =
-            mesh_first_select_runtime_triangle_coordinates(runtime_coordinate_probe_triangles, component_to_world);
-        metadata += ",\"runtime_triangle_coordinate_mode\":\"" + json_escape(runtime_coordinate_selection.mode) + "\"";
-        metadata += ",\"runtime_triangle_coordinates_swapped\":" + std::string(runtime_coordinate_selection.swapped ? "true" : "false");
-        metadata += ",\"runtime_triangle_coordinate_samples\":" + std::to_string(runtime_coordinate_selection.samples);
-        metadata += ",\"runtime_triangle_coordinate_direct_avg_error\":" + std::to_string(runtime_coordinate_selection.direct_avg_error);
-        metadata += ",\"runtime_triangle_coordinate_swapped_avg_error\":" + std::to_string(runtime_coordinate_selection.swapped_avg_error);
-        metadata += ",\"runtime_triangle_coordinate_selected_avg_error\":" + std::to_string(runtime_coordinate_selection.selected_avg_error);
 
         const auto viewport = sdk_get_viewport_info(ref, ctx);
         if (viewport.width <= 0 || viewport.height <= 0)
@@ -6834,7 +6775,6 @@ namespace
             mesh_first_select_runtime_triangle_projection_coordinates(ref,
                                                                      ctx,
                                                                      runtime_triangle_cache.triangles,
-                                                                     component_to_world,
                                                                      center_ray.location,
                                                                      camera_direction,
                                                                      viewport);
@@ -6858,6 +6798,8 @@ namespace
         MeshFirstPlanStats plan_stats{};
         std::vector<MeshFirstPlanSample> plan_samples{};
         std::string planner_failure{};
+        metadata += ",\"mesh_region_threshold\":0.350000";
+        metadata += ",\"mesh_region_threshold_source\":\"fixed_mesh_local_normal\"";
         if (!mesh_first_generate_plan_samples_from_runtime_cache(profile_available ? &profile : nullptr,
                                                                  runtime_triangle_cache.triangles,
                                                                  active_texture_size,
@@ -7175,19 +7117,6 @@ namespace
                                               ",\"server_batch_limit\":" + std::to_string(tuning_server_batch_limit) +
                                       ",\"server_batch_delay_ms\":" + std::to_string(effective_server_batch_delay_ms));
         const auto replication_before = mesh_first_capture_replication_snapshot(ref, ctx.component);
-        const int pending_before = mesh_first_pending_replication_strokes(replication_before);
-        if (pending_before > MeshFirstApplySafePendingStrokes)
-        {
-            return response_json(false,
-                                 "paint_queue_busy",
-                                 0,
-                                 1,
-                                 "previous paint is still applying; wait before starting another paint",
-                                 metadata + mesh_first_replication_snapshot_metadata("mesh_rep_before", replication_before) +
-                                     ",\"apply_pending_strokes\":" + std::to_string(pending_before) +
-                                     ",\"apply_safe_pending_strokes\":" + std::to_string(MeshFirstApplySafePendingStrokes) +
-                                     ",\"replay_blocked\":true");
-        }
 
         if (queued_job)
         {
@@ -7491,68 +7420,8 @@ namespace
                 const auto pending_snapshot = mesh_first_capture_replication_snapshot(pending_ref, job->component);
                 final_pending_strokes = mesh_first_pending_replication_strokes(pending_snapshot);
             }
-            const bool pending_known = final_pending_strokes >= 0;
-            if (!job->apply_wait_started)
-            {
-                job->apply_wait_started = true;
-                job->apply_wait_started_at = std::chrono::steady_clock::now();
-                job->apply_initial_pending_strokes = final_pending_strokes;
-            }
-            if (job->apply_initial_pending_strokes < final_pending_strokes)
-            {
-                job->apply_initial_pending_strokes = final_pending_strokes;
-            }
             job->apply_last_pending_strokes = final_pending_strokes;
-            const double apply_queue_elapsed_ms =
-                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - job->apply_wait_started_at).count();
-            if (pending_known && final_pending_strokes > MeshFirstApplySafePendingStrokes)
-            {
-                if (apply_queue_elapsed_ms >= MeshFirstApplyTimeoutMs)
-                {
-                    std::string timeout_metadata = job->metadata;
-                    timeout_metadata += ",\"server_batch_calls\":" + std::to_string(job->server_batch_calls);
-                    timeout_metadata += ",\"server_batch_success\":" + std::to_string(job->server_batch_success);
-                    timeout_metadata += ",\"server_batch_failures\":" + std::to_string(job->server_batch_failures);
-                    timeout_metadata += ",\"server_strokes_sent\":" + std::to_string(job->server_strokes_sent);
-                    timeout_metadata += ",\"server_batch_elapsed_ms\":" + std::to_string(server_elapsed_ms);
-                    timeout_metadata += ",\"apply_queue_wait_used\":true";
-                    timeout_metadata += ",\"apply_queue_elapsed_ms\":" + std::to_string(apply_queue_elapsed_ms);
-                    timeout_metadata += ",\"apply_safe_pending_strokes\":" + std::to_string(MeshFirstApplySafePendingStrokes);
-                    timeout_metadata += ",\"apply_queue_timeout_ms\":" + std::to_string(MeshFirstApplyTimeoutMs);
-                    timeout_metadata += ",\"apply_initial_pending_strokes\":" + std::to_string(job->apply_initial_pending_strokes);
-                    timeout_metadata += ",\"apply_last_pending_strokes\":" + std::to_string(final_pending_strokes);
-                    timeout_metadata += ",\"first_failure\":\"apply_queue_timeout\"";
-                    complete_mesh_first_batch_job(job,
-                                                  response_json(false,
-                                                                "mesh_apply_queue_timeout",
-                                                                job->server_strokes_sent,
-                                                                1,
-                                                                "paint apply queue did not drain before timeout",
-                                                                timeout_metadata));
-                    return;
-                }
-
-                const int initial = std::max(job->apply_initial_pending_strokes, final_pending_strokes);
-                const int done = std::max(0, initial - final_pending_strokes);
-                const int step = 80 + static_cast<int>((static_cast<long long>(done) * 19LL) / std::max(1, initial));
-                write_bridge_progress("mesh_apply_wait",
-                                      "Waiting for game paint apply queue",
-                                      step,
-                                      100,
-                                      total_elapsed_ms,
-                                      "\"server_strokes_sent\":" + std::to_string(job->server_strokes_sent) +
-                                          ",\"server_strokes_total\":" + std::to_string(job->strokes.size()) +
-                                          ",\"server_batch_calls\":" + std::to_string(job->server_batch_calls) +
-                                          ",\"server_batch_limit\":" + std::to_string(job->server_batch_limit) +
-                                          ",\"server_batch_delay_ms\":" + std::to_string(job->server_batch_delay_ms) +
-                                          ",\"server_batch_elapsed_ms\":" + std::to_string(server_elapsed_ms) +
-                                          ",\"apply_queue_elapsed_ms\":" + std::to_string(apply_queue_elapsed_ms) +
-                                          ",\"apply_initial_pending_strokes\":" + std::to_string(initial) +
-                                          ",\"apply_pending_strokes\":" + std::to_string(final_pending_strokes) +
-                                          ",\"apply_safe_pending_strokes\":" + std::to_string(MeshFirstApplySafePendingStrokes));
-                post_next_after(MeshFirstApplyPollMs);
-                return;
-            }
+            const double apply_queue_elapsed_ms = 0.0;
             std::string metadata = job->metadata;
             metadata += ",\"server_batch_calls\":" + std::to_string(job->server_batch_calls);
             metadata += ",\"server_batch_success\":" + std::to_string(job->server_batch_success);
@@ -7566,11 +7435,11 @@ namespace
             metadata += ",\"local_visual_sync_ok\":" + std::string(json_bool(local_visual_sync_ok));
             metadata += ",\"local_visual_sync_failure\":\"" + json_escape(job->local_visual_sync_failure) + "\"";
             metadata += ",\"local_visual_sync_elapsed_ms\":" + std::to_string(local_sync_elapsed_ms);
-            metadata += ",\"apply_queue_wait_used\":" + std::string(json_bool(job->apply_wait_started));
+            metadata += ",\"apply_queue_wait_used\":false";
             metadata += ",\"apply_queue_elapsed_ms\":" + std::to_string(apply_queue_elapsed_ms);
             metadata += ",\"apply_safe_pending_strokes\":" + std::to_string(MeshFirstApplySafePendingStrokes);
             metadata += ",\"apply_queue_timeout_ms\":" + std::to_string(MeshFirstApplyTimeoutMs);
-            metadata += ",\"apply_initial_pending_strokes\":" + std::to_string(job->apply_initial_pending_strokes);
+            metadata += ",\"apply_initial_pending_strokes\":" + std::to_string(final_pending_strokes);
             metadata += ",\"apply_last_pending_strokes\":" + std::to_string(final_pending_strokes);
             metadata += ",\"total_replay_elapsed_ms\":" + std::to_string(total_elapsed_ms);
             metadata += ",\"first_failure\":\"" + json_escape(final_failure) + "\"";
