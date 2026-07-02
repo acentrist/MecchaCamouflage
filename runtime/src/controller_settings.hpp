@@ -13,7 +13,8 @@ namespace meccha
         double coverage_step_texels{6.0};
         double side_source_max_uv{0.08};
         double front_back_source_max_uv{0.45};
-        int max_strokes{25000};
+        double metallic{0.0};
+        double roughness{0.0};
         int server_batch_limit{50};
         int server_batch_delay_ms{300};
         bool enable_front_paint{true};
@@ -23,11 +24,11 @@ namespace meccha
 
     struct AppSettings
     {
-        int layout_version{12};
+        int layout_version{13};
         float panel_x{-1.0f};
         float panel_y{-1.0f};
         float panel_width{1280.0f};
-        float panel_height{860.0f};
+        float panel_height{780.0f};
         int log_retention_days{14};
         std::wstring game_process_name{DefaultGameProcessName};
         bool always_on_top{true};

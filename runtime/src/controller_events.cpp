@@ -117,18 +117,27 @@ namespace meccha
                                                              "local_strokes_total",
                                                              extract_json_number(event.details_json, "local_sync_strokes_total", -1.0));
                     const double progress = total > 0.0 ? synced / total : 0.0;
-                    return prefix + "Apply " + progress_bar_text(progress) + " " +
+                    return prefix + "Paint " + progress_bar_text(progress) + " " +
                            format_count(synced) + "/" + format_count(total);
                 }
-                if (event.stage == "mesh_apply_wait")
+                if (event.stage == "mesh_paint_done" || event.stage == "mesh_paint_cancelled" || event.stage == "mesh_paint_failed")
                 {
-                    const double pending = extract_json_number(event.details_json, "apply_pending_strokes", -1.0);
-                    const double initial = extract_json_number(event.details_json, "apply_initial_pending_strokes", -1.0);
-                    const double done = initial >= 0.0 && pending >= 0.0 ? std::max(0.0, initial - pending) : 0.0;
-                    const double progress = initial > 0.0 ? done / initial : 0.0;
-                    return prefix + "Apply " + progress_bar_text(progress) + " " +
-                           format_count(done) + "/" + format_count(initial) +
-                           " pending " + format_count(pending);
+                    const double synced = extract_json_number(event.details_json, "local_strokes_synced", 0.0);
+                    const double total = extract_json_number(event.details_json,
+                                                             "local_strokes_total",
+                                                             extract_json_number(event.details_json, "server_strokes_sent", -1.0));
+                    const double progress = total > 0.0 ? synced / total : event.progress;
+                    std::string line = prefix + "Paint " + progress_bar_text(progress) + " " +
+                                       format_count(synced) + "/" + format_count(total);
+                    if (event.stage == "mesh_paint_cancelled")
+                    {
+                        line += " cancelled";
+                    }
+                    if (event.stage == "mesh_paint_failed")
+                    {
+                        line += " failed";
+                    }
+                    return line;
                 }
                 const std::string stage = event.stage.empty() ? "paint" : pretty_text(event.stage);
                 return prefix + progress_bar_text(std::min(0.98, event.progress)) + " " + stage + " " + event.message;

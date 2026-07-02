@@ -70,7 +70,7 @@ namespace
     constexpr int BridgeResourceId = 101;
     constexpr int AppIconResourceId = 201;
     constexpr LONG MinAppWindowWidth = 1180;
-    constexpr LONG MinAppWindowHeight = 860;
+    constexpr LONG MinAppWindowHeight = 780;
     constexpr LONG DefaultAppWindowInset = 80;
     constexpr LONG CustomTitleBarHeight = 36;
     constexpr LONG CustomCloseButtonWidth = 38;
@@ -92,7 +92,7 @@ namespace
         std::wstring log_dir{};
         std::string bridge_host{DefaultBridgeHost};
         int bridge_port{DefaultBridgePort};
-        double bridge_timeout_seconds{240.0};
+        double bridge_timeout_seconds{360.0};
         double status_interval_seconds{2.0};
         double frame_delay_ms{16.0};
         std::string native_apply_mode{"mesh_first_paint"};
@@ -921,6 +921,7 @@ namespace
         bool waiting_for_process_logged{false};
         bool not_ready_hotkey_logged{false};
         bool duplicate_paint_hotkey_logged{false};
+        bool paint_after_ready_requested{false};
         double last_bridge_check{0.0};
         double paint_settle_until{0.0};
     };
@@ -1119,13 +1120,6 @@ namespace
 
     auto format_duration_label(double milliseconds) -> std::string;
 
-    auto estimate_remaining_ms(double elapsed_ms, double done, double total) -> double
-    {
-        if (elapsed_ms < 0.0 || done <= 0.0 || total <= 0.0 || done >= total)
-            return 0.0;
-        return std::max(0.0, (elapsed_ms / done) * (total - done));
-    }
-
     auto file_write_age_ms(const std::filesystem::path& path) -> double
     {
         WIN32_FILE_ATTRIBUTE_DATA data{};
@@ -1144,14 +1138,9 @@ namespace
         return static_cast<double>(now.QuadPart - written.QuadPart) / 10000.0;
     }
 
-    auto estimated_server_batch_ms_from_progress(const std::string& progress) -> double
+    auto metric_blank(const std::string& value) -> bool
     {
-        const double total_strokes = extract_json_number(progress, "server_strokes_total", -1.0);
-        const double batch_limit = extract_json_number(progress, "server_batch_limit", -1.0);
-        const double batch_delay = extract_json_number(progress, "server_batch_delay_ms", -1.0);
-        if (total_strokes <= 0.0 || batch_limit <= 0.0 || batch_delay <= 0.0)
-            return -1.0;
-        return std::max(0.0, std::ceil(total_strokes / batch_limit) - 1.0) * batch_delay;
+        return value.empty() || value == "-";
     }
 
     void apply_live_progress_metrics(meccha::UiRuntimeState& ui_runtime,
@@ -1161,127 +1150,42 @@ namespace
         if (progress.empty())
             return;
 
-        const std::string stage = extract_json_string(progress, "stage");
-        const double elapsed_at_write_ms = extract_json_number(progress, "elapsed_ms", -1.0);
-        const double live_elapsed_ms = elapsed_at_write_ms >= 0.0
-                                           ? elapsed_at_write_ms + file_write_age_ms(progress_path)
-                                           : -1.0;
-
-        if (stage == "mesh_server_batch_begin")
-        {
-            ui_runtime.metric_server_elapsed = live_elapsed_ms >= 0.0 ? format_duration_label(live_elapsed_ms) : "0s";
-            const double estimate_ms = estimated_server_batch_ms_from_progress(progress);
-            ui_runtime.metric_server_eta = estimate_ms >= 0.0 ? format_duration_label(estimate_ms) : "Calculating";
-            ui_runtime.metric_apply_eta = "-";
-            ui_runtime.metric_apply_elapsed = "-";
+        if (extract_json_number(progress, "progress_schema_version", 0.0) < 2.0)
             return;
-        }
 
-        if (stage == "mesh_server_batch")
-        {
-            if (live_elapsed_ms >= 0.0)
-                ui_runtime.metric_server_elapsed = format_duration_label(live_elapsed_ms);
-            const double sent = extract_json_number(progress, "server_strokes_sent", -1.0);
-            const double total = extract_json_number(progress, "server_strokes_total", -1.0);
-            if (sent >= total && total > 0.0)
-                ui_runtime.metric_server_eta = "0s";
-            else if (live_elapsed_ms >= 0.0 && sent > 0.0 && total > 0.0)
-                ui_runtime.metric_server_eta = format_duration_label(estimate_remaining_ms(live_elapsed_ms, sent, total));
-            else
-                ui_runtime.metric_server_eta = "Calculating";
-            ui_runtime.metric_apply_eta = "-";
-            ui_runtime.metric_apply_elapsed = "-";
-            return;
-        }
+        const std::string phase = extract_json_string(progress, "phase");
+        const bool terminal = extract_json_bool(progress, "terminal", false);
+        const double age_ms = terminal ? 0.0 : file_write_age_ms(progress_path);
+        const double server_elapsed_ms = extract_json_number(progress, "server_elapsed_ms",
+                                                             extract_json_number(progress, "server_batch_elapsed_ms", -1.0));
+        const double server_eta_ms = extract_json_number(progress, "server_eta_ms", -1.0);
+        const double paint_elapsed_ms = extract_json_number(progress, "paint_elapsed_ms",
+                                                            extract_json_number(progress, "elapsed_ms", -1.0));
+        const double paint_eta_ms = extract_json_number(progress, "paint_eta_ms", -1.0);
 
-        if (stage == "mesh_local_visual_sync")
+        if (server_elapsed_ms >= 0.0)
         {
-            const double server_elapsed_ms = extract_json_number(progress, "server_batch_elapsed_ms", -1.0);
-            if (server_elapsed_ms >= 0.0)
-            {
-                ui_runtime.metric_server_elapsed = format_duration_label(server_elapsed_ms);
-                const double sent = extract_json_number(progress, "server_strokes_sent", -1.0);
-                const double total = extract_json_number(progress, "server_strokes_total", -1.0);
-                if (sent >= total && total > 0.0)
-                    ui_runtime.metric_server_eta = "0s";
-                else if (server_elapsed_ms >= 0.0 && sent > 0.0 && total > 0.0)
-                    ui_runtime.metric_server_eta = format_duration_label(estimate_remaining_ms(server_elapsed_ms, sent, total));
-                else
-                    ui_runtime.metric_server_eta = "Calculating";
-            }
-            const double apply_elapsed_at_write_ms = extract_json_number(progress, "local_visual_sync_elapsed_ms", -1.0);
-            const double apply_elapsed_ms = apply_elapsed_at_write_ms >= 0.0
-                                                ? apply_elapsed_at_write_ms + file_write_age_ms(progress_path)
-                                                : live_elapsed_ms;
-            if (apply_elapsed_ms >= 0.0)
-                ui_runtime.metric_apply_elapsed = format_duration_label(apply_elapsed_ms);
-            const double synced = extract_json_number(progress, "local_strokes_synced", -1.0);
-            const double total = extract_json_number(progress, "local_strokes_total",
-                                                     extract_json_number(progress, "local_sync_strokes_total", -1.0));
-            if (synced >= total && total > 0.0)
-                ui_runtime.metric_apply_eta = "0s";
-            else if (apply_elapsed_ms >= 0.0 && synced > 0.0 && total > 0.0)
-                ui_runtime.metric_apply_eta = format_duration_label(estimate_remaining_ms(apply_elapsed_ms, synced, total));
-            else
-                ui_runtime.metric_apply_eta = "Calculating";
+            const bool server_running = phase == "server_batch" && !terminal;
+            ui_runtime.metric_server_elapsed = format_duration_label(server_elapsed_ms + (server_running ? age_ms : 0.0));
         }
+        if (server_eta_ms >= 0.0)
+            ui_runtime.metric_server_eta = format_duration_label(std::max(0.0, server_eta_ms - age_ms));
+        else if (phase == "local_sync" || terminal)
+            ui_runtime.metric_server_eta = "0s";
+        else
+            ui_runtime.metric_server_eta = "Calculating";
 
-        if (stage == "mesh_apply_wait")
-        {
-            const double server_elapsed_ms = extract_json_number(progress, "server_batch_elapsed_ms", -1.0);
-            if (server_elapsed_ms >= 0.0)
-            {
-                ui_runtime.metric_server_elapsed = format_duration_label(server_elapsed_ms);
-                ui_runtime.metric_server_eta = "0s";
-            }
-            const double apply_elapsed_at_write_ms = extract_json_number(progress, "apply_queue_elapsed_ms", -1.0);
-            const double apply_elapsed_ms = apply_elapsed_at_write_ms >= 0.0
-                                                ? apply_elapsed_at_write_ms + file_write_age_ms(progress_path)
-                                                : live_elapsed_ms;
-            if (apply_elapsed_ms >= 0.0)
-                ui_runtime.metric_apply_elapsed = format_duration_label(apply_elapsed_ms);
-            const double pending = extract_json_number(progress, "apply_pending_strokes", -1.0);
-            const double initial = extract_json_number(progress, "apply_initial_pending_strokes", -1.0);
-            const double done = initial >= 0.0 && pending >= 0.0 ? std::max(0.0, initial - pending) : -1.0;
-            if (pending <= 0.0 && pending >= 0.0)
-                ui_runtime.metric_apply_eta = "0s";
-            else if (apply_elapsed_ms >= 0.0 && done > 0.0 && initial > 0.0)
-                ui_runtime.metric_apply_eta = format_duration_label(estimate_remaining_ms(apply_elapsed_ms, done, initial));
-            else
-                ui_runtime.metric_apply_eta = "Calculating";
-        }
-
-        if (stage == "mesh_paint_done")
-        {
-            const double server_elapsed_ms = extract_json_number(progress, "server_batch_elapsed_ms", -1.0);
-            double apply_elapsed_ms = extract_json_number(progress, "local_visual_sync_elapsed_ms", -1.0);
-            if (apply_elapsed_ms < 0.0)
-                apply_elapsed_ms = extract_json_number(progress, "apply_queue_elapsed_ms", -1.0);
-            if (server_elapsed_ms >= 0.0)
-            {
-                ui_runtime.metric_server_elapsed = format_duration_label(server_elapsed_ms);
-                ui_runtime.metric_server_eta = "0s";
-            }
-            if (apply_elapsed_ms >= 0.0)
-            {
-                ui_runtime.metric_apply_elapsed = format_duration_label(apply_elapsed_ms);
-                ui_runtime.metric_apply_eta = "0s";
-            }
-            else
-            {
-                ui_runtime.metric_apply_elapsed = "N/A";
-                ui_runtime.metric_apply_eta = "N/A";
-            }
-        }
+        if (paint_elapsed_ms >= 0.0)
+            ui_runtime.metric_apply_elapsed = format_duration_label(paint_elapsed_ms + (!terminal ? age_ms : 0.0));
+        if (paint_eta_ms >= 0.0)
+            ui_runtime.metric_apply_eta = format_duration_label(std::max(0.0, paint_eta_ms - age_ms));
+        else
+            ui_runtime.metric_apply_eta = terminal ? "0s" : "Calculating";
     }
 
     auto latest_mesh_ui_summary(const std::vector<meccha::RuntimeEvent>& events) -> MeshUiSummary
     {
         MeshUiSummary summary{};
-        double latest_server_elapsed = -1.0;
-        double pending_apply_total_elapsed = -1.0;
-        double pending_apply_synced = -1.0;
-        double pending_apply_total = -1.0;
         bool saw_relevant = false;
         for (auto it = events.rbegin(); it != events.rend(); ++it)
         {
@@ -1309,121 +1213,35 @@ namespace
                 summary.mesh += " (" + profile_id.substr(0, std::min<std::size_t>(24, profile_id.size())) + ")";
 
             const auto enabled = extract_json_number(details, "planner_samples_enabled", -1.0);
-            const auto source = extract_json_number(details, "source_samples", -1.0);
             const auto unsafe = extract_json_number(details, "unsafe_enabled", -1.0);
             const auto brush_texels = extract_json_number(details, "stroke_radius_texels", -1.0);
             const auto coverage_texels = extract_json_number(details, "planner_coverage_step_texels", -1.0);
             const auto elapsed = extract_json_number(details, "elapsed_ms", -1.0);
-            const auto estimated_replay = extract_json_number(details, "estimated_replay_ms", -1.0);
-            const auto estimated_batches = extract_json_number(details, "server_batch_estimated_calls", -1.0);
-            const auto server_elapsed_done = extract_json_number(details, "server_batch_elapsed_ms", -1.0);
-            const auto apply_initial_pending = extract_json_number(details, "apply_initial_pending_strokes", -1.0);
-            const bool apply_queue_known = extract_json_bool(details, "apply_queue_wait_used", false) ||
-                                           apply_initial_pending >= 0.0;
-            const auto apply_elapsed_done = apply_queue_known ? extract_json_number(details, "apply_queue_elapsed_ms", -1.0) : -1.0;
-            const bool final_replay_metrics = server_elapsed_done >= 0.0 || apply_elapsed_done >= 0.0 ||
+            const auto server_elapsed_done = extract_json_number(details, "server_elapsed_ms",
+                                                                  extract_json_number(details, "server_batch_elapsed_ms", -1.0));
+            const auto paint_elapsed_done = extract_json_number(details, "paint_elapsed_ms",
+                                                                 extract_json_number(details, "total_replay_elapsed_ms", elapsed));
+            const auto server_eta = extract_json_number(details, "server_eta_ms", -1.0);
+            const auto paint_eta = extract_json_number(details, "paint_eta_ms", -1.0);
+            const bool final_replay_metrics = server_elapsed_done >= 0.0 || paint_elapsed_done >= 0.0 ||
                                              it->event == "paint_done" || stage == "mesh_paint_done" ||
-                                             stage == "mesh_first_paint_done";
+                                             stage == "mesh_first_paint_done" ||
+                                             stage == "mesh_paint_cancelled" ||
+                                             stage == "mesh_paint_failed";
             if (server_elapsed_done >= 0.0 && summary.server_elapsed.empty())
                 summary.server_elapsed = format_duration_label(server_elapsed_done);
-            if (apply_elapsed_done >= 0.0 && summary.apply_elapsed.empty())
-                summary.apply_elapsed = format_duration_label(apply_elapsed_done);
-            if (final_replay_metrics)
-            {
-                if (summary.server_eta.empty())
-                    summary.server_eta = "0s";
-                if (apply_queue_known)
-                {
-                    if (summary.apply_eta.empty())
-                        summary.apply_eta = "0s";
-                }
-                else
-                {
-                    if (summary.apply_eta.empty())
-                        summary.apply_eta = "N/A";
-                    if (summary.apply_elapsed.empty())
-                        summary.apply_elapsed = "N/A";
-                }
-            }
-            else if (estimated_replay >= 0.0 && summary.server_eta.empty())
-                summary.server_eta = format_duration_label(estimated_replay);
+            if (paint_elapsed_done >= 0.0 && summary.apply_elapsed.empty())
+                summary.apply_elapsed = format_duration_label(paint_elapsed_done);
+            if (server_eta >= 0.0 && summary.server_eta.empty())
+                summary.server_eta = format_duration_label(server_eta);
+            if (paint_eta >= 0.0 && summary.apply_eta.empty())
+                summary.apply_eta = format_duration_label(paint_eta);
+            if (final_replay_metrics && summary.server_eta.empty())
+                summary.server_eta = "0s";
+            if (final_replay_metrics && summary.apply_eta.empty())
+                summary.apply_eta = "0s";
             if (unsafe >= 0.0)
                 summary.unsafe = std::to_string(static_cast<long long>(unsafe));
-
-            if (stage == "mesh_server_batch_begin")
-            {
-                const auto total_strokes = extract_json_number(details, "server_strokes_total", -1.0);
-                const auto batch_limit = extract_json_number(details, "server_batch_limit", -1.0);
-                const auto batch_delay = extract_json_number(details, "server_batch_delay_ms", -1.0);
-                if (total_strokes > 0.0 && batch_limit > 0.0 && batch_delay > 0.0)
-                {
-                    const double batches_est = std::ceil(total_strokes / batch_limit);
-                    if (summary.server_eta.empty())
-                        summary.server_eta = format_duration_label(std::max(0.0, batches_est - 1.0) * batch_delay);
-                    if (summary.server_elapsed.empty())
-                        summary.server_elapsed = "0s";
-                }
-            }
-            else if (stage == "mesh_server_batch")
-            {
-                const auto sent_now = extract_json_number(details, "server_strokes_sent", -1.0);
-                const auto total_now = extract_json_number(details, "server_strokes_total", -1.0);
-                if (elapsed >= 0.0)
-                {
-                    latest_server_elapsed = elapsed;
-                    if (summary.server_elapsed.empty())
-                        summary.server_elapsed = format_duration_label(elapsed);
-                    if (pending_apply_total_elapsed >= 0.0)
-                    {
-                        const double apply_elapsed = std::max(0.0, pending_apply_total_elapsed - latest_server_elapsed);
-                        if (summary.apply_elapsed.empty())
-                            summary.apply_elapsed = format_duration_label(apply_elapsed);
-                        if (summary.apply_eta.empty())
-                            summary.apply_eta = pending_apply_synced > 0.0 && pending_apply_total > 0.0
-                                                    ? format_duration_label(estimate_remaining_ms(apply_elapsed, pending_apply_synced, pending_apply_total))
-                                                    : "Calculating";
-                    }
-                }
-                if (summary.server_eta.empty() && sent_now > 0.0 && total_now > 0.0 && elapsed >= 0.0)
-                    summary.server_eta = format_duration_label(estimate_remaining_ms(elapsed, sent_now, total_now));
-            }
-            else if (stage == "mesh_local_visual_sync" || stage == "mesh_apply_wait" || stage == "paint_commit")
-            {
-                double synced = extract_json_number(details, "local_strokes_synced", -1.0);
-                double total_sync = extract_json_number(details, "local_strokes_total", -1.0);
-                double apply_elapsed_source = elapsed;
-                if (stage == "mesh_apply_wait")
-                {
-                    const auto pending = extract_json_number(details, "apply_pending_strokes", -1.0);
-                    const auto initial = extract_json_number(details, "apply_initial_pending_strokes", -1.0);
-                    if (pending >= 0.0 && initial >= 0.0)
-                    {
-                        synced = std::max(0.0, initial - pending);
-                        total_sync = initial;
-                    }
-                    apply_elapsed_source = extract_json_number(details, "apply_queue_elapsed_ms", elapsed);
-                }
-                if (latest_server_elapsed >= 0.0 && apply_elapsed_source >= 0.0)
-                {
-                    const double apply_elapsed = stage == "mesh_apply_wait"
-                                                     ? apply_elapsed_source
-                                                     : std::max(0.0, apply_elapsed_source - latest_server_elapsed);
-                    if (summary.apply_elapsed.empty())
-                        summary.apply_elapsed = format_duration_label(apply_elapsed);
-                    if (summary.apply_eta.empty() && synced > 0.0 && total_sync > 0.0)
-                        summary.apply_eta = format_duration_label(estimate_remaining_ms(apply_elapsed, synced, total_sync));
-                    else if (summary.apply_eta.empty())
-                        summary.apply_eta = "Calculating";
-                }
-                else if (apply_elapsed_source >= 0.0 && summary.apply_elapsed.empty())
-                {
-                    pending_apply_total_elapsed = apply_elapsed_source;
-                    pending_apply_synced = synced;
-                    pending_apply_total = total_sync;
-                    summary.apply_elapsed = format_duration_label(apply_elapsed_source);
-                    summary.apply_eta = "Calculating";
-                }
-            }
             if (enabled >= 0.0)
             {
                 summary.planner = "strokes " + std::to_string(static_cast<long long>(enabled));
@@ -1541,6 +1359,8 @@ namespace
         append_metric(out, "batch_delay_ms", metric_count(raw, "server_batch_delay_ms"));
         append_metric_double(out, "brush_tx", extract_json_number(raw, "stroke_size_texels", -1.0), 1);
         append_metric_double(out, "step_tx", extract_json_number(raw, "coverage_step_texels", -1.0), 1);
+        append_metric_double(out, "metallic", extract_json_number(raw, "metallic", -1.0), 6);
+        append_metric_double(out, "roughness", extract_json_number(raw, "roughness", -1.0), 6);
         return out.str();
     }
 
@@ -1553,7 +1373,8 @@ namespace
                ",\"elapsed_ms\":" + std::to_string(elapsed_ms) +
                ",\"stroke_size_texels\":" + std::to_string(extract_json_number(raw, "stroke_size_texels", -1.0)) +
                ",\"coverage_step_texels\":" + std::to_string(extract_json_number(raw, "coverage_step_texels", -1.0)) +
-               ",\"max_strokes\":" + std::to_string(metric_count(raw, "max_strokes")) +
+               ",\"metallic\":" + std::to_string(extract_json_number(raw, "metallic", -1.0)) +
+               ",\"roughness\":" + std::to_string(extract_json_number(raw, "roughness", -1.0)) +
                ",\"server_batch_limit\":" + std::to_string(metric_count(raw, "server_batch_limit")) +
                ",\"server_batch_delay_ms\":" + std::to_string(metric_count(raw, "server_batch_delay_ms")) +
                ",\"enable_front_paint\":" + json_bool_text(extract_json_bool(raw, "enable_front_paint", false)) +
@@ -1599,10 +1420,13 @@ namespace
                ",\"server_batch_estimated_calls\":" + std::to_string(metric_count(raw, "server_batch_estimated_calls")) +
                ",\"estimated_replay_ms\":" + std::to_string(metric_count(raw, "estimated_replay_ms")) +
                ",\"server_batch_elapsed_ms\":" + std::to_string(extract_json_number(raw, "server_batch_elapsed_ms", -1.0)) +
+               ",\"server_elapsed_ms\":" + std::to_string(extract_json_number(raw, "server_elapsed_ms", -1.0)) +
+               ",\"server_eta_ms\":" + std::to_string(extract_json_number(raw, "server_eta_ms", -1.0)) +
                ",\"local_visual_sync_elapsed_ms\":" + std::to_string(extract_json_number(raw, "local_visual_sync_elapsed_ms", -1.0)) +
-               ",\"apply_queue_elapsed_ms\":" + std::to_string(extract_json_number(raw, "apply_queue_elapsed_ms", -1.0)) +
-               ",\"apply_initial_pending_strokes\":" + std::to_string(metric_count(raw, "apply_initial_pending_strokes")) +
-               ",\"apply_last_pending_strokes\":" + std::to_string(metric_count(raw, "apply_last_pending_strokes")) + "}";
+               ",\"local_elapsed_ms\":" + std::to_string(extract_json_number(raw, "local_elapsed_ms", -1.0)) +
+               ",\"local_eta_ms\":" + std::to_string(extract_json_number(raw, "local_eta_ms", -1.0)) +
+               ",\"paint_elapsed_ms\":" + std::to_string(extract_json_number(raw, "paint_elapsed_ms", -1.0)) +
+               ",\"paint_eta_ms\":" + std::to_string(extract_json_number(raw, "paint_eta_ms", -1.0)) + "}";
     }
 
     auto paint_failure_hint_message(const BridgeResponse& response) -> std::string
@@ -1653,14 +1477,6 @@ namespace
             append_metric(out, "unsafe_enabled", metric_count(raw, "unsafe_enabled"));
             return out.str();
         }
-        if (stage == "planner_max_strokes_exceeded")
-        {
-            std::ostringstream out;
-            out << "The planner exceeded Max strokes. Keep defaults for validation, or lower quality only after confirming the mesh works.";
-            append_metric(out, "enabled", metric_count(raw, "planner_samples_enabled"));
-            append_metric(out, "max", metric_count(raw, "max_strokes"));
-            return out.str();
-        }
         if (stage == "mesh_replay_empty")
             return "Planner produced no strokes for the enabled regions. Check that at least one mesh region is enabled and the mesh has valid UV coverage.";
         if (stage == "component_world_transform_unavailable")
@@ -1686,7 +1502,8 @@ namespace
                        ",\"coverage_step_texels\":" + std::to_string(config.tuning.coverage_step_texels) +
                        ",\"side_source_max_uv\":" + std::to_string(config.tuning.side_source_max_uv) +
                        ",\"front_back_source_max_uv\":" + std::to_string(config.tuning.front_back_source_max_uv) +
-                       ",\"max_strokes\":" + std::to_string(config.tuning.max_strokes) +
+                       ",\"metallic\":" + std::to_string(config.tuning.metallic) +
+                       ",\"roughness\":" + std::to_string(config.tuning.roughness) +
                        ",\"server_batch_limit\":" + std::to_string(config.tuning.server_batch_limit) +
                        ",\"server_batch_delay_ms\":" + std::to_string(config.tuning.server_batch_delay_ms) +
                        ",\"enable_front_paint\":" + (config.tuning.enable_front_paint ? "true" : "false") +
@@ -1732,9 +1549,9 @@ namespace
         if (injected_pid == process.pid)
         {
             diagnostics.event("bridge_unavailable_same_pid",
-                              "error",
+                              "warning",
                               "bridge",
-                              "Bridge unavailable; restart the game.",
+                              "Bridge unavailable for the injected process; retrying readiness check.",
                               std::string("{\"process\":") + process_json(process, config.game_process_name) +
                                   ",\"bridge_port\":" + std::to_string(config.bridge_port) + "}");
             return false;
@@ -1818,64 +1635,69 @@ namespace
             return run_bridge_command(config, bridge_path, "paint_full_route", payload, trace);
         });
         std::string last_signature;
-        while (future.wait_for(std::chrono::milliseconds(500)) != std::future_status::ready)
-        {
-            const std::string progress = read_text_file(progress_path);
-            if (!progress.empty())
+        auto record_progress_snapshot = [&](const std::string& progress, bool force_terminal) {
+            if (progress.empty())
+                return;
+            const std::string stage = extract_json_string(progress, "stage");
+            const double progress_value = extract_json_number(progress, "progress", 0.0);
+            const int percent = static_cast<int>(progress_value * 100.0 + 0.5);
+            std::string signature{};
+            std::string summary{};
+            if (stage == "mesh_server_batch_begin")
             {
-                const std::string stage = extract_json_string(progress, "stage");
-                const double progress_value = extract_json_number(progress, "progress", 0.0);
-                const int percent = static_cast<int>(progress_value * 100.0 + 0.5);
-                std::string signature{};
-                std::string summary{};
-                if (stage == "mesh_server_batch_begin")
-                {
-                    signature = "server:0";
-                    summary = "server batch";
-                }
-                else if (stage == "mesh_server_batch")
-                {
-                    const auto sent = extract_json_number(progress, "server_strokes_sent", -1.0);
-                    const auto total = extract_json_number(progress, "server_strokes_total", -1.0);
-                    const int bucket = total > 0.0
-                                           ? static_cast<int>(std::min(100.0, std::floor((sent / total) * 10.0) * 10.0))
-                                           : percent;
-                    signature = "server:" + std::to_string(bucket);
-                    summary = "server batch";
-                }
-                else if (stage == "mesh_local_visual_sync")
-                {
-                    const auto synced = extract_json_number(progress, "local_strokes_synced", 0.0);
-                    const auto total = extract_json_number(progress, "local_strokes_total",
-                                                           extract_json_number(progress, "local_sync_strokes_total", -1.0));
-                    const int bucket = total > 0.0
-                                           ? static_cast<int>(std::min(100.0, std::floor((synced / total) * 10.0) * 10.0))
-                                           : 0;
-                    signature = "apply:" + std::to_string(bucket);
-                    summary = "apply";
-                }
-                else if (stage == "mesh_apply_wait")
-                {
-                    const auto pending = extract_json_number(progress, "apply_pending_strokes", -1.0);
-                    const auto initial = extract_json_number(progress, "apply_initial_pending_strokes", -1.0);
-                    const auto done = initial >= 0.0 && pending >= 0.0 ? std::max(0.0, initial - pending) : 0.0;
-                    const int bucket = initial > 0.0
-                                           ? static_cast<int>(std::min(100.0, std::floor((done / initial) * 10.0) * 10.0))
-                                           : 0;
-                    signature = "apply-wait:" + std::to_string(bucket);
-                    summary = "apply";
-                }
-                if (!stage.empty() && !signature.empty() && signature != last_signature)
-                {
-                    last_signature = signature;
-                    diagnostics.event("paint_progress", "info", stage, summary, progress, run_id);
-                    diagnostics.set_last_run(std::string("{\"run_id\":") + json_string(run_id) +
-                                             ",\"stage\":" + json_string(stage) +
-                                             ",\"success\":false,\"progress\":" + progress + "}");
-                }
+                signature = "server:0";
+                summary = "server batch";
             }
+            else if (stage == "mesh_server_batch")
+            {
+                const auto sent = extract_json_number(progress, "server_strokes_sent", -1.0);
+                const auto total = extract_json_number(progress, "server_strokes_total", -1.0);
+                const int bucket = total > 0.0
+                                       ? static_cast<int>(std::min(100.0, std::floor((sent / total) * 10.0) * 10.0))
+                                       : percent;
+                signature = "server:" + std::to_string(bucket);
+                summary = "server batch";
+            }
+            else if (stage == "mesh_local_visual_sync")
+            {
+                const auto synced = extract_json_number(progress, "local_strokes_synced", 0.0);
+                const auto total = extract_json_number(progress, "local_strokes_total",
+                                                       extract_json_number(progress, "local_sync_strokes_total", -1.0));
+                const int bucket = total > 0.0
+                                       ? static_cast<int>(std::min(100.0, std::floor((synced / total) * 10.0) * 10.0))
+                                       : percent;
+                signature = "apply:" + std::to_string(bucket);
+                summary = "paint";
+            }
+            else if (stage == "mesh_paint_done" || stage == "mesh_paint_cancelled" || stage == "mesh_paint_failed")
+            {
+                signature = stage + ":terminal";
+                summary = "paint";
+            }
+            if (force_terminal && extract_json_bool(progress, "terminal", false))
+                signature = stage + ":terminal";
+            auto emit_progress = [&](const std::string& emit_stage,
+                                     const std::string& emit_summary,
+                                     const std::string& emit_details,
+                                     const std::string& emit_signature,
+                                     std::string& last_seen) {
+                if (!emit_stage.empty() && !emit_signature.empty() && emit_signature != last_seen)
+                {
+                    last_seen = emit_signature;
+                    diagnostics.event("paint_progress", "info", emit_stage, emit_summary, emit_details, run_id);
+                    diagnostics.set_last_run(std::string("{\"run_id\":") + json_string(run_id) +
+                                             ",\"stage\":" + json_string(emit_stage) +
+                                             ",\"success\":false,\"progress\":" + emit_details + "}");
+                }
+            };
+            emit_progress(stage, summary, progress, signature, last_signature);
+        };
+        while (future.wait_for(std::chrono::milliseconds(100)) != std::future_status::ready)
+        {
+            record_progress_snapshot(read_text_file(progress_path), false);
         }
         BridgeResponse response = future.get();
+        record_progress_snapshot(read_text_file(progress_path), true);
         const double elapsed_ms = (seconds_now() - start) * 1000.0;
         for (const auto& event_name : extract_bridge_events(response.raw))
         {
@@ -2078,7 +1900,8 @@ namespace
                               ",\"coverage_step_texels\":" + std::to_string(persisted_settings.tuning.coverage_step_texels) +
                               ",\"side_source_max_uv\":" + std::to_string(persisted_settings.tuning.side_source_max_uv) +
                               ",\"front_back_source_max_uv\":" + std::to_string(persisted_settings.tuning.front_back_source_max_uv) +
-                              ",\"max_strokes\":" + std::to_string(persisted_settings.tuning.max_strokes) +
+                              ",\"metallic\":" + std::to_string(persisted_settings.tuning.metallic) +
+                              ",\"roughness\":" + std::to_string(persisted_settings.tuning.roughness) +
                               ",\"server_batch_limit\":" + std::to_string(persisted_settings.tuning.server_batch_limit) +
                               ",\"server_batch_delay_ms\":" + std::to_string(persisted_settings.tuning.server_batch_delay_ms) +
                               ",\"enable_front_paint\":" + (persisted_settings.tuning.enable_front_paint ? "true" : "false") +
@@ -2134,12 +1957,13 @@ namespace
             }
         };
 
-        auto request_service_start = [&](const char* source) {
+        auto request_service_start = [&](const char* source, bool paint_after_ready = false) {
             if (service.state == ControllerServiceState::Running || service.state == ControllerServiceState::Starting)
                 return;
             service.state = ControllerServiceState::Starting;
             service.bridge_ready = false;
             service.bridge_state = service.injected_pid == service.process.pid && service.process.pid != 0 ? "Checking" : "Recovering";
+            service.paint_after_ready_requested = paint_after_ready;
             service.waiting_for_hotkey_logged = false;
             service.waiting_for_process_logged = false;
             service.not_ready_hotkey_logged = false;
@@ -2147,9 +1971,11 @@ namespace
             diagnostics.event(source && std::string(source) == "hotkey" ? "service_started_by_hotkey" : "service_started",
                               "info",
                               "service",
-                              source && std::string(source) == "hotkey"
-                                  ? "Service started by hotkey. Press it again when ready."
-                                  : "Service started.");
+                              paint_after_ready
+                                  ? "Service started; paint will run when bridge is ready."
+                                  : (source && std::string(source) == "hotkey"
+                                         ? "Service started by hotkey. Press it again when ready."
+                                         : "Service started."));
         };
 
         auto request_service_stop = [&]() {
@@ -2160,6 +1986,7 @@ namespace
             service.bridge_ready = false;
             service.waiting_for_hotkey_logged = false;
             service.not_ready_hotkey_logged = false;
+            service.paint_after_ready_requested = false;
             diagnostics.event("service_stop_requested", "info", "service", "Stopping service.");
             if (!service.stop_future_active)
             {
@@ -2175,8 +2002,12 @@ namespace
         auto start_bridge_check = [&](const ProcessInfo& process, double now_seconds) {
             if (service.bridge_check_future_active)
                 return;
-            service.bridge_state = service.injected_pid == process.pid ? "Checking" : "Injecting";
-            service.bridge_ready = false;
+            const bool keep_ready = service.bridge_ready &&
+                                    service.injected_pid == process.pid &&
+                                    process.pid != 0;
+            service.bridge_state = keep_ready ? "Ready" : (service.injected_pid == process.pid ? "Checking" : "Injecting");
+            if (!keep_ready)
+                service.bridge_ready = false;
             service.bridge_check_pid = process.pid;
             service.last_bridge_check = now_seconds;
             Config check_config = config;
@@ -2267,6 +2098,7 @@ namespace
                     {
                         service.state = ControllerServiceState::Stopped;
                         service.bridge_state = "Paused";
+                        diagnostics.event("service_stopped", "info", "service", "Service stopped.");
                     }
                 }
                 else if (ok)
@@ -2295,15 +2127,19 @@ namespace
                     {
                         service.state = ControllerServiceState::Stopped;
                         service.bridge_state = "Paused";
+                        diagnostics.event("service_stopped", "info", "service", "Service stopped.");
                     }
                     else
                     {
                         service.bridge_state = "Cancelling";
+                        diagnostics.event("paint_cancel_requested",
+                                          "info",
+                                          "service",
+                                          "Paint cancel requested; waiting for current paint request to stop.");
                     }
                     service.bridge_ready = false;
                     service.paint_settle_until = 0.0;
                     service.last_bridge_check = 0.0;
-                    diagnostics.event("service_stopped", "info", "service", "Service stopped.");
                 }
                 else
                 {
@@ -2329,19 +2165,37 @@ namespace
                     service.state = ControllerServiceState::Running;
                     service.bridge_ready = result.ready;
                     service.injected_pid = result.injected_pid;
-                    service.bridge_state = result.ready ? "Ready" : "Not ready";
-                    if (!result.ready && result.injected_pid == result.pid && result.pid != 0)
-                    {
-                        service.state = ControllerServiceState::Error;
-                        service.bridge_state = "Unavailable";
-                    }
+                    service.bridge_state = result.ready ? "Ready" : "Recovering";
                     if (result.ready)
                     {
                         service.not_ready_hotkey_logged = false;
+                        service.duplicate_paint_hotkey_logged = false;
+                        service.paint_settle_until = 0.0;
+                        if (!service.paint_future_active && !service.paint_running)
+                        {
+                            service.paint_state = "Idle";
+                            if (service.last_result == "Stopped" || service.last_result == "Paint failed")
+                                service.last_result = "Waiting";
+                        }
                         if (!service.waiting_for_hotkey_logged)
                         {
                             diagnostics.event("waiting_for_hotkey", "info", "ready", "waiting for hotkey");
                             service.waiting_for_hotkey_logged = true;
+                        }
+                        if (service.paint_after_ready_requested)
+                        {
+                            service.paint_after_ready_requested = false;
+                            if (paint_editing)
+                            {
+                                diagnostics.event("paint_start_rejected",
+                                                  "error",
+                                                  "settings",
+                                                  "Paint settings are being edited; hotkey rejected.");
+                            }
+                            else if (!service.paint_future_active && !service.paint_running && service.process.pid && service.bridge_ready)
+                            {
+                                start_paint("UI Hotkey");
+                            }
                         }
                     }
                 }
@@ -2399,7 +2253,7 @@ namespace
                 if (paint_editing)
                     diagnostics.event("paint_hotkey_ignored", "warning", "settings", "Paint settings are being edited; hotkey ignored.");
                 else if (service.state == ControllerServiceState::Stopped || service.state == ControllerServiceState::Error)
-                    request_service_start("hotkey");
+                    request_service_start("hotkey", true);
                 else if (service.state == ControllerServiceState::Stopping)
                     diagnostics.event("paint_hotkey_ignored", "warning", "service", "Service is stopping; hotkey ignored.");
                 else if (service.paint_running || service.paint_future_active)
@@ -2418,12 +2272,15 @@ namespace
                     service.bridge_state = "Recovering";
                     service.last_bridge_check = 0.0;
                     service.waiting_for_hotkey_logged = false;
+                    service.paint_after_ready_requested = true;
+                    if (!service.bridge_check_future_active)
+                        start_bridge_check(service.process, now);
                     if (!service.not_ready_hotkey_logged)
                     {
                         diagnostics.event("paint_hotkey_rejected",
-                                          "error",
+                                          "warning",
                                           "not_ready",
-                                          "Not ready. Wait for game and bridge.");
+                                          "Bridge not ready; paint will start when ready.");
                         service.not_ready_hotkey_logged = true;
                     }
                 }
@@ -2478,10 +2335,10 @@ namespace
             if (paint_busy)
             {
                 const double running_elapsed = std::max(0.0, (seconds_now() - service.paint_started_at) * 1000.0);
-                ui_runtime.metric_server_eta = "Calculating";
-                ui_runtime.metric_server_elapsed = format_duration_label(running_elapsed);
-                ui_runtime.metric_apply_eta = "-";
-                ui_runtime.metric_apply_elapsed = "-";
+                if (metric_blank(ui_runtime.metric_server_eta))
+                    ui_runtime.metric_server_eta = "Calculating";
+                if (metric_blank(ui_runtime.metric_server_elapsed))
+                    ui_runtime.metric_server_elapsed = format_duration_label(running_elapsed);
                 apply_live_progress_metrics(ui_runtime, bridge_progress_file(bridge_path));
             }
             if (service.state == ControllerServiceState::Stopped)
@@ -2492,7 +2349,7 @@ namespace
             else if (service.state == ControllerServiceState::Stopping)
             {
                 ui_runtime.status_title = "Stopping service.";
-                ui_runtime.status_detail = "Waiting for bridge shutdown.";
+                ui_runtime.status_detail = "Cancelling the current paint request.";
             }
             else if (!service.process.pid)
             {
@@ -2502,7 +2359,9 @@ namespace
             else if (!service.bridge_ready)
             {
                 ui_runtime.status_title = "Recovering bridge.";
-                ui_runtime.status_detail = "Press " + meccha::hotkey_to_string(hotkeys.paint_binding()) + " again when ready.";
+                ui_runtime.status_detail = service.paint_after_ready_requested
+                                               ? "Paint will start when bridge is ready."
+                                               : "Press " + meccha::hotkey_to_string(hotkeys.paint_binding()) + " again when ready.";
             }
             else if (paint_busy)
             {
@@ -2550,7 +2409,7 @@ namespace
             {
                 if (service.state == ControllerServiceState::Stopped || service.state == ControllerServiceState::Error)
                 {
-                    request_service_start("ui");
+                    request_service_start("ui", true);
                 }
                 else if (service.state == ControllerServiceState::Stopping)
                 {
@@ -2573,9 +2432,10 @@ namespace
                     service.bridge_ready = false;
                     service.bridge_state = "Recovering";
                     service.last_bridge_check = 0.0;
+                    service.paint_after_ready_requested = true;
                     if (!service.bridge_check_future_active)
                         start_bridge_check(service.process, now);
-                    diagnostics.event("paint_start_rejected", "error", "not_ready", "Not ready. Wait for game and bridge.");
+                    diagnostics.event("paint_start_waiting", "warning", "not_ready", "Bridge not ready; paint will start when ready.");
                 }
                 else
                 {
@@ -2775,6 +2635,21 @@ namespace
             Sleep(static_cast<DWORD>(std::max(1.0, config.frame_delay_ms)));
         }
 
+        if (service.paint_future_active)
+        {
+            Config cancel_config = config;
+            cancel_config.bridge_timeout_seconds = 5.0;
+            const auto cancel_response = run_bridge_command(cancel_config, bridge_path, "cancel_paint", "{}", &trace_buffer);
+            diagnostics.event(cancel_response.success ? "paint_cancel_on_exit" : "paint_cancel_on_exit_failed",
+                              cancel_response.success ? "info" : "warning",
+                              cancel_response.stage.empty() ? "cancel_paint" : cancel_response.stage,
+                              cancel_response.message.empty() ? "Cancel paint before exit." : cancel_response.message);
+            if (service.paint_future.wait_for(std::chrono::seconds(10)) == std::future_status::ready)
+            {
+                (void)service.paint_future.get();
+                service.paint_future_active = false;
+            }
+        }
         if (service.paint_future_active)
             service.paint_future.wait();
         if (service.bridge_check_future_active)

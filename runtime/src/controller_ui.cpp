@@ -11,8 +11,10 @@
 #include "imgui.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -212,25 +214,9 @@ namespace meccha
                                                                       ImVec2(row_pos.x + row_width, row_pos.y + ImGui::GetTextLineHeightWithSpacing()),
                                                                       ImGui::GetColorU32(row_bg));
                         }
-                        const std::size_t tag_start = line.find('[');
-                        const std::size_t tag_end = line.find(']', tag_start == std::string::npos ? 0 : tag_start);
-                        if (tag_start != std::string::npos && tag_end != std::string::npos)
-                        {
-                            const std::string before = line.substr(0, tag_start);
-                            const std::string tag = line.substr(tag_start, tag_end - tag_start + 1);
-                            const std::string after = line.substr(tag_end + 1);
-                            ImGui::TextUnformatted(before.c_str());
-                            ImGui::SameLine(0.0f, 0.0f);
-                            ImGui::PushStyleColor(ImGuiCol_Text, log_tag_color(line));
-                            ImGui::TextUnformatted(tag.c_str());
-                            ImGui::PopStyleColor();
-                            ImGui::SameLine(0.0f, 4.0f);
-                            ImGui::TextWrapped("%s", after.c_str());
-                        }
-                        else
-                        {
-                            ImGui::TextWrapped("%s", line.c_str());
-                        }
+                        ImGui::PushStyleColor(ImGuiCol_Text, log_tag_color(line));
+                        ImGui::TextWrapped("%s", line.c_str());
+                        ImGui::PopStyleColor();
                         wrote_line = true;
                     }
                     if (end == std::string::npos)
@@ -587,17 +573,28 @@ namespace meccha
             return row_top;
         };
 
-        auto readonly_value_box = [&](const char* id, const char* text, const ImVec2& size) {
+        auto readonly_input_box = [&](const char* id, const char* text, float width) {
             ImGui::PushID(id);
-            const ImVec2 min = ImGui::GetCursorScreenPos();
-            const ImVec2 max(min.x + size.x, min.y + size.y);
-            ImDrawList* draw = ImGui::GetWindowDrawList();
-            draw->AddRectFilled(min, max, ImGui::GetColorU32(SurfaceLow), 1.0f);
-            draw->AddRect(min, max, ImGui::GetColorU32(Hairline), 1.0f, 0, 1.0f);
-            const float text_y = min.y + std::max(0.0f, (size.y - ImGui::GetTextLineHeight()) * 0.5f);
-            draw->AddText(ImVec2(min.x + 8.0f, text_y), ImGui::GetColorU32(ImGuiCol_Text), text);
-            ImGui::Dummy(size);
+            std::array<char, 96> buffer{};
+            std::snprintf(buffer.data(), buffer.size(), "%s", text ? text : "");
+            ImGui::BeginDisabled(true);
+            ImGui::SetNextItemWidth(width);
+            ImGui::InputText("##readonly", buffer.data(), buffer.size(), ImGuiInputTextFlags_ReadOnly);
+            ImGui::EndDisabled();
             ImGui::PopID();
+        };
+
+        auto app_frame_button = [&](const char* id, const char* label, bool enabled, const ImVec2& size) -> bool {
+            ImGui::PushID(id);
+            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_FrameBgActive));
+            ImGui::BeginDisabled(!enabled);
+            const bool pressed = ImGui::Button(label, size);
+            ImGui::EndDisabled();
+            ImGui::PopStyleColor(3);
+            ImGui::PopID();
+            return pressed;
         };
 
         auto draw_app_mark = [&](const ImVec2& min, const ImVec2& max) {
@@ -817,15 +814,16 @@ namespace meccha
                     bool paint_value_changed = false;
                     field_double("Brush size (texels)", tuning.stroke_size_texels, 1.0, 12.0, "%.1f", runtime.paint_editing, paint_value_changed);
                     field_double("Coverage step (texels)", tuning.coverage_step_texels, 1.0, 12.0, "%.1f", runtime.paint_editing, paint_value_changed);
-                    field_int("Max strokes", tuning.max_strokes, 1000, 100000, runtime.paint_editing, paint_value_changed);
+                    field_double("Metallic", tuning.metallic, 0.0, 1.0, "%.6f", runtime.paint_editing, paint_value_changed);
+                    field_double("Roughness", tuning.roughness, 0.0, 1.0, "%.6f", runtime.paint_editing, paint_value_changed);
                     field_int("Batch limit", tuning.server_batch_limit, 1, 50, runtime.paint_editing, paint_value_changed);
                     field_int("Batch delay (ms)", tuning.server_batch_delay_ms, 1, 1000, runtime.paint_editing, paint_value_changed);
 
                     const float action_footer_height = 38.0f;
-                    const float app_block_height = 216.0f;
+                    const float app_block_height = 196.0f;
                     const float app_target_y = ImGui::GetWindowContentRegionMax().y - action_footer_height - app_block_height;
-                    const float active_block_height = 44.0f;
-                    ImGui::SetCursorPosY(std::max(ImGui::GetCursorPosY() + 2.0f, app_target_y - active_block_height));
+                    const float active_block_height = 38.0f;
+                    ImGui::SetCursorPosY(std::max(ImGui::GetCursorPosY() + 1.0f, app_target_y - active_block_height));
                     set_form_x();
                     ImGui::TextDisabled("ACTIVE REGIONS");
                     set_form_x();
@@ -843,7 +841,7 @@ namespace meccha
                         actions.settings_changed = true;
                     }
 
-                    ImGui::SetCursorPosY(std::max(ImGui::GetCursorPosY() + 6.0f, app_target_y));
+                    ImGui::SetCursorPosY(std::max(ImGui::GetCursorPosY() + 3.0f, app_target_y));
                     const ImVec2 app_block_pos = ImGui::GetCursorScreenPos();
                     const float app_block_width = ImGui::GetContentRegionAvail().x;
                     ImGui::GetWindowDrawList()->AddRectFilled(app_block_pos,
@@ -855,30 +853,24 @@ namespace meccha
                     bool app_value_changed = false;
                     app_row("Paint hotkey");
                     const float record_width = 82.0f;
-                    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8.0f, 4.0f));
-                    ImGui::BeginDisabled(!runtime.app_editing);
                     if (runtime.recording_hotkey)
-                        ImGui::Button("Press key...", ImVec2(record_width, 26.0f));
-                    else if (ImGui::Button("Record", ImVec2(record_width, 26.0f)))
+                        app_frame_button("HotkeyRecordButton", "Press key...", runtime.app_editing, ImVec2(record_width, 0.0f));
+                    else if (app_frame_button("HotkeyRecordButton", "Record", runtime.app_editing, ImVec2(record_width, 0.0f)))
                         actions.start_hotkey_recording = true;
-                    ImGui::EndDisabled();
-                    ImGui::PopStyleVar();
                     ImGui::SameLine(0.0f, 12.0f);
-                    readonly_value_box("HotkeyReadonly",
+                    readonly_input_box("HotkeyReadonly",
                                        (runtime.app_editing ? draft.paint_hotkey : persisted.paint_hotkey).c_str(),
-                                       ImVec2(82.0f, 26.0f));
+                                       82.0f);
 
-                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 2.0f);
+                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 1.0f);
                     app_row("Always on top");
-                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 5.0f);
                     if (checkbox_box("AlwaysOnTop", always_on_top, runtime.app_editing))
                         app_value_changed = true;
-                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 3.0f);
+                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 1.0f);
                     app_row("Opacity");
                     int opacity_percent = static_cast<int>(opacity * 100.0f + 0.5f);
                     ImGui::BeginDisabled(!runtime.app_editing);
                     const float opacity_input_width = 82.0f;
-                    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8.0f, 3.0f));
                     ImGui::SetNextItemWidth(std::max(1.0f, app_control_width() - opacity_input_width - style.ItemSpacing.x));
                     if (ImGui::SliderInt("##OpacitySliderNvidia", &opacity_percent, 35, 100, "%d%%", ImGuiSliderFlags_AlwaysClamp))
                     {
@@ -893,7 +885,6 @@ namespace meccha
                         opacity = static_cast<float>(opacity_percent) / 100.0f;
                         app_value_changed = true;
                     }
-                    ImGui::PopStyleVar();
                     ImGui::EndDisabled();
                     app_row("Log directory");
                     const ImVec2 folder_pos = ImGui::GetCursorScreenPos();
@@ -1000,9 +991,9 @@ namespace meccha
                         ImGui::TableSetColumnIndex(1);
                         metric_card("SERVER ELAPSED", runtime.metric_server_elapsed);
                         ImGui::TableSetColumnIndex(2);
-                        metric_card("APPLY ETA", runtime.metric_apply_eta);
+                        metric_card("PAINT ETA", runtime.metric_apply_eta);
                         ImGui::TableSetColumnIndex(3);
-                        metric_card("APPLY ELAPSED", runtime.metric_apply_elapsed);
+                        metric_card("PAINT ELAPSED", runtime.metric_apply_elapsed);
                         ImGui::EndTable();
                     }
                 }
@@ -1047,7 +1038,7 @@ namespace meccha
                     ImGui::PopStyleVar();
                     ImGui::PopStyleColor(3);
                     ImGui::Spacing();
-                    draw_selectable_log_box("##MainLog", human_log_text, ImGui::GetContentRegionAvail(), previous_log_size);
+                    draw_colored_log_box("##MainLog", human_log_text, ImGui::GetContentRegionAvail(), previous_log_size);
                 }
                 end_panel();
             }
