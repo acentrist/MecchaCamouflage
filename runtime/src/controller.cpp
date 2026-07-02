@@ -935,8 +935,6 @@ namespace
         bool ready{false};
         DWORD pid{0};
         DWORD injected_pid{0};
-        bool paint_function_dump_attempted{false};
-        BridgeResponse paint_function_dump{};
     };
 
     struct OverlayServiceState
@@ -958,7 +956,6 @@ namespace
         DWORD bridge_check_pid{0};
         double paint_started_at{0.0};
         DWORD injected_pid{0};
-        DWORD paint_function_dump_pid{0};
         bool waiting_for_process_logged{false};
         bool not_ready_hotkey_logged{false};
         bool duplicate_paint_hotkey_logged{false};
@@ -2053,14 +2050,12 @@ namespace
             Config check_config = config;
             std::filesystem::path check_bridge_path = bridge_path;
             DWORD injected_pid = service.injected_pid;
-            const bool request_paint_function_dump = process.pid != 0 && service.paint_function_dump_pid != process.pid;
             service.bridge_check_future = std::async(std::launch::async,
                                                      [check_config,
                                                       check_bridge_path,
                                                       process,
                                                       &diagnostics,
-                                                      injected_pid,
-                                                      request_paint_function_dump]() mutable {
+                                                      injected_pid]() mutable {
                                                          const bool ready = ensure_bridge(check_config,
                                                                                           check_bridge_path,
                                                                                           process,
@@ -2070,16 +2065,6 @@ namespace
                                                          result.ready = ready;
                                                          result.pid = process.pid;
                                                          result.injected_pid = injected_pid;
-                                                         if (ready && request_paint_function_dump)
-                                                         {
-                                                             Config dump_config = check_config;
-                                                             dump_config.bridge_timeout_seconds = std::min(3.0, std::max(1.0, dump_config.bridge_timeout_seconds));
-                                                             BridgeClient client(dump_config.bridge_host,
-                                                                                 dump_config.bridge_port,
-                                                                                 dump_config.bridge_timeout_seconds);
-                                                             result.paint_function_dump_attempted = true;
-                                                             result.paint_function_dump = client.request("paint_function_dump");
-                                                         }
                                                          return result;
                                                      });
             service.bridge_check_future_active = true;
@@ -2232,18 +2217,6 @@ namespace
                         service.not_ready_hotkey_logged = false;
                         service.duplicate_paint_hotkey_logged = false;
                         service.paint_settle_until = 0.0;
-                        if (result.paint_function_dump_attempted)
-                        {
-                            service.paint_function_dump_pid = result.pid;
-                            diagnostics.event(result.paint_function_dump.success ? "paint_function_dump" : "paint_function_dump_failed",
-                                              result.paint_function_dump.success ? "info" : "warning",
-                                              result.paint_function_dump.stage.empty() ? "paint_function_dump" : result.paint_function_dump.stage,
-                                              result.paint_function_dump.message.empty()
-                                                  ? "Paint function dump captured."
-                                                  : result.paint_function_dump.message,
-                                              std::string("{\"bridge_response\":") +
-                                                  (result.paint_function_dump.raw.empty() ? "{}" : result.paint_function_dump.raw) + "}");
-                        }
                         if (!service.paint_future_active && !service.paint_running)
                         {
                             service.paint_state = "Idle";

@@ -9,19 +9,19 @@ namespace meccha
 
     struct PaintTuning
     {
-        double stroke_size_texels{4.0};
-        double coverage_step_texels{6.0};
+        double stroke_size_texels{5.0};
+        double coverage_step_texels{5.0};
         double side_source_max_uv{0.08};
         double front_back_source_max_uv{0.45};
-        int server_batch_limit{50};
-        int server_batch_delay_ms{300};
+        int server_batch_limit{1000000};
+        int server_batch_delay_ms{0};
         double metallic{0.0};
-        double roughness{0.0};
+        double roughness{1.0};
     };
 
     struct AppSettings
     {
-        int layout_version{19};
+        int layout_version{20};
         float panel_x{-1.0f};
         float panel_y{-1.0f};
         float panel_width{1040.0f};

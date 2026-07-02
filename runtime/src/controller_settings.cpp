@@ -182,14 +182,14 @@ namespace meccha
         settings.panel_width = std::max(1040.0f, settings.panel_width);
         settings.panel_height = std::max(600.0f, settings.panel_height);
         settings.opacity = static_cast<float>(clamp_double(settings.opacity, 0.35, 1.0));
-        settings.tuning.stroke_size_texels = clamp_double(settings.tuning.stroke_size_texels, 4.0, 12.0);
-        settings.tuning.coverage_step_texels = clamp_double(settings.tuning.coverage_step_texels, 6.0, 12.0);
+        settings.tuning.stroke_size_texels = clamp_double(settings.tuning.stroke_size_texels, 1.0, 12.0);
+        settings.tuning.coverage_step_texels = clamp_double(settings.tuning.coverage_step_texels, 1.0, 12.0);
         settings.tuning.side_source_max_uv = clamp_double(settings.tuning.side_source_max_uv, 0.001, 0.50);
         settings.tuning.front_back_source_max_uv = clamp_double(settings.tuning.front_back_source_max_uv, 0.001, 2.00);
         settings.tuning.metallic = clamp_double(settings.tuning.metallic, 0.0, 1.0);
         settings.tuning.roughness = clamp_double(settings.tuning.roughness, 0.0, 1.0);
-        settings.tuning.server_batch_limit = std::max(1, std::min(500, settings.tuning.server_batch_limit));
-        settings.tuning.server_batch_delay_ms = std::max(1, std::min(1000, settings.tuning.server_batch_delay_ms));
+        settings.tuning.server_batch_limit = std::max(1, std::min(1000000, settings.tuning.server_batch_limit));
+        settings.tuning.server_batch_delay_ms = std::max(0, std::min(1000, settings.tuning.server_batch_delay_ms));
         if (settings.start_hotkey.empty())
             settings.start_hotkey = "F10";
         if (settings.stop_hotkey.empty())
@@ -228,6 +228,8 @@ namespace meccha
         settings.tuning.front_back_source_max_uv = extract_json_number(text, "front_back_source_max_uv", settings.tuning.front_back_source_max_uv);
         settings.tuning.metallic = extract_json_number(text, "metallic", settings.tuning.metallic);
         settings.tuning.roughness = extract_json_number(text, "roughness", settings.tuning.roughness);
+        if (layout_version < 20 && settings.tuning.roughness <= 0.000001)
+            settings.tuning.roughness = default_tuning().roughness;
         settings.tuning.server_batch_limit = static_cast<int>(extract_json_number(text, "server_batch_limit", settings.tuning.server_batch_limit));
         settings.tuning.server_batch_delay_ms = static_cast<int>(extract_json_number(text, "server_batch_delay_ms", settings.tuning.server_batch_delay_ms));
         clamp_settings(settings);

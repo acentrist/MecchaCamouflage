@@ -145,15 +145,6 @@ namespace meccha
             return ImTextureRef(static_cast<ImTextureID>(reinterpret_cast<intptr_t>(texture.srv)));
         }
 
-        auto tone_color(const std::string& tone) -> ImVec4
-        {
-            if (tone == "error")
-                return ImVec4(0.96f, 0.28f, 0.25f, 1.0f);
-            if (tone == "warning")
-                return ImVec4(0.95f, 0.72f, 0.31f, 1.0f);
-            return ImVec4(0.18f, 0.56f, 1.0f, 1.0f);
-        }
-
         auto status_color(const std::string& state) -> ImVec4
         {
             std::string lower = state;
@@ -168,100 +159,242 @@ namespace meccha
             return ImVec4(0.95f, 0.72f, 0.25f, 1.0f);
         }
 
+        auto log_line_color(const std::string& line) -> ImU32
+        {
+            if (line.find("[ERROR]") != std::string::npos)
+                return ImGui::GetColorU32(ImVec4(0.96f, 0.28f, 0.25f, 1.0f));
+            if (line.find("[WARN]") != std::string::npos)
+                return ImGui::GetColorU32(ImVec4(0.95f, 0.72f, 0.31f, 1.0f));
+            return ImGui::GetColorU32(ImVec4(0.18f, 0.56f, 1.0f, 1.0f));
+        }
+
         auto stable_id(const char* prefix, const char* label) -> std::string
         {
             return std::string("##") + prefix + label;
         }
 
-        auto log_tag_color(const std::string& line) -> ImVec4
+        auto log_lines_from_text(const std::string& text) -> std::vector<std::string>
         {
-            if (line.find("[ERROR]") != std::string::npos)
-                return tone_color("error");
-            if (line.find("[WARN]") != std::string::npos)
-                return tone_color("warning");
-            return tone_color("info");
+            std::vector<std::string> lines;
+            if (text.empty())
+            {
+                lines.emplace_back("No log events.");
+                return lines;
+            }
+            std::size_t start = 0;
+            while (start <= text.size())
+            {
+                const std::size_t end = text.find('\n', start);
+                lines.emplace_back(text.substr(start, end == std::string::npos ? std::string::npos : end - start));
+                if (end == std::string::npos)
+                    break;
+                start = end + 1;
+            }
+            if (!lines.empty() && lines.back().empty())
+                lines.pop_back();
+            return lines;
         }
 
-        auto log_line_background(const std::string& line) -> ImVec4
+        struct LogTextPos
         {
-            (void)line;
-            return ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+            int line{-1};
+            int column{0};
+        };
+
+        auto compare_log_pos(const LogTextPos& lhs, const LogTextPos& rhs) -> int
+        {
+            if (lhs.line != rhs.line)
+                return lhs.line < rhs.line ? -1 : 1;
+            if (lhs.column != rhs.column)
+                return lhs.column < rhs.column ? -1 : 1;
+            return 0;
         }
 
-        void draw_colored_log_box(const char* id, const std::string& text, const ImVec2& size, std::size_t& previous_size)
+        auto clamp_log_pos(LogTextPos pos, const std::vector<std::string>& lines) -> LogTextPos
         {
-            const bool scroll_to_end = text.size() != previous_size;
+            if (lines.empty())
+                return {};
+            pos.line = std::max(0, std::min(pos.line, static_cast<int>(lines.size()) - 1));
+            const auto& line = lines[static_cast<std::size_t>(pos.line)];
+            pos.column = std::max(0, std::min(pos.column, static_cast<int>(line.size())));
+            return pos;
+        }
+
+        auto log_text_range_width(const std::string& line, int begin, int end) -> float
+        {
+            begin = std::max(0, std::min(begin, static_cast<int>(line.size())));
+            end = std::max(begin, std::min(end, static_cast<int>(line.size())));
+            if (end <= begin)
+                return 0.0f;
+            return ImGui::CalcTextSize(line.c_str() + begin, line.c_str() + end).x;
+        }
+
+        auto log_column_from_x(const std::string& line, int begin, int end, float x) -> int
+        {
+            if (x <= 0.0f || line.empty())
+                return begin;
+            begin = std::max(0, std::min(begin, static_cast<int>(line.size())));
+            end = std::max(begin, std::min(end, static_cast<int>(line.size())));
+            float previous_width = 0.0f;
+            for (int column = begin + 1; column <= end; ++column)
+            {
+                const float width = log_text_range_width(line, begin, column);
+                if (x < previous_width + (width - previous_width) * 0.5f)
+                    return column - 1;
+                previous_width = width;
+            }
+            return end;
+        }
+
+        struct LogVisualRow
+        {
+            int line{0};
+            int begin{0};
+            int end{0};
+        };
+
+        auto wrap_log_lines(const std::vector<std::string>& lines, float max_width) -> std::vector<LogVisualRow>
+        {
+            std::vector<LogVisualRow> rows;
+            const float wrap_width = std::max(16.0f, max_width);
+            for (int line_index = 0; line_index < static_cast<int>(lines.size()); ++line_index)
+            {
+                const auto& line = lines[static_cast<std::size_t>(line_index)];
+                const int line_size = static_cast<int>(line.size());
+                if (line_size == 0)
+                {
+                    rows.push_back({line_index, 0, 0});
+                    continue;
+                }
+
+                int begin = 0;
+                while (begin < line_size)
+                {
+                    int end = begin + 1;
+                    while (end < line_size && log_text_range_width(line, begin, end + 1) <= wrap_width)
+                        ++end;
+                    rows.push_back({line_index, begin, end});
+                    begin = end;
+                }
+            }
+            return rows;
+        }
+
+        auto selected_log_text(const std::vector<std::string>& lines, LogTextPos begin, LogTextPos end) -> std::string
+        {
+            if (lines.empty())
+                return {};
+            begin = clamp_log_pos(begin, lines);
+            end = clamp_log_pos(end, lines);
+            if (compare_log_pos(begin, end) > 0)
+                std::swap(begin, end);
+            if (compare_log_pos(begin, end) == 0)
+                return {};
+
+            std::string out;
+            for (int line_index = begin.line; line_index <= end.line; ++line_index)
+            {
+                const auto& line = lines[static_cast<std::size_t>(line_index)];
+                const int start = line_index == begin.line ? begin.column : 0;
+                const int stop = line_index == end.line ? end.column : static_cast<int>(line.size());
+                if (line_index > begin.line)
+                    out.push_back('\n');
+                if (stop > start)
+                    out += line.substr(static_cast<std::size_t>(start), static_cast<std::size_t>(stop - start));
+            }
+            return out;
+        }
+
+        void draw_colored_selectable_log_box(const char* id, const std::string& text, const ImVec2& size, std::size_t& previous_size)
+        {
+            const bool text_changed = text.size() != previous_size;
             previous_size = text.size();
+
+            static LogTextPos selection_anchor{};
+            static LogTextPos selection_cursor{};
+            static bool dragging_selection = false;
+            const std::vector<std::string> lines = log_lines_from_text(text);
+            const int line_count = static_cast<int>(lines.size());
+            selection_anchor = clamp_log_pos(selection_anchor, lines);
+            selection_cursor = clamp_log_pos(selection_cursor, lines);
+
             if (g_log_font)
                 ImGui::PushFont(g_log_font);
             ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
             if (ImGui::BeginChild(id, size, true, ImGuiWindowFlags_AlwaysVerticalScrollbar))
             {
-                std::size_t start = 0;
-                bool wrote_line = false;
-                while (start < text.size())
+                const ImGuiIO& io = ImGui::GetIO();
+                const bool focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+                const float row_height = ImGui::GetTextLineHeightWithSpacing();
+                const float text_offset_y = std::max(0.0f, (row_height - ImGui::GetTextLineHeight()) * 0.5f);
+                const float row_width = ImGui::GetContentRegionAvail().x;
+                const std::vector<LogVisualRow> visual_rows = wrap_log_lines(lines, row_width - 8.0f);
+                if (focused && io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_A, false) && line_count > 0)
                 {
-                    const std::size_t end = text.find('\n', start);
-                    const std::string line = text.substr(start, end == std::string::npos ? std::string::npos : end - start);
-                    if (!line.empty())
+                    selection_anchor = {0, 0};
+                    selection_cursor = {line_count - 1, static_cast<int>(lines.back().size())};
+                }
+                const bool has_selection = compare_log_pos(selection_anchor, selection_cursor) != 0;
+                if (focused && io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_C, false) && has_selection)
+                {
+                    const std::string copied = selected_log_text(lines, selection_anchor, selection_cursor);
+                    ImGui::SetClipboardText(copied.c_str());
+                }
+
+                const LogTextPos selection_begin = compare_log_pos(selection_anchor, selection_cursor) <= 0 ? selection_anchor : selection_cursor;
+                const LogTextPos selection_end = compare_log_pos(selection_anchor, selection_cursor) <= 0 ? selection_cursor : selection_anchor;
+                for (int row_index = 0; row_index < static_cast<int>(visual_rows.size()); ++row_index)
+                {
+                    const LogVisualRow& row = visual_rows[static_cast<std::size_t>(row_index)];
+                    const ImVec2 row_pos = ImGui::GetCursorScreenPos();
+                    ImGui::PushID(row_index);
+                    ImGui::InvisibleButton("##logrow", ImVec2(row_width, row_height));
+                    const std::string& line = lines[static_cast<std::size_t>(row.line)];
+                    const int hovered_column = log_column_from_x(line, row.begin, row.end, io.MousePos.x - row_pos.x - 4.0f);
+                    if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
                     {
-                        const ImVec2 row_pos = ImGui::GetCursorScreenPos();
-                        const float row_width = ImGui::GetContentRegionAvail().x;
-                        const ImVec4 row_bg = log_line_background(line);
-                        if (row_bg.w > 0.0f)
+                        if (io.KeyShift && selection_anchor.line >= 0)
                         {
-                            ImGui::GetWindowDrawList()->AddRectFilled(row_pos,
-                                                                      ImVec2(row_pos.x + row_width, row_pos.y + ImGui::GetTextLineHeightWithSpacing()),
-                                                                      ImGui::GetColorU32(row_bg));
+                            selection_cursor = {row.line, hovered_column};
                         }
-                        ImGui::PushStyleColor(ImGuiCol_Text, log_tag_color(line));
-                        ImGui::TextWrapped("%s", line.c_str());
-                        ImGui::PopStyleColor();
-                        wrote_line = true;
+                        else
+                        {
+                            selection_anchor = {row.line, hovered_column};
+                            selection_cursor = selection_anchor;
+                        }
+                        dragging_selection = true;
                     }
-                    if (end == std::string::npos)
-                        break;
-                    start = end + 1;
+                    if (dragging_selection && ImGui::IsItemHovered() && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                    {
+                        selection_cursor = {row.line, hovered_column};
+                    }
+                    ImGui::PopID();
+
+                    if (has_selection && row.line >= selection_begin.line && row.line <= selection_end.line)
+                    {
+                        const int start_column = std::max(row.begin, row.line == selection_begin.line ? selection_begin.column : row.begin);
+                        const int end_column = std::min(row.end, row.line == selection_end.line ? selection_end.column : row.end);
+                        if (end_column > start_column)
+                        {
+                            const float start_x = row_pos.x + 4.0f + log_text_range_width(line, row.begin, start_column);
+                            const float end_x = row_pos.x + 4.0f + log_text_range_width(line, row.begin, end_column);
+                            ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(start_x, row_pos.y),
+                                                                      ImVec2(std::max(start_x + 2.0f, end_x), row_pos.y + row_height),
+                                                                      ImGui::GetColorU32(ImVec4(0.18f, 0.30f, 0.18f, 0.80f)));
+                        }
+                    }
+                    ImGui::GetWindowDrawList()->AddText(ImVec2(row_pos.x + 4.0f, row_pos.y + text_offset_y),
+                                                        log_line_color(line),
+                                                        line.c_str() + row.begin,
+                                                        line.c_str() + row.end);
                 }
-                if (!wrote_line)
-                {
-                    ImGui::PushStyleColor(ImGuiCol_Text, tone_color("info"));
-                    ImGui::TextUnformatted("No log events.");
-                    ImGui::PopStyleColor();
-                }
-                if (scroll_to_end)
+                if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+                    dragging_selection = false;
+                if (text_changed && !has_selection && !dragging_selection)
                     ImGui::SetScrollHereY(1.0f);
             }
             ImGui::EndChild();
             ImGui::PopStyleColor();
-            if (g_log_font)
-                ImGui::PopFont();
-        }
-
-        void draw_selectable_log_box(const char* id, const std::string& text, const ImVec2& size, std::size_t& previous_size)
-        {
-            const bool text_changed = text.size() != previous_size;
-            previous_size = text.size();
-
-            static std::string buffer;
-            buffer = text.empty() ? "No log events.\n" : text;
-            if (buffer.empty() || buffer.back() != '\0')
-                buffer.push_back('\0');
-
-            if (g_log_font)
-                ImGui::PushFont(g_log_font);
-            ImGui::PushStyleColor(ImGuiCol_FrameBg, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
-            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_Text));
-            ImGui::InputTextMultiline(id,
-                                      buffer.data(),
-                                      buffer.size(),
-                                      size,
-                                      ImGuiInputTextFlags_ReadOnly | ImGuiInputTextFlags_NoHorizontalScroll);
-            if (text_changed && !ImGui::IsItemActive())
-            {
-                ImGui::SetItemDefaultFocus();
-            }
-            ImGui::PopStyleColor(2);
             if (g_log_font)
                 ImGui::PopFont();
         }
@@ -840,10 +973,10 @@ namespace meccha
                     section_header("PAINT SETTINGS", true);
                     PaintTuning tuning = runtime.paint_editing ? draft.tuning : persisted.tuning;
                     bool paint_value_changed = false;
-                    field_double("Brush size (texels)", tuning.stroke_size_texels, 4.0, 12.0, "%.1f", runtime.paint_editing, paint_value_changed);
-                    field_double("Coverage step (texels)", tuning.coverage_step_texels, 6.0, 12.0, "%.1f", runtime.paint_editing, paint_value_changed);
-                    field_int("Batch limit", tuning.server_batch_limit, 1, 500, runtime.paint_editing, paint_value_changed);
-                    field_int("Batch delay (ms)", tuning.server_batch_delay_ms, 1, 1000, runtime.paint_editing, paint_value_changed);
+                    field_double("Brush size (texels)", tuning.stroke_size_texels, 1.0, 12.0, "%.1f", runtime.paint_editing, paint_value_changed);
+                    field_double("Coverage step (texels)", tuning.coverage_step_texels, 1.0, 12.0, "%.1f", runtime.paint_editing, paint_value_changed);
+                    field_int("Batch limit", tuning.server_batch_limit, 1, 1000000, runtime.paint_editing, paint_value_changed);
+                    field_int("Batch delay (ms)", tuning.server_batch_delay_ms, 0, 1000, runtime.paint_editing, paint_value_changed);
                     field_double("Metallic", tuning.metallic, 0.0, 1.0, "%.6f", runtime.paint_editing, paint_value_changed);
                     field_double("Roughness", tuning.roughness, 0.0, 1.0, "%.6f", runtime.paint_editing, paint_value_changed);
                     if (runtime.paint_editing && paint_value_changed)
@@ -1069,7 +1202,7 @@ namespace meccha
                     ImGui::PopStyleVar();
                     ImGui::PopStyleColor(3);
                     ImGui::Spacing();
-                    draw_colored_log_box("##MainLog", human_log_text, ImGui::GetContentRegionAvail(), previous_log_size);
+                    draw_colored_selectable_log_box("##MainLog", human_log_text, ImGui::GetContentRegionAvail(), previous_log_size);
                 }
                 end_panel();
             }

@@ -40,9 +40,10 @@ namespace
     constexpr std::size_t MaxRequestBytes = 8 * 1024 * 1024;
     constexpr int ProcessEventVtableIndex = 0x4C;
     constexpr UINT PaintDispatchMessage = WM_APP + 0x4D43;
-    constexpr int ServerPaintBatchStrokeLimit = 500;
-    constexpr int ServerPaintBatchDelayMs = 300;
-    constexpr int MeshFirstServerBatchMinDelayMs = 15;
+    constexpr int ServerPaintBatchStrokeLimit = 1000000;
+    constexpr int ServerPaintBatchStrokeLimitMax = 1000000;
+    constexpr int ServerPaintBatchDelayMs = 0;
+    constexpr int MeshFirstServerBatchMinDelayMs = 0;
     constexpr double MeshFirstRuntimeCoordinateMaxAvgErrorCm = 50.0;
 
     constexpr std::uintptr_t OffClass = 0x10;
@@ -6804,14 +6805,14 @@ namespace
         constexpr bool enable_side = true;
         constexpr bool enable_back = true;
         const bool research_artifacts = json_bool_field(request, "research_artifacts", false);
-        const double tuning_stroke_size_texels = clamp_range(json_number_field(request, "stroke_size_texels", 4.0), 4.0, 12.0);
-        const double tuning_coverage_step_texels = clamp_range(json_number_field(request, "coverage_step_texels", 6.0), 6.0, 12.0);
+        const double tuning_stroke_size_texels = clamp_range(json_number_field(request, "stroke_size_texels", 5.0), 1.0, 12.0);
+        const double tuning_coverage_step_texels = clamp_range(json_number_field(request, "coverage_step_texels", 5.0), 1.0, 12.0);
         const double tuning_side_source_max_uv = clamp_range(json_number_field(request, "side_source_max_uv", 0.08), 0.001, 0.50);
         const double tuning_front_back_source_max_uv = clamp_range(json_number_field(request, "front_back_source_max_uv", 0.45), 0.001, 2.00);
         const double tuning_metallic = clamp_range(json_number_field(request, "metallic", 0.0), 0.0, 1.0);
-        const double tuning_roughness = clamp_range(json_number_field(request, "roughness", 0.0), 0.0, 1.0);
-        const int tuning_server_batch_limit = json_int_field(request, "server_batch_limit", ServerPaintBatchStrokeLimit, 1, ServerPaintBatchStrokeLimit);
-        const int tuning_server_batch_delay_ms = json_int_field(request, "server_batch_delay_ms", ServerPaintBatchDelayMs, 1, 1000);
+        const double tuning_roughness = clamp_range(json_number_field(request, "roughness", 1.0), 0.0, 1.0);
+        const int tuning_server_batch_limit = json_int_field(request, "server_batch_limit", ServerPaintBatchStrokeLimit, 1, ServerPaintBatchStrokeLimitMax);
+        const int tuning_server_batch_delay_ms = json_int_field(request, "server_batch_delay_ms", ServerPaintBatchDelayMs, 0, 1000);
 
         std::string metadata = "\"route\":\"mesh_first_paint\"";
         metadata += ",\"mesh_first_pipeline\":\"profile_v2_pose_uv_atlas_server_batch\"";
@@ -8194,7 +8195,7 @@ namespace
                                 false,
                                 "running");
             job->next_dispatch_time = std::chrono::steady_clock::now() +
-                                      std::chrono::milliseconds(std::max(1, job->local_visual_sync_delay_ms));
+                                      std::chrono::milliseconds(std::max(0, job->local_visual_sync_delay_ms));
             post_next_after(job->local_visual_sync_delay_ms);
             return;
         }
@@ -8232,7 +8233,7 @@ namespace
         if (job->offset < job->strokes.size())
         {
             job->next_dispatch_time = std::chrono::steady_clock::now() +
-                                      std::chrono::milliseconds(std::max(1, job->server_batch_delay_ms));
+                                      std::chrono::milliseconds(std::max(0, job->server_batch_delay_ms));
             post_next_after(job->server_batch_delay_ms);
             return;
         }
