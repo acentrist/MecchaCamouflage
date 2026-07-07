@@ -42,7 +42,7 @@ public sealed class PaintSettings
     public int PackedBatchDelayMs { get; set; } = 75;
     public double SideSourceMaxUv { get; set; } = 0.08;
     public double FrontBackSourceMaxUv { get; set; } = 0.45;
-    public RegionMode FrontRegionMode { get; set; } = RegionMode.Fill;
+    public RegionMode FrontRegionMode { get; set; } = RegionMode.Paint;
     public RegionMode SideRegionMode { get; set; } = RegionMode.Paint;
     public RegionMode BackRegionMode { get; set; } = RegionMode.Paint;
     public bool AutoMaterial { get; set; } = false;

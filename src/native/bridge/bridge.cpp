@@ -7085,6 +7085,7 @@ namespace
                                   bool enable_side,
                                   bool enable_back,
                                   double side_source_max_uv,
+                                  double front_back_source_max_uv,
                                   MeshFirstPlanStats& stats) -> void
     {
         const auto& source_samples = capture.samples;
@@ -7136,6 +7137,7 @@ namespace
             }
         }
         const double side_component_distance_limit = clamp_range(side_source_max_uv * 500.0, 20.0, 80.0);
+        const double front_back_component_distance_limit = clamp_range(front_back_source_max_uv * 500.0, 20.0, 200.0);
         for (std::size_t sample_index = 0; sample_index < samples.size(); ++sample_index)
         {
             auto& sample = samples[sample_index];
@@ -7171,7 +7173,7 @@ namespace
                     ++stats.enabled_samples;
                     continue;
                 }
-                if (profile && sample.region == MeshFirstRegion::Side)
+                if (profile)
                 {
                     const auto sample_body = lower_copy(sample.body_region);
                     const auto sample_transfer_group = mesh_first_transfer_group_for_bone(profile, sample.dominant_bone);
@@ -7190,7 +7192,35 @@ namespace
                     double best_uv_distance_sq = std::numeric_limits<double>::infinity();
                     const FrontSample* best = nullptr;
                     const auto* candidate_indices = sample_bin >= 0 ? &source_bins[static_cast<std::size_t>(sample_bin)] : nullptr;
-                    if (candidate_indices)
+                    if (!candidate_indices || candidate_indices->empty())
+                    {
+                        for (int i = 0; i < static_cast<int>(source_samples.size()); ++i)
+                        {
+                            const auto& source = source_samples[static_cast<std::size_t>(i)];
+                            if (!source.has_component_position)
+                            {
+                                continue;
+                            }
+                            saw_candidate = true;
+                            const auto component_delta = sdk_vec_sub(sample.local_position, source.component_position);
+                            const double component_distance_sq = sdk_vec_dot(component_delta, component_delta);
+                            if (!std::isfinite(component_distance_sq))
+                            {
+                                continue;
+                            }
+                            const double du = sample.u - source.u;
+                            const double dv = sample.v - source.v;
+                            const double uv_distance_sq = du * du + dv * dv;
+                            if (component_distance_sq < best_distance_sq ||
+                                (component_distance_sq == best_distance_sq && uv_distance_sq < best_uv_distance_sq))
+                            {
+                                best_distance_sq = component_distance_sq;
+                                best_uv_distance_sq = uv_distance_sq;
+                                best = &source;
+                            }
+                        }
+                    }
+                    else
                     {
                         for (const int source_index : *candidate_indices)
                         {
@@ -7218,6 +7248,9 @@ namespace
                             }
                         }
                     }
+                    const double region_distance_limit = sample.region == MeshFirstRegion::Side
+                                                             ? side_component_distance_limit
+                                                             : front_back_component_distance_limit;
                     if (best)
                     {
                         sample.source_distance_component = std::sqrt(best_distance_sq);
@@ -7230,7 +7263,7 @@ namespace
                         sample.roughness = clamp01(std::max(0.35, best->roughness));
                         sample.metallic = clamp01(best->metallic);
                         sample.unsafe = !std::isfinite(sample.source_distance_component) ||
-                                        sample.source_distance_component > side_component_distance_limit;
+                                        sample.source_distance_component > region_distance_limit;
                         if (sample.unsafe)
                         {
                             ++stats.unsafe_source_distance;
@@ -7260,7 +7293,6 @@ namespace
                         continue;
                     }
                 }
-                if (!(profile && sample.region == MeshFirstRegion::Side))
                 {
                     Color projected_color{};
                     if (mesh_first_capture_project_color(capture, sample.world_position, projected_color))
@@ -9834,6 +9866,7 @@ namespace
                                      enable_side,
                                      enable_back,
                                      tuning_side_source_max_uv,
+                                     tuning_front_back_source_max_uv,
                                      plan_stats);
         }
         else
@@ -9855,15 +9888,7 @@ namespace
         metadata += ",\"source_distance_side_max_component\":" + std::to_string(clamp_range(tuning_side_source_max_uv * 500.0, 20.0, 80.0));
         metadata += ",\"source_projection_color_available\":" + std::string(json_bool(capture.capture_pixels_available));
         metadata += ",\"source_samples\":" + std::to_string(capture.samples.size());
-        if (plan_stats.unsafe_enabled > 0)
-        {
-            return response_json(false,
-                                 "planner_blocked",
-                                 0,
-                                 1,
-                                 "mesh-first planner found unsafe color-transfer candidates in enabled regions; replay was blocked instead of skipping samples",
-                                 metadata + ",\"replay_blocked\":true");
-        }
+        metadata += ",\"unsafe_enabled\":" + std::to_string(plan_stats.unsafe_enabled);
         if (research_artifacts)
         {
             mesh_first_write_uv_debug_artifacts(plan_samples,

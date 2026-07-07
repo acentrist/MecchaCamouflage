@@ -18,7 +18,7 @@ var tests = new List<(string Name, Action Run)>
     ("diagnostics log write is best effort when file is locked", DiagnosticsLogWriteIsBestEffortWhenFileLocked),
     ("runtime log write is best effort when file is locked", RuntimeLogWriteIsBestEffortWhenFileLocked),
     ("auto material defaults off", AutoMaterialDefaultsOff),
-    ("front region defaults to fill", FrontRegionDefaultsToFill),
+    ("front region defaults to paint", FrontRegionDefaultsToPaint),
     ("bridge messages are user friendly", BridgeMessagesAreUserFriendly),
     ("settings clamp syncs coverage step to brush size", SettingsClampSyncsCoverageToBrush),
     ("settings detect supported system language", SettingsDetectSupportedSystemLanguage),
@@ -298,9 +298,9 @@ static void AutoMaterialDefaultsOff()
     Assert(!new AppSettings().Paint.AutoMaterial, "auto material should default off");
 }
 
-static void FrontRegionDefaultsToFill()
+static void FrontRegionDefaultsToPaint()
 {
-    Assert(new AppSettings().Paint.FrontRegionMode == RegionMode.Fill, "front should default to fill");
+    Assert(new AppSettings().Paint.FrontRegionMode == RegionMode.Paint, "front should default to paint");
 }
 
 static void BridgeMessagesAreUserFriendly()
@@ -370,7 +370,7 @@ static void UiSnapshotHidesLegacyBatchTuning()
         false,
         0.0,
         1.0,
-        "fill",
+        "paint",
         "paint",
         "paint",
         "#FFFFFF",
