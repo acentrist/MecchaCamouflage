@@ -148,92 +148,58 @@ public static class PackagedAssets
 
         lock (ExtractLock)
         {
-            using var extractionMutex = new Mutex(false, ExtractionMutexName(paths));
-            var ownsExtractionMutex = false;
+            validation = ValidateExtractedAssetSet(root, manifest, directoryName);
+            if (validation.Valid)
+            {
+                DiagnosticsState.SetAssetValidation($"valid {manifest.AssetSetId}");
+                LogValidAssetSetOnce(manifest, log);
+                return root;
+            }
+
+            DiagnosticsState.SetAssetValidation($"repair {manifest.AssetSetId}: {validation.Message}");
+            if (validation.Message.Contains("directory is missing", StringComparison.OrdinalIgnoreCase) ||
+                validation.Message.Contains("ready.json is missing", StringComparison.OrdinalIgnoreCase))
+            {
+                log?.Info("Runtime assets: preparing local cache.");
+            }
+            else
+            {
+                log?.Warn("Runtime assets: cache invalid; repairing.");
+            }
+            Directory.CreateDirectory(parent);
+            var staging = Path.Combine(parent, manifest.AssetSetId + "." + Guid.NewGuid().ToString("N") + ".staging");
+            Directory.CreateDirectory(staging);
             try
             {
-                try
-                {
-                    ownsExtractionMutex = extractionMutex.WaitOne(TimeSpan.FromSeconds(30));
-                }
-                catch (AbandonedMutexException)
-                {
-                    // The previous process stopped while extracting. Its staging directory is isolated,
-                    // so this process can safely validate and repair the published cache.
-                    ownsExtractionMutex = true;
-                }
-                if (!ownsExtractionMutex)
-                {
-                    DiagnosticsState.SetLastCode("MC-RT-013", "timed out waiting for another app instance to extract packaged assets");
-                    throw new TimeoutException("MC-RT-013 Timed out waiting for packaged asset extraction.");
-                }
+                ExtractResources(assembly, manifest, staging);
+                WriteReadyFile(staging, manifest);
+                validation = ValidateExtractedAssetSet(staging, manifest, directoryName);
+                if (!validation.Valid)
+                    throw new IOException($"{validation.Code} extracted runtime assets failed validation: {validation.Message}");
+
+                if (Directory.Exists(root))
+                    Directory.Delete(root, recursive: true);
+                Directory.Move(staging, root);
 
                 validation = ValidateExtractedAssetSet(root, manifest, directoryName);
-                if (validation.Valid)
+                if (!validation.Valid)
                 {
-                    DiagnosticsState.SetAssetValidation($"valid {manifest.AssetSetId}");
-                    LogValidAssetSetOnce(manifest, log);
-                    return root;
+                    DiagnosticsState.SetLastCode("MC-RT-012", validation.Message);
+                    throw new IOException($"MC-RT-012 runtime asset vanished or changed after extraction: {validation.Message}");
                 }
 
-                DiagnosticsState.SetAssetValidation($"repair {manifest.AssetSetId}: {validation.Message}");
-                if (validation.Message.Contains("directory is missing", StringComparison.OrdinalIgnoreCase) ||
-                    validation.Message.Contains("ready.json is missing", StringComparison.OrdinalIgnoreCase))
-                {
-                    log?.Info("Runtime assets: preparing local cache.");
-                }
-                else
-                {
-                    log?.Warn("Runtime assets: cache invalid; repairing.");
-                }
-                Directory.CreateDirectory(parent);
-                var staging = Path.Combine(parent, manifest.AssetSetId + "." + Guid.NewGuid().ToString("N") + ".staging");
-                Directory.CreateDirectory(staging);
-                try
-                {
-                    ExtractResources(assembly, manifest, staging);
-                    WriteReadyFile(staging, manifest);
-                    validation = ValidateExtractedAssetSet(staging, manifest, directoryName);
-                    if (!validation.Valid)
-                        throw new IOException($"{validation.Code} extracted runtime assets failed validation: {validation.Message}");
-
-                    if (Directory.Exists(root))
-                        Directory.Delete(root, recursive: true);
-                    Directory.Move(staging, root);
-
-                    validation = ValidateExtractedAssetSet(root, manifest, directoryName);
-                    if (!validation.Valid)
-                    {
-                        DiagnosticsState.SetLastCode("MC-RT-012", validation.Message);
-                        throw new IOException($"MC-RT-012 runtime asset vanished or changed after extraction: {validation.Message}");
-                    }
-
-                    DiagnosticsState.SetAssetValidation($"repaired {manifest.AssetSetId}");
-                    MarkAssetSetLogged(manifest);
-                    log?.Info("Runtime assets: prepared.");
-                    CleanupOldAssetDirectories(parent, root);
-                }
-                catch
-                {
-                    TryDeleteDirectory(staging);
-                    throw;
-                }
+                DiagnosticsState.SetAssetValidation($"repaired {manifest.AssetSetId}");
+                MarkAssetSetLogged(manifest);
+                log?.Info("Runtime assets: prepared.");
+                CleanupOldAssetDirectories(parent, root);
             }
-            finally
+            catch
             {
-                if (ownsExtractionMutex)
-                    extractionMutex.ReleaseMutex();
+                TryDeleteDirectory(staging);
+                throw;
             }
         }
         return root;
-    }
-
-    private static string ExtractionMutexName(AppPaths paths)
-    {
-        var normalizedRoot = Path.GetFullPath(paths.RootDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalizedRoot))).ToLowerInvariant()[..16];
-        var name = "MecchaCamouflage.PackageAssets." + hash;
-        return OperatingSystem.IsWindows() ? "Local\\" + name : name;
     }
 
     private static void LogValidAssetSetOnce(PackagedAssetManifest manifest, RuntimeLog? log)
@@ -359,12 +325,14 @@ public static class PackagedAssets
     private static string RoleFor(string logicalPath)
     {
         var normalized = logicalPath.Replace('\\', '/');
+        if (string.Equals(normalized, "native/bridge-loader.dll", StringComparison.OrdinalIgnoreCase))
+            return "native.bridge-loader";
         if (string.Equals(normalized, "native/runtime-bridge.dll", StringComparison.OrdinalIgnoreCase))
             return "native.bridge";
         if (string.Equals(normalized, "native/runtime-injector.exe", StringComparison.OrdinalIgnoreCase))
             return "native.injector";
-        if (normalized.StartsWith("webview2-bootstrapper/", StringComparison.OrdinalIgnoreCase))
-            return "webview2.bootstrapper";
+        if (normalized.StartsWith("webview2/", StringComparison.OrdinalIgnoreCase))
+            return "webview2.fixed";
         if (normalized.StartsWith("web/", StringComparison.OrdinalIgnoreCase))
             return "web.assets";
         if (normalized.StartsWith("mesh-profiles/", StringComparison.OrdinalIgnoreCase))

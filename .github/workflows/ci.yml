@@ -33,11 +33,9 @@ jobs:
         shell: pwsh
         run: |
           if (-not (Test-Path ".build/bin/meccha-camouflage.exe")) { throw "runtime exe missing" }
+          if (-not (Test-Path ".build/obj/package-native/bridge-loader.dll")) { throw "bridge loader dll missing" }
           if (-not (Test-Path ".build/obj/package-native/runtime-bridge.dll")) { throw "runtime bridge dll missing" }
           if (-not (Test-Path ".build/obj/package-native/runtime-injector.exe")) { throw "runtime injector exe missing" }
-          if (Test-Path ".build/obj/package-native/bridge-loader.dll") { throw "bridge loader must not be packaged" }
-          if (Test-Path "src/native/loader/loader.cpp") { throw "obsolete loader source must not return" }
-          if (Test-Path "src/native/include/bridge_loader_abi.hpp") { throw "obsolete loader ABI must not return" }
 
       - name: Package dry run
         shell: pwsh

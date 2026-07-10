@@ -14,7 +14,7 @@ Runtime bridge probes for multiplayer paint replication are documented in
 investigation scripts under `scripts/research/`; keep generated output under
 `artifacts/research/` or a local temp directory.
 
-v1.6 uses the mesh-first paint route. The required game-derived mesh profiles
+v1.5.0 uses the mesh-first paint route. The required game-derived mesh profiles
 are tracked under `resources/mesh-profiles/`; `make build` copies the required
 profile assets into the local build output for package/debug runs. After game
 updates, initialize the research-tool

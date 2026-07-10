@@ -39,5 +39,7 @@ if (-not (Test-Path $ExePath -PathType Leaf)) { throw "Executable not found: $Ex
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $ArtifactPath = Join-Path $OutDir "$ArtifactName.exe"
 if (Test-Path $ArtifactPath) { Remove-Item -Force $ArtifactPath }
+$LegacyZipPath = Join-Path $OutDir "$ArtifactName.zip"
+if (Test-Path $LegacyZipPath) { Remove-Item -Force $LegacyZipPath }
 Copy-Item -Force -Path $ExePath -Destination $ArtifactPath
 Write-Host "Wrote $ArtifactPath"

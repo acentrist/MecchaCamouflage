@@ -10,6 +10,7 @@
     <RootNamespace>MecchaCamouflage.WebHost</RootNamespace>
     <ApplicationIcon>..\..\..\resources\app-icons\icon.ico</ApplicationIcon>
     <MecchaAppVersion Condition="'$(MecchaAppVersion)' == ''">dev</MecchaAppVersion>
+    <MecchaWebView2Version Condition="'$(MecchaWebView2Version)' == ''">unknown</MecchaWebView2Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -56,14 +57,17 @@
     <EmbeddedResource Include="$(MecchaNativeRuntimeDir)\runtime-bridge.dll" Condition="'$(MecchaNativeRuntimeDir)' != ''">
       <LogicalName>packaged/native/runtime-bridge.dll</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="$(MecchaNativeRuntimeDir)\bridge-loader.dll" Condition="'$(MecchaNativeRuntimeDir)' != ''">
+      <LogicalName>packaged/native/bridge-loader.dll</LogicalName>
+    </EmbeddedResource>
     <EmbeddedResource Include="$(MecchaNativeRuntimeDir)\runtime-injector.exe" Condition="'$(MecchaNativeRuntimeDir)' != ''">
       <LogicalName>packaged/native/runtime-injector.exe</LogicalName>
     </EmbeddedResource>
     <EmbeddedResource Include="$(MecchaMeshProfilesDir)\*.json" Condition="'$(MecchaMeshProfilesDir)' != ''">
       <LogicalName>packaged/mesh-profiles/%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>
-    <EmbeddedResource Include="$(MecchaWebView2BootstrapperPath)" Condition="'$(MecchaWebView2BootstrapperPath)' != ''">
-      <LogicalName>packaged/webview2-bootstrapper/MicrosoftEdgeWebview2Setup.exe</LogicalName>
+    <EmbeddedResource Include="$(MecchaWebView2RuntimeDir)\**\*" Condition="'$(MecchaWebView2RuntimeDir)' != ''">
+      <LogicalName>packaged/webview2/%(RecursiveDir)%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 

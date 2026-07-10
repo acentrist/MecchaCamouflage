@@ -1,25 +1,3 @@
-function reportUiStartupFailure(kind, value) {
-  try {
-    const message = value instanceof Error ? value.message : String(value ?? "unknown JavaScript error");
-    window.chrome?.webview?.postMessage({
-      type: "uiStartupFailure",
-      kind,
-      message: message.slice(0, 2000)
-    });
-  } catch {
-    // A broken WebView bridge must not turn error reporting into another page error.
-  }
-}
-
-window.addEventListener("error", event => {
-  const location = event.filename ? ` (${event.filename}:${event.lineno}:${event.colno})` : "";
-  reportUiStartupFailure("error", `${event.message || "JavaScript error"}${location}`);
-});
-
-window.addEventListener("unhandledrejection", event => {
-  reportUiStartupFailure("unhandledrejection", event.reason);
-});
-
 const pending = new Map();
 const hotkeyKeys = [
   "app.startHotkey",
@@ -278,6 +256,34 @@ function renderSettings(snapshot) {
   setValue("unpreview-hotkey", app.unPreviewHotkey);
   setValue("stop-hotkey", app.stopHotkey);
 
+  const quality = byId("quality-preset");
+  if (quality.options.length === 0) {
+    for (const preset of ["fast", "balanced", "high", "ultra"]) {
+      const option = document.createElement("option");
+      option.value = preset;
+      option.dataset.i18n = "quality." + preset;
+      option.textContent = i18n("quality." + preset);
+      quality.append(option);
+    }
+  }
+  setValue("quality-preset", paint.qualityPreset);
+
+  setChecked("detection-artifacts", paint.enableDetectionArtifacts);
+  const detectionDetail = byId("detection-detail");
+  if (detectionDetail.options.length === 0) {
+    for (const level of [1, 2, 3, 4, 5]) {
+      const option = document.createElement("option");
+      option.value = String(level);
+      option.dataset.i18n = "detection.detail." + level;
+      option.textContent = i18n("detection.detail." + level);
+      detectionDetail.append(option);
+    }
+  }
+  setValue("detection-detail", String(paint.detectionDetail));
+  setChecked("local-image-enabled", paint.useLocalImageSource);
+  setValue("local-image-path", paint.localImagePath || "");
+  setChecked("bypass-live-capture", paint.bypassLiveCapture);
+
   const language = byId("language");
   if (language.options.length === 0) {
     for (const locale of liveSnapshot.locales) {
@@ -295,6 +301,8 @@ function renderSettings(snapshot) {
   for (const button of document.querySelectorAll(".record-hotkey")) {
     button.disabled = !editing;
   }
+  byId("select-local-image").disabled = !editing;
+  setDisabled(["bypass-live-capture"], !editing || !paint.useLocalImageSource);
 
   const materialLocked = paint.autoMaterial || !editing;
   setDisabled(["metallic", "metallic-number", "roughness", "roughness-number"], materialLocked);
@@ -498,6 +506,12 @@ function diffSnapshots(before, after) {
     "paint.fillColor",
     "paint.fillMetallic",
     "paint.fillRoughness",
+    "paint.qualityPreset",
+    "paint.enableDetectionArtifacts",
+    "paint.detectionDetail",
+    "paint.useLocalImageSource",
+    "paint.localImagePath",
+    "paint.bypassLiveCapture",
     "app.alwaysOnTop",
     "app.opacity",
     "app.themeColor",
@@ -682,6 +696,49 @@ document.addEventListener("DOMContentLoaded", () => {
   bindCheckbox("always-on-top", "app.alwaysOnTop");
   bindRangePair("opacity", "opacity-number", "app.opacity", value => value / 100);
   bindColorPair("theme-color-picker", "theme-color", "app.themeColor");
+  const qualitySelect = byId("quality-preset");
+  const qualityWrap = qualitySelect.closest(".select-wrap");
+  qualitySelect.addEventListener("pointerdown", () => qualityWrap?.classList.add("open"));
+  qualitySelect.addEventListener("keydown", event => {
+    if (["ArrowDown", "ArrowUp", "Enter", " "].includes(event.key)) {
+      qualityWrap?.classList.add("open");
+    }
+  });
+  qualitySelect.addEventListener("blur", () => qualityWrap?.classList.remove("open"));
+  qualitySelect.addEventListener("change", event => {
+    qualityWrap?.classList.remove("open");
+    setDraftSetting("paint.qualityPreset", event.target.value);
+    renderSettings(draftSnapshot);
+  });
+
+  bindCheckbox("detection-artifacts", "paint.enableDetectionArtifacts");
+  bindCheckbox("local-image-enabled", "paint.useLocalImageSource");
+  bindCheckbox("bypass-live-capture", "paint.bypassLiveCapture");
+  byId("select-local-image").addEventListener("click", async () => {
+    try {
+      const result = await send("selectLocalImage");
+      if (!result.success) { if (!result.cancelled) showError(result.message || "Image selection failed."); return; }
+      setDraftSetting("paint.localImagePath", result.path);
+      setDraftSetting("paint.useLocalImageSource", true);
+      renderSettings(draftSnapshot);
+      toast(`${result.name} (${result.width}×${result.height})`);
+    } catch (error) { showError(error.message || String(error)); }
+  });
+  const detectionSelect = byId("detection-detail");
+  const detectionWrap = detectionSelect.closest(".select-wrap");
+  detectionSelect.addEventListener("pointerdown", () => detectionWrap?.classList.add("open"));
+  detectionSelect.addEventListener("keydown", event => {
+    if (["ArrowDown", "ArrowUp", "Enter", " "].includes(event.key)) {
+      detectionWrap?.classList.add("open");
+    }
+  });
+  detectionSelect.addEventListener("blur", () => detectionWrap?.classList.remove("open"));
+  detectionSelect.addEventListener("change", event => {
+    detectionWrap?.classList.remove("open");
+    setDraftSetting("paint.detectionDetail", Number(event.target.value));
+    renderSettings(draftSnapshot);
+  });
+
   const languageSelect = byId("language");
   const languageWrap = languageSelect.closest(".select-wrap");
   languageSelect.addEventListener("pointerdown", () => languageWrap?.classList.add("open"));
@@ -722,6 +779,5 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
   document.addEventListener("keydown", recordHotkeyFromEvent);
-  window.chrome.webview.postMessage({ type: "uiReady" });
   refresh().catch(error => showError(error.message || String(error)));
 });

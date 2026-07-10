@@ -37,13 +37,27 @@ The bridge currently exposes these investigation-only command types:
 These commands are classified as `RESEARCH_ONLY` in
 `docs/runtime-bridge-map.md`.
 
-## Authenticated research access
+## Script Surface
 
-The old fixed-port, unauthenticated probe scripts are removed. A research
-client must use the same per-instance endpoint and GUID/token HELLO handshake
-as the controller; see [`runtime-direct-bridge.md`](runtime-direct-bridge.md).
-Do not scan ports or send a command before HELLO. Keep generated output under
-`artifacts/research/` or a local temp directory.
+Research scripts live under `scripts/research/` when they talk to an injected
+bridge or collect multiplayer/runtime data.
+
+Current commands:
+
+```bash
+make research-probe
+make research-probe RESEARCH_PROBE_TYPE=paint_replication_pressure_probe
+make research-pressure
+```
+
+For custom bridge JSON:
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/research/bridge-probe.ps1 `
+  -Json '{"type":"paint_replication_probe"}'
+```
+
+Keep generated output under `artifacts/research/` or a local temp directory.
 
 ## Multiplayer Verification Questions
 

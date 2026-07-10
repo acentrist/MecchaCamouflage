@@ -10,7 +10,6 @@
 #include <array>
 #include <atomic>
 #include <chrono>
-#include <climits>
 #include <cmath>
 #include <condition_variable>
 #include <cstdio>
@@ -31,7 +30,9 @@
 #include <vector>
 
 #include "../include/sdk.hpp"
-#include "../include/direct_bridge_abi.hpp"
+#include "../include/bridge_loader_abi.hpp"
+#include "../include/quality_algorithms.hpp"
+#include "../include/local_image_algorithms.hpp"
 
 #pragma comment(lib, "Ws2_32.lib")
 #pragma comment(lib, "Gdi32.lib")
@@ -44,17 +45,18 @@ namespace
     // Win32 hooks, progress sidecars, and C# host diagnostics.
     // =============================================================================
 
+    constexpr int DefaultBridgePort = 47800;
     constexpr std::size_t MaxRequestBytes = 8 * 1024 * 1024;
     constexpr int ProcessEventVtableIndex = 0x4C;
     constexpr int AutoEventWatchSampleBytes = 8192;
     constexpr UINT PaintDispatchMessage = WM_APP + 0x4D43;
     constexpr int PackedReplicationDefaultBatchLimit = 50;
     constexpr int PackedReplicationMaxBatchLimit = 50;
-    constexpr int PackedReplicationDefaultPacingMs = 75;
-    constexpr int PackedReplicationMinPacingMs = 50;
+    constexpr int PackedReplicationDefaultPacingMs = 1;
+    constexpr int PackedReplicationMinPacingMs = 1;
     constexpr int PackedReplicationFallbackMaxStrokesPerTick = 24;
     constexpr int PackedReplicationResolvedPacingMinMs = 1;
-    constexpr int PackedReplicationBatchSize = 20;
+    constexpr int PackedReplicationBatchSize = PackedReplicationMaxBatchLimit;
     constexpr int PackedReplicationFallbackOutgoingBatchesPerSecond = 20;
     constexpr int PackedReplicationMaxPacingMs = 500;
     constexpr int MeshFirstFastApplyStrokesPerTick = 0;
@@ -83,26 +85,13 @@ namespace
     constexpr std::uintptr_t OffFPropertyOffset = 0x44;
     constexpr std::uintptr_t OffFStructPropertyStruct = 0x70;
 
-    enum BridgeRuntimeState : int
-    {
-        BRIDGE_RUNTIME_CREATED = 0,
-        BRIDGE_RUNTIME_STARTING = 1,
-        BRIDGE_RUNTIME_LISTENING = 2,
-        BRIDGE_RUNTIME_STOPPING = 3,
-        BRIDGE_RUNTIME_STOPPED = 4,
-        BRIDGE_RUNTIME_FAILED = 5,
-    };
-
     HMODULE g_module = nullptr;
     std::atomic<bool> g_running{false};
-    std::atomic<int> g_bridge_state{BRIDGE_RUNTIME_CREATED};
+    std::atomic<int> g_bridge_state{MC_BRIDGE_CREATED};
     std::atomic<DWORD> g_bridge_last_win32{0};
+    std::mutex g_bridge_thread_mutex;
+    std::unique_ptr<std::thread> g_bridge_thread{};
     std::atomic<bool> g_bridge_thread_done{true};
-    std::atomic<SOCKET> g_listener{INVALID_SOCKET};
-    std::atomic<std::uint32_t> g_bound_port{0};
-    std::atomic<bool> g_bridge_started{false};
-    std::mutex g_bridge_start_mutex;
-    BridgeStartBlockV1 g_bridge_identity{};
     std::atomic<int> g_active_client_handlers{0};
     std::atomic<bool> g_process_event_hook_installed{false};
     std::atomic<std::uintptr_t> g_original_process_event{0};
@@ -198,6 +187,12 @@ namespace
         std::int64_t sync_compressed_channel_uncompressed_bytes{0};
     };
 
+    // The vector-return helper is needed by mesh pose resolution before the
+    // full Reflection definition appears later in this translation unit.
+    // Keep the type declaration ahead of the helper prototype so MSVC parses
+    // it as a function declaration instead of an invalid expression.
+    struct Reflection;
+
     std::mutex g_paint_jobs_mutex;
     std::condition_variable g_paint_jobs_cv;
     std::vector<std::shared_ptr<QueuedPaintJob>> g_paint_jobs;
@@ -216,6 +211,7 @@ namespace
     auto paint_replication_probe_on_game_thread(const std::string& request) -> std::string;
     auto is_paint_packed_replay_probe_request(const std::string& request) -> bool;
     auto paint_packed_replay_probe_on_game_thread(const std::string& request) -> std::string;
+    auto sdk_call_no_params_return_vector3(Reflection& ref, std::uintptr_t object, const char* function_name, sdk::FVector& value) -> bool;
     auto auto_event_watch_record(std::uintptr_t function_address, std::uint8_t* params_bytes) -> void;
     void __fastcall hooked_process_event(void* object, void* function, void* params);
     LRESULT CALLBACK message_hook_proc(int code, WPARAM wparam, LPARAM lparam);
@@ -383,6 +379,37 @@ namespace
         return ok && written == bytes.size();
     }
 
+    auto read_bridge_sidecar_text(const wchar_t* suffix, std::string& text) -> bool
+    {
+        text.clear();
+        const auto path = bridge_sidecar_path(suffix);
+        if (path.empty())
+        {
+            return false;
+        }
+        HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file == INVALID_HANDLE_VALUE)
+        {
+            return false;
+        }
+        LARGE_INTEGER size{};
+        if (!GetFileSizeEx(file, &size) || size.QuadPart <= 0 || size.QuadPart > 16LL * 1024LL * 1024LL)
+        {
+            CloseHandle(file);
+            return false;
+        }
+        text.resize(static_cast<std::size_t>(size.QuadPart));
+        DWORD read = 0;
+        const auto ok = ReadFile(file, text.data(), static_cast<DWORD>(text.size()), &read, nullptr);
+        CloseHandle(file);
+        if (!ok || read != text.size())
+        {
+            text.clear();
+            return false;
+        }
+        return true;
+    }
+
     auto read_text_file_w(const std::wstring& path, std::string& text) -> bool
     {
         text.clear();
@@ -503,12 +530,20 @@ namespace
         {
             return false;
         }
-        if (module == g_module)
+        wchar_t path[MAX_PATH]{};
+        if (GetModuleFileNameW(module, path, MAX_PATH) == 0)
         {
-            return true;
+            return false;
         }
-
-        return false;
+        std::wstring lower_path = path;
+        for (auto& ch : lower_path)
+        {
+            if (ch >= L'A' && ch <= L'Z')
+            {
+                ch = static_cast<wchar_t>(ch - L'A' + L'a');
+            }
+        }
+        return lower_path.find(L"runtime-bridge") != std::wstring::npos;
     }
 
     auto trusted_process_event_target(std::uintptr_t address) -> bool
@@ -4148,6 +4183,7 @@ namespace
                                   int target_height) -> SdkFrontCaptureResult;
     auto sdk_capture_metadata(const SdkFrontCaptureResult& capture) -> std::string;
     auto sdk_srgb_to_linear_unit(double value) -> double;
+    auto sdk_linear_to_srgb_unit(double value) -> double;
     auto sdk_make_channel(double r,
                           double g,
                           double b,
@@ -4648,6 +4684,11 @@ namespace
             }
         }
 
+        std::string sidecar_text{};
+        if (read_bridge_sidecar_text(L".mesh-profile.json", sidecar_text))
+        {
+            profiles.push_back(parse_mesh_first_profile_text(sidecar_text, "legacy-sidecar"));
+        }
         return profiles;
     }
 
@@ -5054,6 +5095,19 @@ namespace
             }
             failure_details += std::string(function_name) + "=failed";
         }
+        sdk::FVector scan_expected_location = expected_location;
+        const char* location_candidates[]{"K2_GetComponentLocation", "GetComponentLocation"};
+        for (const auto* function_name : location_candidates)
+        {
+            sdk::FVector location{};
+            if (sdk_call_no_params_return_vector3(ref, mesh, function_name, location) &&
+                std::isfinite(location.X) && std::isfinite(location.Y) && std::isfinite(location.Z))
+            {
+                scan_expected_location = location;
+                failure_details += ";scan_anchor=" + std::string(function_name);
+                break;
+            }
+        }
         const int component_to_world_offset = ref.resolve_property_offset("SceneComponent", "ComponentToWorld");
         if (component_to_world_offset >= 0)
         {
@@ -5091,7 +5145,7 @@ namespace
             {
                 continue;
             }
-            const auto delta = sdk_vec_sub(transform.Translation, expected_location);
+            const auto delta = sdk_vec_sub(transform.Translation, scan_expected_location);
             const double xy_distance = std::sqrt(delta.X * delta.X + delta.Y * delta.Y);
             const double z_distance = std::abs(delta.Z);
             const double scale_sum = std::abs(transform.Scale3D.X) + std::abs(transform.Scale3D.Y) + std::abs(transform.Scale3D.Z);
@@ -5892,7 +5946,8 @@ namespace
     }
 
     auto mesh_first_parse_region_mode(const std::string& request,
-                                      const char* mode_key) -> MeshFirstRegionMode
+                                      const char* mode_key,
+                                      const char* legacy_enable_key) -> MeshFirstRegionMode
     {
         const auto mode = lower_copy(json_string_field(request, mode_key, ""));
         if (mode == "fill")
@@ -5901,7 +5956,7 @@ namespace
             return MeshFirstRegionMode::Skip;
         if (mode == "paint")
             return MeshFirstRegionMode::Paint;
-        return MeshFirstRegionMode::Paint;
+        return json_bool_field(request, legacy_enable_key, true) ? MeshFirstRegionMode::Paint : MeshFirstRegionMode::Fill;
     }
 
     auto mesh_first_region_mode_for_sample(MeshFirstRegion region,
@@ -6964,7 +7019,12 @@ namespace
 
     auto mesh_first_capture_project_color(const SdkFrontCaptureResult& capture,
                                           const sdk::FVector& world_position,
-                                          Color& color) -> bool
+                                          Color& color,
+                                          bool bilinear,
+                                          bool bicubic,
+                                          bool edge_aware_sharpening,
+                                          double sharpen_strength,
+                                          int fast_area_radius = 0) -> bool
     {
         const auto expected_pixels = static_cast<std::size_t>(std::max(0, capture.width)) *
                                      static_cast<std::size_t>(std::max(0, capture.height));
@@ -7026,18 +7086,201 @@ namespace
             return false;
         }
 
-        const int px = std::max(0, std::min(capture.width - 1, static_cast<int>(std::round(sx))));
-        const int py = std::max(0, std::min(capture.height - 1, static_cast<int>(std::round(sy))));
-        const int bx = capture.capture_flip_x ? (capture.width - 1 - px) : px;
-        const int by = capture.capture_flip_y ? (capture.height - 1 - py) : py;
-        const auto pixel_index = static_cast<std::size_t>(by) * static_cast<std::size_t>(capture.width) +
-                                 static_cast<std::size_t>(bx);
-        if (pixel_index >= capture.capture_pixels.size())
+        // Fetch a single texel honoring the capture flip flags and clamping to
+        // the valid image bounds. Returns false only on an out-of-range index.
+        const auto fetch_pixel = [&](int ix, int iy, Color& out) -> bool {
+            const int cx = std::max(0, std::min(capture.width - 1, ix));
+            const int cy = std::max(0, std::min(capture.height - 1, iy));
+            const int fx = capture.capture_flip_x ? (capture.width - 1 - cx) : cx;
+            const int fy = capture.capture_flip_y ? (capture.height - 1 - cy) : cy;
+            const auto index = static_cast<std::size_t>(fy) * static_cast<std::size_t>(capture.width) +
+                               static_cast<std::size_t>(fx);
+            if (index >= capture.capture_pixels.size())
+            {
+                return false;
+            }
+            out = capture.capture_pixels[index];
+            return true;
+        };
+
+        Color resolved{};
+        if (bicubic && capture.width >= 4 && capture.height >= 4)
         {
-            return false;
+            // Bicubic Catmull-Rom resampling in linear light. Uses the 4x4
+            // neighborhood around the sub-pixel position with cubic weights,
+            // which reconstructs fine corak/pattern edges far more sharply and
+            // accurately than bilinear (higher-order interpolation), while the
+            // gamma-correct linear blend keeps colors true.
+            const double fx = sx - 0.5;
+            const double fy = sy - 0.5;
+            const int x1 = static_cast<int>(std::floor(fx));
+            const int y1 = static_cast<int>(std::floor(fy));
+            const double tx = clamp01(fx - static_cast<double>(x1));
+            const double ty = clamp01(fy - static_cast<double>(y1));
+            const auto cubic_weights = [](double t, double w[4]) {
+                const double t2 = t * t;
+                const double t3 = t2 * t;
+                w[0] = -0.5 * t3 + t2 - 0.5 * t;
+                w[1] = 1.5 * t3 - 2.5 * t2 + 1.0;
+                w[2] = -1.5 * t3 + 2.0 * t2 + 0.5 * t;
+                w[3] = 0.5 * t3 - 0.5 * t2;
+            };
+            double wx[4];
+            double wy[4];
+            cubic_weights(tx, wx);
+            cubic_weights(ty, wy);
+            double lin_r[4][4];
+            double lin_g[4][4];
+            double lin_b[4][4];
+            for (int j = 0; j < 4; ++j)
+            {
+                for (int i = 0; i < 4; ++i)
+                {
+                    Color tap{};
+                    if (!fetch_pixel(x1 - 1 + i, y1 - 1 + j, tap))
+                    {
+                        return false;
+                    }
+                    lin_r[j][i] = sdk_srgb_to_linear_unit(tap.r);
+                    lin_g[j][i] = sdk_srgb_to_linear_unit(tap.g);
+                    lin_b[j][i] = sdk_srgb_to_linear_unit(tap.b);
+                }
+            }
+            const auto convolve = [&](const double lin[4][4]) -> double {
+                double acc = 0.0;
+                for (int j = 0; j < 4; ++j)
+                {
+                    double row = 0.0;
+                    for (int i = 0; i < 4; ++i)
+                    {
+                        row += wx[i] * lin[j][i];
+                    }
+                    acc += wy[j] * row;
+                }
+                return acc;
+            };
+            // Catmull-Rom can overshoot at hard color boundaries. Clamp each
+            // reconstructed channel to the central 2x2 footprint in linear
+            // light. This retains bicubic sub-pixel detail without bright/dark
+            // halos, a visible accuracy improvement on camouflage edges.
+            const auto clamped_convolve = [&](const double lin[4][4]) -> double {
+                return mc::quality::clamp_bicubic_reconstruction(convolve(lin),
+                                                                  lin[1][1],
+                                                                  lin[1][2],
+                                                                  lin[2][1],
+                                                                  lin[2][2]);
+            };
+            resolved.r = sdk_linear_to_srgb_unit(clamped_convolve(lin_r));
+            resolved.g = sdk_linear_to_srgb_unit(clamped_convolve(lin_g));
+            resolved.b = sdk_linear_to_srgb_unit(clamped_convolve(lin_b));
+        }
+        else if (bilinear && capture.width >= 2 && capture.height >= 2)
+        {
+            // Blend the four texels surrounding the projected sub-pixel position
+            // with fractional weights (standard bilinear filter). Pixel centers
+            // sit at integer+0.5, so shift by -0.5 before flooring. This keeps
+            // fine corak/pattern edges accurate instead of aliasing them to the
+            // nearest texel.
+            const double fx = sx - 0.5;
+            const double fy = sy - 0.5;
+            const int x0 = static_cast<int>(std::floor(fx));
+            const int y0 = static_cast<int>(std::floor(fy));
+            const double tx = clamp01(fx - static_cast<double>(x0));
+            const double ty = clamp01(fy - static_cast<double>(y0));
+            Color c00{};
+            Color c10{};
+            Color c01{};
+            Color c11{};
+            if (!fetch_pixel(x0, y0, c00) ||
+                !fetch_pixel(x0 + 1, y0, c10) ||
+                !fetch_pixel(x0, y0 + 1, c01) ||
+                !fetch_pixel(x0 + 1, y0 + 1, c11))
+            {
+                return false;
+            }
+            const auto lerp = [](double a, double b, double t) -> double { return a + (b - a) * t; };
+            // Gamma-correct filtering: sRGB texels are decoded to linear light
+            // before blending, then re-encoded to sRGB. Blending in linear
+            // space avoids the too-dark midtones of naive sRGB interpolation,
+            // so corak/pattern gradients and edges keep accurate color.
+            const auto blend_channel = [&](double s00, double s10, double s01, double s11) -> double {
+                const double l00 = sdk_srgb_to_linear_unit(s00);
+                const double l10 = sdk_srgb_to_linear_unit(s10);
+                const double l01 = sdk_srgb_to_linear_unit(s01);
+                const double l11 = sdk_srgb_to_linear_unit(s11);
+                const double blended = lerp(lerp(l00, l10, tx), lerp(l01, l11, tx), ty);
+                return sdk_linear_to_srgb_unit(blended);
+            };
+            resolved.r = blend_channel(c00.r, c10.r, c01.r, c11.r);
+            resolved.g = blend_channel(c00.g, c10.g, c01.g, c11.g);
+            resolved.b = blend_channel(c00.b, c10.b, c01.b, c11.b);
+        }
+        else if (fast_area_radius > 0 &&
+                 capture.width >= (2 * fast_area_radius + 1) &&
+                 capture.height >= (2 * fast_area_radius + 1))
+        {
+            // FAST preset: a coarse stroke covers several source texels, so a
+            // single point sample under-represents it and aliases high-frequency
+            // corak/pattern. Integrate the footprint in linear light (a
+            // gamma-correct box filter) and re-encode the mean. This is the
+            // representative color for the footprint and removes aliasing/moire
+            // at a fixed, bounded per-sample cost. fetch_pixel clamps to bounds,
+            // so every tap in the window is valid here.
+            const int cx = static_cast<int>(std::round(sx));
+            const int cy = static_cast<int>(std::round(sy));
+            const auto linear_at = [&](int dx, int dy, int channel) -> double {
+                Color tap{};
+                fetch_pixel(cx + dx, cy + dy, tap);
+                const double s = channel == 0 ? tap.r : (channel == 1 ? tap.g : tap.b);
+                return sdk_srgb_to_linear_unit(s);
+            };
+            resolved.r = sdk_linear_to_srgb_unit(mc::quality::area_mean_linear(
+                [&](int dx, int dy) { return linear_at(dx, dy, 0); }, fast_area_radius));
+            resolved.g = sdk_linear_to_srgb_unit(mc::quality::area_mean_linear(
+                [&](int dx, int dy) { return linear_at(dx, dy, 1); }, fast_area_radius));
+            resolved.b = sdk_linear_to_srgb_unit(mc::quality::area_mean_linear(
+                [&](int dx, int dy) { return linear_at(dx, dy, 2); }, fast_area_radius));
+        }
+        else
+        {
+            const int px = static_cast<int>(std::round(sx));
+            const int py = static_cast<int>(std::round(sy));
+            if (!fetch_pixel(px, py, resolved))
+            {
+                return false;
+            }
         }
 
-        color = capture.capture_pixels[pixel_index];
+        if (edge_aware_sharpening && sharpen_strength > 0.0 && capture.width >= 3 && capture.height >= 3)
+        {
+            const int cx = static_cast<int>(std::floor(sx));
+            const int cy = static_cast<int>(std::floor(sy));
+            Color left{}, right_px{}, up_px{}, down{};
+            if (fetch_pixel(cx - 1, cy, left) && fetch_pixel(cx + 1, cy, right_px) &&
+                fetch_pixel(cx, cy - 1, up_px) && fetch_pixel(cx, cy + 1, down))
+            {
+                const auto linear_luma = [](const Color& c) {
+                    return 0.2126 * sdk_srgb_to_linear_unit(c.r) +
+                           0.7152 * sdk_srgb_to_linear_unit(c.g) +
+                           0.0722 * sdk_srgb_to_linear_unit(c.b);
+                };
+                const double lmin = std::min({linear_luma(left), linear_luma(right_px), linear_luma(up_px), linear_luma(down)});
+                const double lmax = std::max({linear_luma(left), linear_luma(right_px), linear_luma(up_px), linear_luma(down)});
+                const double edge_gate = clamp01((lmax - lmin) * 4.0);
+                const double amount = clamp01(sharpen_strength) * edge_gate;
+                const auto sharpen_channel = [&](double base_srgb, double a, double b, double c, double d) {
+                    const double base = sdk_srgb_to_linear_unit(base_srgb);
+                    const double blur = (sdk_srgb_to_linear_unit(a) + sdk_srgb_to_linear_unit(b) +
+                                         sdk_srgb_to_linear_unit(c) + sdk_srgb_to_linear_unit(d)) * 0.25;
+                    return sdk_linear_to_srgb_unit(clamp01(base + amount * (base - blur)));
+                };
+                resolved.r = sharpen_channel(resolved.r, left.r, right_px.r, up_px.r, down.r);
+                resolved.g = sharpen_channel(resolved.g, left.g, right_px.g, up_px.g, down.g);
+                resolved.b = sharpen_channel(resolved.b, left.b, right_px.b, up_px.b, down.b);
+            }
+        }
+
+        color = resolved;
         color.r = clamp01(color.r);
         color.g = clamp01(color.g);
         color.b = clamp01(color.b);
@@ -7049,10 +7292,16 @@ namespace
     auto mesh_first_assign_colors(const MeshFirstProfile* profile,
                                   std::vector<MeshFirstPlanSample>& samples,
                                   const SdkFrontCaptureResult& capture,
+                                  const mc::image::RgbImage* local_image,
                                   bool enable_front,
                                   bool enable_side,
                                   bool enable_back,
                                   double side_source_max_uv,
+                                  bool bilinear_color,
+                                  bool bicubic_color,
+                                  bool edge_aware_sharpening,
+                                  double sharpen_strength,
+                                  int fast_area_radius,
                                   MeshFirstPlanStats& stats) -> void
     {
         const auto& source_samples = capture.samples;
@@ -7112,6 +7361,14 @@ namespace
                                  (sample.region == MeshFirstRegion::Back && enable_back);
             if (!enabled)
             {
+                continue;
+            }
+            if (local_image && local_image->valid())
+            {
+                mc::image::sample_bilinear(*local_image, sample.u, sample.v, sample.r, sample.g, sample.b);
+                sample.roughness = 0.65; sample.metallic = 0.0;
+                sample.source_distance_component = 0.0; sample.source_distance_uv = 0.0; sample.unsafe = false;
+                ++stats.source_projection_assignments; ++stats.enabled_samples;
                 continue;
             }
             if (source_samples.empty())
@@ -7231,7 +7488,7 @@ namespace
                 if (!(profile && sample.region == MeshFirstRegion::Side))
                 {
                     Color projected_color{};
-                    if (mesh_first_capture_project_color(capture, sample.world_position, projected_color))
+                    if (mesh_first_capture_project_color(capture, sample.world_position, projected_color, bilinear_color, bicubic_color, edge_aware_sharpening, sharpen_strength, fast_area_radius))
                     {
                         sample.source_distance_component = 0.0;
                         sample.source_distance_uv = 0.0;
@@ -7357,6 +7614,7 @@ namespace
 
     auto mesh_first_write_uv_debug_artifacts(const std::vector<MeshFirstPlanSample>& samples,
                                              int texture_size,
+                                             int detail,
                                              bool enable_front,
                                              bool enable_side,
                                              bool enable_back,
@@ -7369,18 +7627,40 @@ namespace
             metadata += ",\"mesh_debug_artifacts_failure\":\"runtime_log_dir_unavailable\"";
             return;
         }
-        const int size = std::max(64, std::min(2048, texture_size));
+        // Manual detection detail (1..5). Higher detail raises the UV map
+        // resolution and tightens the per-sample mark so detected corak/garis
+        // map more exactly; lower detail uses fatter marks for coverage.
+        const int detail_level = std::max(1, std::min(5, detail));
+        // Keep artifact generation bounded: the previous texture_size*detail
+        // rule could allocate hundreds of MB at level 5. The new curve reaches
+        // 2x native resolution while capping at 2048, then recovers sharp edges
+        // algorithmically below instead of brute-force oversizing the bitmap.
+        const double resolution_scale =
+            detail_level == 1 ? 0.50 :
+            detail_level == 2 ? 0.75 :
+            detail_level == 3 ? 1.00 :
+            detail_level == 4 ? 1.50 : 2.00;
+        const int size = std::max(64, std::min(2048, static_cast<int>(std::lround(static_cast<double>(texture_size) * resolution_scale))));
+        const int dot_radius = detail_level >= 4 ? 0 : (detail_level >= 2 ? 1 : 2);
         const auto stamp = std::to_wstring(GetTickCount64());
         const auto color_path = dir + L"\\mesh-first-uv-color-" + stamp + L".bmp";
         const auto region_path = dir + L"\\mesh-first-uv-region-" + stamp + L".bmp";
+        const auto edge_path = dir + L"\\mesh-first-uv-edges-" + stamp + L".bmp";
         std::vector<std::uint8_t> color_rgb(static_cast<std::size_t>(size) * static_cast<std::size_t>(size) * 3, 8);
         std::vector<std::uint8_t> region_rgb(static_cast<std::size_t>(size) * static_cast<std::size_t>(size) * 3, 8);
+        // Sub-pixel anti-aliased accumulation buffers for the UV color map. Each
+        // sample is splatted with a separable tent footprint (radius scales with
+        // detail), so detected corak/garis land at their exact fractional UV
+        // position instead of being snapped to one hard pixel -> sharper and
+        // more accurate at high detail, softer coverage at low detail.
+        std::vector<float> accum_rgb(static_cast<std::size_t>(size) * static_cast<std::size_t>(size) * 3, 0.0f);
+        std::vector<float> accum_w(static_cast<std::size_t>(size) * static_cast<std::size_t>(size), 0.0f);
         auto draw = [&](std::vector<std::uint8_t>& image, double u, double v, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
             const int cx = std::max(0, std::min(size - 1, static_cast<int>(std::round(clamp01(u) * static_cast<double>(size - 1)))));
             const int cy = std::max(0, std::min(size - 1, static_cast<int>(std::round((1.0 - clamp01(v)) * static_cast<double>(size - 1)))));
-            for (int dy = -1; dy <= 1; ++dy)
+            for (int dy = -dot_radius; dy <= dot_radius; ++dy)
             {
-                for (int dx = -1; dx <= 1; ++dx)
+                for (int dx = -dot_radius; dx <= dot_radius; ++dx)
                 {
                     const int x = cx + dx;
                     const int y = cy + dy;
@@ -7395,6 +7675,37 @@ namespace
                 }
             }
         };
+        const double splat_radius = detail_level >= 5 ? 0.75 : static_cast<double>(dot_radius) + 1.0;
+        auto splat = [&](double u, double v, double sr, double sg, double sb) {
+            const double fx = clamp01(u) * static_cast<double>(size - 1);
+            const double fy = (1.0 - clamp01(v)) * static_cast<double>(size - 1);
+            const int x_lo = std::max(0, static_cast<int>(std::floor(fx - splat_radius)));
+            const int x_hi = std::min(size - 1, static_cast<int>(std::ceil(fx + splat_radius)));
+            const int y_lo = std::max(0, static_cast<int>(std::floor(fy - splat_radius)));
+            const int y_hi = std::min(size - 1, static_cast<int>(std::ceil(fy + splat_radius)));
+            for (int y = y_lo; y <= y_hi; ++y)
+            {
+                const double wy = 1.0 - std::abs(static_cast<double>(y) - fy) / splat_radius;
+                if (wy <= 0.0)
+                {
+                    continue;
+                }
+                for (int x = x_lo; x <= x_hi; ++x)
+                {
+                    const double wx = 1.0 - std::abs(static_cast<double>(x) - fx) / splat_radius;
+                    if (wx <= 0.0)
+                    {
+                        continue;
+                    }
+                    const double w = wx * wy;
+                    const auto pidx = static_cast<std::size_t>(y) * static_cast<std::size_t>(size) + static_cast<std::size_t>(x);
+                    accum_rgb[pidx * 3 + 0] += static_cast<float>(w * sr);
+                    accum_rgb[pidx * 3 + 1] += static_cast<float>(w * sg);
+                    accum_rgb[pidx * 3 + 2] += static_cast<float>(w * sb);
+                    accum_w[pidx] += static_cast<float>(w);
+                }
+            }
+        };
         int written_samples = 0;
         for (const auto& sample : samples)
         {
@@ -7405,12 +7716,7 @@ namespace
             {
                 continue;
             }
-            draw(color_rgb,
-                 sample.u,
-                 sample.v,
-                 static_cast<std::uint8_t>(std::round(clamp01(sample.r) * 255.0)),
-                 static_cast<std::uint8_t>(std::round(clamp01(sample.g) * 255.0)),
-                 static_cast<std::uint8_t>(std::round(clamp01(sample.b) * 255.0)));
+            splat(sample.u, sample.v, clamp01(sample.r), clamp01(sample.g), clamp01(sample.b));
             if (sample.region == MeshFirstRegion::Front)
             {
                 draw(region_rgb, sample.u, sample.v, 255, 80, 80);
@@ -7425,8 +7731,90 @@ namespace
             }
             ++written_samples;
         }
+        const std::size_t pixel_count = static_cast<std::size_t>(size) * static_cast<std::size_t>(size);
+        for (std::size_t p = 0; p < pixel_count; ++p)
+        {
+            const double w = static_cast<double>(accum_w[p]);
+            if (w <= 0.0)
+            {
+                continue;
+            }
+            color_rgb[p * 3 + 0] = static_cast<std::uint8_t>(std::round(clamp01(static_cast<double>(accum_rgb[p * 3 + 0]) / w) * 255.0));
+            color_rgb[p * 3 + 1] = static_cast<std::uint8_t>(std::round(clamp01(static_cast<double>(accum_rgb[p * 3 + 1]) / w) * 255.0));
+            color_rgb[p * 3 + 2] = static_cast<std::uint8_t>(std::round(clamp01(static_cast<double>(accum_rgb[p * 3 + 2]) / w) * 255.0));
+        }
+        std::vector<std::uint8_t> edge_rgb(pixel_count * 3, 0);
+        std::vector<float> edge_strength(pixel_count, 0.0f);
+        std::vector<std::uint8_t> edge_direction(pixel_count, 0);
+        auto luminance = [&](int x, int y) {
+            const auto i = (static_cast<std::size_t>(y) * static_cast<std::size_t>(size) + static_cast<std::size_t>(x)) * 3;
+            return 0.2126 * static_cast<double>(color_rgb[i]) + 0.7152 * static_cast<double>(color_rgb[i + 1]) + 0.0722 * static_cast<double>(color_rgb[i + 2]);
+        };
+        // Scharr gradients have better rotational symmetry than Sobel for thin
+        // diagonal camouflage lines. Quantized non-maximum suppression keeps
+        // one-pixel ridges, and weak-edge hysteresis preserves connected detail
+        // without promoting isolated texture noise.
+        for (int y = 1; y + 1 < size; ++y)
+        {
+            for (int x = 1; x + 1 < size; ++x)
+            {
+                const auto gradient = mc::quality::scharr_3x3([&](int dx, int dy) {
+                    return luminance(x + dx, y + dy);
+                });
+                const auto p = static_cast<std::size_t>(y) * static_cast<std::size_t>(size) + static_cast<std::size_t>(x);
+                edge_strength[p] = static_cast<float>(gradient.magnitude);
+                edge_direction[p] = gradient.direction;
+            }
+        }
+        const float strong_threshold = static_cast<float>(60 - detail_level * 8);
+        const float weak_threshold = strong_threshold * 0.45f;
+        std::vector<std::uint8_t> nms(pixel_count, 0);
+        for (int y = 1; y + 1 < size; ++y)
+        {
+            for (int x = 1; x + 1 < size; ++x)
+            {
+                const auto p = static_cast<std::size_t>(y) * static_cast<std::size_t>(size) + static_cast<std::size_t>(x);
+                const float center = edge_strength[p];
+                int dx = 1;
+                int dy = 0;
+                if (edge_direction[p] == 1) { dx = 0; dy = 1; }
+                else if (edge_direction[p] == 2) { dx = 1; dy = 1; }
+                else if (edge_direction[p] == 3) { dx = 1; dy = -1; }
+                const auto before = static_cast<std::size_t>(y - dy) * static_cast<std::size_t>(size) + static_cast<std::size_t>(x - dx);
+                const auto after = static_cast<std::size_t>(y + dy) * static_cast<std::size_t>(size) + static_cast<std::size_t>(x + dx);
+                if (center >= edge_strength[before] && center >= edge_strength[after] && center >= weak_threshold)
+                {
+                    nms[p] = static_cast<std::uint8_t>(std::lround(center));
+                }
+            }
+        }
+        std::size_t strong_edge_pixels = 0;
+        for (int y = 1; y + 1 < size; ++y)
+        {
+            for (int x = 1; x + 1 < size; ++x)
+            {
+                const auto p = static_cast<std::size_t>(y) * static_cast<std::size_t>(size) + static_cast<std::size_t>(x);
+                bool connected = nms[p] >= strong_threshold;
+                if (!connected && nms[p] >= weak_threshold)
+                {
+                    for (int dy = -1; dy <= 1 && !connected; ++dy)
+                    {
+                        for (int dx = -1; dx <= 1; ++dx)
+                        {
+                            const auto q = static_cast<std::size_t>(y + dy) * static_cast<std::size_t>(size) + static_cast<std::size_t>(x + dx);
+                            if (nms[q] >= strong_threshold) { connected = true; break; }
+                        }
+                    }
+                }
+                const std::uint8_t edge = connected ? nms[p] : 0;
+                if (edge != 0) { ++strong_edge_pixels; }
+                const auto i = p * 3;
+                edge_rgb[i] = edge_rgb[i + 1] = edge_rgb[i + 2] = edge;
+            }
+        }
         const bool color_ok = mesh_first_write_bmp_rgb(color_path, size, size, color_rgb);
         const bool region_ok = mesh_first_write_bmp_rgb(region_path, size, size, region_rgb);
+        const bool edge_ok = mesh_first_write_bmp_rgb(edge_path, size, size, edge_rgb);
         auto narrow = [](const std::wstring& value) {
             std::string out{};
             out.reserve(value.size());
@@ -7440,6 +7828,15 @@ namespace
         metadata += ",\"mesh_debug_artifact_samples\":" + std::to_string(written_samples);
         metadata += ",\"mesh_debug_uv_color_bmp\":\"" + json_escape(narrow(color_path)) + "\"";
         metadata += ",\"mesh_debug_uv_region_bmp\":\"" + json_escape(narrow(region_path)) + "\"";
+        metadata += ",\"mesh_debug_uv_edge_bmp\":\"" + json_escape(narrow(edge_path)) + "\"";
+        metadata += ",\"mesh_debug_uv_edge_detector\":\"scharr_3x3_nms_hysteresis\"";
+        metadata += ",\"mesh_debug_uv_edge_written\":" + std::string(json_bool(edge_ok));
+        metadata += ",\"mesh_debug_uv_strong_edge_pixels\":" + std::to_string(strong_edge_pixels);
+        metadata += ",\"mesh_debug_uv_antialiased\":true";
+        metadata += ",\"mesh_debug_uv_splat_radius\":" + std::to_string(splat_radius);
+        metadata += ",\"mesh_debug_uv_resolution_scale\":" + std::to_string(resolution_scale);
+        metadata += ",\"mesh_debug_uv_edge_strong_threshold\":" + std::to_string(strong_threshold);
+        metadata += ",\"mesh_debug_uv_edge_weak_threshold\":" + std::to_string(weak_threshold);
     }
 
     auto mesh_first_write_projection_debug_artifact(const std::vector<MeshFirstPlanSample>& samples,
@@ -8421,12 +8818,8 @@ namespace
 
         const int sent_delta = std::max(0, job->server_strokes_sent - job->replication_pacing_model_sample_sent);
         const int drained = std::max(0, job->replication_pacing_model_sample_queue + sent_delta - queue);
-        auto update_rate = [](double& target, double sample) {
-            if (!std::isfinite(sample) || sample <= 0.0)
-            {
-                return;
-            }
-            target = target <= 0.0 ? sample : (target * 0.70) + (sample * 0.30);
+        auto update_rate = [&](double& target, double sample) {
+            target = mc::quality::adaptive_rate_ewma(target, sample, delta_ms);
         };
         update_rate(job->replication_pacing_queue_drain_strokes_per_ms,
                     static_cast<double>(drained) / delta_ms);
@@ -9046,9 +9439,9 @@ namespace
     auto paint_mesh_first_on_game_thread(const std::string& request,
                                          const std::shared_ptr<QueuedPaintJob>& queued_job) -> std::string
     {
-        const auto front_region_mode = mesh_first_parse_region_mode(request, "front_region_mode");
-        const auto side_region_mode = mesh_first_parse_region_mode(request, "side_region_mode");
-        const auto back_region_mode = mesh_first_parse_region_mode(request, "back_region_mode");
+        const auto front_region_mode = mesh_first_parse_region_mode(request, "front_region_mode", "enable_front_paint");
+        const auto side_region_mode = mesh_first_parse_region_mode(request, "side_region_mode", "enable_side_paint");
+        const auto back_region_mode = mesh_first_parse_region_mode(request, "back_region_mode", "enable_back_paint");
         const bool enable_front = front_region_mode == MeshFirstRegionMode::Paint;
         const bool enable_side = side_region_mode == MeshFirstRegionMode::Paint;
         const bool enable_back = back_region_mode == MeshFirstRegionMode::Paint;
@@ -9065,9 +9458,40 @@ namespace
         const double tuning_coverage_step_texels = clamp_range(json_number_field(request, "coverage_step_texels", 9.0), 1.0, 12.0);
         const double tuning_side_source_max_uv = clamp_range(json_number_field(request, "side_source_max_uv", 0.08), 0.001, 0.50);
         const double tuning_front_back_source_max_uv = clamp_range(json_number_field(request, "front_back_source_max_uv", 0.45), 0.001, 2.00);
-        const bool tuning_auto_material = json_bool_field(request, "auto_material", false);
+        const bool tuning_auto_material_properties = json_bool_field(request, "auto_material_properties", true);
         const double tuning_metallic = clamp_range(json_number_field(request, "metallic", 0.0), 0.0, 1.0);
         const double tuning_roughness = clamp_range(json_number_field(request, "roughness", 1.0), 0.0, 1.0);
+        // --- Accuracy / quality tuning (v2). Absent keys keep legacy behavior. ---
+        const bool tuning_enable_bilinear = json_bool_field(request, "enable_bilinear", false);
+        const bool tuning_bicubic_color = json_bool_field(request, "bicubic_color_sampling", false);
+        const double tuning_dither_strength = clamp_range(json_number_field(request, "dither_strength", 0.0), 0.0, 1.0);
+        const double tuning_min_roughness = clamp_range(json_number_field(request, "min_roughness", 0.0), 0.0, 1.0);
+        const double tuning_falloff_hardness = clamp_range(json_number_field(request, "falloff_hardness_pct", 100.0), 0.0, 100.0) / 100.0;
+        const int tuning_coverage_supersample = json_int_field(request, "coverage_supersample", 1, 1, 3);
+        const bool tuning_edge_aware_sharpening = json_bool_field(request, "edge_aware_sharpening", false);
+        const double tuning_sharpen_strength = clamp_range(json_number_field(request, "sharpen_strength", 0.0), 0.0, 1.0);
+        // FAST preset (no bilinear/bicubic): integrate a stroke-scaled footprint
+        // instead of point sampling. Higher tiers do sub-pixel interpolation and
+        // keep radius 0 so their color paths are unchanged.
+        const int tuning_fast_area_radius =
+            (!tuning_enable_bilinear && !tuning_bicubic_color)
+                ? mc::quality::fast_footprint_radius(tuning_stroke_size_texels)
+                : 0;
+        const bool tuning_detection_artifacts = json_bool_field(request, "detection_artifacts", false);
+        const int tuning_detection_detail = json_int_field(request, "detection_detail", 2, 1, 5);
+        const bool tuning_local_image_enabled = json_bool_field(request, "local_image_enabled", false);
+        const bool tuning_bypass_live_capture = json_bool_field(request, "bypass_live_capture", false);
+        const std::string tuning_local_image_path = json_string_field(request, "local_image_path", "");
+        // Detection detail is part of the real planner, not only its debug
+        // artifacts.  The sub-linear density curve preserves responsiveness at
+        // levels 1..3, while levels 4..5 tighten sampling around fine UV detail.
+        const double tuning_detection_density_fallback = mc::quality::detection_density(tuning_detection_detail);
+        const double tuning_detection_density =
+            clamp_range(json_number_field(request, "detection_density", tuning_detection_density_fallback), 0.85, 1.60);
+        const double tuning_effective_density =
+            std::max(static_cast<double>(std::max(1, tuning_coverage_supersample)), tuning_detection_density);
+        const double tuning_effective_coverage_step =
+            std::max(1.0, tuning_coverage_step_texels / tuning_effective_density);
         const double fill_color_r = clamp_range(json_number_field(request, "fill_color_r", 1.0), 0.0, 1.0);
         const double fill_color_g = clamp_range(json_number_field(request, "fill_color_g", 1.0), 0.0, 1.0);
         const double fill_color_b = clamp_range(json_number_field(request, "fill_color_b", 1.0), 0.0, 1.0);
@@ -9076,7 +9500,7 @@ namespace
         const bool tuning_replication_pacing_enabled =
             json_bool_field(request, "replication_pacing_enabled", json_bool_field(request, "adaptive_batch_enabled", true));
         const int tuning_server_batch_limit = json_int_field(request, "server_batch_limit", PackedReplicationDefaultBatchLimit, 1, PackedReplicationMaxBatchLimit);
-        const int tuning_server_batch_delay_ms = json_int_field(request, "server_batch_delay_ms", PackedReplicationDefaultPacingMs, 50, 100);
+        const int tuning_server_batch_delay_ms = json_int_field(request, "server_batch_delay_ms", PackedReplicationDefaultPacingMs, PackedReplicationMinPacingMs, 100);
         const int packed_server_batch_seed_delay_ms = tuning_server_batch_delay_ms;
         const std::string requested_server_batch_rpc = json_string_field(request, "server_batch_rpc", "");
         const std::string requested_server_batch_rpc_normalized = lower_copy(requested_server_batch_rpc);
@@ -9089,6 +9513,21 @@ namespace
             requested_server_batch_rpc_normalized == "server_packed_paint_batch";
 
         std::string metadata = "\"route\":\"mesh_first_paint\"";
+        mc::image::RgbImage local_image{}; std::string local_image_failure{};
+        if (tuning_local_image_enabled)
+        {
+            int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, tuning_local_image_path.c_str(), -1, nullptr, 0);
+            std::wstring path(count > 0 ? static_cast<std::size_t>(count) : 0, L'\0');
+            if (count > 1) { MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, tuning_local_image_path.c_str(), -1, path.data(), count); path.resize(static_cast<std::size_t>(count - 1)); }
+            std::string raw{};
+            if (path.empty() || !read_text_file_w(path, raw)) local_image_failure = "local_image_read_failed";
+            else { std::vector<std::uint8_t> bytes(raw.begin(), raw.end()); mc::image::decode_bmp(bytes, local_image, local_image_failure); }
+            if (!local_image.valid()) return response_json(false, "local_image_invalid", 0, 1, "Local image could not be decoded", metadata + ",\"local_image_failure\":\"" + json_escape(local_image_failure) + "\"");
+        }
+        metadata += ",\"local_image_enabled\":" + std::string(json_bool(local_image.valid()));
+        metadata += ",\"local_image_width\":" + std::to_string(local_image.width);
+        metadata += ",\"local_image_height\":" + std::to_string(local_image.height);
+        metadata += ",\"live_capture_bypassed\":" + std::string(json_bool(local_image.valid() && tuning_bypass_live_capture));
         const std::string mesh_first_pipeline =
             unpreview_only ? "local_preview_restore"
                            : (preview_only ? "profile_v2_pose_uv_atlas_local_preview"
@@ -9104,6 +9543,9 @@ namespace
         metadata += ",\"server_paint_batch_required\":" + std::string(json_bool(normal_paint_requires_packed));
         metadata += ",\"server_packed_paint_batch_required\":" + std::string(json_bool(normal_paint_requires_packed));
         metadata += ",\"research_artifacts_requested\":" + std::string(json_bool(research_artifacts));
+        metadata += ",\"enable_front_paint\":" + std::string(json_bool(enable_front));
+        metadata += ",\"enable_side_paint\":" + std::string(json_bool(enable_side));
+        metadata += ",\"enable_back_paint\":" + std::string(json_bool(enable_back));
         metadata += ",\"front_region_mode\":\"" + std::string(mesh_first_region_mode_name(front_region_mode)) + "\"";
         metadata += ",\"side_region_mode\":\"" + std::string(mesh_first_region_mode_name(side_region_mode)) + "\"";
         metadata += ",\"back_region_mode\":\"" + std::string(mesh_first_region_mode_name(back_region_mode)) + "\"";
@@ -9124,8 +9566,8 @@ namespace
         metadata += ",\"coverage_step_texels\":" + std::to_string(tuning_coverage_step_texels);
         metadata += ",\"side_source_max_uv\":" + std::to_string(tuning_side_source_max_uv);
         metadata += ",\"front_back_source_max_uv\":" + std::to_string(tuning_front_back_source_max_uv);
-        metadata += ",\"auto_material\":" + std::string(json_bool(tuning_auto_material));
-        metadata += ",\"material_properties_mode\":\"" + std::string(tuning_auto_material ? "auto" : "manual") + "\"";
+        metadata += ",\"auto_material_properties\":" + std::string(json_bool(tuning_auto_material_properties));
+        metadata += ",\"material_properties_mode\":\"" + std::string(tuning_auto_material_properties ? "auto" : "manual") + "\"";
         metadata += ",\"metallic\":" + std::to_string(tuning_metallic);
         metadata += ",\"roughness\":" + std::to_string(tuning_roughness);
         metadata += ",\"fill_color_space\":\"srgb\"";
@@ -9694,7 +10136,7 @@ namespace
                                                                  center_ray.location,
                                                                  camera_direction,
                                                                  region_axis,
-                                                                 tuning_coverage_step_texels,
+                                                                 tuning_effective_coverage_step,
                                                                  plan_samples,
                                                                  plan_stats,
                                                                  planner_failure))
@@ -9765,7 +10207,7 @@ namespace
 
         SdkFrontCaptureResult capture{};
         metadata += ",\"mesh_capture_required\":" + std::string(json_bool(any_paint_region));
-        if (any_paint_region)
+        if (any_paint_region && !(local_image.valid() && tuning_bypass_live_capture))
         {
             write_bridge_progress("mesh_basecolor_capture",
                                   "Capturing mesh-first source BaseColor",
@@ -9795,10 +10237,16 @@ namespace
             mesh_first_assign_colors(profile_available ? &profile : nullptr,
                                      plan_samples,
                                      capture,
+                                     local_image.valid() ? &local_image : nullptr,
                                      enable_front,
                                      enable_side,
                                      enable_back,
                                      tuning_side_source_max_uv,
+                                     tuning_enable_bilinear,
+                                     tuning_bicubic_color,
+                                     tuning_edge_aware_sharpening,
+                                     tuning_sharpen_strength,
+                                     tuning_fast_area_radius,
                                      plan_stats);
         }
         else
@@ -9809,6 +10257,13 @@ namespace
             metadata += ",\"mesh_capture_elapsed_ms\":0";
             metadata += ",\"mesh_capture_request_width\":" + std::to_string(capture_request_width);
             metadata += ",\"mesh_capture_request_height\":" + std::to_string(capture_request_height);
+        }
+        if (any_paint_region && local_image.valid() && tuning_bypass_live_capture)
+        {
+            mesh_first_assign_colors(profile_available ? &profile : nullptr, plan_samples, capture, &local_image,
+                                     enable_front, enable_side, enable_back, tuning_side_source_max_uv,
+                                     tuning_enable_bilinear, tuning_bicubic_color, tuning_edge_aware_sharpening,
+                                     tuning_sharpen_strength, tuning_fast_area_radius, plan_stats);
         }
 
         metadata += ",";
@@ -9829,10 +10284,11 @@ namespace
                                  "mesh-first planner found unsafe color-transfer candidates in enabled regions; replay was blocked instead of skipping samples",
                                  metadata + ",\"replay_blocked\":true");
         }
-        if (research_artifacts)
+        if (research_artifacts || tuning_detection_artifacts)
         {
             mesh_first_write_uv_debug_artifacts(plan_samples,
                                                 active_texture_size,
+                                                tuning_detection_detail,
                                                 replay_front_enabled,
                                                 replay_side_enabled,
                                                 replay_back_enabled,
@@ -9849,7 +10305,7 @@ namespace
         safe_copy(&brush,
                   reinterpret_cast<const void*>(ctx.component + sdk::FieldOffsets::RuntimePaintable_CurrentBrushSettings),
                   sizeof(brush));
-        brush.Hardness = 1.0f;
+        brush.Hardness = static_cast<float>(clamp01(tuning_falloff_hardness));
         brush.Opacity = 1.0f;
         const double stroke_radius_texels = tuning_stroke_size_texels;
         const double stroke_radius_uv = stroke_radius_texels / static_cast<double>(std::max(1, active_texture_size));
@@ -9860,11 +10316,28 @@ namespace
         metadata += ",\"stroke_size_texels\":" + std::to_string(tuning_stroke_size_texels);
         metadata += ",\"stroke_radius_texels\":" + std::to_string(stroke_radius_texels);
         metadata += ",\"stroke_radius_uv\":" + std::to_string(stroke_radius_uv);
+        metadata += ",\"quality_enable_bilinear\":" + std::string(json_bool(tuning_enable_bilinear));
+        metadata += ",\"quality_bicubic_color\":" + std::string(json_bool(tuning_bicubic_color));
+        metadata += ",\"quality_dither_strength\":" + std::to_string(tuning_dither_strength);
+        metadata += ",\"quality_min_roughness\":" + std::to_string(tuning_min_roughness);
+        metadata += ",\"quality_falloff_hardness\":" + std::to_string(tuning_falloff_hardness);
+        metadata += ",\"quality_coverage_supersample\":" + std::to_string(tuning_coverage_supersample);
+        metadata += ",\"quality_edge_aware_sharpening\":" + std::string(json_bool(tuning_edge_aware_sharpening));
+        metadata += ",\"quality_sharpen_strength\":" + std::to_string(tuning_sharpen_strength);
+        metadata += ",\"quality_fast_area_radius\":" + std::to_string(tuning_fast_area_radius);
+        metadata += ",\"quality_effective_coverage_step\":" + std::to_string(tuning_effective_coverage_step);
+        metadata += ",\"detection_artifacts_enabled\":" + std::string(json_bool(tuning_detection_artifacts));
+        metadata += ",\"detection_detail\":" + std::to_string(tuning_detection_detail);
+        metadata += ",\"detection_planner_density\":" + std::to_string(tuning_detection_density);
+        metadata += ",\"effective_planner_density\":" + std::to_string(tuning_effective_density);
 
         const bool any_fill_region = front_region_mode == MeshFirstRegionMode::Fill ||
                                      side_region_mode == MeshFirstRegionMode::Fill ||
                                      back_region_mode == MeshFirstRegionMode::Fill;
         sdk::FRuntimeBrushSettings fill_brush = brush;
+        // Solid fill regions always paint at full hardness; only per-sample paint
+        // strokes honor the tunable falloff hardness.
+        fill_brush.Hardness = 1.0f;
         const double fill_stroke_radius_texels =
             any_fill_region ? clamp_range(std::max(tuning_stroke_size_texels * 4.0, 32.0),
                                           tuning_stroke_size_texels,
@@ -9905,14 +10378,14 @@ namespace
         metadata += ",\"paint_target_channel\":\"all\"";
         metadata += ",\"paint_target_channel_value\":" + std::to_string(static_cast<int>(paint_target_channel));
         MeshFirstMaterialProperties material_properties{};
-        if (any_paint_region && tuning_auto_material)
+        if (any_paint_region && tuning_auto_material_properties)
         {
             material_properties = mesh_first_get_dominant_material_properties(ref, ctx.component);
         }
         metadata += ",\"material_properties_source\":\"" +
                     std::string(!any_paint_region
                                     ? "fill_material_only"
-                                    : (!tuning_auto_material
+                                    : (!tuning_auto_material_properties
                                     ? "manual_tuning"
                                     : (material_properties.ok ? "dominant_paint_material_patterns" : "source_samples_fallback"))) +
                     "\"";
@@ -9979,7 +10452,7 @@ namespace
                     {
                         double stroke_metallic = tuning_metallic;
                         double stroke_roughness = tuning_roughness;
-                        if (tuning_auto_material)
+                        if (tuning_auto_material_properties)
                         {
                             if (material_properties.ok)
                             {
@@ -9994,11 +10467,37 @@ namespace
                                 ++material_properties_source_sample_fallbacks;
                             }
                         }
-                        channel = sdk_make_channel(sdk_srgb_to_linear_unit(sample.r),
-                                                   sdk_srgb_to_linear_unit(sample.g),
-                                                   sdk_srgb_to_linear_unit(sample.b),
+                        // Ordered (Bayer 4x4) dithering breaks up 8-bit gradient
+                        // banding on the packed replication route. The offset is a
+                        // sub-quantization-step perturbation keyed to the texel
+                        // coordinate, so adjacent texels alternate deterministically.
+                        double sample_r = clamp01(sample.r);
+                        double sample_g = clamp01(sample.g);
+                        double sample_b = clamp01(sample.b);
+                        if (tuning_dither_strength > 0.0)
+                        {
+                            static const int bayer4[4][4] = {
+                                { 0,  8,  2, 10},
+                                {12,  4, 14,  6},
+                                { 3, 11,  1,  9},
+                                {15,  7, 13,  5}};
+                            const int tex = std::max(1, active_texture_size);
+                            const int tx = static_cast<int>(std::floor(clamp01(sample.u) * static_cast<double>(tex)));
+                            const int ty = static_cast<int>(std::floor(clamp01(sample.v) * static_cast<double>(tex)));
+                            const double threshold = (static_cast<double>(bayer4[ty & 3][tx & 3]) + 0.5) / 16.0 - 0.5;
+                            const double offset = threshold * tuning_dither_strength / 255.0;
+                            sample_r = clamp01(sample_r + offset);
+                            sample_g = clamp01(sample_g + offset);
+                            sample_b = clamp01(sample_b + offset);
+                        }
+                        // Roughness floor prevents mirror-like specular artifacts
+                        // when the sampled source is near-zero roughness.
+                        const double stroke_roughness_final = std::max(clamp01(stroke_roughness), tuning_min_roughness);
+                        channel = sdk_make_channel(sdk_srgb_to_linear_unit(sample_r),
+                                                   sdk_srgb_to_linear_unit(sample_g),
+                                                   sdk_srgb_to_linear_unit(sample_b),
                                                    stroke_metallic,
-                                                   stroke_roughness,
+                                                   stroke_roughness_final,
                                                    sdk::EPaintChannelApplyMode::Override);
                     }
                     const auto& stroke_brush = fill_mode ? fill_brush : brush;
@@ -11991,6 +12490,16 @@ namespace
             return srgb / 12.92;
         }
         return std::pow((srgb + 0.055) / 1.055, 2.4);
+    }
+
+    auto sdk_linear_to_srgb_unit(double value) -> double
+    {
+        const auto linear = clamp01(value);
+        if (linear <= 0.0031308)
+        {
+            return linear * 12.92;
+        }
+        return 1.055 * std::pow(linear, 1.0 / 2.4) - 0.055;
     }
 
     auto sdk_make_channel(double r,
@@ -14653,105 +15162,6 @@ namespace
     // Risk: very high. C# and WebView2 reach native behavior by command strings.
     // =============================================================================
 
-    auto fixed_hex_matches(const std::string& text, const std::uint8_t* expected, std::size_t expected_bytes) -> bool
-    {
-        if (!expected || text.size() != expected_bytes * 2)
-        {
-            return false;
-        }
-        std::uint8_t different = 0;
-        bool valid = true;
-        for (std::size_t index = 0; index < expected_bytes; ++index)
-        {
-            std::uint8_t high = 0;
-            std::uint8_t low = 0;
-            const bool pair_valid = hex_nibble(text[index * 2], high) && hex_nibble(text[index * 2 + 1], low);
-            valid = valid && pair_valid;
-            const std::uint8_t received = static_cast<std::uint8_t>((high << 4) | low);
-            different |= static_cast<std::uint8_t>(received ^ expected[index]);
-        }
-        return valid && different == 0;
-    }
-
-    auto send_client_text(SOCKET client, const std::string& response) -> bool
-    {
-        std::size_t sent = 0;
-        while (sent < response.size())
-        {
-            const int written = send(client,
-                                     response.data() + sent,
-                                     static_cast<int>(std::min<std::size_t>(response.size() - sent, static_cast<std::size_t>(INT_MAX))),
-                                     0);
-            if (written <= 0)
-            {
-                return false;
-            }
-            sent += static_cast<std::size_t>(written);
-        }
-        return true;
-    }
-
-    auto read_client_line(SOCKET client, std::string& pending, std::string& line) -> bool
-    {
-        line.clear();
-        while (pending.size() < MaxRequestBytes)
-        {
-            const auto newline = pending.find('\n');
-            if (newline != std::string::npos)
-            {
-                line.assign(pending.data(), newline);
-                pending.erase(0, newline + 1);
-                if (!line.empty() && line.back() == '\r')
-                {
-                    line.pop_back();
-                }
-                return true;
-            }
-            char buffer[16384]{};
-            const int received = recv(client, buffer, static_cast<int>(sizeof(buffer)), 0);
-            if (received <= 0)
-            {
-                return false;
-            }
-            pending.append(buffer, static_cast<std::size_t>(received));
-        }
-        return false;
-    }
-
-    auto hello_response() -> std::string
-    {
-        return response_json(true,
-                             "hello",
-                             0,
-                             0,
-                             "bridge identity verified",
-                                 "\"pid\":" + std::to_string(GetCurrentProcessId()) +
-                                 ",\"instance_id\":\"" + bytes_to_hex(g_bridge_identity.instance_guid, 16) + "\"" +
-                                 ",\"bridge_hash\":\"" + bytes_to_hex(g_bridge_identity.sha256, 32) + "\"" +
-                                 ",\"protocol_version\":" + std::to_string(BridgeBootstrapProtocolV1) +
-                                 ",\"port\":" + std::to_string(g_bound_port.load()));
-    }
-
-    auto valid_hello(const std::string& request) -> bool
-    {
-        return g_bridge_started.load() &&
-               json_string_field(request, "type", "") == "hello" &&
-               json_int_field(request, "bootstrap_protocol", 0, 0, 100) == static_cast<int>(BridgeBootstrapProtocolV1) &&
-               fixed_hex_matches(json_string_field(request, "instance_id", ""), g_bridge_identity.instance_guid, 16) &&
-               fixed_hex_matches(json_string_field(request, "token", ""), g_bridge_identity.token, 32);
-    }
-
-    auto request_bridge_stop() -> void
-    {
-        g_running.store(false);
-        const SOCKET listener = g_listener.exchange(INVALID_SOCKET);
-        if (listener != INVALID_SOCKET)
-        {
-            shutdown(listener, SD_BOTH);
-            closesocket(listener);
-        }
-    }
-
     auto handle_request(const std::string& line) -> std::string
     {
         if (line.find("\"type\":\"ping\"") != std::string::npos)
@@ -14762,7 +15172,7 @@ namespace
                                  0,
                                  "pong",
                                  "\"pid\":" + std::to_string(GetCurrentProcessId()) +
-                                     ",\"port\":" + std::to_string(g_bound_port.load()));
+                                     ",\"port\":" + std::to_string(resolve_bridge_port()));
         }
         if (line.find("\"type\":\"capabilities\"") != std::string::npos)
         {
@@ -14797,7 +15207,7 @@ namespace
             const int cancelled_active = force_cancel_active_mesh_first_batch_job("shutdown");
             const int cancelled_queued = cancel_queued_paint_jobs("shutdown");
             uninstall_process_event_hook();
-            request_bridge_stop();
+            g_running.store(false);
             return response_json(true,
                                  "shutdown",
                                  0,
@@ -14839,37 +15249,98 @@ namespace
 
         const int timeout_ms = 5000;
         setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout_ms), sizeof(timeout_ms));
-        std::string pending{};
-        pending.reserve(65536);
-        std::string hello{};
-        if (!read_client_line(client, pending, hello))
+        std::string request{};
+        request.reserve(65536);
+        char buffer[16384]{};
+        while (request.size() < MaxRequestBytes)
         {
-            return;
+            const int received = recv(client, buffer, static_cast<int>(sizeof(buffer)), 0);
+            if (received <= 0)
+            {
+                break;
+            }
+            request.append(buffer, static_cast<std::size_t>(received));
+            if (request.find('\n') != std::string::npos)
+            {
+                break;
+            }
         }
-        if (!valid_hello(hello))
-        {
-            send_client_text(client, response_json(false, "hello_rejected", 0, 1, "bridge identity verification failed"));
-            return;
-        }
-        if (!send_client_text(client, hello_response()))
+        if (request.empty())
         {
             return;
         }
 
-        std::string request{};
-        if (!read_client_line(client, pending, request) || request.empty())
-        {
-            return;
-        }
         const std::string response = request.size() >= MaxRequestBytes
                                          ? response_json(false, "request_too_large", 0, 1, "bridge request exceeded max size")
                                          : handle_request(request);
-        send_client_text(client, response);
+        send(client, response.c_str(), static_cast<int>(response.size()), 0);
     }
 
-    auto bridge_thread(SOCKET listener, int bridge_port) -> void
+    auto bridge_thread() -> void
     {
+        g_bridge_thread_done.store(false);
+        g_bridge_state.store(MC_BRIDGE_STARTING);
         start_auto_event_watch_if_configured();
+
+        const int bridge_port = resolve_bridge_port();
+        write_bridge_listener_status("starting", bridge_port);
+
+        WSADATA data{};
+        if (WSAStartup(MAKEWORD(2, 2), &data) != 0)
+        {
+            const DWORD error = WSAGetLastError();
+            g_bridge_last_win32.store(error);
+            g_bridge_state.store(MC_BRIDGE_FAILED);
+            write_bridge_listener_status("wsa_startup_failed", bridge_port, error);
+            g_running.store(false);
+            g_bridge_thread_done.store(true);
+            return;
+        }
+        SOCKET listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (listener == INVALID_SOCKET)
+        {
+            const DWORD error = WSAGetLastError();
+            g_bridge_last_win32.store(error);
+            g_bridge_state.store(MC_BRIDGE_FAILED);
+            write_bridge_listener_status("socket_failed", bridge_port, error);
+            WSACleanup();
+            g_running.store(false);
+            g_bridge_thread_done.store(true);
+            return;
+        }
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        addr.sin_port = htons(static_cast<u_short>(bridge_port));
+        const int yes = 1;
+        setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&yes), sizeof(yes));
+        if (bind(listener, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SOCKET_ERROR)
+        {
+            const DWORD error = WSAGetLastError();
+            g_bridge_last_win32.store(error);
+            g_bridge_state.store(MC_BRIDGE_FAILED);
+            write_bridge_listener_status("bind_failed", bridge_port, error);
+            closesocket(listener);
+            WSACleanup();
+            g_running.store(false);
+            g_bridge_thread_done.store(true);
+            return;
+        }
+        if (listen(listener, 4) == SOCKET_ERROR)
+        {
+            const DWORD error = WSAGetLastError();
+            g_bridge_last_win32.store(error);
+            g_bridge_state.store(MC_BRIDGE_FAILED);
+            write_bridge_listener_status("listen_failed", bridge_port, error);
+            closesocket(listener);
+            WSACleanup();
+            g_running.store(false);
+            g_bridge_thread_done.store(true);
+            return;
+        }
+        g_bridge_last_win32.store(0);
+        g_bridge_state.store(MC_BRIDGE_RUNNING_LISTENING);
+        write_bridge_listener_status("listening", bridge_port);
         while (g_running.load())
         {
             fd_set read_set{};
@@ -14882,11 +15353,9 @@ namespace
             if (selected == SOCKET_ERROR)
             {
                 const DWORD error = WSAGetLastError();
-                if (g_running.load())
-                {
-                    g_bridge_last_win32.store(error);
-                    g_bridge_state.store(BRIDGE_RUNTIME_FAILED);
-                }
+                g_bridge_last_win32.store(error);
+                g_bridge_state.store(MC_BRIDGE_FAILED);
+                write_bridge_listener_status("select_failed", bridge_port, error);
                 break;
             }
             if (selected == 0)
@@ -14902,207 +15371,269 @@ namespace
             std::thread(handle_bridge_client, client).detach();
         }
         g_running.store(false);
-        if (g_bridge_state.load() != BRIDGE_RUNTIME_FAILED)
-        {
-            g_bridge_state.store(BRIDGE_RUNTIME_STOPPING);
-        }
-        if (g_listener.exchange(INVALID_SOCKET) == listener)
-        {
-            closesocket(listener);
-        }
+        write_bridge_listener_status("stopping", bridge_port);
+        g_bridge_state.store(MC_BRIDGE_STOPPING);
+        closesocket(listener);
         while (g_active_client_handlers.load() > 0)
         {
             Sleep(50);
         }
         WSACleanup();
+        write_bridge_listener_status("stopped", bridge_port);
         uninstall_process_event_hook();
-        if (g_bridge_state.load() != BRIDGE_RUNTIME_FAILED)
-        {
-            g_bridge_state.store(BRIDGE_RUNTIME_STOPPED);
-        }
+        g_bridge_state.store(MC_BRIDGE_UNLOADABLE);
         g_bridge_thread_done.store(true);
     }
 }
 
 namespace
 {
-    auto all_zero_bytes(const std::uint8_t* bytes, std::size_t count) -> bool
+    std::mutex g_bridge_api_mutex;
+    std::string g_bridge_build_id{"runtime-bridge"};
+
+    auto copy_status_text(char* target, std::size_t target_size, const std::string& text) -> void
     {
-        std::uint8_t combined = 0;
-        for (std::size_t index = 0; index < count; ++index)
+        if (!target || target_size == 0)
         {
-            combined |= bytes[index];
+            return;
         }
-        return combined == 0;
+        const auto count = std::min(target_size - 1, text.size());
+        std::memcpy(target, text.data(), count);
+        target[count] = '\0';
     }
 
-    auto start_block_is_valid(const BridgeStartBlockV1& block) -> bool
+    auto bridge_unload_blockers() -> std::uint32_t
     {
-        return block.magic == BridgeStartMagicV1 &&
-               block.size == sizeof(BridgeStartBlockV1) &&
-               block.abi == BridgeStartAbiV1 &&
-               block.pid == GetCurrentProcessId() &&
-               block.requested_port == 0 &&
-               block.result_state == BRIDGE_START_UNINITIALIZED &&
-               block.bound_port == 0 &&
-               block.protocol == BridgeBootstrapProtocolV1 &&
-               block.win32_error == 0 &&
-               block.winsock_error == 0 &&
-               block.reserved0 == 0 &&
-               block.reserved1 == 0 &&
-               !all_zero_bytes(block.token, sizeof(block.token));
+        std::uint32_t blockers = MC_BLOCK_NONE;
+        if (g_running.load())
+        {
+            blockers |= MC_BLOCK_LISTENER;
+        }
+        if (g_active_client_handlers.load() > 0)
+        {
+            blockers |= MC_BLOCK_CLIENTS;
+        }
+        bool hook_slots_present = false;
+        {
+            std::lock_guard<std::mutex> lock(g_hook_mutex);
+            hook_slots_present = !g_process_event_hook_slots.empty();
+        }
+        if (g_process_event_hook_installed.load() || g_message_hook.load() != nullptr || hook_slots_present)
+        {
+            blockers |= MC_BLOCK_HOOKS;
+        }
+        if (g_active_hook_callbacks.load() > 0)
+        {
+            blockers |= MC_BLOCK_HOOK_CALLBACKS;
+        }
+        if (g_active_ue_calls.load() > 0)
+        {
+            blockers |= MC_BLOCK_UE_CALLS;
+        }
+        bool paint_jobs_present = false;
+        {
+            std::lock_guard<std::mutex> lock(g_paint_jobs_mutex);
+            paint_jobs_present = !g_paint_jobs.empty();
+        }
+        if (paint_jobs_present)
+        {
+            blockers |= MC_BLOCK_PAINT_QUEUE;
+        }
+        if (mesh_first_preview_snapshot_copy().available)
+        {
+            blockers |= MC_BLOCK_PREVIEW_STATE;
+        }
+        if (!g_bridge_thread_done.load())
+        {
+            blockers |= MC_BLOCK_WORKERS;
+        }
+        return blockers;
     }
 
-    auto write_start_result(void* remote_block,
-                            const BridgeStartBlockV1& input,
-                            BridgeStartResultV1 state,
-                            std::uint32_t port,
-                            DWORD win32_error,
-                            DWORD winsock_error) -> bool
+    auto bridge_fill_status(McBridgeStatus* outStatus) -> McResult
     {
-        BridgeStartBlockV1 result = input;
-        result.result_state = state;
-        result.bound_port = port;
-        result.protocol = BridgeBootstrapProtocolV1;
-        result.win32_error = win32_error;
-        result.winsock_error = winsock_error;
-        return safe_copy(remote_block, &result, sizeof(result));
+        if (!outStatus || outStatus->size < sizeof(McBridgeStatus))
+        {
+            return MC_E_INVALID_ARGUMENT;
+        }
+        const auto state = static_cast<McBridgeRunState>(g_bridge_state.load());
+        const auto blockers = bridge_unload_blockers();
+        std::memset(outStatus, 0, sizeof(McBridgeStatus));
+        outStatus->size = sizeof(McBridgeStatus);
+        outStatus->state = state;
+        outStatus->lastResult = blockers == MC_BLOCK_NONE ? MC_OK : MC_E_UNLOAD_BLOCKED;
+        outStatus->lastWin32 = g_bridge_last_win32.load();
+        outStatus->unloadBlockers = blockers;
+        outStatus->activeHookCallbacks = g_active_hook_callbacks.load();
+        outStatus->activeUeCalls = g_active_ue_calls.load();
+        outStatus->activeWorkers = g_bridge_thread_done.load() ? 0 : 1;
+        outStatus->activeClients = static_cast<std::uint32_t>(std::max(0, g_active_client_handlers.load()));
+        {
+            std::lock_guard<std::mutex> lock(g_paint_jobs_mutex);
+            outStatus->queuedPaintBatches = static_cast<std::uint32_t>(g_paint_jobs.size());
+        }
+        outStatus->tcpPort = static_cast<std::uint16_t>(resolve_bridge_port());
+        copy_status_text(outStatus->bridgeBuildIdUtf8, sizeof(outStatus->bridgeBuildIdUtf8), g_bridge_build_id);
+        switch (state)
+        {
+        case MC_BRIDGE_RUNNING_LISTENING:
+            copy_status_text(outStatus->lastStepUtf8, sizeof(outStatus->lastStepUtf8), "listening");
+            break;
+        case MC_BRIDGE_UNLOADABLE:
+            copy_status_text(outStatus->lastStepUtf8, sizeof(outStatus->lastStepUtf8), "unloadable");
+            break;
+        case MC_BRIDGE_FAILED:
+            copy_status_text(outStatus->lastStepUtf8, sizeof(outStatus->lastStepUtf8), "failed");
+            break;
+        default:
+            copy_status_text(outStatus->lastStepUtf8, sizeof(outStatus->lastStepUtf8), "lifecycle");
+            break;
+        }
+        if (blockers != MC_BLOCK_NONE)
+        {
+            copy_status_text(outStatus->lastErrorUtf8, sizeof(outStatus->lastErrorUtf8), "bridge still has unload blockers");
+        }
+        return MC_OK;
     }
 
-    auto start_failure(void* remote_block,
-                       const BridgeStartBlockV1& input,
-                       BridgeStartResultV1 state,
-                       DWORD win32_error,
-                       DWORD winsock_error,
-                       DWORD exit_code) -> DWORD
+    McResult WINAPI bridge_api_create(const McBridgeStartInfo* startInfo, const McBridgeHostApi*, McBridgeHandle* outHandle)
     {
-        g_bridge_last_win32.store(winsock_error != 0 ? winsock_error : win32_error);
-        g_bridge_state.store(BRIDGE_RUNTIME_FAILED);
+        if (!outHandle || !startInfo || startInfo->size < sizeof(McBridgeStartInfo))
+        {
+            return MC_E_INVALID_ARGUMENT;
+        }
+        if (startInfo->bridgeBuildIdUtf8 && startInfo->bridgeBuildIdUtf8[0] != '\0')
+        {
+            g_bridge_build_id = startInfo->bridgeBuildIdUtf8;
+        }
+        *outHandle = reinterpret_cast<McBridgeHandle>(&g_module);
+        return MC_OK;
+    }
+
+    McResult WINAPI bridge_api_start(McBridgeHandle handle)
+    {
+        if (!handle)
+        {
+            return MC_E_INVALID_ARGUMENT;
+        }
+        std::lock_guard<std::mutex> lock(g_bridge_api_mutex);
+        if (g_bridge_thread && g_bridge_thread->joinable() && g_bridge_thread_done.load())
+        {
+            g_bridge_thread->join();
+            g_bridge_thread.reset();
+        }
+        if (g_bridge_thread && !g_bridge_thread_done.load())
+        {
+            return MC_E_ALREADY_STARTED;
+        }
+        try
+        {
+            g_running.store(true);
+            g_bridge_last_win32.store(0);
+            g_bridge_state.store(MC_BRIDGE_STARTING);
+            g_bridge_thread_done.store(false);
+            g_bridge_thread = std::make_unique<std::thread>(bridge_thread);
+            return MC_OK;
+        }
+        catch (...)
+        {
+            g_running.store(false);
+            g_bridge_thread_done.store(true);
+            g_bridge_state.store(MC_BRIDGE_FAILED);
+            return MC_E_START_FAILED;
+        }
+    }
+
+    McResult WINAPI bridge_api_request_stop(McBridgeHandle handle, std::uint32_t)
+    {
+        if (!handle)
+        {
+            return MC_E_INVALID_ARGUMENT;
+        }
+        g_bridge_state.store(MC_BRIDGE_STOPPING);
+        force_cancel_active_mesh_first_batch_job("loader_stop");
+        cancel_queued_paint_jobs("loader_stop");
+        uninstall_process_event_hook();
         g_running.store(false);
-        g_bridge_thread_done.store(true);
-        write_start_result(remote_block, input, state, 0, win32_error, winsock_error);
-        return exit_code;
+        return MC_OK;
     }
+
+    McResult WINAPI bridge_api_join_stop(McBridgeHandle handle, std::uint32_t timeoutMs)
+    {
+        if (!handle)
+        {
+            return MC_E_INVALID_ARGUMENT;
+        }
+        const auto start = GetTickCount64();
+        while (!g_bridge_thread_done.load())
+        {
+            if (timeoutMs > 0 && GetTickCount64() - start >= timeoutMs)
+            {
+                return MC_E_STOP_TIMED_OUT;
+            }
+            Sleep(25);
+        }
+        std::lock_guard<std::mutex> lock(g_bridge_api_mutex);
+        if (g_bridge_thread && g_bridge_thread->joinable())
+        {
+            g_bridge_thread->join();
+            g_bridge_thread.reset();
+        }
+        const auto blockers = bridge_unload_blockers();
+        g_bridge_state.store(blockers == MC_BLOCK_NONE ? MC_BRIDGE_UNLOADABLE : MC_BRIDGE_STOPPED);
+        return blockers == MC_BLOCK_NONE ? MC_OK : MC_E_UNLOAD_BLOCKED;
+    }
+
+    McResult WINAPI bridge_api_get_status(McBridgeHandle handle, McBridgeStatus* outStatus)
+    {
+        if (!handle)
+        {
+            return MC_E_INVALID_ARGUMENT;
+        }
+        return bridge_fill_status(outStatus);
+    }
+
+    McResult WINAPI bridge_api_destroy(McBridgeHandle handle)
+    {
+        if (!handle)
+        {
+            return MC_E_INVALID_ARGUMENT;
+        }
+        if (!g_bridge_thread_done.load() || bridge_unload_blockers() != MC_BLOCK_NONE)
+        {
+            return MC_E_UNLOAD_BLOCKED;
+        }
+        return MC_OK;
+    }
+
+    McBridgeApi g_bridge_api{
+        sizeof(McBridgeApi),
+        McLoaderAbiMajor,
+        McLoaderAbiMinor,
+        0,
+        bridge_api_create,
+        bridge_api_start,
+        bridge_api_request_stop,
+        bridge_api_join_stop,
+        bridge_api_get_status,
+        bridge_api_destroy,
+    };
 }
 
-// The injector invokes this only after LoadLibraryW has returned and it has found
-// this exact module by path in the target. Do not move substantive work into
-// DllMain: this entry owns listener setup and publishes readiness synchronously.
-extern "C" __declspec(dllexport) DWORD WINAPI BridgeStartV1(void* remote_block)
+extern "C" __declspec(dllexport) McResult WINAPI McBridge_GetApi(std::uint32_t loaderAbiMajor,
+                                                                  std::uint32_t,
+                                                                  McBridgeApi* outApi)
 {
-    BridgeStartBlockV1 input{};
-    if (!remote_block || !safe_copy(&input, remote_block, sizeof(input)))
+    if (!outApi || outApi->size < sizeof(McBridgeApi))
     {
-        return ERROR_INVALID_PARAMETER;
+        return MC_E_INVALID_ARGUMENT;
     }
-    if (!start_block_is_valid(input))
+    if (loaderAbiMajor != McLoaderAbiMajor)
     {
-        write_start_result(remote_block, input, BRIDGE_START_INVALID_BLOCK, 0, ERROR_INVALID_DATA, 0);
-        return ERROR_INVALID_DATA;
+        return MC_E_ABI_INCOMPATIBLE;
     }
-
-    std::lock_guard<std::mutex> lock(g_bridge_start_mutex);
-    if (g_bridge_started.load())
-    {
-        write_start_result(remote_block,
-                           input,
-                           BRIDGE_START_ALREADY_STARTED,
-                           g_bound_port.load(),
-                           ERROR_ALREADY_EXISTS,
-                           0);
-        return ERROR_ALREADY_EXISTS;
-    }
-
-    g_bridge_state.store(BRIDGE_RUNTIME_STARTING);
-
-    WSADATA data{};
-    const int startup_result = WSAStartup(MAKEWORD(2, 2), &data);
-    if (startup_result != 0)
-    {
-        return start_failure(remote_block,
-                             input,
-                             BRIDGE_START_WINSOCK_FAILED,
-                             0,
-                             static_cast<DWORD>(startup_result),
-                             ERROR_NETWORK_UNREACHABLE);
-    }
-
-    SOCKET listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (listener == INVALID_SOCKET)
-    {
-        const DWORD error = WSAGetLastError();
-        WSACleanup();
-        return start_failure(remote_block, input, BRIDGE_START_SOCKET_FAILED, 0, error, ERROR_OPEN_FAILED);
-    }
-
-    sockaddr_in address{};
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    address.sin_port = 0;
-    if (bind(listener, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == SOCKET_ERROR)
-    {
-        const DWORD error = WSAGetLastError();
-        closesocket(listener);
-        WSACleanup();
-        return start_failure(remote_block, input, BRIDGE_START_BIND_FAILED, 0, error, ERROR_ADDRESS_NOT_ASSOCIATED);
-    }
-
-    sockaddr_in bound_address{};
-    int bound_address_size = sizeof(bound_address);
-    if (getsockname(listener, reinterpret_cast<sockaddr*>(&bound_address), &bound_address_size) == SOCKET_ERROR)
-    {
-        const DWORD error = WSAGetLastError();
-        closesocket(listener);
-        WSACleanup();
-        return start_failure(remote_block, input, BRIDGE_START_BIND_FAILED, 0, error, ERROR_ADDRESS_NOT_ASSOCIATED);
-    }
-    const std::uint32_t port = ntohs(bound_address.sin_port);
-    if (port == 0 || listen(listener, 4) == SOCKET_ERROR)
-    {
-        const DWORD error = port == 0 ? WSAEADDRNOTAVAIL : WSAGetLastError();
-        closesocket(listener);
-        WSACleanup();
-        return start_failure(remote_block, input, BRIDGE_START_LISTEN_FAILED, 0, error, ERROR_OPEN_FAILED);
-    }
-
-    g_bridge_identity = input;
-    g_bound_port.store(port);
-    g_listener.store(listener);
-    g_bridge_last_win32.store(0);
-    g_bridge_state.store(BRIDGE_RUNTIME_LISTENING);
-    g_bridge_thread_done.store(false);
-    g_running.store(true);
-    g_bridge_started.store(true);
-    try
-    {
-        std::thread(bridge_thread, listener, static_cast<int>(port)).detach();
-    }
-    catch (...)
-    {
-        g_bridge_started.store(false);
-        g_running.store(false);
-        if (g_listener.exchange(INVALID_SOCKET) == listener)
-        {
-            closesocket(listener);
-        }
-        g_bound_port.store(0);
-        g_bridge_thread_done.store(true);
-        WSACleanup();
-        return start_failure(remote_block,
-                             input,
-                             BRIDGE_START_WORKER_FAILED,
-                             ERROR_NOT_ENOUGH_MEMORY,
-                             0,
-                             ERROR_NOT_ENOUGH_MEMORY);
-    }
-
-    if (!write_start_result(remote_block, input, BRIDGE_START_LISTENING, port, 0, 0))
-    {
-        // The listener is intentionally left alive. The injector will treat its
-        // ReadProcessMemory failure as indeterminate rather than unloading it.
-        return ERROR_INVALID_ADDRESS;
-    }
-    return ERROR_SUCCESS;
+    *outApi = g_bridge_api;
+    return MC_OK;
 }
 
 // =============================================================================
@@ -15116,6 +15647,10 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
     {
         DisableThreadLibraryCalls(module);
         g_module = module;
+    }
+    if (reason == DLL_PROCESS_DETACH)
+    {
+        g_running.store(false);
     }
     return TRUE;
 }

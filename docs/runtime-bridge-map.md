@@ -3,9 +3,8 @@
 This document maps the responsibilities inside `src/native/bridge/bridge.cpp`.
 Use it before deleting code, moving code, or changing bridge command behavior.
 
-Bridge startup is owned by the direct injector and the bridge's exported
-`BridgeStartV1` entry point. The fixed ABI, target identity rules, and TCP
-bootstrap are specified in [`runtime-direct-bridge.md`](runtime-direct-bridge.md).
+Bridge lifecycle supervision is owned by `src/native/loader/loader.cpp`; see
+`docs/bridge-loader-design.md`.
 
 Current policy: do not delete or split bridge code before the code path is
 classified. Static reference count is not enough in this runtime because many
@@ -74,7 +73,7 @@ helper still needed for issue triage.
 - Async paint lifecycle, queue draining, cancellation, and pawn/component guards.
 - Preview/unpreview texture import/export and local snapshot behavior.
 - Runtime asset cache repair, startup diagnostics, injector diagnostics, and
-  Evergreen WebView2 bootstrapper preparation.
+  Fixed Version WebView2 preparation.
 
 Changes in these areas require focused build verification and live smoke
 coverage.
@@ -99,8 +98,8 @@ single native translation unit:
 
 - `src/native/bridge/bridge_json.inc`: JSON field parsing, JSON escaping,
   metadata compaction, and response JSON formatting.
-- `src/native/bridge/bridge_sidecar.inc`: progress snapshot paths and
-  research-only artifact paths.
+- `src/native/bridge/bridge_sidecar.inc`: bridge sidecar paths, progress
+  snapshot writing, listener status writing, and bridge port sidecar reading.
 
 Replication-specific research notes live in
 `docs/runtime-paint-replication-research.md`.

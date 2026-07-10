@@ -1,3 +1,30 @@
+    auto resolve_bridge_port() -> int
+    {
+        wchar_t dll_path[MAX_PATH]{};
+        if (g_module != nullptr && GetModuleFileNameW(g_module, dll_path, MAX_PATH) > 0)
+        {
+            std::wstring port_path = dll_path;
+            port_path += L".port";
+            HANDLE file = CreateFileW(port_path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (file != INVALID_HANDLE_VALUE)
+            {
+                char buffer[32]{};
+                DWORD bytes_read = 0;
+                const BOOL ok = ReadFile(file, buffer, static_cast<DWORD>(sizeof(buffer) - 1), &bytes_read, nullptr);
+                CloseHandle(file);
+                if (ok && bytes_read > 0)
+                {
+                    const int port = std::atoi(buffer);
+                    if (port >= 1024 && port <= 65535)
+                    {
+                        return port;
+                    }
+                }
+            }
+        }
+        return DefaultBridgePort;
+    }
+
     auto bridge_sidecar_path(const wchar_t* suffix) -> std::wstring
     {
         wchar_t dll_path[MAX_PATH]{};
@@ -138,4 +165,37 @@
         {
             DeleteFileW(path.c_str());
         }
+    }
+
+    auto write_bridge_sidecar_text(const wchar_t* suffix, const std::string& text) -> bool
+    {
+        const auto path = bridge_sidecar_path(suffix);
+        if (path.empty())
+        {
+            return false;
+        }
+        HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file == INVALID_HANDLE_VALUE)
+        {
+            return false;
+        }
+        DWORD written = 0;
+        const auto ok = WriteFile(file, text.data(), static_cast<DWORD>(text.size()), &written, nullptr);
+        CloseHandle(file);
+        return ok && written == text.size();
+    }
+
+    auto write_bridge_listener_status(const std::string& stage, int port, int error = 0, const std::string& detail = "") -> void
+    {
+        std::string json = "{\"stage\":\"" + json_escape(stage) +
+                           "\",\"pid\":" + std::to_string(GetCurrentProcessId()) +
+                           ",\"port\":" + std::to_string(port) +
+                           ",\"tick_ms\":" + std::to_string(GetTickCount64()) +
+                           ",\"error\":" + std::to_string(error);
+        if (!detail.empty())
+        {
+            json += ",\"detail\":\"" + json_escape(detail) + "\"";
+        }
+        json += "}\n";
+        write_bridge_sidecar_text(L".listen.json", json);
     }

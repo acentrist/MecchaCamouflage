@@ -20,10 +20,11 @@ public sealed class SettingsStore
 
     public AppSettings Load()
     {
-        if (!File.Exists(paths.ConfigPath))
+        var path = File.Exists(paths.ConfigPath) ? paths.ConfigPath : paths.LegacyConfigPath;
+        if (!File.Exists(path))
             return Clamp(new AppSettings());
 
-        var text = File.ReadAllText(paths.ConfigPath);
+        var text = File.ReadAllText(path);
         var root = JsonNode.Parse(text)?.AsObject();
         if (root is null)
             return Clamp(new AppSettings());
@@ -40,7 +41,7 @@ public sealed class SettingsStore
         settings.Opacity = ReadDouble(root, "opacity", settings.Opacity);
         if (RgbColor.TryParse(ReadString(root, "theme_color", settings.ThemeColor.ToHex()), out var theme))
             settings.ThemeColor = theme;
-        settings.StartHotkey = ReadString(root, "start_hotkey", settings.StartHotkey);
+        settings.StartHotkey = ReadString(root, "start_hotkey", ReadString(root, "paint_hotkey", settings.StartHotkey));
         settings.StopHotkey = ReadString(root, "stop_hotkey", settings.StopHotkey);
         settings.PreviewHotkey = ReadString(root, "preview_hotkey", settings.PreviewHotkey);
         settings.UnPreviewHotkey = ReadString(root, "unpreview_hotkey", settings.UnPreviewHotkey);
@@ -52,16 +53,30 @@ public sealed class SettingsStore
         paint.CoverageStepTexels = ReadDouble(root, "coverage_step_texels", paint.CoverageStepTexels);
         paint.SideSourceMaxUv = ReadDouble(root, "side_source_max_uv", paint.SideSourceMaxUv);
         paint.FrontBackSourceMaxUv = ReadDouble(root, "front_back_source_max_uv", paint.FrontBackSourceMaxUv);
-        paint.FrontRegionMode = ReadRegionMode(root, "front_region_mode", paint.FrontRegionMode);
-        paint.SideRegionMode = ReadRegionMode(root, "side_region_mode", paint.SideRegionMode);
-        paint.BackRegionMode = ReadRegionMode(root, "back_region_mode", paint.BackRegionMode);
-        paint.AutoMaterial = ReadBool(root, "auto_material", paint.AutoMaterial);
+        paint.FrontRegionMode = ReadRegionMode(root, "front_region_mode", "enable_front_paint", paint.FrontRegionMode);
+        paint.SideRegionMode = ReadRegionMode(root, "side_region_mode", "enable_side_paint", paint.SideRegionMode);
+        paint.BackRegionMode = ReadRegionMode(root, "back_region_mode", "enable_back_paint", paint.BackRegionMode);
+        paint.AutoMaterial = ReadBool(root, "auto_material", ReadBool(root, "auto_material_properties", paint.AutoMaterial));
         paint.Metallic = ReadDouble(root, "metallic", paint.Metallic);
         paint.Roughness = ReadDouble(root, "roughness", paint.Roughness);
         if (RgbColor.TryParse(ReadString(root, "fill_color", paint.FillColor.ToHex()), out var fill))
             paint.FillColor = fill;
         paint.FillMetallic = ReadDouble(root, "fill_metallic", paint.FillMetallic);
         paint.FillRoughness = ReadDouble(root, "fill_roughness", paint.FillRoughness);
+        paint.QualityPreset = ReadQualityPreset(root, "quality_preset", paint.QualityPreset);
+        paint.BilinearColorSampling = ReadBool(root, "bilinear_color_sampling", ReadBool(root, "enable_bilinear", paint.BilinearColorSampling));
+        paint.BicubicColorSampling = ReadBool(root, "bicubic_color_sampling", paint.BicubicColorSampling);
+        paint.DitherStrength = ReadDouble(root, "dither_strength", paint.DitherStrength);
+        paint.MinRoughness = ReadDouble(root, "min_roughness", paint.MinRoughness);
+        paint.FalloffHardnessPct = ReadInt(root, "falloff_hardness_pct", paint.FalloffHardnessPct);
+        paint.CoverageSupersample = ReadInt(root, "coverage_supersample", paint.CoverageSupersample);
+        paint.EdgeAwareSharpening = ReadBool(root, "edge_aware_sharpening", paint.EdgeAwareSharpening);
+        paint.SharpenStrength = ReadDouble(root, "sharpen_strength", paint.SharpenStrength);
+        paint.EnableDetectionArtifacts = ReadBool(root, "enable_detection_artifacts", paint.EnableDetectionArtifacts);
+        paint.DetectionDetail = ReadInt(root, "detection_detail", paint.DetectionDetail);
+        paint.UseLocalImageSource = ReadBool(root, "use_local_image_source", paint.UseLocalImageSource);
+        paint.LocalImagePath = ReadString(root, "local_image_path", paint.LocalImagePath);
+        paint.BypassLiveCapture = ReadBool(root, "bypass_live_capture", paint.BypassLiveCapture);
 
         return Clamp(settings);
     }
@@ -101,7 +116,7 @@ public sealed class SettingsStore
             settings.StopHotkey = "F4";
 
         settings.Paint.StrokeSizeTexels = Math.Clamp(settings.Paint.StrokeSizeTexels, 1.0, 10.0);
-        settings.Paint.PackedBatchDelayMs = Math.Clamp(settings.Paint.PackedBatchDelayMs, 50, 100);
+        settings.Paint.PackedBatchDelayMs = Math.Clamp(settings.Paint.PackedBatchDelayMs, 1, 100);
         settings.Paint.CoverageStepTexels = settings.Paint.StrokeSizeTexels;
         settings.Paint.SideSourceMaxUv = Math.Clamp(settings.Paint.SideSourceMaxUv, 0.001, 0.50);
         settings.Paint.FrontBackSourceMaxUv = Math.Clamp(settings.Paint.FrontBackSourceMaxUv, 0.001, 2.00);
@@ -109,6 +124,15 @@ public sealed class SettingsStore
         settings.Paint.Roughness = Math.Clamp(settings.Paint.Roughness, 0.0, 1.0);
         settings.Paint.FillMetallic = Math.Clamp(settings.Paint.FillMetallic, 0.0, 1.0);
         settings.Paint.FillRoughness = Math.Clamp(settings.Paint.FillRoughness, 0.0, 1.0);
+        settings.Paint.DitherStrength = Math.Clamp(settings.Paint.DitherStrength, 0.0, 1.0);
+        settings.Paint.MinRoughness = Math.Clamp(settings.Paint.MinRoughness, 0.0, 1.0);
+        settings.Paint.FalloffHardnessPct = Math.Clamp(settings.Paint.FalloffHardnessPct, 0, 100);
+        settings.Paint.CoverageSupersample = Math.Clamp(settings.Paint.CoverageSupersample, 1, 3);
+        settings.Paint.SharpenStrength = Math.Clamp(settings.Paint.SharpenStrength, 0.0, 1.0);
+        settings.Paint.DetectionDetail = Math.Clamp(settings.Paint.DetectionDetail, 1, 5);
+        settings.Paint.LocalImagePath = (settings.Paint.LocalImagePath ?? "").Trim();
+        if (settings.Paint.LocalImagePath.Length > 1024) settings.Paint.LocalImagePath = "";
+        if (settings.Paint.UseLocalImageSource && string.IsNullOrWhiteSpace(settings.Paint.LocalImagePath)) settings.Paint.UseLocalImageSource = false;
         return settings;
     }
 
@@ -138,12 +162,45 @@ public sealed class SettingsStore
         side_region_mode = RegionModeText(settings.Paint.SideRegionMode),
         back_region_mode = RegionModeText(settings.Paint.BackRegionMode),
         auto_material = settings.Paint.AutoMaterial,
+        auto_material_properties = settings.Paint.AutoMaterial,
         metallic = settings.Paint.Metallic,
         roughness = settings.Paint.Roughness,
         fill_color = settings.Paint.FillColor.ToHex(),
         fill_metallic = settings.Paint.FillMetallic,
-        fill_roughness = settings.Paint.FillRoughness
+        fill_roughness = settings.Paint.FillRoughness,
+        quality_preset = QualityPresetText(settings.Paint.QualityPreset),
+        bilinear_color_sampling = settings.Paint.BilinearColorSampling,
+        bicubic_color_sampling = settings.Paint.BicubicColorSampling,
+        dither_strength = settings.Paint.DitherStrength,
+        min_roughness = settings.Paint.MinRoughness,
+        falloff_hardness_pct = settings.Paint.FalloffHardnessPct,
+        coverage_supersample = settings.Paint.CoverageSupersample,
+        edge_aware_sharpening = settings.Paint.EdgeAwareSharpening,
+        sharpen_strength = settings.Paint.SharpenStrength,
+        enable_detection_artifacts = settings.Paint.EnableDetectionArtifacts,
+        detection_detail = settings.Paint.DetectionDetail,
+        use_local_image_source = settings.Paint.UseLocalImageSource,
+        local_image_path = settings.Paint.LocalImagePath,
+        bypass_live_capture = settings.Paint.BypassLiveCapture
     };
+
+    public static string QualityPresetText(PaintQualityPreset preset) => preset switch
+    {
+        PaintQualityPreset.Fast => "fast",
+        PaintQualityPreset.Balanced => "balanced",
+        PaintQualityPreset.Ultra => "ultra",
+        _ => "high"
+    };
+
+    public static PaintQualityPreset ParseQualityPreset(string? value, PaintQualityPreset fallback = PaintQualityPreset.High)
+    {
+        if (!string.IsNullOrWhiteSpace(value) && Enum.TryParse<PaintQualityPreset>(value.Trim(), true, out var parsed))
+            return parsed;
+        return fallback;
+    }
+
+    private static PaintQualityPreset ReadQualityPreset(JsonObject root, string key, PaintQualityPreset fallback) =>
+        ParseQualityPreset(ReadString(root, key, ""), fallback);
 
     public static string RegionModeText(RegionMode mode) => mode switch
     {
@@ -152,11 +209,13 @@ public sealed class SettingsStore
         _ => "paint"
     };
 
-    private static RegionMode ReadRegionMode(JsonObject root, string key, RegionMode fallback)
+    private static RegionMode ReadRegionMode(JsonObject root, string key, string legacyBoolKey, RegionMode fallback)
     {
         var mode = ReadString(root, key, "");
         if (Enum.TryParse<RegionMode>(mode, true, out var parsed))
             return parsed;
+        if (root.TryGetPropertyValue(legacyBoolKey, out var legacy) && legacy is not null)
+            return legacy.GetValue<bool>() ? RegionMode.Paint : RegionMode.Fill;
         return fallback;
     }
 

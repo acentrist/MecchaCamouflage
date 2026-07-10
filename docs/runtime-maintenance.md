@@ -22,18 +22,17 @@ code without growing accidental complexity.
 Do not mix unrelated runtime, GUI, research, and packaging changes in one diff
 unless the change is a deliberate architecture migration.
 
-## Direct Bridge Startup
+## Bridge Loader
 
-The production lifecycle entry point is `BridgeStartV1` in the directly injected
-bridge DLL. The injector targets the selected game PID, waits for both remote
-calls, and connects only to the authenticated loopback endpoint returned by
-that bridge instance. The complete contract is documented in
-[`runtime-direct-bridge.md`](runtime-direct-bridge.md).
+The injected lifecycle entry point is `bridge-loader.dll`. The loader supervises
+loading, starting, stopping, status reporting, and conditional unloading of the
+versioned bridge DLL.
 
-Do not introduce loader switching, unloading, old-module compatibility checks,
-or restart-required states merely because older bridge DLLs remain loaded.
-There is no loader or compatibility path to preserve: each attempt stages and
-authenticates its own direct bridge instance.
+The loader must remain small. It must not contain UE reflection, paint routing,
+texture preview logic, or `ProcessEvent` behavior. Those stay in
+`runtime-bridge.dll`.
+
+Loader design rules live in `docs/bridge-loader-design.md`.
 
 ## Dead-Code Review
 
@@ -126,7 +125,7 @@ section has focused build and live verification.
 Existing `.inc` files:
 
 - `src/native/bridge/bridge_json.inc`
-- `src/native/bridge/bridge_sidecar.inc` (progress and research sidecar paths)
+- `src/native/bridge/bridge_sidecar.inc`
 
 ## Research Tool Policy
 

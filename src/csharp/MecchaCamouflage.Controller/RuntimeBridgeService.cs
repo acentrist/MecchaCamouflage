@@ -1,24 +1,40 @@
-using System.ComponentModel;
 using System.Diagnostics;
+using System.IO.Pipes;
+using System.Text;
+using System.Text.Json;
 using System.Security.Cryptography;
 using MecchaCamouflage.Core;
 
 namespace MecchaCamouflage.Controller;
 
-/// <summary>
-/// Stages and starts one uniquely named direct bridge per attempt. Existing bridge modules are
-/// intentionally outside this service's control: they are neither enumerated, switched,
-/// unloaded, nor used as a reason to require a game restart.
-/// </summary>
 public sealed class RuntimeBridgeService
 {
+    // Ports must stay below 49152: the dynamic range (49152-65535) gets chunks reserved by
+    // Windows/Hyper-V/WSL (netsh interface ipv4 show excludedportrange tcp), where bind() fails
+    // with WSAEACCES (10013). LoadLibrary still succeeds, so injection looks "complete" but the
+    // socket never opens. 50262-50265 landed inside a reserved block; 47800+ stays clear.
+    public const int BridgePort = 47800;
     public static readonly TimeSpan BridgeProbeTimeout = TimeSpan.FromMilliseconds(300);
+    private static readonly int[] BridgePortCandidates = [BridgePort, 47801, 47802, 47803];
 
     private readonly AppPaths paths;
     private readonly RuntimeLog log;
-    private BridgeInstance? activeInstance;
+
+    private string bridgePath = "";
+    private string loaderPath = "";
+    private string injectorPath = "";
+    private string progressPath = "";
+    private string loaderRuntimeDir = "";
+    private string bridgeRuntimeDir = "";
+    private string loaderConfigPath = "";
+    private string loaderStatusPath = "";
+    private string loaderPipeName = "";
     private string waitingForProcessName = "";
     private string lastBridgeReadyLogKey = "";
+    private string lastBridgeMismatchLogKey = "";
+    private string lastRuntimeFilesLogKey = "";
+    private int lastInjectionProcessId;
+    private int activeBridgePort = BridgePort;
     private bool bridgeReadyTimeoutLogged;
     private bool bridgeConnected;
 
@@ -28,37 +44,27 @@ public sealed class RuntimeBridgeService
         this.log = log;
     }
 
-    public string BridgePath => activeInstance?.BridgePath ?? "";
-    public string ProgressPath => activeInstance?.ProgressPath ?? "";
+    public string BridgePath => bridgePath;
+    public string ProgressPath => progressPath;
     public bool IsConnected => bridgeConnected;
 
-    /// <summary>
-    /// Resolves the configured process name for the current UI flow. Once selected, the exact
-    /// <see cref="Process"/> identity is captured and passed to the injector; the injector never
-    /// receives this name and never performs its own process-name lookup.
-    /// </summary>
     public Process? FindGameProcess(string processName)
     {
         var name = Path.GetFileNameWithoutExtension(processName);
-        return Process.GetProcessesByName(name).OrderBy(process => process.Id).FirstOrDefault();
+        return Process.GetProcessesByName(name).FirstOrDefault();
     }
 
     public Task<BridgeReply> PingAsync(CancellationToken cancellationToken = default, TimeSpan? timeoutOverride = null) =>
-        RequestActiveAsync(client => client.PingAsync(cancellationToken, timeoutOverride));
+        Client(activeBridgePort).PingAsync(cancellationToken, timeoutOverride);
 
     public Task<BridgeReply> CancelPaintAsync(CancellationToken cancellationToken = default) =>
-        RequestActiveAsync(client => client.CancelPaintAsync(cancellationToken));
+        Client(activeBridgePort).CancelPaintAsync(cancellationToken);
 
     public Task<BridgeReply> SendPaintAsync(string payload, CancellationToken cancellationToken = default) =>
-        RequestActiveAsync(client => client.RequestAsync(payload, cancellationToken));
+        Client(activeBridgePort).RequestAsync(payload, cancellationToken);
 
-    public async Task<BridgeReply> ShutdownAsync(CancellationToken cancellationToken = default)
-    {
-        var reply = await RequestActiveAsync(client => client.ShutdownAsync(cancellationToken));
-        if (reply.Ok && reply.Success)
-            bridgeConnected = false;
-        return reply;
-    }
+    public Task<BridgeReply> ShutdownAsync(CancellationToken cancellationToken = default) =>
+        Client(activeBridgePort).ShutdownAsync(cancellationToken);
 
     public async Task<bool> EnsureReadyAsync(string processName, CancellationToken cancellationToken = default)
     {
@@ -73,341 +79,476 @@ public sealed class RuntimeBridgeService
             }
             return false;
         }
-
-        using (process)
-            return await EnsureReadyAsync(process, cancellationToken);
-    }
-
-    /// <summary>Starts a bridge for an explicitly selected PID after recapturing its identity.</summary>
-    public async Task<bool> EnsureReadyAsync(int selectedProcessId, CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            using var process = Process.GetProcessById(selectedProcessId);
-            return await EnsureReadyAsync(process, cancellationToken);
-        }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
-        {
-            bridgeConnected = false;
-            DiagnosticsState.SetLastCode("MC-INJ-102", ex.Message);
-            log.Warn($"Game process: selected pid={selectedProcessId} is no longer available.");
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Starts a bridge for the exact process selected by the caller. The process instance is not
-    /// retained; its PID, creation FILETIME, and executable path are captured once and passed to
-    /// the injector for independent verification.
-    /// </summary>
-    public async Task<bool> EnsureReadyAsync(Process selectedProcess, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(selectedProcess);
-        TargetProcessIdentity target;
-        try
-        {
-            target = CaptureTargetIdentity(selectedProcess);
-        }
-        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or UnauthorizedAccessException)
-        {
-            bridgeConnected = false;
-            DiagnosticsState.SetLastCode("MC-INJ-102", ex.Message);
-            log.Error("Bridge: could not read the selected game process identity: " + FriendlyAccessFailure(ex.Message));
-            return false;
-        }
-
-        return await EnsureReadyAsync(target, cancellationToken);
-    }
-
-    /// <summary>Uses an already captured exact identity; the injector verifies it again before injection.</summary>
-    public async Task<bool> EnsureReadyAsync(TargetProcessIdentity target, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(target);
         waitingForProcessName = "";
-        if (ActiveInstanceMatches(target))
+
+        var occupiedPorts = new HashSet<int>();
+        var preferredPort = 0;
+        foreach (var port in OrderedPortCandidates())
         {
-            var ping = await PingAsync(cancellationToken, BridgeProbeTimeout);
-            if (IsBridgeReadyForInstance(ping, activeInstance!))
+            var ping = await Client(port).PingAsync(cancellationToken, BridgeProbeTimeout);
+            if (IsBridgeReadyForProcess(ping, process.Id))
             {
+                activeBridgePort = port;
+                if (!ValidateReadyBridge(process, port))
+                {
+                    preferredPort = port;
+                    break;
+                }
                 bridgeReadyTimeoutLogged = false;
-                RestoreConnectedState(activeInstance!);
+                waitingForProcessName = "";
+                RestoreLoadedBridgeState(process.Id, port);
+                DiagnosticsState.SetBridgeInjection($"ready pid={process.Id} port={port}");
+                LogBridgeConnected(process.Id, port);
                 return true;
             }
-            bridgeConnected = false;
+            if (ping.Ok && ping.Success && ping.ProcessId is not null && ping.ProcessId != process.Id)
+                occupiedPorts.Add(port);
         }
 
-        return await InjectDirectInstanceAsync(target, cancellationToken);
+        var targetPort = preferredPort != 0 ? preferredPort : BridgePortCandidates.FirstOrDefault(port => !occupiedPorts.Contains(port));
+        if (targetPort == 0)
+        {
+            DiagnosticsState.SetLastCode("MC-IPC-201", "all bridge ports are owned by other target processes");
+            log.Error("Bridge: communication ports are already in use by other game processes.");
+            return false;
+        }
+        if (await TryInjectAndWaitAsync(processName, process, targetPort, cancellationToken))
+        {
+            activeBridgePort = targetPort;
+            bridgeReadyTimeoutLogged = false;
+            return true;
+        }
+        if (!bridgeReadyTimeoutLogged)
+        {
+            log.Warn("Bridge: not connected after injection.");
+            bridgeReadyTimeoutLogged = true;
+        }
+        return false;
     }
 
-    private Task<bool> InjectDirectInstanceAsync(TargetProcessIdentity target, CancellationToken cancellationToken) =>
-        // Mutex ownership is thread-affine. Keep the complete critical section on one worker
-        // thread so asynchronous injector/network continuations cannot release it elsewhere.
-        Task.Run(() => InjectDirectInstanceOnMutexThread(target, cancellationToken), CancellationToken.None);
-
-    private bool InjectDirectInstanceOnMutexThread(TargetProcessIdentity target, CancellationToken cancellationToken)
+    private async Task<bool> TryInjectAndWaitAsync(string processName, Process process, int port, CancellationToken cancellationToken)
     {
-        var mutexName = $@"Local\MecchaCamouflage.Inject.{target.ProcessId}";
+        var mutexName = $@"Local\MecchaCamouflage.Inject.{process.Id}";
         using var mutex = new Mutex(false, mutexName);
-        var ownsMutex = false;
+        if (!mutex.WaitOne(TimeSpan.FromSeconds(1)))
+        {
+            DiagnosticsState.SetBridgeInjection($"waiting for another injection pid={process.Id}");
+            return false;
+        }
         try
         {
-            try
+            if (!PrepareNativeRuntimeForPort(port))
+                return false;
+
+            var loadedBridges = FindLoadedBridgePaths(process);
+            var loadedLoaders = FindLoadedLoaderPaths(process);
+            WriteLoaderConfig(process, port);
+            var sameLoaderLoaded = loadedLoaders.Any(path => SamePath(path, loaderPath));
+            if (loadedLoaders.Count > 0 && !sameLoaderLoaded)
             {
-                ownsMutex = mutex.WaitOne(TimeSpan.FromSeconds(1));
+                log.Warn("Bridge loader: a different loader DLL is already loaded; checking control pipe compatibility.");
+                var compatibleReply = await TrySwitchBridgeViaLoaderAsync(process, port, cancellationToken);
+                if (compatibleReply.Connected)
+                    return compatibleReply.Ok && await WaitForReadyOrLoadedButNotReadyAsync(process, port, cancellationToken);
+                log.Warn("Bridge loader: control pipe did not respond; reinitializing the loaded compatible loader.");
+                if (await InvokeLoaderRemoteMainAsync(processName, process, loadedLoaders[0], cancellationToken))
+                    return await WaitForReadyOrLoadedButNotReadyAsync(process, port, cancellationToken);
+                DiagnosticsState.SetLastCode("MC-INJ-148", "different bridge loader is loaded and did not answer the control pipe");
+                DiagnosticsState.SetBridgeInjection($"different-loader pid={process.Id}");
+                log.Error("Bridge loader: a different loader DLL is already loaded and did not answer the control pipe. Restart the game before retrying.");
+                return false;
             }
-            catch (AbandonedMutexException)
+            if (loadedBridges.Count > 0 && loadedLoaders.Count == 0)
             {
-                ownsMutex = true;
-            }
-            if (!ownsMutex)
-            {
-                DiagnosticsState.SetBridgeInjection($"waiting for another direct injection pid={target.ProcessId}");
+                DiagnosticsState.SetLastCode("MC-INJ-147", "legacy direct bridge is loaded");
+                DiagnosticsState.SetBridgeInjection($"legacy-direct-bridge pid={process.Id}");
+                log.Error("Bridge: an old direct-injected bridge is loaded. Restart the game before using the loader runtime.");
                 return false;
             }
 
-            BridgeInstance instance;
-            try
+            if (loadedLoaders.Count > 0)
             {
-                instance = PrepareDirectBridgeInstance(target);
-            }
-            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException or FileNotFoundException)
-            {
-                bridgeConnected = false;
-                DiagnosticsState.SetLastCode("MC-RT-001", ex.Message);
-                DiagnosticsState.SetBridgeInjection("direct bridge staging failed");
-                log.Error("Bridge: runtime files could not be staged: " + FriendlyAccessFailure(ex.Message));
-                return false;
+                if (loadedBridges.Count > 0)
+                    log.Warn("Bridge loader: switching bridge runtime if the current bridge is idle.");
+                var switchReply = await TrySwitchBridgeViaLoaderAsync(process, port, cancellationToken);
+                if (switchReply.Connected)
+                    return switchReply.Ok && await WaitForReadyOrLoadedButNotReadyAsync(process, port, cancellationToken);
+                log.Warn("Bridge loader: control pipe did not respond; reinitializing the existing loader.");
             }
 
-            LogTargetProcess(target);
-            DiagnosticsState.SetBridgeInjection($"direct-injecting pid={target.ProcessId} instance={instance.InstanceId:N}");
-            var invocation = InvokeDirectInjectorAsync(instance, cancellationToken).GetAwaiter().GetResult();
-            if (invocation.Canceled)
+            if (lastInjectionProcessId != process.Id || activeBridgePort != port)
             {
-                bridgeConnected = false;
-                DiagnosticsState.SetLastCode("MC-INJ-131", "injector wait was canceled; target memory ownership is indeterminate");
-                DiagnosticsState.SetBridgeInjection($"direct injector canceled pid={target.ProcessId}");
-                log.Warn("Bridge: injection was canceled while the target operation may still be running. Retry explicitly when ready.");
-                return false;
+                log.Info($"Bridge loader: initializing in game process pid={process.Id}.");
+                lastInjectionProcessId = process.Id;
             }
-            if (!invocation.Parsed || invocation.Result is null || !invocation.Result.Matches(target.ProcessId, instance.InstanceId, instance.ExpectedBridgeHash))
-            {
-                bridgeConnected = false;
-                var result = invocation.Result;
-                var detail = result?.Detail;
-                if (string.IsNullOrWhiteSpace(detail))
-                    detail = invocation.ParseError;
-                var code = result?.State.Equals("indeterminate_timeout", StringComparison.OrdinalIgnoreCase) == true ? "MC-INJ-132" : "MC-INJ-130";
-                DiagnosticsState.SetLastCode(code, detail ?? "injector did not return a matching direct bridge result");
-                DiagnosticsState.SetBridgeInjection($"direct injection failed pid={target.ProcessId} state={result?.State ?? "protocol_error"}");
-                log.Error("Bridge: direct injection failed: " + FriendlyInjectorFailure(invocation));
-                return false;
-            }
+            LogTargetProcess(process);
+            DiagnosticsState.SetBridgeInjection($"injecting pid={process.Id} port={port}");
 
-            instance.SetPort(invocation.Result.BoundPort!.Value);
-            activeInstance = instance;
-            var ping = PingAsync(cancellationToken, TimeSpan.FromSeconds(3)).GetAwaiter().GetResult();
-            if (IsBridgeReadyForInstance(ping, instance))
-            {
-                bridgeReadyTimeoutLogged = false;
-                RestoreConnectedState(instance);
-                return true;
-            }
-
-            bridgeConnected = false;
-            DiagnosticsState.SetLastCode("MC-INJ-145", ping.Message);
-            DiagnosticsState.SetBridgeInjection($"direct bridge hello failed pid={target.ProcessId} instance={instance.InstanceId:N}");
-            if (!bridgeReadyTimeoutLogged)
-            {
-                bridgeReadyTimeoutLogged = true;
-                log.Error("Bridge: direct bridge started but its authenticated hello did not complete.");
-            }
+            if (!await InvokeLoaderRemoteMainAsync(processName, process, loaderPath, cancellationToken))
+                return false;
+            DiagnosticsState.SetBridgeInjection($"loaded pid={process.Id}");
+            log.Info("Bridge loader: initialized.");
+            return await WaitForReadyOrLoadedButNotReadyAsync(process, port, cancellationToken);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or System.ComponentModel.Win32Exception)
+        {
+            DiagnosticsState.SetLastCode("MC-INJ-130", ex.Message);
+            DiagnosticsState.SetBridgeInjection("injector launch failed");
+            log.Error("Bridge: injector could not run: " + FriendlyAccessFailure(ex.Message));
             return false;
         }
         finally
         {
-            if (ownsMutex)
-                mutex.ReleaseMutex();
+            try { mutex.ReleaseMutex(); } catch (ApplicationException) { }
         }
     }
 
-    private BridgeInstance PrepareDirectBridgeInstance(TargetProcessIdentity target)
+    private async Task<bool> InvokeLoaderRemoteMainAsync(string processName, Process process, string targetLoaderPath, CancellationToken cancellationToken)
     {
-        paths.EnsureBaseDirectories();
-        var nativeRoot = PackagedAssets.ResolveRequiredAssetRoot(paths, "native", log);
-        var profilesRoot = PackagedAssets.ResolveRequiredAssetRoot(paths, "mesh-profiles", log);
-        var bridgeSource = ResolvePackagedNativeAsset(nativeRoot, "runtime-bridge.dll");
-        var injectorSource = ResolvePackagedNativeAsset(nativeRoot, "runtime-injector.exe");
-        if (!File.Exists(bridgeSource) || !File.Exists(injectorSource))
-            throw new FileNotFoundException("Packaged direct bridge or injector is missing.");
-
-        var instanceId = Guid.NewGuid();
-        var token = RandomNumberGenerator.GetBytes(BridgeStartBlockV1.TokenLength);
-        var hash = PackagedAssets.Sha256File(bridgeSource).ToLowerInvariant();
-        var instanceDirectory = Path.Combine(paths.BridgeInstancesDirectory, BridgeInstanceNaming.CreateDirectoryName(instanceId));
-        Directory.CreateDirectory(instanceDirectory);
-
-        var bridgePath = Path.Combine(instanceDirectory, BridgeInstanceNaming.CreateBridgeFileName(hash, instanceId));
-        var injectorPath = Path.Combine(instanceDirectory, "runtime-injector.exe");
-        PackagedAssets.CopyIfInvalid(bridgeSource, bridgePath);
-        PackagedAssets.CopyIfInvalid(injectorSource, injectorPath);
-        CopyMeshProfiles(profilesRoot, instanceDirectory);
-
-        var progressPath = bridgePath + ".progress.json";
-        var instance = new BridgeInstance(target, instanceId, token, hash, bridgePath, injectorPath, progressPath);
-        LogRuntimeFilesPrepared(instance);
-        return instance;
-    }
-
-    private async Task<InjectorInvocation> InvokeDirectInjectorAsync(BridgeInstance instance, CancellationToken cancellationToken)
-    {
-        var start = new ProcessStartInfo(instance.InjectorPath)
+        var start = new ProcessStartInfo(injectorPath, Quote(processName) + " " + Quote(targetLoaderPath) + " " + Quote(loaderConfigPath))
         {
             UseShellExecute = false,
             CreateNoWindow = true,
-            RedirectStandardInput = true,
             RedirectStandardError = true,
             RedirectStandardOutput = true
         };
-        start.ArgumentList.Add("--direct");
-        start.ArgumentList.Add(instance.Target.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        start.ArgumentList.Add(instance.Target.CreationTimeUtcFileTime.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        start.ArgumentList.Add(instance.Target.ExecutablePath);
-        start.ArgumentList.Add(instance.BridgePath);
+        using var injector = Process.Start(start);
+        if (injector is null)
+            return false;
+        await injector.WaitForExitAsync(cancellationToken);
+        var stdout = await injector.StandardOutput.ReadToEndAsync(cancellationToken);
+        var stderr = await injector.StandardError.ReadToEndAsync(cancellationToken);
+        LogInjectorOutput(stdout, stderr);
+        if (injector.ExitCode == 0)
+            return true;
 
-        var startBlock = BridgeStartBlockV1.Create(
-            instance.Target.ProcessId,
-            instance.InstanceId,
-            instance.ConnectionToken,
-            Convert.FromHexString(instance.ExpectedBridgeHash));
-        Process? injector;
+        DiagnosticsState.SetLastCode(ClassifyInjectionFailure(injector.ExitCode, stderr + stdout), stderr.Trim());
+        DiagnosticsState.SetBridgeInjection($"failed exit={injector.ExitCode}");
+        log.Error($"Bridge: injection failed ({injector.ExitCode}): {FriendlyInjectorFailure(injector.ExitCode, stderr)}");
+        return false;
+    }
+
+    private async Task<bool> WaitForReadyOrLoadedButNotReadyAsync(Process process, int port, CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var ready = await Client(port).PingAsync(cancellationToken);
+            if (IsBridgeReadyForProcess(ready, process.Id))
+            {
+                RestoreLoadedBridgeState(process.Id, port);
+                DiagnosticsState.SetBridgeInjection($"ready pid={process.Id} port={port}");
+                LogBridgeConnected(process.Id, port);
+                return true;
+            }
+            await Task.Delay(250, cancellationToken);
+        }
+        var listener = ReadListenerStatus();
+        DiagnosticsState.SetLastCode("MC-INJ-145", listener.Length == 0 ? "bridge loaded but listener did not become ready" : listener);
+        DiagnosticsState.SetBridgeInjection("loaded-but-not-ready");
+        log.Error("Bridge: loaded but not connected. " + (listener.Length == 0 ? "Restart the game before retrying." : "Listener status: " + listener));
+        return false;
+    }
+
+    private bool ValidateReadyBridge(Process process, int port)
+    {
+        if (!PrepareNativeRuntimeForPort(port))
+            return false;
+
+        var loadedBridges = FindLoadedBridgePaths(process);
+        if (loadedBridges.Any(path => SamePath(path, bridgePath)))
+            return true;
+        var loadedLoaders = FindLoadedLoaderPaths(process);
+        if (loadedLoaders.Count > 0 && !loadedLoaders.Any(path => SamePath(path, loaderPath)))
+        {
+            bridgeConnected = false;
+            DiagnosticsState.SetBridgeInjection($"loader-compat-check-needed pid={process.Id} port={port}");
+            return false;
+        }
+        if (loadedBridges.Count > 0 && loadedLoaders.Count > 0)
+        {
+            bridgeConnected = false;
+            DiagnosticsState.SetBridgeInjection($"loader-refresh-needed pid={process.Id} port={port}");
+            log.Warn("Bridge loader: loaded bridge differs from the packaged bridge; switching if safe.");
+            return false;
+        }
+
+        var detail = loadedBridges.Count == 0
+            ? "loaded bridge module could not be confirmed"
+            : "loaded=" + string.Join(";", loadedBridges.Select(Path.GetFileName));
+        bridgeConnected = false;
+        DiagnosticsState.SetLastCode(loadedBridges.Count > 0 ? "MC-INJ-147" : "MC-INJ-146", detail);
+        DiagnosticsState.SetBridgeInjection(loadedBridges.Count > 0 ? $"legacy-direct-bridge pid={process.Id} port={port}" : $"bridge-module-unconfirmed pid={process.Id} port={port}");
+        var key = $"{process.Id}:{port}:{detail}";
+        if (!string.Equals(lastBridgeMismatchLogKey, key, StringComparison.Ordinal))
+        {
+            lastBridgeMismatchLogKey = key;
+            log.Error(loadedBridges.Count > 0
+                ? "Bridge: an old direct-injected bridge is loaded. Restart the game before using the loader runtime."
+                : "Bridge: connected but the loaded bridge module could not be confirmed.");
+        }
+        return false;
+    }
+
+    private bool PrepareNativeRuntimeForPort(int port)
+    {
         try
         {
-            injector = Process.Start(start);
+            PrepareNativeRuntime(port);
+            File.WriteAllText(bridgePath + ".port", port + Environment.NewLine);
+            return true;
         }
-        catch (Exception ex) when (ex is Win32Exception or UnauthorizedAccessException or InvalidOperationException)
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
         {
-            return new InjectorInvocation(false, false, null, ex.Message, "");
-        }
-        if (injector is null)
-            return new InjectorInvocation(false, false, null, "could not start the direct injector", "");
-        using (injector)
-        {
-            var stdoutTask = injector.StandardOutput.ReadToEndAsync();
-            var stderrTask = injector.StandardError.ReadToEndAsync();
-
-            try
-            {
-                await injector.StandardInput.BaseStream.WriteAsync(startBlock.Serialize(), cancellationToken);
-                await injector.StandardInput.BaseStream.FlushAsync(cancellationToken);
-                injector.StandardInput.Close();
-                await injector.WaitForExitAsync(cancellationToken);
-            }
-            catch (OperationCanceledException)
-            {
-                TryCloseStandardInput(injector);
-                _ = ObserveInjectorOutputAsync(stdoutTask, stderrTask);
-                return new InjectorInvocation(true, false, null, "injector operation canceled", "");
-            }
-            catch (Exception ex) when (ex is IOException or Win32Exception or InvalidOperationException)
-            {
-                TryCloseStandardInput(injector);
-                _ = ObserveInjectorOutputAsync(stdoutTask, stderrTask);
-                return new InjectorInvocation(false, false, null, ex.Message, "");
-            }
-
-            var stdout = await stdoutTask;
-            var stderr = await stderrTask;
-            LogInjectorOutput(stdout, stderr);
-            if (!InjectorResultV1.TryParseFinal(stdout, out var result, out var parseError))
-                return new InjectorInvocation(false, false, null, parseError, stderr);
-            return new InjectorInvocation(false, true, result, "", stderr);
+            bridgeConnected = false;
+            DiagnosticsState.SetLastCode("MC-RT-001", ex.Message);
+            log.Error("Bridge: runtime files could not be prepared: " + FriendlyAccessFailure(ex.Message));
+            return false;
         }
     }
 
-    private async Task<BridgeReply> RequestActiveAsync(Func<BridgeClient, Task<BridgeReply>> request)
+    private void PrepareNativeRuntime(int port)
     {
-        var instance = activeInstance;
-        if (instance?.Port is not int)
-            return new BridgeReply(false, false, "not_connected", "Bridge is not connected.", "");
-        var reply = await request(new BridgeClient(instance.Endpoint, instance.Target.ProcessId));
-        bridgeConnected = IsBridgeReadyForInstance(reply, instance) || (reply.Ok && reply.InstanceId == instance.InstanceId);
+        paths.EnsureBaseDirectories();
+        var appDir = PackagedAssets.ResolveRequiredAssetRoot(paths, "native", log);
+        var packagedNativeDir = Path.Combine(appDir, "native");
+        var packagedLoader = Path.Combine(packagedNativeDir, "bridge-loader.dll");
+        var packagedBridge = Path.Combine(packagedNativeDir, "runtime-bridge.dll");
+        var packagedInjector = Path.Combine(packagedNativeDir, "runtime-injector.exe");
+        if (!File.Exists(packagedLoader))
+            packagedLoader = Path.Combine(appDir, "bridge-loader.dll");
+        if (!File.Exists(packagedBridge))
+            packagedBridge = Path.Combine(appDir, "runtime-bridge.dll");
+        if (!File.Exists(packagedInjector))
+            packagedInjector = Path.Combine(appDir, "runtime-injector.exe");
+        if (!File.Exists(packagedLoader) || !File.Exists(packagedBridge) || !File.Exists(packagedInjector))
+            throw new FileNotFoundException("Packaged native bridge loader, bridge, or injector is missing.");
+
+        loaderRuntimeDir = Path.Combine(paths.RootDirectory, "bridge-loaders", ShortHash(packagedLoader));
+        bridgeRuntimeDir = Path.Combine(paths.RuntimeBinDirectory, "bridge-" + ShortHash(packagedBridge));
+        Directory.CreateDirectory(loaderRuntimeDir);
+        Directory.CreateDirectory(bridgeRuntimeDir);
+        loaderPath = Path.Combine(loaderRuntimeDir, "bridge-loader.dll");
+        PackagedAssets.CopyIfInvalid(packagedLoader, loaderPath);
+        injectorPath = Path.Combine(loaderRuntimeDir, "runtime-injector.exe");
+        PackagedAssets.CopyIfInvalid(packagedInjector, injectorPath);
+
+        var hash = ShortHash(packagedBridge);
+        bridgePath = Path.Combine(bridgeRuntimeDir, $"runtime-bridge-{hash}-{port}.dll");
+        PackagedAssets.CopyIfInvalid(packagedBridge, bridgePath);
+        LogRuntimeFilesPrepared(loaderRuntimeDir + "|" + bridgeRuntimeDir);
+        Directory.CreateDirectory(paths.BridgeProgressDirectory);
+        progressPath = Path.Combine(paths.BridgeProgressDirectory, $"bridge-{hash}-{port}.progress.json");
+        File.WriteAllText(bridgePath + ".progress.path", progressPath + Environment.NewLine);
+
+        var profileRoot = PackagedAssets.ResolveRequiredAssetRoot(paths, "mesh-profiles", log);
+        var sourceProfiles = Path.Combine(profileRoot, "mesh-profiles");
+        var targetProfiles = Path.Combine(bridgeRuntimeDir, "mesh-profiles");
+        if (Directory.Exists(sourceProfiles))
+        {
+            Directory.CreateDirectory(targetProfiles);
+            foreach (var file in Directory.EnumerateFiles(sourceProfiles, "*.json"))
+                File.Copy(file, Path.Combine(targetProfiles, Path.GetFileName(file)), true);
+        }
+        paths.CleanupRuntimeBinDirectories([bridgeRuntimeDir], TimeSpan.FromDays(14), keepNewest: 6);
+    }
+
+    private IEnumerable<int> OrderedPortCandidates()
+    {
+        yield return activeBridgePort;
+        foreach (var port in BridgePortCandidates)
+        {
+            if (port != activeBridgePort)
+                yield return port;
+        }
+    }
+
+    private static bool IsBridgeReadyForProcess(BridgeReply reply, int processId) =>
+        reply.Ok &&
+        reply.Success &&
+        (reply.ProcessId is null || reply.ProcessId == processId);
+
+    private static BridgeClient Client(int port) => new(port: port);
+
+    private static string FriendlyInjectorFailure(int exitCode, string stderr)
+    {
+        var message = stderr.Trim();
+        var lower = message.ToLowerInvariant();
+        if (exitCode is 2 or 5 ||
+            lower.Contains("access is denied") ||
+            lower.Contains("access denied") ||
+            lower.Contains("win32=5"))
+        {
+            return "access denied while opening or injecting into the game process. Run Meccha Camouflage with the same privileges as the game, or try Run as administrator.";
+        }
+        if (string.IsNullOrWhiteSpace(message))
+            return "injector exited without an error message.";
+        return message;
+    }
+
+    private static string FriendlyLoaderFailure(LoaderCommandReply reply)
+    {
+        var detail = string.IsNullOrWhiteSpace(reply.Message) ? reply.Result : $"{reply.Result}: {reply.Message}";
+        if (reply.Result.Contains("UNLOAD_BLOCKED", StringComparison.OrdinalIgnoreCase))
+            return detail + " Stop paint/preview work or restart the game before retrying.";
+        if (reply.RestartRequired)
+            return detail + " Restart the game before retrying.";
+        return detail;
+    }
+
+    private static string FriendlyAccessFailure(string message)
+    {
+        var lower = message.ToLowerInvariant();
+        if (lower.Contains("access") || lower.Contains("permission") || lower.Contains("denied"))
+            return message + " Run Meccha Camouflage with access to its runtime folder.";
+        return message;
+    }
+
+    private static string ShortHash(string path)
+    {
+        using var sha = SHA256.Create();
+        var hash = sha.ComputeHash(File.ReadAllBytes(path));
+        return Convert.ToHexString(hash).ToLowerInvariant()[..16];
+    }
+
+    private void LogRuntimeFilesPrepared(string runtimeDir)
+    {
+        if (string.Equals(lastRuntimeFilesLogKey, runtimeDir, StringComparison.OrdinalIgnoreCase))
+            return;
+        lastRuntimeFilesLogKey = runtimeDir;
+        log.Info("Bridge: runtime files prepared.");
+        if (!ResearchArtifactsEnabled())
+            return;
+        LogRuntimeFileDetails("loader", loaderPath);
+        LogRuntimeFileDetails("bridge", bridgePath);
+        LogRuntimeFileDetails("injector", injectorPath);
+    }
+
+    private void WriteLoaderConfig(Process process, int port)
+    {
+        var runtimeDir = string.IsNullOrWhiteSpace(bridgeRuntimeDir)
+            ? Path.GetDirectoryName(bridgePath) ?? paths.RuntimeBinDirectory
+            : bridgeRuntimeDir;
+        loaderPipeName = $@"\\.\pipe\MecchaCamouflage.Loader.{process.Id}.v1";
+        loaderStatusPath = Path.Combine(runtimeDir, $"bridge-loader-{process.Id}-{port}.status.json");
+        loaderConfigPath = Path.Combine(runtimeDir, $"bridge-loader-{process.Id}-{port}.config.json");
+        var payload = new
+        {
+            protocol = 1,
+            gamePid = process.Id,
+            pipeName = loaderPipeName,
+            statusPath = loaderStatusPath,
+            path = bridgePath,
+            sha256 = PackagedAssets.Sha256File(bridgePath),
+            buildId = Path.GetFileNameWithoutExtension(bridgePath),
+            runtimeDir,
+            logDir = paths.LogDirectory,
+            port,
+            progressPath
+        };
+        File.WriteAllText(loaderConfigPath, JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private async Task<LoaderCommandReply> TrySwitchBridgeViaLoaderAsync(Process process, int port, CancellationToken cancellationToken)
+    {
+        DiagnosticsState.SetBridgeInjection($"loader-switch pid={process.Id} port={port}");
+        var command = new
+        {
+            cmd = "switchBridge",
+            path = bridgePath,
+            sha256 = PackagedAssets.Sha256File(bridgePath),
+            buildId = Path.GetFileNameWithoutExtension(bridgePath),
+            runtimeDir = bridgeRuntimeDir,
+            logDir = paths.LogDirectory,
+            statusPath = loaderStatusPath,
+            port,
+            progressPath
+        };
+        var reply = await SendLoaderCommandAsync(command, cancellationToken);
+        if (!reply.Connected)
+            return reply;
+        if (!reply.Ok)
+        {
+            DiagnosticsState.SetLastCode("MC-INJ-149", reply.Result + " " + reply.Message);
+            DiagnosticsState.SetBridgeInjection($"loader-switch-failed pid={process.Id} port={port}");
+            log.Error("Bridge loader: bridge switch failed: " + FriendlyLoaderFailure(reply));
+            return reply;
+        }
+        log.Info("Bridge loader: bridge runtime switched.");
         return reply;
     }
 
-    private static bool IsBridgeReadyForInstance(BridgeReply reply, BridgeInstance instance) =>
-        reply.Ok &&
-        reply.Success &&
-        reply.ProcessId == instance.Target.ProcessId &&
-        reply.InstanceId == instance.InstanceId &&
-        string.Equals(reply.BridgeHash, instance.ExpectedBridgeHash, StringComparison.OrdinalIgnoreCase) &&
-        reply.ProtocolVersion == BridgeProtocolV1.Version;
-
-    private bool ActiveInstanceMatches(TargetProcessIdentity target) =>
-        activeInstance is not null &&
-        activeInstance.Target.ProcessId == target.ProcessId &&
-        activeInstance.Target.CreationTimeUtcFileTime == target.CreationTimeUtcFileTime &&
-        string.Equals(activeInstance.Target.ExecutablePath, target.ExecutablePath, StringComparison.OrdinalIgnoreCase) &&
-        activeInstance.Port is not null;
-
-    private static TargetProcessIdentity CaptureTargetIdentity(Process process)
+    private async Task<LoaderCommandReply> SendLoaderCommandAsync(object command, CancellationToken cancellationToken)
     {
-        if (process.HasExited)
-            throw new InvalidOperationException("The selected game process exited.");
-        var executablePath = process.MainModule?.FileName;
-        if (string.IsNullOrWhiteSpace(executablePath))
-            throw new InvalidOperationException("The selected game executable path is unavailable.");
-        return TargetProcessIdentity.Create(process.Id, process.StartTime.ToUniversalTime().ToFileTimeUtc(), executablePath);
-    }
+        if (string.IsNullOrWhiteSpace(loaderPipeName))
+            return new LoaderCommandReply(false, false, "pipe_unavailable", "loader pipe name is empty", "", false);
+        var pipeName = loaderPipeName.StartsWith(@"\\.\pipe\", StringComparison.OrdinalIgnoreCase)
+            ? loaderPipeName[@"\\.\pipe\".Length..]
+            : loaderPipeName;
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(2));
+            await using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+            await pipe.ConnectAsync(timeout.Token);
 
-    private static string ResolvePackagedNativeAsset(string root, string fileName)
-    {
-        var inNativeDirectory = Path.Combine(root, "native", fileName);
-        return File.Exists(inNativeDirectory) ? inNativeDirectory : Path.Combine(root, fileName);
-    }
+            var request = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(command));
+            await pipe.WriteAsync(BitConverter.GetBytes(request.Length), timeout.Token);
+            await pipe.WriteAsync(request, timeout.Token);
+            await pipe.FlushAsync(timeout.Token);
 
-    private static void CopyMeshProfiles(string profilesRoot, string instanceDirectory)
-    {
-        var source = Path.Combine(profilesRoot, "mesh-profiles");
-        if (!Directory.Exists(source))
-            return;
-        var target = Path.Combine(instanceDirectory, "mesh-profiles");
-        Directory.CreateDirectory(target);
-        foreach (var file in Directory.EnumerateFiles(source, "*.json", SearchOption.TopDirectoryOnly))
-            PackagedAssets.CopyIfInvalid(file, Path.Combine(target, Path.GetFileName(file)));
-    }
-
-    private void RestoreConnectedState(BridgeInstance instance)
-    {
-        bridgeConnected = true;
-        var key = $"{instance.Target.ProcessId}:{instance.InstanceId:N}:{instance.Port}";
-        if (string.Equals(lastBridgeReadyLogKey, key, StringComparison.Ordinal))
-            return;
-        lastBridgeReadyLogKey = key;
-        DiagnosticsState.SetBridgeInjection($"ready pid={instance.Target.ProcessId} instance={instance.InstanceId:N} port={instance.Port}");
-        log.Info($"Bridge: connected to direct instance in game process pid={instance.Target.ProcessId}.");
-    }
-
-    private void LogRuntimeFilesPrepared(BridgeInstance instance)
-    {
-        log.Info("Bridge: staged direct instance.");
-        if (!ResearchArtifactsEnabled())
-            return;
-        LogRuntimeFileDetails("bridge", instance.BridgePath);
-        LogRuntimeFileDetails("injector", instance.InjectorPath);
-    }
-
-    private void LogTargetProcess(TargetProcessIdentity target)
-    {
-        log.Info($"Game process: selected pid={target.ProcessId}.");
-        if (ResearchArtifactsEnabled())
-            log.Info($"Game process detail: created={DateTimeOffset.FromFileTime(target.CreationTimeUtcFileTime):O} path={target.ExecutablePath}");
+            var header = new byte[sizeof(int)];
+            await pipe.ReadExactlyAsync(header, timeout.Token);
+            var length = BitConverter.ToInt32(header, 0);
+            if (length <= 0 || length > 1024 * 1024)
+                return new LoaderCommandReply(true, false, "invalid_response", "loader returned an invalid response length", "", false);
+            var responseBytes = new byte[length];
+            await pipe.ReadExactlyAsync(responseBytes, timeout.Token);
+            var raw = Encoding.UTF8.GetString(responseBytes);
+            using var document = JsonDocument.Parse(raw);
+            var root = document.RootElement;
+            var ok = root.TryGetProperty("ok", out var okElement) && okElement.GetBoolean();
+            var result = root.TryGetProperty("result", out var resultElement) ? resultElement.GetString() ?? "" : "";
+            var message = root.TryGetProperty("lastError", out var errorElement) ? errorElement.GetString() ?? "" : "";
+            var restartRequired = root.TryGetProperty("restartRequired", out var restartElement) && restartElement.GetBoolean();
+            return new LoaderCommandReply(true, ok, result, message, raw, restartRequired);
+        }
+        catch (Exception ex) when (ex is IOException or TimeoutException or OperationCanceledException or UnauthorizedAccessException or JsonException)
+        {
+            return new LoaderCommandReply(false, false, "pipe_unavailable", ex.Message, "", false);
+        }
     }
 
     private void LogRuntimeFileDetails(string label, string path)
     {
         var info = new FileInfo(path);
         log.Info($"Bridge detail: {label} {path} ({info.Length} bytes sha256={PackagedAssets.Sha256File(path)[..16]})");
+    }
+
+    private void LogTargetProcess(Process process)
+    {
+        try
+        {
+            log.Info($"Game process: found pid={process.Id}.");
+            if (ResearchArtifactsEnabled())
+                log.Info($"Game process detail: started={process.StartTime:O} path={process.MainModule?.FileName ?? process.ProcessName}");
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            log.Info($"Game process: found pid={process.Id}.");
+            if (ResearchArtifactsEnabled())
+                log.Warn($"Game process detail unavailable: pid={process.Id} ({ex.Message})");
+        }
+    }
+
+    private void LogBridgeConnected(int processId, int port)
+    {
+        bridgeConnected = true;
+        var key = $"{processId}:{port}";
+        if (string.Equals(lastBridgeReadyLogKey, key, StringComparison.Ordinal))
+            return;
+        lastBridgeReadyLogKey = key;
+        log.Info($"Bridge: connected to game process pid={processId} port={port}.");
     }
 
     private void LogInjectorOutput(string stdout, string stderr)
@@ -421,21 +562,56 @@ public sealed class RuntimeBridgeService
             log.Warn("Bridge detail: injector " + line);
     }
 
-    private static async Task ObserveInjectorOutputAsync(Task<string> stdoutTask, Task<string> stderrTask)
+    private static bool ResearchArtifactsEnabled() =>
+        string.Equals(Environment.GetEnvironmentVariable("MECCHA_RESEARCH_ARTIFACTS"), "1", StringComparison.Ordinal);
+
+    private void RestoreLoadedBridgeState(int processId, int port)
     {
+        if (!string.IsNullOrWhiteSpace(bridgePath) && !string.IsNullOrWhiteSpace(progressPath))
+            return;
         try
         {
-            await Task.WhenAll(stdoutTask, stderrTask);
+            using var process = Process.GetProcessById(processId);
+            foreach (var loadedPath in FindLoadedBridgePaths(process))
+            {
+                if (!LoadedBridgeMatchesPort(loadedPath, port))
+                    continue;
+                bridgePath = loadedPath;
+                var restoredProgressPath = ReadSidecarPath(loadedPath + ".progress.path");
+                if (!string.IsNullOrWhiteSpace(restoredProgressPath))
+                    progressPath = restoredProgressPath;
+                else
+                    progressPath = loadedPath + ".progress.json";
+                return;
+            }
         }
-        catch
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
-            // The process and its remote work are deliberately not terminated on host cancellation.
         }
     }
 
-    private static void TryCloseStandardInput(Process injector)
+    private static bool LoadedBridgeMatchesPort(string loadedPath, int port)
     {
-        try { injector.StandardInput.Close(); } catch { }
+        var sidecarPort = ReadSidecarPath(loadedPath + ".port");
+        if (int.TryParse(sidecarPort, out var parsedPort))
+            return parsedPort == port;
+        return Path.GetFileNameWithoutExtension(loadedPath).EndsWith("-" + port, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string ReadSidecarPath(string path)
+    {
+        try
+        {
+            return File.Exists(path) ? File.ReadAllText(path).Trim() : "";
+        }
+        catch (IOException)
+        {
+            return "";
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return "";
+        }
     }
 
     private static IEnumerable<string> SplitLines(string value) =>
@@ -443,31 +619,86 @@ public sealed class RuntimeBridgeService
             .Select(line => line.Trim())
             .Where(line => line.Length > 0);
 
-    private static string FriendlyInjectorFailure(InjectorInvocation invocation)
+    private string ReadListenerStatus()
     {
-        if (invocation.Result?.State.Equals("indeterminate_timeout", StringComparison.OrdinalIgnoreCase) == true)
-            return "the remote operation did not finish. Its target memory was intentionally retained; retry explicitly after confirming the game is responsive.";
-        var detail = invocation.Result?.Detail;
-        if (string.IsNullOrWhiteSpace(detail))
-            detail = invocation.ParseError;
-        if (string.IsNullOrWhiteSpace(detail))
-            detail = invocation.StandardError;
-        var lower = detail.ToLowerInvariant();
-        if (lower.Contains("access denied") || lower.Contains("win32=5"))
-            return "access denied while opening the selected game process. Run Meccha Camouflage with the same privileges as the game, or try Run as administrator.";
-        return detail;
+        try
+        {
+            var path = bridgePath + ".listen.json";
+            if (File.Exists(path))
+                return File.ReadAllText(path).Trim();
+            if (!string.IsNullOrWhiteSpace(loaderStatusPath) && File.Exists(loaderStatusPath))
+                return File.ReadAllText(loaderStatusPath).Trim();
+            return "";
+        }
+        catch (IOException)
+        {
+            return "";
+        }
     }
 
-    private static string FriendlyAccessFailure(string message)
+    private static List<string> FindLoadedBridgePaths(Process process)
     {
-        var lower = message.ToLowerInvariant();
-        if (lower.Contains("access") || lower.Contains("permission") || lower.Contains("denied"))
-            return message + " Run Meccha Camouflage with access to its runtime folder.";
-        return message;
+        var paths = new List<string>();
+        try
+        {
+            foreach (ProcessModule module in process.Modules)
+            {
+                var file = module.FileName;
+                if (Path.GetFileName(file).Contains("runtime-bridge", StringComparison.OrdinalIgnoreCase))
+                    paths.Add(file);
+            }
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+        }
+        return paths;
     }
 
-    private static bool ResearchArtifactsEnabled() =>
-        string.Equals(Environment.GetEnvironmentVariable("MECCHA_RESEARCH_ARTIFACTS"), "1", StringComparison.Ordinal);
+    private static List<string> FindLoadedLoaderPaths(Process process)
+    {
+        var paths = new List<string>();
+        try
+        {
+            foreach (ProcessModule module in process.Modules)
+            {
+                var file = module.FileName;
+                if (Path.GetFileName(file).Contains("bridge-loader", StringComparison.OrdinalIgnoreCase))
+                    paths.Add(file);
+            }
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+        }
+        return paths;
+    }
 
-    private sealed record InjectorInvocation(bool Canceled, bool Parsed, InjectorResultV1? Result, string ParseError, string StandardError);
+    private static bool SamePath(string left, string right)
+    {
+        try
+        {
+            return string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private static string ClassifyInjectionFailure(int exitCode, string output)
+    {
+        var lower = output.ToLowerInvariant();
+        if (exitCode is 2 or 5 || lower.Contains("access denied") || lower.Contains("access is denied") || lower.Contains("win32=5"))
+            return "MC-INJ-101";
+        return "MC-INJ-130";
+    }
+
+    private static string Quote(string value) => "\"" + value.Replace("\"", "\\\"") + "\"";
+
+    private sealed record LoaderCommandReply(
+        bool Connected,
+        bool Ok,
+        string Result,
+        string Message,
+        string Raw,
+        bool RestartRequired);
 }

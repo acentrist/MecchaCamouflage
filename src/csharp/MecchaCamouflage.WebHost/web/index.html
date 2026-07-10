@@ -30,8 +30,8 @@
               <label class="field">
                 <span data-i18n="stroke.delay">Delay (ms)</span>
                 <div class="range-row">
-                  <input id="packed-batch-delay" class="setting-control" disabled type="range" min="50" max="100" step="1">
-                  <input id="packed-batch-delay-number" class="setting-control range-number" disabled type="number" min="50" max="100" step="1">
+                  <input id="packed-batch-delay" class="setting-control" disabled type="range" min="1" max="100" step="1">
+                  <input id="packed-batch-delay-number" class="setting-control range-number" disabled type="number" min="1" max="100" step="1">
                 </div>
               </label>
             </div>
@@ -62,6 +62,46 @@
               </label>
             </div>
           </div>
+
+            <div class="group">
+            <div class="group-title" data-i18n="group.quality">Quality</div>
+            <div class="setting-grid">
+              <label class="field app-wide">
+                <span data-i18n="quality.preset">Accuracy preset</span>
+                <div class="select-wrap">
+                  <select id="quality-preset" class="setting-control mono-input" disabled></select>
+                </div>
+              </label>
+            </div>
+          </div>
+
+            <div class="group">
+            <div class="group-title" data-i18n="group.detection">Detection</div>
+            <div class="setting-grid">
+              <label class="field app-wide">
+                <span data-i18n="detection.artifacts">Write detection maps</span>
+                <div class="checkbox-row">
+                  <input id="detection-artifacts" class="setting-control" disabled type="checkbox">
+                </div>
+              </label>
+              <label class="field app-wide">
+                <span data-i18n="detection.detail">Detection detail</span>
+                <div class="select-wrap">
+                  <select id="detection-detail" class="setting-control mono-input" disabled></select>
+                </div>
+              </label>
+            </div>
+          </div>
+
+            <div class="group">
+              <div class="group-title" data-i18n="group.source">Image Source</div>
+              <div class="setting-grid">
+                <label class="field app-wide"><span data-i18n="source.local.enable">Use local image</span><div class="checkbox-row"><input id="local-image-enabled" class="setting-control" disabled type="checkbox"></div></label>
+                <label class="field app-wide"><span data-i18n="source.local.file">Source file</span><div class="color-row"><input id="local-image-path" class="mono-input" readonly type="text"><button id="select-local-image" type="button" disabled data-i18n="button.browse">Browse</button></div></label>
+                <label class="field app-wide"><span data-i18n="source.bypass.capture">Bypass live capture</span><div class="checkbox-row"><input id="bypass-live-capture" class="setting-control" disabled type="checkbox"></div></label>
+                <span class="field app-wide" data-i18n="source.bypass.note">Bypasses only camera color capture; safety and replication checks remain active.</span>
+              </div>
+            </div>
 
             <div class="group">
               <div class="group-title" data-i18n="regions">Regions</div>

@@ -1,6 +1,8 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Diagnostics;
+using System.Drawing.Imaging;
+using System.Security.Cryptography;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using MecchaCamouflage.Controller;
@@ -9,11 +11,6 @@ namespace MecchaCamouflage.WebHost;
 
 public sealed class MainForm : Form
 {
-    private const string EvergreenBootstrapperFileName = "MicrosoftEdgeWebview2Setup.exe";
-    private const string ManualWebView2RuntimeUrl = "https://developer.microsoft.com/microsoft-edge/webview2/";
-    private const string WebUiHostName = "meccha.localhost";
-    private const string WebUiStartUri = "https://meccha.localhost/index.html";
-    private static readonly TimeSpan UiReadyTimeout = TimeSpan.FromSeconds(15);
     private const int HotkeyStart = 1;
     private const int HotkeyPreview = 2;
     private const int HotkeyUnPreview = 3;
@@ -27,16 +24,12 @@ public sealed class MainForm : Form
     };
 
     private readonly HostSession session;
-    private readonly WebViewStartupLifecycle webViewStartup = new();
-    private WebView2? webView;
+    private readonly WebView2 webView = new() { Dock = DockStyle.Fill };
     private readonly System.Windows.Forms.Timer statusTimer = new() { Interval = 2000 };
-    private CancellationTokenSource? uiReadyTimeoutCancellation;
     private bool webReady;
     private bool guiInitializedLogged;
     private bool settingsEditing;
     private bool hotkeyRecording;
-    private bool webViewRetryUsed;
-    private bool webViewRecoveryInProgress;
 
     public MainForm(HostSession session)
     {
@@ -55,25 +48,31 @@ public sealed class MainForm : Form
         TopMost = session.Settings.AlwaysOnTop;
         Opacity = session.Settings.Opacity;
         BackColor = Color.FromArgb(32, 32, 32);
-        webView = CreateWebViewControl();
         Controls.Add(webView);
 
         Shown += async (_, _) =>
         {
             try
             {
-                ApplyWindowSettings("shown");
+                StartBridgeWarmup();
                 await InitializeWebViewAsync();
             }
             catch (Exception ex)
             {
-                await HandleWebViewInitializationFailureAsync(ex);
+                DiagnosticsState.RecordException("webview2_initialize_failed", ex);
+                session.Log.Error(ex.Message);
+                MessageBox.Show(
+                    "Meccha Camouflage failed to start. Diagnostic logs were written to:" +
+                    Environment.NewLine + session.Paths.DiagnosticsDirectory +
+                    Environment.NewLine + Environment.NewLine + ex.Message,
+                    "Meccha Camouflage",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                Close();
             }
         };
         FormClosing += (_, _) =>
         {
-            webReady = false;
-            CancelUiReadyTimeout();
             PersistWindowSnapshot();
             UnregisterHotkeys();
         };
@@ -82,8 +81,7 @@ public sealed class MainForm : Form
         statusTimer.Tick += async (_, _) =>
         {
             statusTimer.Interval = session.PaintRunning ? 500 : 2000;
-            if (webReady)
-                StartBridgeWarmup();
+            StartBridgeWarmup();
             await PushSnapshotAsync();
         };
         session.Log.Changed += (_, _) => PushSnapshotFromAnyThread();
@@ -94,7 +92,7 @@ public sealed class MainForm : Form
     {
         base.OnHandleCreated(e);
         ApplyDarkTitleBar();
-        ApplyWindowSettings("handle-created");
+        ApplyWindowSettings();
         if (!TryRegisterHotkeys(out var message))
             session.Log.Warn(message);
     }
@@ -117,94 +115,49 @@ public sealed class MainForm : Form
 
     private async Task InitializeWebViewAsync()
     {
-        var generation = webViewStartup.Begin();
-        webReady = false;
-        guiInitializedLogged = false;
-        CancelUiReadyTimeout();
         DiagnosticsState.SetStartupPhase("webview2_prepare");
-        var runtime = await PrepareEvergreenWebRuntimeAsync();
-        var view = webView ?? throw new InvalidOperationException("MC-WV-201 WebView2 control is unavailable.");
-        session.Log.Info("WebView2 runtime: creating Evergreen environment.");
-        DiagnosticsState.SetStartupPhase("webview2_environment_create");
-        var environment = await CoreWebView2Environment.CreateAsync(
-            null,
-            runtime.UserDataFolder,
-            CreateEvergreenEnvironmentOptions());
-        await view.EnsureCoreWebView2Async(environment);
-        var core = view.CoreWebView2 ?? throw new InvalidOperationException("MC-WV-202 WebView2 did not create a CoreWebView2 instance.");
-        DiagnosticsState.SetStartupPhase("webview2_environment_ready");
+        var runtime = await Task.Run(PrepareFixedWebRuntime);
+        session.Log.Info("WebView2 runtime: initializing.");
+        var environment = await CoreWebView2Environment.CreateAsync(runtime.BrowserExecutableFolder, runtime.UserDataFolder);
+        await webView.EnsureCoreWebView2Async(environment);
+        DiagnosticsState.SetStartupPhase("webview2_ready");
         session.Log.Info($"WebView2 runtime: initialized ({runtime.Version}).");
-        VerifyPackagedWebAssets(runtime.WebRoot);
+        if (!Directory.Exists(runtime.WebRoot))
+            throw new DirectoryNotFoundException("Packaged web assets are missing: " + runtime.WebRoot);
 
-        core.WebMessageReceived += async (sender, args) => await HandleWebMessageAsync(generation, sender, args);
-        core.NavigationCompleted += (sender, args) => HandleNavigationCompleted(generation, sender, args);
-        core.NavigationStarting += (sender, args) => HandleNavigationStarting(generation, sender, args);
-        core.ContentLoading += (sender, args) => HandleContentLoading(generation, sender, args);
-        core.DOMContentLoaded += (sender, args) => HandleDomContentLoaded(generation, sender, args);
-        core.NewWindowRequested += (_, args) => HandleNewWindowRequested(args);
-        core.ProcessFailed += HandleWebViewProcessFailed;
-        core.SetVirtualHostNameToFolderMapping(
-            WebUiHostName,
+        webView.CoreWebView2.WebMessageReceived += async (_, args) => await HandleWebMessageAsync(args);
+        webView.CoreWebView2.NavigationCompleted += HandleNavigationCompleted;
+        webView.CoreWebView2.NavigationStarting += (_, args) => HandleNavigationStarting(args);
+        webView.CoreWebView2.NewWindowRequested += (_, args) => HandleNewWindowRequested(args);
+        webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
+            "meccha.localhost",
             runtime.WebRoot,
             CoreWebView2HostResourceAccessKind.DenyCors);
-        core.Settings.AreDefaultScriptDialogsEnabled = true;
-        core.Settings.AreDefaultContextMenusEnabled = false;
-        core.Settings.AreBrowserAcceleratorKeysEnabled = false;
-        core.Settings.AreDevToolsEnabled =
+        webView.CoreWebView2.Settings.AreDefaultScriptDialogsEnabled = true;
+        webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+        webView.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = false;
+        webView.CoreWebView2.Settings.AreDevToolsEnabled =
             string.Equals(Environment.GetEnvironmentVariable("MECCHA_RESEARCH_ARTIFACTS"), "1", StringComparison.Ordinal);
-        DiagnosticsState.SetStartupPhase("webview2_navigate");
-        session.Log.Info("GUI: navigating packaged index.html.");
-        DiagnosticsState.WriteLine("webview2", $"navigation_requested generation={generation} uri={WebUiStartUri}");
-        core.Navigate(WebUiStartUri);
-        StartUiReadyTimeout();
+        webView.CoreWebView2.Navigate("https://meccha.localhost/index.html");
+        webReady = true;
+        StartBridgeWarmup();
     }
 
-    private void VerifyPackagedWebAssets(string webRoot)
+    private async void HandleNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs args)
     {
-        if (!Directory.Exists(webRoot))
-            throw new DirectoryNotFoundException("MC-WV-105 Packaged web assets are missing: " + webRoot);
-
-        foreach (var fileName in new[] { "index.html", "app.js", "styles.css" })
-        {
-            var path = Path.Combine(webRoot, fileName);
-            if (!File.Exists(path))
-                throw new FileNotFoundException($"MC-WV-105 Packaged web asset is missing: {fileName}", path);
-
-            var length = new FileInfo(path).Length;
-            if (length == 0)
-                throw new IOException($"MC-WV-105 Packaged web asset is empty: {fileName}");
-            DiagnosticsState.WriteLine("webview2", $"asset_verified name={fileName} bytes={length} path={path}");
-        }
-    }
-
-    private async void HandleNavigationCompleted(long generation, object? sender, CoreWebView2NavigationCompletedEventArgs args)
-    {
-        if (!IsActiveWebView(generation, sender) || webViewRecoveryInProgress)
-            return;
-
         try
         {
-            var source = webView?.CoreWebView2?.Source ?? WebUiStartUri;
-            var startupNavigation = webViewStartup.IsInitialNavigation(generation, args.NavigationId);
-            DiagnosticsState.WriteLine(
-                "webview2",
-                $"navigation_completed generation={generation} id={args.NavigationId} startup={startupNavigation} success={args.IsSuccess} status={args.HttpStatusCode} error={args.WebErrorStatus} uri={source}");
-            if (!startupNavigation)
-                return;
-            DiagnosticsState.SetStartupPhase("webview2_navigation_completed");
+            ApplyWindowSettings();
             if (!args.IsSuccess)
             {
-                await RecoverWebViewAsync(
-                    "The Meccha Camouflage interface could not load.",
-                    new InvalidOperationException($"MC-WV-203 WebView2 navigation failed: {args.WebErrorStatus}"));
+                session.Log.Error($"GUI: failed to load web assets ({args.WebErrorStatus}).");
                 return;
             }
             if (guiInitializedLogged)
                 return;
             guiInitializedLogged = true;
-            session.Log.Info("GUI: web assets loaded; waiting for uiReady.");
-            if (webViewStartup.MarkNavigationSucceeded(generation, args.NavigationId))
-                QueueWindowSettingsStabilization(generation);
+            session.Log.Info("GUI: initialized.");
+            await PushSnapshotAsync();
         }
         catch (Exception ex)
         {
@@ -213,163 +166,70 @@ public sealed class MainForm : Form
         }
     }
 
-    private void HandleContentLoading(long generation, object? sender, CoreWebView2ContentLoadingEventArgs args)
+    private WebRuntimeInfo PrepareFixedWebRuntime()
     {
-        if (!IsActiveWebView(generation, sender) || webViewRecoveryInProgress)
-            return;
-
-        var source = webView?.CoreWebView2?.Source ?? WebUiStartUri;
-        DiagnosticsState.SetStartupPhase("webview2_content_loading");
-        DiagnosticsState.WriteLine(
-            "webview2",
-            $"content_loading generation={generation} id={args.NavigationId} error_page={args.IsErrorPage} uri={source}");
-    }
-
-    private void HandleDomContentLoaded(long generation, object? sender, CoreWebView2DOMContentLoadedEventArgs args)
-    {
-        if (!IsActiveWebView(generation, sender) || webViewRecoveryInProgress)
-            return;
-
-        var source = webView?.CoreWebView2?.Source ?? WebUiStartUri;
-        DiagnosticsState.SetStartupPhase("webview2_dom_content_loaded");
-        session.Log.Info("GUI: DOM content loaded.");
-        DiagnosticsState.WriteLine("webview2", $"dom_content_loaded generation={generation} id={args.NavigationId} uri={source}");
-    }
-
-    private async Task<WebRuntimeInfo> PrepareEvergreenWebRuntimeAsync()
-    {
-        DiagnosticsState.SetStartupPhase("webview2_runtime_detect");
-        var version = await Task.Run(TryGetEvergreenRuntimeVersion);
-        if (string.IsNullOrWhiteSpace(version))
+        var assetRoot = PackagedAssets.ResolveRequiredAssetRoot(session.Paths, "webview2", session.Log);
+        var webView2Root = Path.Combine(assetRoot, "webview2");
+        var executable = Directory.EnumerateFiles(webView2Root, "msedgewebview2.exe", SearchOption.AllDirectories)
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(executable))
         {
-            DiagnosticsState.SetLastCode("MC-WV-101", "Evergreen WebView2 Runtime is not installed");
-            var install = MessageBox.Show(
-                this,
-                "Microsoft Edge WebView2 Runtime is required to start Meccha Camouflage.\n\n" +
-                "Install it now? This small Microsoft bootstrapper needs an internet connection.",
-                "Meccha Camouflage",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Information);
-            if (install != DialogResult.Yes)
-                throw new InvalidOperationException("MC-WV-101 Microsoft Edge WebView2 Runtime is required.");
-
-            DiagnosticsState.SetStartupPhase("webview2_runtime_install");
-            await InstallEvergreenRuntimeAsync();
-            version = await WaitForEvergreenRuntimeAsync();
-            if (string.IsNullOrWhiteSpace(version))
-            {
-                DiagnosticsState.SetLastCode("MC-WV-102", "Evergreen bootstrapper completed but no compatible runtime was detected");
-                throw new InvalidOperationException("MC-WV-102 The WebView2 Runtime was not available after installation.");
-            }
+            DiagnosticsState.SetLastCode("MC-WV-001", "msedgewebview2.exe missing from fixed runtime");
+            throw new FileNotFoundException("MC-WV-001 Fixed WebView2 runtime is missing msedgewebview2.exe.");
         }
 
-        var userDataFolder = Path.Combine(session.Paths.RootDirectory, "webview2-user-data");
+        var browserExecutableFolder = Path.GetDirectoryName(executable)!;
+        ApplyWindows10WebView2Acl(browserExecutableFolder);
+        var version = CoreWebView2Environment.GetAvailableBrowserVersionString(browserExecutableFolder);
+        var userDataFolder = Path.Combine(session.Paths.RuntimeDirectory, "webview2-user-data");
         Directory.CreateDirectory(userDataFolder);
-        var webRoot = await Task.Run(() => Path.Combine(PackagedAssets.ResolveRequiredAssetRoot(session.Paths, "web", session.Log), "web"));
-        DiagnosticsState.SetWebView2Runtime($"evergreen version={version}");
-        return new WebRuntimeInfo(userDataFolder, webRoot, version);
+        var webRoot = Path.Combine(PackagedAssets.ResolveRequiredAssetRoot(session.Paths, "web", session.Log), "web");
+        DiagnosticsState.SetWebView2Runtime($"fixed version={version} path={browserExecutableFolder}");
+        return new WebRuntimeInfo(browserExecutableFolder, userDataFolder, webRoot, version);
     }
 
-    private static CoreWebView2EnvironmentOptions CreateEvergreenEnvironmentOptions() => new()
-    {
-        ReleaseChannels = CoreWebView2ReleaseChannels.Stable,
-        ExclusiveUserDataFolderAccess = false
-    };
+    private sealed record WebRuntimeInfo(string BrowserExecutableFolder, string UserDataFolder, string WebRoot, string Version);
 
-    private static string? TryGetEvergreenRuntimeVersion()
+    private static void ApplyWindows10WebView2Acl(string browserExecutableFolder)
     {
-        try
-        {
-            var version = CoreWebView2Environment.GetAvailableBrowserVersionString(
-                null,
-                CreateEvergreenEnvironmentOptions());
-            return string.IsNullOrWhiteSpace(version) ? null : version;
-        }
-        catch (WebView2RuntimeNotFoundException)
-        {
-            return null;
-        }
+        if (!OperatingSystem.IsWindows())
+            return;
+        var version = Environment.OSVersion.Version;
+        if (version.Major != 10 || version.Build >= 22000)
+            return;
+
+        RunIcaclsGrant(browserExecutableFolder, "*S-1-15-2-2:(OI)(CI)(RX)");
+        RunIcaclsGrant(browserExecutableFolder, "*S-1-15-2-1:(OI)(CI)(RX)");
     }
 
-    private static async Task<string?> WaitForEvergreenRuntimeAsync()
+    private static void RunIcaclsGrant(string path, string grant)
     {
-        for (var attempt = 0; attempt != 10; ++attempt)
+        var start = new ProcessStartInfo("icacls.exe")
         {
-            var version = await Task.Run(TryGetEvergreenRuntimeVersion);
-            if (!string.IsNullOrWhiteSpace(version))
-                return version;
-            await Task.Delay(TimeSpan.FromSeconds(1));
-        }
-        return null;
-    }
-
-    private async Task InstallEvergreenRuntimeAsync()
-    {
-        var assetRoot = await Task.Run(() => PackagedAssets.ResolveRequiredAssetRoot(session.Paths, "webview2-bootstrapper", session.Log));
-        var source = Path.Combine(assetRoot, "webview2-bootstrapper", EvergreenBootstrapperFileName);
-        if (!File.Exists(source))
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        start.ArgumentList.Add(path);
+        start.ArgumentList.Add("/grant");
+        start.ArgumentList.Add(grant);
+        using var process = Process.Start(start);
+        if (process is null)
+            throw new IOException("MC-WV-ACL-001 icacls.exe could not be started.");
+        process.WaitForExit();
+        var stdout = process.StandardOutput.ReadToEnd();
+        var stderr = process.StandardError.ReadToEnd();
+        if (process.ExitCode != 0)
         {
-            DiagnosticsState.SetLastCode("MC-WV-103", "embedded Evergreen bootstrapper is missing");
-            throw new FileNotFoundException("MC-WV-103 The embedded WebView2 Evergreen bootstrapper is missing.", source);
-        }
-
-        var temporaryDirectory = Path.Combine(
-            Path.GetTempPath(),
-            "MecchaCamouflage",
-            "webview2-bootstrapper",
-            Guid.NewGuid().ToString("N"));
-        var bootstrapperPath = Path.Combine(temporaryDirectory, EvergreenBootstrapperFileName);
-        try
-        {
-            Directory.CreateDirectory(temporaryDirectory);
-            File.Copy(source, bootstrapperPath, overwrite: true);
-            var start = new ProcessStartInfo(bootstrapperPath)
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            start.ArgumentList.Add("/silent");
-            start.ArgumentList.Add("/install");
-            using var process = Process.Start(start)
-                ?? throw new IOException("MC-WV-104 The WebView2 Evergreen bootstrapper could not be started.");
-            await process.WaitForExitAsync();
-            if (process.ExitCode != 0)
-            {
-                DiagnosticsState.SetLastCode("MC-WV-104", $"Evergreen bootstrapper exit code {process.ExitCode}");
-                throw new IOException($"MC-WV-104 The WebView2 Evergreen bootstrapper failed with exit code {process.ExitCode}.");
-            }
-        }
-        finally
-        {
-            TryDeleteDirectory(temporaryDirectory);
+            DiagnosticsState.SetLastCode("MC-WV-ACL-001", stderr.Trim().Length == 0 ? stdout.Trim() : stderr.Trim());
+            throw new IOException("MC-WV-ACL-001 Windows denied Fixed WebView2 runtime permissions.");
         }
     }
-
-    private static void TryDeleteDirectory(string path)
-    {
-        try
-        {
-            if (Directory.Exists(path))
-                Directory.Delete(path, recursive: true);
-        }
-        catch (IOException)
-        {
-            // A security product can briefly retain the installer; the per-run directory is safe to clean later.
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Diagnostics should describe the startup error, not turn temporary-file cleanup into a new failure.
-        }
-    }
-
-    private sealed record WebRuntimeInfo(string UserDataFolder, string WebRoot, string Version);
-
-    private WebView2 CreateWebViewControl() => new() { Dock = DockStyle.Fill };
 
     private void StartBridgeWarmup()
     {
-        if (!webReady)
-            return;
         _ = Task.Run(async () =>
         {
             try
@@ -382,239 +242,11 @@ public sealed class MainForm : Form
         });
     }
 
-    private void StartUiReadyTimeout()
+    private static void HandleNavigationStarting(CoreWebView2NavigationStartingEventArgs args)
     {
-        CancelUiReadyTimeout();
-        var cancellation = new CancellationTokenSource();
-        uiReadyTimeoutCancellation = cancellation;
-        _ = WaitForUiReadyAsync(cancellation);
-    }
-
-    private void CancelUiReadyTimeout()
-    {
-        var cancellation = uiReadyTimeoutCancellation;
-        uiReadyTimeoutCancellation = null;
-        cancellation?.Cancel();
-    }
-
-    private async Task WaitForUiReadyAsync(CancellationTokenSource cancellation)
-    {
-        try
-        {
-            await Task.Delay(UiReadyTimeout, cancellation.Token);
-            if (IsDisposed || Disposing || webReady || !ReferenceEquals(uiReadyTimeoutCancellation, cancellation))
-                return;
-            uiReadyTimeoutCancellation = null;
-            await RecoverWebViewAsync(
-                "The Meccha Camouflage interface did not finish initializing.",
-                new TimeoutException("MC-WV-204 Timed out waiting for the web interface uiReady signal."));
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        finally
-        {
-            cancellation.Dispose();
-        }
-    }
-
-    private async Task MarkUiReadyAsync(long generation)
-    {
-        if (!webViewStartup.IsCurrent(generation) || webViewRecoveryInProgress || webReady || IsDisposed || Disposing)
-            return;
-        webReady = true;
-        CancelUiReadyTimeout();
-        DiagnosticsState.SetStartupPhase("webview2_ui_ready");
-        session.Log.Info("GUI: initialized.");
-        DiagnosticsState.WriteLine("webview2", $"ui_ready generation={generation}");
-        if (webViewStartup.MarkUiReady(generation))
-            QueueWindowSettingsStabilization(generation);
-        StartBridgeWarmup();
-        await PushSnapshotAsync();
-    }
-
-    private void QueueWindowSettingsStabilization(long generation)
-    {
-        if (!IsHandleCreated || IsDisposed || Disposing)
-            return;
-        try
-        {
-            BeginInvoke((MethodInvoker)(() =>
-            {
-                if (IsDisposed || Disposing || !webReady || !webViewStartup.IsCurrent(generation))
-                    return;
-                ApplyWindowSettings("webview-ready-posted");
-            }));
-        }
-        catch (InvalidOperationException) when (IsDisposed || Disposing || !IsHandleCreated)
-        {
-            // The form closed between the guard and BeginInvoke.
-        }
-    }
-
-    private bool IsActiveWebView(long generation, object? sender) =>
-        webViewStartup.IsCurrent(generation) && ReferenceEquals(sender, webView?.CoreWebView2);
-
-    private async Task HandleWebViewInitializationFailureAsync(Exception exception)
-    {
-        await RecoverWebViewAsync("Meccha Camouflage could not start its WebView2 interface.", exception);
-    }
-
-    private async Task RecoverWebViewAsync(string userMessage, Exception exception)
-    {
-        if (webViewRecoveryInProgress || IsDisposed || Disposing)
-            return;
-
-        webViewRecoveryInProgress = true;
-        webReady = false;
-        CancelUiReadyTimeout();
-        DiagnosticsState.RecordException("webview2_failed", exception);
-        DiagnosticsState.SetLastCode(WebViewFailureCode(exception), exception.Message);
-        session.Log.Error("WebView2: " + exception.Message);
-        try
-        {
-            var retryAvailable = !webViewRetryUsed;
-            var action = WebViewFailureDialog.Show(
-                this,
-                userMessage,
-                DiagnosticsState.Summary(session.Paths),
-                ManualWebView2RuntimeUrl,
-                retryAvailable);
-            if (action != WebViewRecoveryAction.Retry)
-            {
-                Close();
-                return;
-            }
-
-            webViewRetryUsed = true;
-            try
-            {
-                await RecreateWebViewAsync();
-            }
-            catch (Exception retryException)
-            {
-                DiagnosticsState.RecordException("webview2_retry_failed", retryException);
-                session.Log.Error("WebView2 retry: " + retryException.Message);
-                WebViewFailureDialog.Show(
-                    this,
-                    "The WebView2 retry did not succeed.",
-                    DiagnosticsState.Summary(session.Paths),
-                    ManualWebView2RuntimeUrl,
-                    retryAvailable: false);
-                Close();
-            }
-        }
-        finally
-        {
-            webViewRecoveryInProgress = false;
-        }
-    }
-
-    private static string WebViewFailureCode(Exception exception)
-    {
-        var firstToken = exception.Message
-            .Split([' ', ':', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
-            .FirstOrDefault(token => token.StartsWith("MC-WV-", StringComparison.OrdinalIgnoreCase));
-        return string.IsNullOrWhiteSpace(firstToken) ? "MC-WV-999" : firstToken;
-    }
-
-    private async Task RecreateWebViewAsync()
-    {
-        webReady = false;
-        guiInitializedLogged = false;
-        CancelUiReadyTimeout();
-        var previous = webView;
-        webView = null;
-        if (previous is not null)
-        {
-            Controls.Remove(previous);
-            previous.Dispose();
-        }
-
-        var replacement = CreateWebViewControl();
-        webView = replacement;
-        Controls.Add(replacement);
-        replacement.BringToFront();
-        await InitializeWebViewAsync();
-    }
-
-    private void HandleWebViewProcessFailed(object? sender, CoreWebView2ProcessFailedEventArgs args)
-    {
-        if (!ReferenceEquals(sender, webView?.CoreWebView2))
-            return;
-
-        var detail = BuildProcessFailureDetail(args);
-        DiagnosticsState.SetStartupPhase("webview2_process_failed");
-        DiagnosticsState.SetLastCode("MC-WV-301", detail);
-        session.Log.Error("WebView2 process failed: " + detail);
-        // RenderProcessUnresponsive can recover on its own, so it is diagnostic-only here.
-        var requiresRecreate = args.ProcessFailedKind is
-            CoreWebView2ProcessFailedKind.BrowserProcessExited or
-            CoreWebView2ProcessFailedKind.RenderProcessExited or
-            CoreWebView2ProcessFailedKind.UnknownProcessExited;
-        if (!requiresRecreate || webViewRecoveryInProgress)
-            return;
-
-        if (InvokeRequired)
-        {
-            if (IsDisposed || Disposing || !IsHandleCreated)
-                return;
-            try
-            {
-                BeginInvoke((MethodInvoker)(() => HandleWebViewProcessFailed(sender, args)));
-            }
-            catch (InvalidOperationException) when (IsDisposed || Disposing || !IsHandleCreated)
-            {
-                // The form closed between the guard and BeginInvoke.
-            }
-            return;
-        }
-        _ = RecoverWebViewAsync(
-            "The WebView2 browser process stopped unexpectedly.",
-            new InvalidOperationException("MC-WV-301 " + detail));
-    }
-
-    private static string BuildProcessFailureDetail(CoreWebView2ProcessFailedEventArgs args)
-    {
-        var detail = $"{args.ProcessFailedKind} exit={args.ExitCode}";
-        try
-        {
-            detail += $" reason={args.Reason}";
-            if (!string.IsNullOrWhiteSpace(args.ProcessDescription))
-                detail += $" description={args.ProcessDescription}";
-            if (!string.IsNullOrWhiteSpace(args.FailureSourceModulePath))
-                detail += $" module={args.FailureSourceModulePath}";
-        }
-        catch
-        {
-            // These extended diagnostics are optional on older Evergreen runtimes.
-        }
-        return detail;
-    }
-
-    private void HandleNavigationStarting(long generation, object? sender, CoreWebView2NavigationStartingEventArgs args)
-    {
-        if (!IsActiveWebView(generation, sender))
-            return;
-        if (webViewRecoveryInProgress)
-        {
-            args.Cancel = true;
-            return;
-        }
-        if (IsStartupUri(args.Uri))
-        {
-            var registered = webViewStartup.RegisterInitialNavigation(generation, args.NavigationId);
-            DiagnosticsState.SetStartupPhase("webview2_navigation_starting");
-            DiagnosticsState.WriteLine("webview2", $"navigation_starting generation={generation} id={args.NavigationId} startup={registered} uri={args.Uri}");
-            return;
-        }
         if (IsInternalUri(args.Uri))
-        {
-            DiagnosticsState.WriteLine("webview2", $"navigation_starting generation={generation} id={args.NavigationId} startup=false uri={args.Uri}");
             return;
-        }
         args.Cancel = true;
-        DiagnosticsState.WriteLine("webview2", $"navigation_blocked generation={generation} id={args.NavigationId} uri={args.Uri}");
         OpenExternal(args.Uri);
     }
 
@@ -627,10 +259,7 @@ public sealed class MainForm : Form
     private static bool IsInternalUri(string uri) =>
         Uri.TryCreate(uri, UriKind.Absolute, out var parsed) &&
         parsed.Scheme == Uri.UriSchemeHttps &&
-        string.Equals(parsed.Host, WebUiHostName, StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsStartupUri(string uri) =>
-        string.Equals(uri, WebUiStartUri, StringComparison.OrdinalIgnoreCase);
+        string.Equals(parsed.Host, "meccha.localhost", StringComparison.OrdinalIgnoreCase);
 
     private static void OpenExternal(string uri)
     {
@@ -642,29 +271,11 @@ public sealed class MainForm : Form
         Process.Start(new ProcessStartInfo(parsed.ToString()) { UseShellExecute = true });
     }
 
-    private async Task HandleWebMessageAsync(long generation, object? sender, CoreWebView2WebMessageReceivedEventArgs args)
+    private async Task HandleWebMessageAsync(CoreWebView2WebMessageReceivedEventArgs args)
     {
-        if (!IsActiveWebView(generation, sender) || webViewRecoveryInProgress)
-            return;
-        if (!IsInternalUri(args.Source))
-        {
-            session.Log.Warn("GUI: ignored a web message from an untrusted origin.");
-            DiagnosticsState.WriteLine("webview2", $"web_message_rejected generation={generation} source={args.Source}");
-            return;
-        }
         HostWebCommand? command = null;
         try
         {
-            if (TryGetUiStartupFailure(args.WebMessageAsJson, out var startupFailure))
-            {
-                await HandleUiStartupFailureAsync(generation, startupFailure);
-                return;
-            }
-            if (IsUiReadyMessage(args.WebMessageAsJson))
-            {
-                await MarkUiReadyAsync(generation);
-                return;
-            }
             command = JsonSerializer.Deserialize<HostWebCommand>(args.WebMessageAsJson, JsonOptions);
             if (command is null)
                 return;
@@ -675,43 +286,6 @@ public sealed class MainForm : Form
         {
             PostResponse(command?.Id ?? "", false, new { message = ex.Message });
         }
-    }
-
-    private static bool IsUiReadyMessage(string message)
-    {
-        using var document = JsonDocument.Parse(message);
-        return document.RootElement.ValueKind == JsonValueKind.Object &&
-            document.RootElement.TryGetProperty("type", out var type) &&
-            string.Equals(type.GetString(), "uiReady", StringComparison.Ordinal);
-    }
-
-    private static bool TryGetUiStartupFailure(string message, out string detail)
-    {
-        detail = "";
-        using var document = JsonDocument.Parse(message);
-        if (document.RootElement.ValueKind != JsonValueKind.Object ||
-            !document.RootElement.TryGetProperty("type", out var type) ||
-            !string.Equals(type.GetString(), "uiStartupFailure", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        var kind = document.RootElement.TryGetProperty("kind", out var kindValue) ? kindValue.GetString() : "javascript";
-        var messageValue = document.RootElement.TryGetProperty("message", out var detailValue) ? detailValue.GetString() : "unknown JavaScript startup error";
-        detail = $"{kind}: {messageValue}";
-        return true;
-    }
-
-    private async Task HandleUiStartupFailureAsync(long generation, string detail)
-    {
-        DiagnosticsState.SetLastCode("MC-WV-205", detail);
-        session.Log.Error("GUI startup JavaScript failure: " + detail);
-        DiagnosticsState.WriteLine("webview2", $"ui_startup_failure generation={generation} detail={detail}");
-        if (webReady)
-            return;
-        await RecoverWebViewAsync(
-            "The Meccha Camouflage interface failed while starting.",
-            new InvalidOperationException("MC-WV-205 " + detail));
     }
 
     private async Task<object?> ExecuteCommandAsync(HostWebCommand command)
@@ -736,6 +310,8 @@ public sealed class MainForm : Form
             case "copyLogs":
                 Clipboard.SetText(session.ClipboardLogText());
                 return new { success = true };
+            case "selectLocalImage":
+                return SelectAndNormalizeLocalImage();
             case "setEditing":
                 settingsEditing = command.Payload.GetProperty("editing").GetBoolean();
                 if (!settingsEditing)
@@ -819,6 +395,23 @@ public sealed class MainForm : Form
         return ApplyResult(result);
     }
 
+    private object SelectAndNormalizeLocalImage()
+    {
+        using var dialog = new OpenFileDialog { Title = "Select camouflage source image", Filter = "Image files|*.png;*.jpg;*.jpeg;*.bmp", CheckFileExists = true };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return new { success = false, cancelled = true };
+        var info = new FileInfo(dialog.FileName);
+        if (info.Length <= 0 || info.Length > 32L * 1024L * 1024L) return new { success = false, cancelled = false, message = "Image must be between 1 byte and 32 MB." };
+        using var source = new Bitmap(dialog.FileName);
+        if (source.Width <= 0 || source.Height <= 0 || source.Width > 4096 || source.Height > 4096) return new { success = false, cancelled = false, message = "Image dimensions must be 1..4096 pixels." };
+        var cache = Path.Combine(session.Paths.VersionRoot, "local-sources"); Directory.CreateDirectory(cache);
+        var identity = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(dialog.FileName))).ToLowerInvariant();
+        var output = Path.Combine(cache, identity + ".bmp");
+        var scale = Math.Min(1.0, 2048.0 / Math.Max(source.Width, source.Height));
+        var width = Math.Max(1, (int)Math.Round(source.Width * scale)); var height = Math.Max(1, (int)Math.Round(source.Height * scale));
+        if (!File.Exists(output)) { using var normalized = new Bitmap(width, height, PixelFormat.Format24bppRgb); using var graphics = Graphics.FromImage(normalized); graphics.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy; graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic; graphics.DrawImage(source, 0, 0, width, height); normalized.Save(output, ImageFormat.Bmp); }
+        return new { success = true, cancelled = false, path = output, name = Path.GetFileName(dialog.FileName), width, height };
+    }
+
     private object HandleUpdateSettings(JsonElement payload)
     {
         var oldHotkeys = HotkeySet.From(session.Settings);
@@ -895,57 +488,24 @@ public sealed class MainForm : Form
         await PushSnapshotAsync();
     }
 
-    private void ApplyWindowSettings(string? stage = null)
+    private void ApplyWindowSettings()
     {
         Opacity = session.Settings.Opacity;
         var topMost = session.Settings.AlwaysOnTop;
-        bool? nativeTopMostBefore = IsHandleCreated ? IsNativeTopMost() : null;
         TopMost = topMost;
-        var setWindowPosSucceeded = true;
-        var setWindowPosError = 0;
         if (IsHandleCreated)
         {
-            setWindowPosSucceeded = SetWindowPos(
+            _ = SetWindowPos(
                 Handle,
                 topMost ? HwndTopMost : HwndNoTopMost,
                 0,
                 0,
                 0,
                 0,
-                SwpNoMove | SwpNoSize | SwpNoActivate | SwpNoOwnerZOrder);
-            if (!setWindowPosSucceeded)
-                setWindowPosError = Marshal.GetLastWin32Error();
+                SwpNoMove | SwpNoSize | SwpNoActivate | SwpShowWindow);
         }
         ApplyDarkTitleBar();
-        if (!string.IsNullOrWhiteSpace(stage))
-            RecordWindowSettingsState(stage, topMost, nativeTopMostBefore, setWindowPosSucceeded, setWindowPosError);
     }
-
-    private void RecordWindowSettingsState(string stage, bool requestedTopMost, bool? nativeTopMostBefore, bool setWindowPosSucceeded, int setWindowPosError)
-    {
-        if (!IsHandleCreated || IsDisposed || Disposing)
-            return;
-
-        var nativeTopMost = IsNativeTopMost();
-        var state =
-            $"stage={stage} requested_topmost={requestedTopMost} managed_topmost={TopMost} native_topmost_before={nativeTopMostBefore?.ToString() ?? "n/a"} native_topmost={nativeTopMost} " +
-            $"visible={Visible} setwindowpos={setWindowPosSucceeded}";
-        if (!setWindowPosSucceeded)
-        {
-            state += $" win32={setWindowPosError}";
-            DiagnosticsState.SetLastCode("MC-WIN-101", state);
-            session.Log.Warn("Window: " + state);
-            return;
-        }
-
-        DiagnosticsState.WriteLine("window", state);
-        if (nativeTopMost != requestedTopMost)
-            session.Log.Warn("Window: " + state);
-        else
-            session.Log.Info("Window: " + state);
-    }
-
-    private bool IsNativeTopMost() => (GetWindowLong(Handle, GwlExStyle) & WsExTopMost) != 0;
 
     private void ApplyDarkTitleBar()
     {
@@ -981,8 +541,7 @@ public sealed class MainForm : Form
 
     private async Task PushSnapshotAsync()
     {
-        var core = webView?.CoreWebView2;
-        if (!webReady || core is null)
+        if (!webReady || webView.CoreWebView2 is null)
             return;
         var snapshot = await session.GetSnapshotAsync();
         PostEvent("snapshotChanged", snapshot);
@@ -1011,25 +570,23 @@ public sealed class MainForm : Form
 
     private void PostResponse(string id, bool ok, object? data)
     {
-        var core = webView?.CoreWebView2;
-        if (!webReady || core is null)
+        if (!webReady || webView.CoreWebView2 is null)
             return;
         var json = JsonSerializer.Serialize(new { type = "response", id, ok, data }, JsonOptions);
-        core.PostWebMessageAsJson(json);
+        webView.CoreWebView2.PostWebMessageAsJson(json);
     }
 
     private void PostEvent(string name, object data)
     {
-        var core = webView?.CoreWebView2;
-        if (!webReady || core is null)
+        if (!webReady || webView.CoreWebView2 is null)
             return;
         var json = JsonSerializer.Serialize(new { type = "event", name, data }, JsonOptions);
-        core.PostWebMessageAsJson(json);
+        webView.CoreWebView2.PostWebMessageAsJson(json);
     }
 
     private void SendToast(string message, string level)
     {
-        if (webReady && webView?.CoreWebView2 is not null)
+        if (webReady && webView.CoreWebView2 is not null)
             PostEvent("toast", new { message, level });
     }
 
@@ -1103,15 +660,10 @@ public sealed class MainForm : Form
 
     private static readonly IntPtr HwndTopMost = new(-1);
     private static readonly IntPtr HwndNoTopMost = new(-2);
-    private const int GwlExStyle = -20;
-    private const int WsExTopMost = 0x00000008;
     private const uint SwpNoSize = 0x0001;
     private const uint SwpNoMove = 0x0002;
     private const uint SwpNoActivate = 0x0010;
-    private const uint SwpNoOwnerZOrder = 0x0200;
-
-    [DllImport("user32.dll", EntryPoint = "GetWindowLongW", SetLastError = true)]
-    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+    private const uint SwpShowWindow = 0x0040;
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetWindowPos(

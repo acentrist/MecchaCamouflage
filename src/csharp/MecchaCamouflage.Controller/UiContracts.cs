@@ -44,7 +44,19 @@ public sealed record PaintSnapshot(
     string FillColor,
     double FillMetallic,
     double FillRoughness,
-    bool UsesFill);
+    bool UsesFill,
+    string QualityPreset,
+    bool BilinearColorSampling,
+    bool BicubicColorSampling,
+    double DitherStrength,
+    double MinRoughness,
+    int FalloffHardnessPct,
+    int CoverageSupersample,
+    bool EnableDetectionArtifacts,
+    int DetectionDetail,
+    bool UseLocalImageSource,
+    string LocalImagePath,
+    bool BypassLiveCapture);
 
 public sealed record AppSnapshot(
     string ProcessName,

@@ -115,40 +115,51 @@ function Clear-DirectoryContents {
     Get-ChildItem -Force -LiteralPath $full | Remove-Item -Recurse -Force
 }
 
-function Test-WebView2EvergreenBootstrapper {
-    param([Parameter(Mandatory = $true)][string]$Path)
-    if (-not (Test-Path $Path -PathType Leaf)) {
-        return $false
-    }
-    $signature = Get-AuthenticodeSignature -FilePath $Path
-    return (
-        $signature.Status -eq "Valid" -and
-        $null -ne $signature.SignerCertificate -and
-        $signature.SignerCertificate.Subject -like "*Microsoft Corporation*"
-    )
-}
-
-function Ensure-WebView2EvergreenBootstrapper {
+function Ensure-WebView2FixedRuntime {
     param(
+        [Parameter(Mandatory = $true)][string]$Version,
         [Parameter(Mandatory = $true)][string]$Url,
         [Parameter(Mandatory = $true)][string]$CacheRoot
     )
-    New-Item -ItemType Directory -Force -Path $CacheRoot | Out-Null
-    $BootstrapperPath = Join-Path $CacheRoot "MicrosoftEdgeWebview2Setup.exe"
-    if (Test-WebView2EvergreenBootstrapper -Path $BootstrapperPath) {
-        return $BootstrapperPath
+    $RuntimeDir = Join-Path $CacheRoot "runtime"
+    $RuntimeExe = Join-Path $RuntimeDir "msedgewebview2.exe"
+    if (Test-Path $RuntimeExe -PathType Leaf) {
+        return $RuntimeDir
     }
 
-    if (Test-Path $BootstrapperPath) {
-        Remove-Item -Force $BootstrapperPath
+    New-Item -ItemType Directory -Force -Path $CacheRoot | Out-Null
+    $CabPath = Join-Path $CacheRoot "Microsoft.WebView2.FixedVersionRuntime.$Version.x64.cab"
+    if (-not (Test-Path $CabPath -PathType Leaf)) {
+        Write-Host "Downloading WebView2 Fixed Runtime $Version..."
+        Invoke-WebRequest -Uri $Url -OutFile $CabPath
     }
-    Write-Host "Downloading Microsoft Edge WebView2 Evergreen Bootstrapper..."
-    Invoke-WebRequest -Uri $Url -OutFile $BootstrapperPath
-    if (-not (Test-WebView2EvergreenBootstrapper -Path $BootstrapperPath)) {
-        Remove-Item -Force $BootstrapperPath -ErrorAction SilentlyContinue
-        throw "WebView2 Evergreen Bootstrapper was not signed by Microsoft."
+
+    $ExtractDir = Join-Path $CacheRoot ("extract." + [guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force -Path $ExtractDir | Out-Null
+    try {
+        & expand.exe $CabPath -F:* $ExtractDir | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "expand.exe failed with exit code $LASTEXITCODE"
+        }
+        $Exe = Get-ChildItem -Path $ExtractDir -Recurse -Filter "msedgewebview2.exe" -File | Select-Object -First 1
+        if (-not $Exe) {
+            throw "WebView2 Fixed Runtime cab did not contain msedgewebview2.exe"
+        }
+        if (Test-Path $RuntimeDir) {
+            Remove-Item -Recurse -Force $RuntimeDir
+        }
+        New-Item -ItemType Directory -Force -Path $RuntimeDir | Out-Null
+        Copy-Item -Recurse -Force -Path (Join-Path $Exe.Directory.FullName "*") -Destination $RuntimeDir
     }
-    return $BootstrapperPath
+    finally {
+        if (Test-Path $ExtractDir) {
+            Remove-Item -Recurse -Force $ExtractDir
+        }
+    }
+    if (-not (Test-Path $RuntimeExe -PathType Leaf)) {
+        throw "WebView2 Fixed Runtime was not prepared: $RuntimeExe"
+    }
+    return $RuntimeDir
 }
 
 function Assert-NativeDependencyAllowList {
@@ -207,16 +218,19 @@ if (-not $OutDir) {
 $OutDir = [System.IO.Path]::GetFullPath($OutDir)
 $ObjDir = Join-Path $RuntimeRoot ".build\obj"
 $NativePackageDir = Join-Path $ObjDir "package-native"
-$WebView2EvergreenBootstrapperUrl = "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
-$WebView2BootstrapperCacheRoot = Join-Path $RuntimeRoot ".build\cache\webview2\evergreen"
+$WebView2FixedVersion = "150.0.4078.48"
+$WebView2FixedRuntimeUrl = "https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/60926d99-f201-46bb-91a0-d868dc06b275/Microsoft.WebView2.FixedVersionRuntime.150.0.4078.48.x64.cab"
+$WebView2CacheRoot = Join-Path $RuntimeRoot ".build\cache\webview2\$WebView2FixedVersion\win-x64"
 
 $BridgeSource = Join-Path $RuntimeRoot "src\native\bridge\bridge.cpp"
+$NativeQualityTestSource = Join-Path $RuntimeRoot "src\native\tests\quality_algorithms_test.cpp"
+$LoaderSource = Join-Path $RuntimeRoot "src\native\loader\loader.cpp"
 $InjectorSource = Join-Path $RuntimeRoot "src\native\injector\injector.cpp"
 $WebHostProject = Join-Path $RuntimeRoot "src\csharp\MecchaCamouflage.WebHost\MecchaCamouflage.WebHost.csproj"
 $TestsProject = Join-Path $RuntimeRoot "src\csharp\MecchaCamouflage.Tests\MecchaCamouflage.Tests.csproj"
 $MeshProfilesSourceDir = Join-Path $RuntimeRoot "resources\mesh-profiles"
 
-foreach ($path in @($BridgeSource, $InjectorSource, $WebHostProject, $TestsProject)) {
+foreach ($path in @($BridgeSource, $NativeQualityTestSource, $LoaderSource, $InjectorSource, $WebHostProject, $TestsProject)) {
     if (-not (Test-Path $path -PathType Leaf)) {
         throw "Required source not found: $path"
     }
@@ -230,8 +244,8 @@ Invoke-BuildStep -Name "prepare output directories" -ScriptBlock {
     New-Item -ItemType Directory -Force -Path $ObjDir | Out-Null
     Clear-DirectoryContents -Path $NativePackageDir
 }
-$WebView2BootstrapperPath = Invoke-BuildStep -Name "prepare WebView2 Evergreen bootstrapper" -ScriptBlock {
-    Ensure-WebView2EvergreenBootstrapper -Url $WebView2EvergreenBootstrapperUrl -CacheRoot $WebView2BootstrapperCacheRoot
+$WebView2RuntimeDir = Invoke-BuildStep -Name "prepare WebView2 fixed runtime" -ScriptBlock {
+    Ensure-WebView2FixedRuntime -Version $WebView2FixedVersion -Url $WebView2FixedRuntimeUrl -CacheRoot $WebView2CacheRoot
 }
 
 Push-Location $RuntimeRoot
@@ -240,7 +254,23 @@ try {
         Invoke-DotNet -Arguments @("run", "--project", $TestsProject, "-c", "Release")
     }
 
+    Invoke-BuildStep -Name "run native quality algorithm tests" -ScriptBlock {
+        $NativeQualityTestOutput = Join-Path $ObjDir "quality-algorithms-test.exe"
+        Invoke-VsToolCommand -ToolName "cl.exe" -ToolArgs @(
+            "/nologo", "/std:c++17", "/EHsc", "/O2", $NativeQualityTestSource,
+            "/Fo:$(Join-Path $ObjDir 'quality-algorithms-test.obj')",
+            "/Fe:$NativeQualityTestOutput",
+            "/link",
+            "/Brepro"
+        )
+        & $NativeQualityTestOutput
+        if ($LASTEXITCODE -ne 0) {
+            throw "native quality algorithm tests failed with exit code $LASTEXITCODE"
+        }
+    }
+
     $BridgeOutput = Join-Path $NativePackageDir "runtime-bridge.dll"
+    $LoaderOutput = Join-Path $NativePackageDir "bridge-loader.dll"
     $InjectorOutput = Join-Path $NativePackageDir "runtime-injector.exe"
     Invoke-BuildStep -Name "compile native bridge" -ScriptBlock {
         Invoke-VsToolCommand -ToolName "cl.exe" -ToolArgs @(
@@ -249,6 +279,15 @@ try {
             "/Fe:$BridgeOutput",
             "Ws2_32.lib",
             "User32.lib",
+            "/link",
+            "/Brepro"
+        )
+    }
+    Invoke-BuildStep -Name "compile native loader" -ScriptBlock {
+        Invoke-VsToolCommand -ToolName "cl.exe" -ToolArgs @(
+            "/nologo", "/std:c++17", "/EHsc", "/O2", "/LD", $LoaderSource,
+            "/Fo:$(Join-Path $ObjDir 'loader.obj')",
+            "/Fe:$LoaderOutput",
             "/link",
             "/Brepro"
         )
@@ -266,11 +305,15 @@ try {
     if (-not (Test-Path $BridgeOutput -PathType Leaf)) {
         throw "Bridge DLL was not produced: $BridgeOutput"
     }
+    if (-not (Test-Path $LoaderOutput -PathType Leaf)) {
+        throw "Bridge loader DLL was not produced: $LoaderOutput"
+    }
     if (-not (Test-Path $InjectorOutput -PathType Leaf)) {
         throw "Injector EXE was not produced: $InjectorOutput"
     }
     Invoke-BuildStep -Name "check native dependencies" -ScriptBlock {
         Assert-NativeDependencyAllowList -Path $BridgeOutput -Allowed @("KERNEL32.dll", "USER32.dll", "WS2_32.dll") -Label "runtime-bridge.dll"
+        Assert-NativeDependencyAllowList -Path $LoaderOutput -Allowed @("KERNEL32.dll") -Label "bridge-loader.dll"
     }
 
     $MeshProfiles = @(Get-ChildItem -Path $MeshProfilesSourceDir -Filter "*.json" -File)
@@ -288,7 +331,8 @@ try {
             "/p:MecchaAppVersion=$Version",
             "/p:MecchaNativeRuntimeDir=$NativePackageDir",
             "/p:MecchaMeshProfilesDir=$MeshProfilesSourceDir",
-            "/p:MecchaWebView2BootstrapperPath=$WebView2BootstrapperPath"
+            "/p:MecchaWebView2RuntimeDir=$WebView2RuntimeDir",
+            "/p:MecchaWebView2Version=$WebView2FixedVersion"
         )
         if ($BuildMode -eq "DevLooseSelfContained") {
             $publishArgs += "/p:PublishSingleFile=false"
@@ -333,4 +377,4 @@ if ($ShowTimings) {
 Write-Host "Built runtime artifacts:"
 Write-Host "  $(Join-Path $OutDir "$ExeName.exe")"
 Write-Host "  native runtime embedded from $NativePackageDir"
-Write-Host "  Microsoft Edge WebView2 Evergreen Bootstrapper embedded from $WebView2BootstrapperPath"
+Write-Host "  WebView2 Fixed Runtime $WebView2FixedVersion embedded from $WebView2RuntimeDir"

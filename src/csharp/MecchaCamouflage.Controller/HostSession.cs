@@ -23,6 +23,19 @@ public sealed class HostSession
         "paint.fillColor",
         "paint.fillMetallic",
         "paint.fillRoughness",
+        "paint.qualityPreset",
+        "paint.bilinearColorSampling",
+        "paint.ditherStrength",
+        "paint.minRoughness",
+        "paint.falloffHardnessPct",
+        "paint.coverageSupersample",
+        "paint.edgeAwareSharpening",
+        "paint.sharpenStrength",
+        "paint.enableDetectionArtifacts",
+        "paint.detectionDetail",
+        "paint.useLocalImageSource",
+        "paint.localImagePath",
+        "paint.bypassLiveCapture",
         "app.processName",
         "app.alwaysOnTop",
         "app.opacity",
@@ -59,7 +72,7 @@ public sealed class HostSession
 
     public async Task<UiSnapshot> GetSnapshotAsync(CancellationToken cancellationToken = default)
     {
-        using var process = Runtime.FindGameProcess(Settings.GameProcessName);
+        var process = Runtime.FindGameProcess(Settings.GameProcessName);
         var ping = await Runtime.PingAsync(cancellationToken, RuntimeBridgeService.BridgeProbeTimeout);
         var progress = ReadCurrentProgressSnapshot(liveOnly: true);
         var bridgeReady = process is not null &&
@@ -83,14 +96,14 @@ public sealed class HostSession
             return;
         try
         {
-            using var process = Runtime.FindGameProcess(Settings.GameProcessName);
+            var process = Runtime.FindGameProcess(Settings.GameProcessName);
             if (process is null)
             {
                 _ = await Runtime.EnsureReadyAsync(Settings.GameProcessName, cancellationToken);
                 nextBridgeWarmupAttempt = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(2);
                 return;
             }
-            var ready = await Runtime.EnsureReadyAsync(process, cancellationToken);
+            var ready = await Runtime.EnsureReadyAsync(Settings.GameProcessName, cancellationToken);
             nextBridgeWarmupAttempt = ready
                 ? DateTimeOffset.UtcNow + TimeSpan.FromSeconds(2)
                 : DateTimeOffset.UtcNow + TimeSpan.FromSeconds(10);
@@ -169,6 +182,28 @@ public sealed class HostSession
                 next.Paint.Metallic = defaults.Paint.Metallic;
                 next.Paint.Roughness = defaults.Paint.Roughness;
                 break;
+            case "paint.quality":
+            case "quality":
+                next.Paint.QualityPreset = defaults.Paint.QualityPreset;
+                next.Paint.BilinearColorSampling = defaults.Paint.BilinearColorSampling;
+                next.Paint.DitherStrength = defaults.Paint.DitherStrength;
+                next.Paint.MinRoughness = defaults.Paint.MinRoughness;
+                next.Paint.FalloffHardnessPct = defaults.Paint.FalloffHardnessPct;
+                next.Paint.CoverageSupersample = defaults.Paint.CoverageSupersample;
+                next.Paint.EdgeAwareSharpening = defaults.Paint.EdgeAwareSharpening;
+                next.Paint.SharpenStrength = defaults.Paint.SharpenStrength;
+                break;
+            case "paint.detection":
+            case "detection":
+                next.Paint.EnableDetectionArtifacts = defaults.Paint.EnableDetectionArtifacts;
+                next.Paint.DetectionDetail = defaults.Paint.DetectionDetail;
+                break;
+            case "paint.source":
+            case "source":
+                next.Paint.UseLocalImageSource = defaults.Paint.UseLocalImageSource;
+                next.Paint.LocalImagePath = defaults.Paint.LocalImagePath;
+                next.Paint.BypassLiveCapture = defaults.Paint.BypassLiveCapture;
+                break;
             case "regions":
                 next.Paint.FrontRegionMode = defaults.Paint.FrontRegionMode;
                 next.Paint.SideRegionMode = defaults.Paint.SideRegionMode;
@@ -225,6 +260,10 @@ public sealed class HostSession
 
     public async Task<HostCommandResult> RunPaintAsync(bool previewOnly, bool unpreviewOnly, CancellationToken cancellationToken = default)
     {
+        if (Settings.Paint.UseLocalImageSource &&
+            (!File.Exists(Settings.Paint.LocalImagePath) ||
+             !string.Equals(Path.GetExtension(Settings.Paint.LocalImagePath), ".bmp", StringComparison.OrdinalIgnoreCase)))
+            return new HostCommandResult(false, "Local image source is missing or invalid. Select the image again.");
         if (PaintRunning || nativePaintMayBeRunning)
         {
             const string alreadyRunning = "Paint: already running.";
@@ -238,15 +277,15 @@ public sealed class HostSession
         TryDeleteProgressSnapshot();
         try
         {
-            using var process = Runtime.FindGameProcess(Settings.GameProcessName);
+            var ready = await Runtime.EnsureReadyAsync(Settings.GameProcessName, cancellationToken);
+            if (!ready)
+                return new HostCommandResult(false, "Bridge is not connected.");
+            var process = Runtime.FindGameProcess(Settings.GameProcessName);
             if (process is null)
             {
                 Log.Warn("Game process not found.");
                 return new HostCommandResult(false, "Game process not found.");
             }
-            var ready = await Runtime.EnsureReadyAsync(process, cancellationToken);
-            if (!ready)
-                return new HostCommandResult(false, "Bridge is not connected.");
             var startedMessage = previewOnly ? "Preview: started." : (unpreviewOnly ? "UnPreview: started." : "Paint: started.");
             Log.Info(startedMessage);
             var payload = BridgePayloadBuilder.BuildPaintPayload(
@@ -510,7 +549,19 @@ public sealed class HostSession
                 paint.FillColor.ToHex(),
                 paint.FillMetallic,
                 paint.FillRoughness,
-                paint.UsesFill),
+                paint.UsesFill,
+                SettingsStore.QualityPresetText(paint.QualityPreset),
+                paint.BilinearColorSampling,
+                paint.BicubicColorSampling,
+                paint.DitherStrength,
+                paint.MinRoughness,
+                paint.FalloffHardnessPct,
+                paint.CoverageSupersample,
+                paint.EnableDetectionArtifacts,
+                paint.DetectionDetail,
+                paint.UseLocalImageSource,
+                paint.LocalImagePath,
+                paint.BypassLiveCapture),
             new AppSnapshot(
                 settings.GameProcessName,
                 settings.AlwaysOnTop,
@@ -584,6 +635,11 @@ public sealed class HostSession
             ["paint.material"] = map["paint.autoMaterial"] || map["paint.metallic"] || map["paint.roughness"],
             ["regions"] = map["paint.frontRegionMode"] || map["paint.sideRegionMode"] || map["paint.backRegionMode"],
             ["fill.material"] = map["paint.fillColor"] || map["paint.fillMetallic"] || map["paint.fillRoughness"],
+            ["paint.quality"] = map["paint.qualityPreset"] || map["paint.bilinearColorSampling"] || map["paint.ditherStrength"] ||
+                    map["paint.minRoughness"] || map["paint.falloffHardnessPct"] || map["paint.coverageSupersample"] ||
+                    map["paint.edgeAwareSharpening"] || map["paint.sharpenStrength"],
+            ["paint.detection"] = map["paint.enableDetectionArtifacts"] || map["paint.detectionDetail"],
+            ["paint.source"] = map["paint.useLocalImageSource"] || map["paint.localImagePath"] || map["paint.bypassLiveCapture"],
             ["app"] = map["app.processName"] || map["app.alwaysOnTop"] || map["app.opacity"] || map["app.themeColor"] ||
                     map["app.startHotkey"] || map["app.previewHotkey"] || map["app.unpreviewHotkey"] || map["app.stopHotkey"]
         };
@@ -604,6 +660,19 @@ public sealed class HostSession
         "paint.fillColor" => left.Paint.FillColor == right.Paint.FillColor,
         "paint.fillMetallic" => Nearly(left.Paint.FillMetallic, right.Paint.FillMetallic),
         "paint.fillRoughness" => Nearly(left.Paint.FillRoughness, right.Paint.FillRoughness),
+        "paint.qualityPreset" => left.Paint.QualityPreset == right.Paint.QualityPreset,
+        "paint.bilinearColorSampling" => left.Paint.BilinearColorSampling == right.Paint.BilinearColorSampling,
+        "paint.ditherStrength" => Nearly(left.Paint.DitherStrength, right.Paint.DitherStrength),
+        "paint.minRoughness" => Nearly(left.Paint.MinRoughness, right.Paint.MinRoughness),
+        "paint.falloffHardnessPct" => left.Paint.FalloffHardnessPct == right.Paint.FalloffHardnessPct,
+        "paint.coverageSupersample" => left.Paint.CoverageSupersample == right.Paint.CoverageSupersample,
+        "paint.edgeAwareSharpening" => left.Paint.EdgeAwareSharpening == right.Paint.EdgeAwareSharpening,
+        "paint.sharpenStrength" => Nearly(left.Paint.SharpenStrength, right.Paint.SharpenStrength),
+        "paint.enableDetectionArtifacts" => left.Paint.EnableDetectionArtifacts == right.Paint.EnableDetectionArtifacts,
+        "paint.detectionDetail" => left.Paint.DetectionDetail == right.Paint.DetectionDetail,
+        "paint.useLocalImageSource" => left.Paint.UseLocalImageSource == right.Paint.UseLocalImageSource,
+        "paint.localImagePath" => left.Paint.LocalImagePath == right.Paint.LocalImagePath,
+        "paint.bypassLiveCapture" => left.Paint.BypassLiveCapture == right.Paint.BypassLiveCapture,
         "app.processName" => left.GameProcessName == right.GameProcessName,
         "app.alwaysOnTop" => left.AlwaysOnTop == right.AlwaysOnTop,
         "app.opacity" => Nearly(left.Opacity, right.Opacity),
@@ -635,6 +704,19 @@ public sealed class HostSession
             case "paint.fillColor": settings.Paint.FillColor = defaults.Paint.FillColor; break;
             case "paint.fillMetallic": settings.Paint.FillMetallic = defaults.Paint.FillMetallic; break;
             case "paint.fillRoughness": settings.Paint.FillRoughness = defaults.Paint.FillRoughness; break;
+            case "paint.qualityPreset": settings.Paint.QualityPreset = defaults.Paint.QualityPreset; break;
+            case "paint.bilinearColorSampling": settings.Paint.BilinearColorSampling = defaults.Paint.BilinearColorSampling; break;
+            case "paint.ditherStrength": settings.Paint.DitherStrength = defaults.Paint.DitherStrength; break;
+            case "paint.minRoughness": settings.Paint.MinRoughness = defaults.Paint.MinRoughness; break;
+            case "paint.falloffHardnessPct": settings.Paint.FalloffHardnessPct = defaults.Paint.FalloffHardnessPct; break;
+            case "paint.coverageSupersample": settings.Paint.CoverageSupersample = defaults.Paint.CoverageSupersample; break;
+            case "paint.edgeAwareSharpening": settings.Paint.EdgeAwareSharpening = defaults.Paint.EdgeAwareSharpening; break;
+            case "paint.sharpenStrength": settings.Paint.SharpenStrength = defaults.Paint.SharpenStrength; break;
+            case "paint.enableDetectionArtifacts": settings.Paint.EnableDetectionArtifacts = defaults.Paint.EnableDetectionArtifacts; break;
+            case "paint.detectionDetail": settings.Paint.DetectionDetail = defaults.Paint.DetectionDetail; break;
+            case "paint.useLocalImageSource": settings.Paint.UseLocalImageSource = defaults.Paint.UseLocalImageSource; break;
+            case "paint.localImagePath": settings.Paint.LocalImagePath = defaults.Paint.LocalImagePath; break;
+            case "paint.bypassLiveCapture": settings.Paint.BypassLiveCapture = defaults.Paint.BypassLiveCapture; break;
             case "app.processName": settings.GameProcessName = defaults.GameProcessName; break;
             case "app.alwaysOnTop": settings.AlwaysOnTop = defaults.AlwaysOnTop; break;
             case "app.opacity": settings.Opacity = defaults.Opacity; break;
@@ -670,6 +752,19 @@ public sealed class HostSession
                 break;
             case "paint.fillMetallic": settings.Paint.FillMetallic = value.GetDouble(); break;
             case "paint.fillRoughness": settings.Paint.FillRoughness = value.GetDouble(); break;
+            case "paint.qualityPreset": settings.Paint.ApplyQualityPreset(SettingsStore.ParseQualityPreset(value.GetString())); break;
+            case "paint.bilinearColorSampling": settings.Paint.BilinearColorSampling = value.GetBoolean(); break;
+            case "paint.ditherStrength": settings.Paint.DitherStrength = value.GetDouble(); break;
+            case "paint.minRoughness": settings.Paint.MinRoughness = value.GetDouble(); break;
+            case "paint.falloffHardnessPct": settings.Paint.FalloffHardnessPct = value.GetInt32(); break;
+            case "paint.coverageSupersample": settings.Paint.CoverageSupersample = value.GetInt32(); break;
+            case "paint.edgeAwareSharpening": settings.Paint.EdgeAwareSharpening = value.GetBoolean(); break;
+            case "paint.sharpenStrength": settings.Paint.SharpenStrength = value.GetDouble(); break;
+            case "paint.enableDetectionArtifacts": settings.Paint.EnableDetectionArtifacts = value.GetBoolean(); break;
+            case "paint.detectionDetail": settings.Paint.DetectionDetail = value.GetInt32(); break;
+            case "paint.useLocalImageSource": settings.Paint.UseLocalImageSource = value.GetBoolean(); break;
+            case "paint.localImagePath": settings.Paint.LocalImagePath = value.GetString() ?? ""; break;
+            case "paint.bypassLiveCapture": settings.Paint.BypassLiveCapture = value.GetBoolean(); break;
             case "app.language": settings.Language = value.GetString() ?? settings.Language; break;
             case "app.processName": settings.GameProcessName = value.GetString() ?? settings.GameProcessName; break;
             case "app.alwaysOnTop": settings.AlwaysOnTop = value.GetBoolean(); break;

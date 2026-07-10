@@ -215,7 +215,7 @@ if (Has-Tool "cppcheck") {
 
 if ((Has-Tool "clang-tidy") -and (Test-Path (Join-Path $RepoRoot "compile_commands.json"))) {
     Invoke-OptionalReport -Name "clang-tidy" -OutputFile "clang-tidy.txt" -Command {
-        clang-tidy -p . src/native/bridge/bridge.cpp src/native/injector/injector.cpp
+        clang-tidy -p . src/native/bridge/bridge.cpp src/native/injector/injector.cpp src/native/loader/loader.cpp
     }
 }
 elseif (Has-Tool "clang-tidy") {

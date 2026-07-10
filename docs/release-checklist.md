@@ -26,7 +26,7 @@ discarded. Use `make clean-all` to remove both `.build/` and `artifacts/`.
 Confirm:
 
 - release artifact is a single EXE under `.build/package/`
-- app uses the installed shared Evergreen Runtime; no browser runtime files are embedded
+- no loose WebView2 runtime is required
 - root directory has no generated `*.dll` or `*.exe`
 - source tree has no generated `bin/` or `obj`
 - shipped app resources are under `resources/`
@@ -36,9 +36,10 @@ Confirm:
 
 The packaged EXE must include:
 
+- native bridge loader DLL
 - native bridge DLL
 - native injector EXE
-- official WebView2 Evergreen bootstrapper
+- WebView2 Fixed Runtime
 - Web UI assets
 - mesh profile resources
 - app icon resources
@@ -67,29 +68,10 @@ These require MECCHA CHAMELEON.
   - progress shows packed pacing and queue/drain data.
 - Delete the LocalAppData runtime cache and restart.
   - cache rebuilds automatically.
-  - WebView2 starts from the installed Evergreen Runtime, or prompts to install it with the embedded bootstrapper.
+  - WebView2 starts from the fixed runtime cache.
 - Restart the controller against the same game process.
-  - the new controller instance starts and authenticates its own direct bridge.
-  - older direct bridges or any other resident module do not produce a restart-required state.
-  - an indeterminate injector timeout is diagnosed and requires an explicit retry; it does not trigger unload or thread termination.
-
-## v1.6 Direct Bridge and WebView2 Gates
-
-- Test direct injection on Windows 10 and Windows 11 with a clean game,
-  multiple same-name game processes, target exit during injection, concurrent
-  host launches, and old direct bridges/modules already resident in the game.
-- Run 25 sequential direct injections into one game process. Every successful
-  connection must match the selected PID, generated instance GUID, token, and
-  bridge hash; no attempt may become restart-required because an old module is
-  present.
-- Verify a timeout never frees remote path/start-block memory before the
-  corresponding remote thread exits. The production path must contain no
-  `TerminateThread`, unload, switch, or loader fallback. The source tree and
-  packaged output contain no loader component.
-- Verify Evergreen WebView2 with a runtime already present, absent with a
-  successful bootstrapper install, bootstrapper failure/offline behavior, a
-  clean user-data folder, two rapid app launches, and a forced WebView process
-  failure. Diagnostics must identify the failed startup stage.
+  - bridge does not double-inject unnecessarily.
+  - loaded-but-not-ready reports a diagnostic code instead of looping.
 
 ## Multiplayer Checks
 

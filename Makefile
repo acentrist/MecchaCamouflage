@@ -6,12 +6,15 @@ RUN_PS := scripts/dev.ps1
 PACKAGE_PS := scripts/release.ps1
 MESH_PS := scripts/mesh.ps1
 REVIEW_DEAD_CODE_PS := scripts/review/runtime-dead-code-inventory.ps1
+RESEARCH_BRIDGE_PROBE_PS := scripts/research/bridge-probe.ps1
+RESEARCH_PRESSURE_PS := scripts/probe-pressure.ps1
 START_EXE ?= .build/bin/meccha-camouflage.exe
 DEV_OUT_DIR ?= .build/bin-dev
+RESEARCH_PROBE_TYPE ?= paint_replication_probe
 RESEARCH_ARTIFACT_FLAGS := $(if $(filter 1 true TRUE yes YES on ON,$(RESEARCH_ARTIFACTS)),-EnableResearchArtifacts,)
 MESH_ARGS := $(if $(PAKS),-PaksPath "$(PAKS)",) $(if $(MAPPINGS),-MappingsPath "$(MAPPINGS)",) $(if $(CUE4PARSE),-Cue4ParsePath "$(CUE4PARSE)",) $(if $(OUTPUT),-OutputPath "$(OUTPUT)",) $(if $(ASSET),-AssetPath "$(ASSET)",) $(if $(EXPORT),-ExportName "$(EXPORT)",) $(if $(GAME_VERSION),-GameVersion "$(GAME_VERSION)",) $(if $(OODLE),-OodlePath "$(OODLE)",) $(if $(ZLIB),-ZlibPath "$(ZLIB)",) $(if $(TEXTURE_SIZE),-TextureSize "$(TEXTURE_SIZE)",) $(if $(EXPECTED_VERTICES),-ExpectedVertices "$(EXPECTED_VERTICES)",) $(if $(EXPECTED_INDICES),-ExpectedIndices "$(EXPECTED_INDICES)",) $(if $(EXPECTED_BONES),-ExpectedBones "$(EXPECTED_BONES)",)
 
-.PHONY: build build-timed build-dev build-dev-timed run dev start package mesh review-dead-code clean clean-artifacts clean-all
+.PHONY: build build-timed build-dev build-dev-timed run dev start package mesh review-dead-code research-probe research-pressure clean clean-artifacts clean-all
 
 define RUN_POWERSHELL
 	@if command -v pwsh >/dev/null 2>&1; then \
@@ -65,6 +68,12 @@ mesh:
 
 review-dead-code:
 	$(call RUN_POWERSHELL,$(REVIEW_DEAD_CODE_PS),)
+
+research-probe:
+	$(call RUN_POWERSHELL,$(RESEARCH_BRIDGE_PROBE_PS),-Type $(RESEARCH_PROBE_TYPE))
+
+research-pressure:
+	$(call RUN_POWERSHELL,$(RESEARCH_PRESSURE_PS),)
 
 clean:
 	rm -rf .build
