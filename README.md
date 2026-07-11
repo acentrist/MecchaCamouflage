@@ -54,3 +54,7 @@ The official project repository is:
 
 Modified builds must preserve the license notice and must not imply they are
 official releases. See [BRANDING.md](BRANDING.md).
+
+## See also
+
+- [Meccha Chameleon Atlas](https://mecchachameleon.art/) — Fan-maintained hide-spots reference, paint-match notes, and seeker counter-tips for the paint-based hide-and-seek game Meccha Chameleon. Unofficial, not affiliated with the developer.
