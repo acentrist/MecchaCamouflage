@@ -17046,33 +17046,55 @@ namespace
             return out;
         }
         const auto nt = safe_read<IMAGE_NT_HEADERS64>(module.base + static_cast<std::uintptr_t>(dos.e_lfanew));
-        const bool steam_shipping_build =
+        const bool steam_shipping_build_24176442 =
             nt.Signature == IMAGE_NT_SIGNATURE &&
             nt.OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC &&
             nt.FileHeader.TimeDateStamp == 0xB76CD1AFu &&
             nt.OptionalHeader.SizeOfImage == 0x0AAFD000u &&
             nt.OptionalHeader.CheckSum == 0x0A7394E2u;
-        if (!steam_shipping_build)
+        // Steam BuildID 24256862, captured from the 2026-07-18 update.  Keep
+        // every address below selected by exact PE/text identity: this build
+        // retained the validated call shapes but moved several route members.
+        const bool steam_shipping_build_24256862 =
+            nt.Signature == IMAGE_NT_SIGNATURE &&
+            nt.OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC &&
+            nt.FileHeader.TimeDateStamp == 0x047BA867u &&
+            nt.OptionalHeader.SizeOfImage == 0x0AAFD000u &&
+            nt.OptionalHeader.CheckSum == 0x0A7328BBu;
+        if (!steam_shipping_build_24176442 && !steam_shipping_build_24256862)
         {
             out.failure = "main_module_build_identity_mismatch";
             return out;
         }
         static const auto text_file_identity = main_module_text_file_identity();
-        if (!text_file_identity.ok || text_file_identity.raw_size != 0x07AA2800u ||
-            text_file_identity.fnv1a64 != 0x4200B2CAF330F8C3ULL)
+        const bool text_identity_matches = text_file_identity.ok &&
+                                           text_file_identity.raw_size == 0x07AA2800u &&
+                                           ((steam_shipping_build_24176442 &&
+                                             text_file_identity.fnv1a64 == 0x4200B2CAF330F8C3ULL) ||
+                                            (steam_shipping_build_24256862 &&
+                                             text_file_identity.fnv1a64 == 0x079EDD688D78E96BULL));
+        if (!text_identity_matches)
         {
             out.failure = "main_module_text_identity_mismatch";
             return out;
         }
 
-        constexpr std::uintptr_t ExpectedThunkRva = 0x50E40E0;
-        constexpr std::uintptr_t ExpectedImplementationRva = 0x50FBD80;
-        constexpr std::uintptr_t ExpectedDecoderRva = 0x5103A10;
-        constexpr std::uintptr_t ExpectedEnqueueInnerRva = 0x50F5EE0;
-        constexpr std::uintptr_t ExpectedComponentContextResolverRva = 0x3AEAF10;
-        constexpr std::uintptr_t ExpectedManagerResolverRva = 0x50E9170;
-        constexpr std::uintptr_t ExpectedManagerEnqueueRva = 0x5109030;
-        constexpr std::uintptr_t ExpectedQueueCoalescerRva = 0x5108E30;
+        const std::uintptr_t ExpectedThunkRva =
+            steam_shipping_build_24256862 ? 0x50E39A0 : 0x50E40E0;
+        const std::uintptr_t ExpectedImplementationRva =
+            steam_shipping_build_24256862 ? 0x50FD9F0 : 0x50FBD80;
+        const std::uintptr_t ExpectedDecoderRva =
+            steam_shipping_build_24256862 ? 0x5105740 : 0x5103A10;
+        const std::uintptr_t ExpectedEnqueueInnerRva =
+            steam_shipping_build_24256862 ? 0x50F5CF0 : 0x50F5EE0;
+        const std::uintptr_t ExpectedComponentContextResolverRva =
+            steam_shipping_build_24256862 ? 0x3AEACE0 : 0x3AEAF10;
+        const std::uintptr_t ExpectedManagerResolverRva =
+            steam_shipping_build_24256862 ? 0x50E8A70 : 0x50E9170;
+        const std::uintptr_t ExpectedManagerEnqueueRva =
+            steam_shipping_build_24256862 ? 0x510AD60 : 0x5109030;
+        const std::uintptr_t ExpectedQueueCoalescerRva =
+            steam_shipping_build_24256862 ? 0x510AB60 : 0x5108E30;
 
         std::vector<std::uintptr_t> thunks{};
         for (std::uintptr_t slot = 0; slot <= 0x180; slot += sizeof(std::uintptr_t))
