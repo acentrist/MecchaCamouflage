@@ -868,7 +868,7 @@ static void WebUiKeepsThemeColorOnReadonlyControls()
         "readonly range and checkbox controls should remain paint-enabled for Chromium accent rendering");
     Assert(styles.Contains("input.theme-visible-readonly[type=\"range\"]", StringComparison.Ordinal),
         "readonly sliders need a dedicated themed style");
-    Assert(styles.Contains("input.theme-visible-readonly[type=\"range\"] {\n  opacity: 0.55;", StringComparison.Ordinal),
+    Assert(styles.Replace("\r", "").Contains("input.theme-visible-readonly[type=\"range\"] {\n  opacity: 0.55;", StringComparison.Ordinal),
         "readonly sliders should visibly dim outside Edit mode");
     Assert(styles.Contains("input.theme-visible-readonly[type=\"checkbox\"]", StringComparison.Ordinal),
         "readonly checkboxes need a dedicated themed style");
