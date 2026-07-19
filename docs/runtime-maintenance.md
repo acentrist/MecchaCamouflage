@@ -138,6 +138,17 @@ server packed fallback before the first RPC. Then repeat both multiplayer
 directions with event-watch, pressure/queue samples, and painter/receiver
 texture checksums.
 
+The packed source id is not a reflected property; its offset
+(`RuntimePaintableComponentPackedSourceIdOffset` in
+`src/native/bridge/bridge.cpp`) must be re-derived from each new SDK dump.
+Compare the old and new `URuntimePaintableComponent` layouts and apply the
+struct shift to the old offset — the id sits inside the private padding that
+follows `TargetMeshComponent`. History: v2.8.0 `0x2A8`; v2.9.0 `0x2E0`
+(layout shifted `0x38` when `FPaintTextureOptions` grew and
+MaterialProperties/Emissive fields were added). A wrong offset fails closed as
+`source_id_zero`/`source_id_read_failed` and stops paint with explicit
+metadata.
+
 ## Bridge File Structure
 
 `src/native/bridge/bridge.cpp` remains a single translation unit unless there
