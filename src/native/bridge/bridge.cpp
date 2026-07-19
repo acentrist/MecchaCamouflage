@@ -4973,6 +4973,7 @@ namespace
     auto sdk_read_component_packed_source_id(std::uintptr_t component,
                                              sdk::FGuid& id,
                                              std::string& failure) -> bool;
+    auto sdk_packed_source_id_scan_metadata(std::uintptr_t component) -> std::string;
     auto sdk_call_packed_paint_batch_from_strokes(std::uintptr_t component,
                                                   std::uintptr_t relay_component,
                                                   std::uintptr_t component_function,
@@ -12908,6 +12909,10 @@ namespace
         metadata += ",\"server_packed_source_id_offset\":\"" + hex_address(RuntimePaintableComponentPackedSourceIdOffset) + "\"";
         metadata += ",\"server_packed_source_id_available\":" + std::string(json_bool(packed_source_id_available));
         metadata += ",\"server_packed_source_id_failure\":\"" + json_escape(packed_source_id_failure) + "\"";
+        if (normal_paint_requires_packed && !packed_source_id_available)
+        {
+            metadata += sdk_packed_source_id_scan_metadata(ctx.component);
+        }
         metadata += ",\"server_packed_batch_limit_cap\":" +
                     std::to_string(PackedReplicationMaxBatchLimit);
         metadata += ",\"server_batch_limit_requested\":" + std::to_string(tuning_server_batch_limit);
@@ -17098,6 +17103,71 @@ namespace
         }
         failure = "ok";
         return true;
+    }
+
+    // The packed source ID is a plain C++ member, not a UPROPERTY: the shipping
+    // image carries no FGuid property near this offset, so reflection cannot
+    // recover it when a game update moves the class layout. Report the raw
+    // GUID-shaped candidates around the pinned offset instead, so that one
+    // failing run is enough to identify the new offset from a user report.
+    auto sdk_packed_source_id_scan_metadata(std::uintptr_t component) -> std::string
+    {
+        constexpr std::uintptr_t ScanBegin = 0x100;
+        constexpr std::uintptr_t ScanEnd = 0x600;
+        constexpr int MaxCandidates = 24;
+        constexpr std::uint32_t MinPlausibleWord = 0x00010000u;
+
+        std::string out = ",\"server_packed_source_id_scan_begin\":\"" + hex_address(ScanBegin) + "\"";
+        out += ",\"server_packed_source_id_scan_end\":\"" + hex_address(ScanEnd) + "\"";
+        out += ",\"server_packed_source_id_candidates\":[";
+        int emitted = 0;
+        if (live_uobject(component))
+        {
+            std::vector<std::uint32_t> window((ScanEnd - ScanBegin) / sizeof(std::uint32_t), 0u);
+            if (safe_copy(window.data(),
+                          reinterpret_cast<const void*>(component + ScanBegin),
+                          window.size() * sizeof(std::uint32_t)))
+            {
+                for (std::size_t index = 0; index + 4 <= window.size() && emitted < MaxCandidates; ++index)
+                {
+                    // A generated FGuid has four uniformly random words. Requiring every
+                    // word to be large drops pointer pairs and small integer fields, which
+                    // would otherwise bury the real candidate in noise.
+                    bool plausible = true;
+                    for (std::size_t word = 0; word < 4; ++word)
+                    {
+                        const auto value = window[index + word];
+                        plausible = plausible && value >= MinPlausibleWord && value != 0xFFFFFFFFu;
+                    }
+                    if (!plausible)
+                    {
+                        continue;
+                    }
+                    const auto offset = ScanBegin + index * sizeof(std::uint32_t);
+                    if (emitted > 0)
+                    {
+                        out += ",";
+                    }
+                    out += "{\"offset\":\"" + hex_address(offset) + "\"";
+                    out += ",\"a\":\"" + hex_address(window[index + 0]) + "\"";
+                    out += ",\"b\":\"" + hex_address(window[index + 1]) + "\"";
+                    out += ",\"c\":\"" + hex_address(window[index + 2]) + "\"";
+                    out += ",\"d\":\"" + hex_address(window[index + 3]) + "\"}";
+                    ++emitted;
+                }
+            }
+            else
+            {
+                emitted = -1;
+            }
+        }
+        else
+        {
+            emitted = -1;
+        }
+        out += "]";
+        out += ",\"server_packed_source_id_candidate_count\":" + std::to_string(emitted);
+        return out;
     }
 
     auto sdk_make_packed_paint_data(const std::vector<sdk::FPaintStroke>& strokes,

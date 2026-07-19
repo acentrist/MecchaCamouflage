@@ -735,7 +735,16 @@ public sealed class HostSession
         if (lower is "mesh_server_packed_batch_incompatible" || lower.Contains("serverpackedpaintbatch requires"))
             return "Paint failed because strokes could not be packed.";
         if (lower is "mesh_server_packed_source_id_unavailable" || lower.Contains("source id is unavailable"))
-            return "Packed multiplayer paint source id is unavailable.";
+        {
+            // The bridge distinguishes paint_component_unavailable, source_id_read_failed,
+            // and source_id_zero. Dropping that suffix made every user report identical and
+            // undiagnosable, so keep it alongside the friendly text.
+            var separator = value.LastIndexOf(": ", StringComparison.Ordinal);
+            var reason = separator < 0 ? string.Empty : value[(separator + 2)..].Trim();
+            return reason.Length == 0
+                ? "Packed multiplayer paint source id is unavailable."
+                : "Packed multiplayer paint source id is unavailable (" + reason + ").";
+        }
         if (lower is "mesh_internal_no_resend_resolver_failed" ||
             (lower.Contains("internal no-resend route") && lower.Contains("failed")))
             return "Paint: this game build is not supported.";
