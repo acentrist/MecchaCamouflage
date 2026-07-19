@@ -76,7 +76,7 @@ namespace
     constexpr int LocalQueueDrainIdleTimeoutMs = 120000;
     constexpr bool MeshFirstPostImportTextureSyncEnabled = false;
     constexpr double MeshFirstRuntimeCoordinateMaxAvgErrorCm = 50.0;
-    constexpr std::uintptr_t RuntimePaintableComponentPackedSourceIdOffset = 0x2A8;
+    constexpr std::uintptr_t RuntimePaintableComponentPackedSourceIdOffset = 0x2E0;
 
     constexpr std::uintptr_t OffClass = 0x10;
     constexpr std::uintptr_t OffName = 0x18;
