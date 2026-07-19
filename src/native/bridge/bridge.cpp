@@ -17455,6 +17455,96 @@ namespace
             static_cast<std::intptr_t>(instruction + 5) + static_cast<std::intptr_t>(displacement));
     }
 
+    // A fixed call-site displacement breaks whenever the caller is recompiled: build
+    // 24280866 moved one such call by a single byte. Locate the callee by its own entry
+    // instead, and fail closed when the caller reaches more than one distinct match.
+    auto internal_find_unique_call_target(std::uintptr_t start,
+                                          std::size_t length,
+                                          std::initializer_list<std::uint8_t> entry_pattern) -> std::uintptr_t
+    {
+        if (!address_in_main_module_code(start) || length < 5 || length > 0x1000)
+        {
+            return 0;
+        }
+        std::uintptr_t found = 0;
+        for (std::size_t offset = 0; offset + 5 <= length; ++offset)
+        {
+            const auto target = internal_rel32_call_target(start + offset);
+            if (!address_in_main_module_code(target) || !internal_code_matches(target, entry_pattern))
+            {
+                continue;
+            }
+            if (found && found != target)
+            {
+                return 0;
+            }
+            found = target;
+        }
+        return found;
+    }
+
+    // The decoder is reached through an already verified call site, so this check only has
+    // to prove the target is that function; it does not have to find it. Build 24176442
+    // entered with
+    //   4C 89 4C 24 20 | 44 89 44 24 18 | 53 55 56             | 48 81 EC A0 00 00 00
+    // and build 24280866 with
+    //                    44 89 44 24 18 | 53 55 57 41 55 41 56 | 48 81 EC 90 00 00 00
+    // The argument spill, the push run and the large stack frame survive the recompile.
+    // The exact registers and frame size do not, so match only what both builds share.
+    auto internal_matches_packed_decoder_prologue(std::uintptr_t address) -> bool
+    {
+        if (!address_in_main_module_code(address))
+        {
+            return false;
+        }
+        std::array<std::uint8_t, 0x20> code{};
+        if (!safe_copy(code.data(), reinterpret_cast<const void*>(address), code.size()))
+        {
+            return false;
+        }
+        constexpr std::array<std::uint8_t, 5> spill{0x44, 0x89, 0x44, 0x24, 0x18};
+        std::size_t cursor = code.size();
+        // 24176442 spills at offset 5 (behind a 4C 89 4C 24 20 store), 24280866 at offset 0.
+        for (std::size_t index = 0; index + spill.size() <= 12; ++index)
+        {
+            if (std::equal(spill.begin(), spill.end(), code.begin() + static_cast<std::ptrdiff_t>(index)))
+            {
+                cursor = index + spill.size();
+                break;
+            }
+        }
+        if (cursor == code.size())
+        {
+            return false;
+        }
+        int pushes = 0;
+        while (cursor < code.size())
+        {
+            const auto opcode = code[cursor];
+            if (opcode >= 0x50 && opcode <= 0x57)
+            {
+                ++pushes;
+                ++cursor;
+                continue;
+            }
+            if (opcode == 0x41 && cursor + 1 < code.size() && code[cursor + 1] >= 0x50 && code[cursor + 1] <= 0x57)
+            {
+                ++pushes;
+                cursor += 2;
+                continue;
+            }
+            break;
+        }
+        if (pushes < 3 || cursor + 7 > code.size())
+        {
+            return false;
+        }
+        // sub rsp, imm32 with a frame large enough to be this decoder rather than a stub.
+        return code[cursor] == 0x48 && code[cursor + 1] == 0x81 && code[cursor + 2] == 0xEC &&
+               code[cursor + 3] >= 0x40 && code[cursor + 4] == 0x00 &&
+               code[cursor + 5] == 0x00 && code[cursor + 6] == 0x00;
+    }
+
     auto resolve_local_packed_queue_route(Reflection& ref,
                                           std::uintptr_t component,
                                           std::uintptr_t multicast_packed_paint_batch_function) -> LocalPackedQueueRoute
@@ -17595,22 +17685,23 @@ namespace
             }
 
             const auto decoder = internal_rel32_call_target(implementation + 0x1E);
-            const auto enqueue_inner = internal_rel32_call_target(implementation + 0x14D);
-            if (!address_in_main_module_code(decoder) ||
-                !internal_code_matches(decoder,
-                                       {0x4C, 0x89, 0x4C, 0x24, 0x20,
-                                        0x44, 0x89, 0x44, 0x24, 0x18,
-                                        0x53, 0x55, 0x56,
-                                        0x48, 0x81, 0xEC, 0xA0, 0x00, 0x00, 0x00}) ||
+            // Build 24176442 called this at implementation+0x14D and build 24280866 at
+            // implementation+0x14C, so search the caller for the callee's entry instead.
+            const auto enqueue_inner = internal_find_unique_call_target(
+                implementation,
+                0x400,
+                {0x48, 0x89, 0x74, 0x24, 0x10,
+                 0x57, 0x48, 0x81, 0xEC, 0x20, 0x01, 0x00, 0x00});
+            if (!internal_matches_packed_decoder_prologue(decoder) ||
                 !address_in_main_module_code(enqueue_inner) ||
-                !internal_code_matches(enqueue_inner,
-                                       {0x48, 0x89, 0x74, 0x24, 0x10,
-                                        0x57, 0x48, 0x81, 0xEC, 0x20, 0x01, 0x00, 0x00}) ||
+                // The queue probe kept its shape across both builds but switched base
+                // register (rdi -> rsi), so the two register bytes are wildcards.
                 !internal_code_matches(enqueue_inner + 0x166,
                                        {0x48, 0x8B, 0x87, 0xA8, 0x00, 0x00, 0x00,
                                         0x48, 0x85, 0xC0,
                                         0x75, 0x0D,
-                                        0x48, 0x8B, 0xCF}))
+                                        0x48, 0x8B, 0xCF},
+                                       "xx?xxxxxxxxxxx?"))
             {
                 continue;
             }
