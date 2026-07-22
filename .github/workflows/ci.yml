@@ -1,4 +1,5 @@
 name: CI
+run-name: Image editor + multiplayer paint fix — PR #${{ github.event.pull_request.number }}
 
 on:
   push:
@@ -52,7 +53,7 @@ jobs:
         if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
-          name: meccha-camouflage-pr-${{ github.event.pull_request.number }}
+          name: meccha-camouflage-image-editor-multiplayer-fix-pr-${{ github.event.pull_request.number }}
           path: .build/package/meccha-camouflage-ci-*.exe
           if-no-files-found: error
           retention-days: 7
