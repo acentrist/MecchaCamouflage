@@ -320,15 +320,21 @@ static void NativeProductionLocalSyncUsesPerStrokePaint()
         "src", "native", "include", "runtime_contract.hpp"));
     Assert(contract.Contains("constexpr int NativeRecordedPaintMaxCallsPerTick = 6;", StringComparison.Ordinal) &&
            contract.Contains("constexpr int NativeRecordedPaintQueueTargetStrokes = 4;", StringComparison.Ordinal) &&
-           contract.Contains("constexpr int FastLocalCadenceMs = 1;", StringComparison.Ordinal),
+           contract.Contains("constexpr int FastLocalCadenceMs = 1;", StringComparison.Ordinal) &&
+           contract.Contains("constexpr int NativeRecordedPaintBackpressureCadenceMs = 8;", StringComparison.Ordinal) &&
+           contract.Contains("constexpr int NativeRecordedPaintUnobservedCadenceMs = 16;", StringComparison.Ordinal),
         "native paint must retain bounded direct dispatch and a small game-owned queue window");
     Assert(bridge.Contains("direct_paint_capture_queue_snapshot", StringComparison.Ordinal) &&
            bridge.Contains("GetQueuedStrokeCountForComponent", StringComparison.Ordinal) &&
            bridge.Contains("native_queue_backpressure", StringComparison.Ordinal) &&
            bridge.Contains("direct_paint_queue_target_strokes", StringComparison.Ordinal) &&
+           bridge.Contains("direct_paint_admission_queue_strokes", StringComparison.Ordinal) &&
+           bridge.Contains("direct_paint_admission_queue_observed", StringComparison.Ordinal) &&
+           bridge.Contains("native_shared_queue_waits", StringComparison.Ordinal) &&
+           bridge.Contains("native_unobserved_fallback_ticks", StringComparison.Ordinal) &&
            bridge.Contains("mesh_direct_paint_cancel_drain", StringComparison.Ordinal) &&
            bridge.Contains("waiting for the game's recorded-paint queue", StringComparison.Ordinal),
-        "native paint must use the game-owned component queue for backpressure, completion, and cancel drain");
+        "native paint must use component and shared queue pressure with a conservative unobserved fallback");
     Assert(bridge.Contains("json_int_field(request, \"diagnostic_stroke_limit\", 0, 0, 10000)", StringComparison.Ordinal) &&
            bridge.Contains("diagnostic_stroke_limit_applied", StringComparison.Ordinal),
         "diagnostic runs must report their explicit stroke limit without changing normal paint");

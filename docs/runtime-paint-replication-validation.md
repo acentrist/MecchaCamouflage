@@ -31,13 +31,17 @@ historical payload, receiver-queue, and custom batching experiments.
 ## Queue and cancellation validation
 
 1. Record `local_strokes_submitted`, `local_strokes_synced`, and
-   `native_queue_target_strokes` throughout the job.
+   `native_queue_target_strokes` throughout the job. Also record
+   `native_shared_queue_waits` and `native_unobserved_fallback_ticks`.
 2. Confirm ETA uses confirmed progress rather than submission count.
 3. Confirm terminal completion happens only after the observed queue is idle.
 4. Cancel during active paint. The job must stop submitting new strokes and end
    as cancelled after already recorded work drains naturally.
 5. Verify the game remains responsive; do not reduce the scheduler below one
    millisecond or write into internal queues to make this faster.
+6. If the shared manager reports saturation, confirm new stroke admission pauses
+   until pressure falls. If all queue telemetry is unavailable, confirm only one
+   stroke is admitted per 16-millisecond fallback tick.
 
 ## Multiplayer validation
 

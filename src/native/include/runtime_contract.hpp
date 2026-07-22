@@ -22,6 +22,13 @@ namespace runtime_contract
     // frontier on joining clients.
     constexpr int NativeRecordedPaintQueueTargetStrokes = 4;
     constexpr int FastLocalCadenceMs = 1;
+    // Poll a saturated game-owned queue less aggressively. This keeps the bridge
+    // responsive without spinning the game thread while replication catches up.
+    constexpr int NativeRecordedPaintBackpressureCadenceMs = 8;
+    // If the current game instance does not expose usable queue telemetry, send
+    // only one stroke at this conservative cadence instead of assuming the
+    // network path is empty and flooding it every millisecond.
+    constexpr int NativeRecordedPaintUnobservedCadenceMs = 16;
     constexpr std::uint64_t LocalDispatchCpuBudgetUs = 4'000;
 
     // UE 5.6 packs Metallic, Roughness, and Emissive into one material-properties
@@ -112,6 +119,16 @@ namespace runtime_contract
     constexpr int recurring_scheduler_delay_ms(int requested_delay_ms)
     {
         return max_value(1, requested_delay_ms);
+    }
+
+    constexpr int max_available_queue_count(int current, bool available, int value)
+    {
+        if (!available)
+        {
+            return current;
+        }
+        const int safe_value = max_value(0, value);
+        return current < 0 ? safe_value : max_value(current, safe_value);
     }
 
     struct SpatialScanlineKey

@@ -29,6 +29,13 @@ when available and reports:
 - `native_queue_*` observations, target, peak, and wait count
 - `paint_eta_ms` calculated from confirmed progress
 
+Admission also observes the replication manager's global queued-stroke and
+pressure counters. Component-scoped counters are still used for owned progress,
+but ignoring a saturated shared queue lets a joining client continue feeding
+the two-hop network path and can stall the session. When no queue counter is
+readable, the bridge falls back to one stroke every 16 milliseconds instead of
+assuming an empty queue and dispatching every millisecond.
+
 The direct scheduler preserves a one-millisecond wake-up floor and a bounded
 CPU slice. It may hold a small queue window, but must wait for the queue to
 drain before reporting terminal completion. Do not bypass this with immediate

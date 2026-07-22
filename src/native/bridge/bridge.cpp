@@ -9048,6 +9048,8 @@ namespace
         int direct_queue_peak_component_strokes{0};
         int direct_queue_samples{0};
         int direct_queue_waits{0};
+        int direct_shared_queue_waits{0};
+        int direct_unobserved_fallback_ticks{0};
         int direct_queue_final_idle_polls{0};
         MeshFirstBatchPhase phase{MeshFirstBatchPhase::Planning};
         std::atomic<bool> tick_in_progress{false};
@@ -9206,16 +9208,31 @@ namespace
         // counter are both owned by this paint component; they may describe
         // adjacent game stages, so use their maximum rather than adding them.
         int pending = -1;
-        if (snapshot.component_available)
-        {
-            pending = snapshot.component_strokes;
-        }
-        if (snapshot.recorded_available)
-        {
-            pending = pending < 0 ? snapshot.recorded_strokes
-                                  : std::max(pending, snapshot.recorded_strokes);
-        }
+        pending = runtime_contract::max_available_queue_count(
+            pending, snapshot.component_available, snapshot.component_strokes);
+        pending = runtime_contract::max_available_queue_count(
+            pending, snapshot.recorded_available, snapshot.recorded_strokes);
         return pending;
+    }
+
+    auto direct_paint_admission_queue_strokes(const DirectPaintQueueSnapshot& snapshot) -> int
+    {
+        // Completion remains component-scoped, but admission must respect the
+        // shared replication manager too. A joining client can otherwise keep
+        // recording new strokes while the session-wide outbound queue is already
+        // saturated, which presents as multiplayer lag or a frozen session.
+        int pending = direct_paint_owned_queue_strokes(snapshot);
+        pending = runtime_contract::max_available_queue_count(
+            pending, snapshot.manager_available, snapshot.manager_strokes);
+        pending = runtime_contract::max_available_queue_count(
+            pending, snapshot.pressure_available, snapshot.pressure_strokes);
+        return pending;
+    }
+
+    auto direct_paint_admission_queue_observed(const DirectPaintQueueSnapshot& snapshot) -> bool
+    {
+        return snapshot.recorded_available || snapshot.component_available ||
+               snapshot.manager_available || snapshot.pressure_available;
     }
 
     auto direct_paint_queue_target_strokes(
@@ -9423,6 +9440,10 @@ namespace
                    std::to_string(job->direct_queue_samples) +
                ",\"native_queue_waits\":" +
                    std::to_string(job->direct_queue_waits) +
+               ",\"native_shared_queue_waits\":" +
+                   std::to_string(job->direct_shared_queue_waits) +
+               ",\"native_unobserved_fallback_ticks\":" +
+                   std::to_string(job->direct_unobserved_fallback_ticks) +
                ",\"native_queue_final_idle_polls\":" +
                    std::to_string(job->direct_queue_final_idle_polls) +
                ",\"local_dispatch_total_ms\":" +
@@ -11826,13 +11847,15 @@ namespace
                                                          json_escape(failure) + "\"")));
         };
 
-        const auto schedule_next = [&]() -> bool {
+        const auto schedule_next = [&](int requested_delay_ms) -> bool {
+            const auto delay_ms = static_cast<DWORD>(
+                runtime_contract::recurring_scheduler_delay_ms(requested_delay_ms));
             HANDLE timer = nullptr;
             if (CreateTimerQueueTimer(&timer,
                                       nullptr,
                                       paint_dispatch_timer_queue_proc,
                                       nullptr,
-                                      static_cast<DWORD>(runtime_contract::FastLocalCadenceMs),
+                                      delay_ms,
                                       0,
                                       WT_EXECUTEONLYONCE | WT_EXECUTEINTIMERTHREAD))
             {
@@ -11843,7 +11866,7 @@ namespace
             ++job->direct_fast_wakeup_fallback_count;
             const auto timer_id = SetTimer(nullptr,
                                            0,
-                                           static_cast<UINT>(runtime_contract::FastLocalCadenceMs),
+                                           static_cast<UINT>(delay_ms),
                                            paint_dispatch_timer_proc);
             if (timer_id)
             {
@@ -11880,7 +11903,7 @@ namespace
                                    std::to_string(pending_after_cancel) +
                                    ",\"native_queue_target_strokes\":" +
                                    std::to_string(queue_target_after_cancel));
-                schedule_next();
+                schedule_next(runtime_contract::NativeRecordedPaintBackpressureCadenceMs);
                 return;
             }
             if (job->direct_queue_observer_available &&
@@ -11891,7 +11914,7 @@ namespace
                                "confirming the game's recorded-paint queue is idle after cancellation",
                                false,
                                "running");
-                schedule_next();
+                schedule_next(runtime_contract::NativeRecordedPaintBackpressureCadenceMs);
                 return;
             }
             job->phase = MeshFirstBatchPhase::Cancelled;
@@ -11930,11 +11953,16 @@ namespace
         job->phase = MeshFirstBatchPhase::LocalPaint;
         const auto queue_before = direct_paint_capture_queue_snapshot(job);
         direct_paint_record_queue_snapshot(job, queue_before);
-        const int pending_before = direct_paint_owned_queue_strokes(queue_before);
+        const int owned_pending_before = direct_paint_owned_queue_strokes(queue_before);
+        const int pending_before = direct_paint_admission_queue_strokes(queue_before);
         const int queue_target_before = direct_paint_queue_target_strokes(job, queue_before);
         if (pending_before >= queue_target_before)
         {
             ++job->direct_queue_waits;
+            if (pending_before > std::max(-1, owned_pending_before))
+            {
+                ++job->direct_shared_queue_waits;
+            }
             write_progress("mesh_direct_paint_drain",
                            "waiting for the game's recorded-paint queue",
                            false,
@@ -11943,15 +11971,23 @@ namespace
                                std::to_string(pending_before) +
                                ",\"native_queue_target_strokes\":" +
                                std::to_string(queue_target_before));
-            schedule_next();
+            schedule_next(runtime_contract::NativeRecordedPaintBackpressureCadenceMs);
             return;
         }
 
         const auto slice_started = std::chrono::steady_clock::now();
         int calls = 0;
         int writes = 0;
+        const bool admission_queue_observed = direct_paint_admission_queue_observed(queue_before);
+        const int max_calls_this_tick = admission_queue_observed
+                                            ? runtime_contract::NativeRecordedPaintMaxCallsPerTick
+                                            : 1;
+        if (!admission_queue_observed)
+        {
+            ++job->direct_unobserved_fallback_ticks;
+        }
         while (job->local_offset < job->strokes.size() &&
-               calls < runtime_contract::NativeRecordedPaintMaxCallsPerTick)
+               calls < max_calls_this_tick)
         {
             if (queued_paint_cancel_reason(job->queued) != PaintCancelReason::None)
             {
@@ -11996,11 +12032,16 @@ namespace
             job->local_render_target_writes_scheduled += stroke_writes;
             const auto queue_after_call = direct_paint_capture_queue_snapshot(job);
             direct_paint_record_queue_snapshot(job, queue_after_call);
-            const int pending_after_call = direct_paint_owned_queue_strokes(queue_after_call);
+            const int owned_pending_after_call = direct_paint_owned_queue_strokes(queue_after_call);
+            const int pending_after_call = direct_paint_admission_queue_strokes(queue_after_call);
             const int queue_target_after_call =
                 direct_paint_queue_target_strokes(job, queue_after_call);
             if (pending_after_call >= queue_target_after_call)
             {
+                if (pending_after_call > std::max(-1, owned_pending_after_call))
+                {
+                    ++job->direct_shared_queue_waits;
+                }
                 // This is backpressure from the game-owned renderer, not an
                 // arbitrary bridge rate limit. Keep its lead to one small
                 // native-capacity window rather than serializing every stroke.
@@ -12050,7 +12091,7 @@ namespace
                                "running",
                                "\"native_queue_pending_strokes\":" +
                                    std::to_string(pending_after_submission));
-                schedule_next();
+                schedule_next(runtime_contract::NativeRecordedPaintBackpressureCadenceMs);
                 return;
             }
             if (job->direct_queue_observer_available &&
@@ -12064,7 +12105,7 @@ namespace
                                "confirming the game's recorded-paint queue is idle",
                                false,
                                "running");
-                schedule_next();
+                schedule_next(runtime_contract::NativeRecordedPaintBackpressureCadenceMs);
                 return;
             }
             finish(true,
@@ -12077,7 +12118,9 @@ namespace
                        "mesh-first direct PaintAtUVWithBrush stream",
                        false,
                        "running");
-        schedule_next();
+        schedule_next(admission_queue_observed
+                          ? runtime_contract::FastLocalCadenceMs
+                          : runtime_contract::NativeRecordedPaintUnobservedCadenceMs);
     }
 
     auto sdk_find_front_mesh(Reflection& ref, const SdkContext& ctx) -> std::uintptr_t

@@ -73,7 +73,12 @@ int main()
         runtime_contract::local_dispatch_can_append(1, 4, 4, 6, 6) ||
         !runtime_contract::local_dispatch_cpu_budget_reached(1, 4'000) ||
         runtime_contract::local_dispatch_cpu_budget_reached(0, 10'000) ||
-        runtime_contract::recurring_scheduler_delay_ms(0) != 1)
+        runtime_contract::recurring_scheduler_delay_ms(0) != 1 ||
+        runtime_contract::max_available_queue_count(-1, false, 99) != -1 ||
+        runtime_contract::max_available_queue_count(-1, true, 3) != 3 ||
+        runtime_contract::max_available_queue_count(3, true, 7) != 7 ||
+        runtime_contract::max_available_queue_count(7, true, 3) != 7 ||
+        runtime_contract::max_available_queue_count(-1, true, -5) != 0)
     {
         return 10;
     }
