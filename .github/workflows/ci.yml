@@ -47,3 +47,12 @@ jobs:
           $exePath = ".build/package/meccha-camouflage-$version.exe"
           if (-not (Test-Path $exePath)) { throw "package exe missing" }
           if ((Get-Item $exePath).Length -le 10000000) { throw "package exe is unexpectedly small" }
+
+      - name: Upload pull request test build
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: meccha-camouflage-pr-${{ github.event.pull_request.number }}
+          path: .build/package/meccha-camouflage-ci-*.exe
+          if-no-files-found: error
+          retention-days: 7
