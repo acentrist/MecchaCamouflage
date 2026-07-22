@@ -1,5 +1,5 @@
 name: CI
-run-name: Image editor + multiplayer paint fix — PR #${{ github.event.pull_request.number }}
+run-name: "Image editor + multiplayer paint fix - PR #${{ github.event.pull_request.number }}"
 
 on:
   push:
