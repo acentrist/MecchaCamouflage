@@ -4025,7 +4025,8 @@ namespace
                ",\"function_paint_at_uv_with_brush\":\"" + hex_address(ctx.local_paint_at_uv_function) + "\"" +
                ",\"param_schema\":\"PaintAtUVWithBrush{Uv,ChannelData,BrushSettings,Channel}\"" +
                std::string(",\"sdk_replication_api\":\"component_recorded_strokes\"") +
-               ",\"multiplayer_replicated\":true";
+               ",\"multiplayer_replicated\":false" +
+               ",\"multiplayer_replication_note\":\"local PaintAtUVWithBrush replicates to other clients only from network authority (listen-server host); a joining client renders locally only\"";
     }
 
     auto sdk_resolve_context(Reflection& ref) -> SdkContext
@@ -11975,6 +11976,10 @@ namespace
         const auto slice_started = std::chrono::steady_clock::now();
         int calls = 0;
         int writes = 0;
+        // Upper-bound estimate of the game-owned recorded queue depth for this
+        // tick. Incremented per submitted stroke so backpressure no longer needs
+        // a four-call game-thread snapshot after every single stroke.
+        int estimated_pending = std::max(0, pending_before);
         while (job->local_offset < job->strokes.size() &&
                calls < runtime_contract::NativeRecordedPaintMaxCallsPerTick)
         {
@@ -12019,16 +12024,16 @@ namespace
             ++calls;
             writes += stroke_writes;
             job->local_render_target_writes_scheduled += stroke_writes;
-            const auto queue_after_call = direct_paint_capture_queue_snapshot(job);
-            direct_paint_record_queue_snapshot(job, queue_after_call);
-            const int pending_after_call = direct_paint_owned_queue_strokes(queue_after_call);
-            const int queue_target_after_call =
-                direct_paint_queue_target_strokes(job, queue_after_call);
-            if (pending_after_call >= queue_target_after_call)
+            // Backpressure without polling the game after every stroke. Each
+            // PaintAtUVWithBrush call adds at most one entry to the game-owned
+            // recorded queue, and the game only drains it between our calls, so
+            // this incremented estimate is an upper bound on the real depth.
+            // Sampling the four queue UFunctions once per tick (below) instead
+            // of once per stroke removes the dominant game-thread cost while
+            // keeping the same one-window lead bound.
+            ++estimated_pending;
+            if (estimated_pending >= queue_target_before)
             {
-                // This is backpressure from the game-owned renderer, not an
-                // arbitrary bridge rate limit. Keep its lead to one small
-                // native-capacity window rather than serializing every stroke.
                 break;
             }
             if (std::chrono::duration_cast<std::chrono::microseconds>(
@@ -12042,6 +12047,11 @@ namespace
         if (calls > 0)
         {
             ++job->local_batch_calls;
+            // Refresh queue telemetry once for the whole burst. This is now the
+            // only per-tick queue snapshot; it feeds progress, ETA, and the
+            // drain-completion checks below with an accurate reading.
+            const auto queue_after_burst = direct_paint_capture_queue_snapshot(job);
+            direct_paint_record_queue_snapshot(job, queue_after_burst);
         }
         job->local_visual_sync_elapsed_ms = mesh_first_local_elapsed_ms(job);
         if (queued_paint_cancel_reason(job->queued) != PaintCancelReason::None)
@@ -16119,7 +16129,7 @@ namespace
                    "\"local_paint_used\":true," +
                    "\"paint_at_uv_with_brush_used\":true," +
                    "\"replication\":\"game_recorded_strokes\"," +
-                   "\"multiplayer_replicated\":true}}\n";
+                   "\"multiplayer_replicated\":false}}\n";
         }
         if (line.find("\"type\":\"cancel_paint\"") != std::string::npos)
         {
