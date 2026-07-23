@@ -36,19 +36,29 @@ function Resolve-ProjectVersion {
         } catch {
             $exact = $null
         }
-        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($exact)) {
+        $isExactTag = $LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($exact)
+        try {
+            $status = & git -C $Root status --porcelain --untracked-files=normal 2>$null
+            $isClean = $LASTEXITCODE -eq 0 -and [string]::IsNullOrWhiteSpace(($status -join "`n"))
+        } catch {
+            $isClean = $false
+        }
+        # Only a clean, exact tag is a stable release identity. Development
+        # builds must never share AppPaths with another invocation: stale
+        # config and Image Paint libraries are not compatible across builds.
+        if ($isExactTag -and $isClean) {
             return $exact.Trim()
         }
         try {
-            $described = & git -C $Root describe --tags --dirty --always 2>$null
+            $described = & git -C $Root describe --tags --always 2>$null
         } catch {
             $described = $null
         }
         if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($described)) {
-            return $described.Trim()
+            return "$($described.Trim())-build-$([DateTime]::UtcNow.ToString('yyyyMMddHHmmssfffffff'))-$PID"
         }
     }
-    return "unversioned"
+    return "unversioned-build-$([DateTime]::UtcNow.ToString('yyyyMMddHHmmssfffffff'))-$PID"
 }
 
 function Quote-CmdArg([string]$Value) {
@@ -235,11 +245,13 @@ function Invoke-BuildStep {
         [Parameter(Mandatory = $true)][scriptblock]$ScriptBlock
     )
     $timer = [System.Diagnostics.Stopwatch]::StartNew()
+    Write-Host "Build step: $Name"
     try {
         & $ScriptBlock
     }
     finally {
         $timer.Stop()
+        Write-Host ("Build step complete: {0} ({1:N3}s)" -f $Name, $timer.Elapsed.TotalSeconds)
         if ($ShowTimings) {
             $BuildTimings.Add([pscustomobject]@{
                 Step = $Name

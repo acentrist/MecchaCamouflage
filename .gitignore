@@ -64,3 +64,9 @@ build.ninja
 /.env
 /.env.*
 .serena
+
+# Document draft artifacts
+PR*.md
+Releases*.md
+benchmark*.md
+

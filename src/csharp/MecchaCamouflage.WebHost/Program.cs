@@ -1,4 +1,6 @@
 using MecchaCamouflage.Controller;
+using MecchaCamouflage.Core;
+using System.Text.Json;
 
 namespace MecchaCamouflage.WebHost;
 
@@ -8,7 +10,15 @@ internal static class Program
     private static void Main(string[] args)
     {
         var paths = new MecchaCamouflage.Core.AppPaths(VersionInfo.Current);
+        var startupCatalog = LocalizationCatalog.Load();
+        var startupLocale = LocalizationCatalog.DetectSystemLanguage();
         DiagnosticsState.Initialize(paths, VersionInfo.Current);
+        var captureBodyType = CaptureReferenceBodyType(args);
+        if (captureBodyType is not null)
+        {
+            Environment.ExitCode = CaptureImageReferencePoseAsync(captureBodyType).GetAwaiter().GetResult();
+            return;
+        }
 #if MECCHA_RESEARCH_BUILD
         if (ResearchRunner.IsRequested(args))
         {
@@ -43,12 +53,48 @@ internal static class Program
         {
             DiagnosticsState.RecordException("application_run_failed", exception);
             MessageBox.Show(
-                "Meccha Camouflage failed to start. Diagnostic logs were written to:" +
+                startupCatalog.Text(startupLocale, "dialog.startup.failed") +
                 Environment.NewLine + paths.DiagnosticsDirectory +
                 Environment.NewLine + Environment.NewLine + exception.Message,
-                "Meccha Camouflage",
+                startupCatalog.Text(startupLocale, "app.title"),
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
+        }
+    }
+
+    private static string? CaptureReferenceBodyType(string[] args)
+    {
+        if (args.Any(argument => string.Equals(argument, "--capture-cube-reference-pose", StringComparison.Ordinal)))
+            return "cube";
+        if (args.Any(argument => string.Equals(argument, "--capture-round-reference-pose", StringComparison.Ordinal)))
+            return "round";
+        return null;
+    }
+
+    private static async Task<int> CaptureImageReferencePoseAsync(string bodyType)
+    {
+        var session = new HostSession(VersionInfo.Current);
+        try
+        {
+            var snapshot = await session.CaptureImageReferencePoseAsync(bodyType);
+            Console.Out.WriteLine(JsonSerializer.Serialize(snapshot));
+            return snapshot.Success ? 0 : 1;
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine("Image reference pose capture failed: " + exception.Message);
+            return 1;
+        }
+        finally
+        {
+            try
+            {
+                await session.Runtime.ShutdownAsync();
+            }
+            catch
+            {
+                // Capture cleanup must not hide its result.
+            }
         }
     }
 

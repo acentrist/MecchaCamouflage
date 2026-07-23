@@ -5,7 +5,19 @@
 #include <cstddef>
 #include <cstdint>
 #include <cmath>
+#if (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))) || defined(__AVX2__)
+#include <immintrin.h>
+#define MECCHA_RUNTIME_CONTRACT_CAN_COMPILE_AVX2 1
+#endif
+#if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
+#include <intrin.h>
+#endif
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
+#include <future>
 #include <set>
+#include <thread>
 #include <tuple>
 #include <vector>
 
@@ -16,15 +28,14 @@ namespace runtime_contract
     constexpr std::size_t FPropertyElementSizeOffset = 0x34;
     // Keep direct dispatch bounded so one scheduler tick cannot monopolize the
     // game thread. This is a CPU safety limit, not a network pacing setting.
-    // UNVALIDATED: raised 6 -> 12 for throughput. Safe only when paint stays
-    // local (replication happens through a single end-of-job server flush, not
-    // a per-stroke RPC); the LocalDispatchCpuBudgetUs slice still caps a tick.
-    constexpr int NativeRecordedPaintMaxCallsPerTick = 12;
-    // Permit at most a small, game-owned recorded-paint lead. Waiting for zero
+    // Production favors a conservative burst ceiling while multiplayer limits
+    // are being validated against live servers.
+    constexpr int NativeRecordedPaintMaxCallsPerTick = 4;
+    // Permit only a short game-owned recorded-paint lead. Waiting for zero
     // serializes every stroke; an unbounded lead recreates the visible dotted
-    // frontier on joining clients.
-    // UNVALIDATED: raised 4 -> 8 to let bursts run before draining.
-    constexpr int NativeRecordedPaintQueueTargetStrokes = 8;
+    // frontier on joining clients. Two pending strokes halve the previous
+    // production lead without changing the game's own queue implementation.
+    constexpr int NativeRecordedPaintQueueTargetStrokes = 2;
     constexpr int FastLocalCadenceMs = 1;
     constexpr std::uint64_t LocalDispatchCpuBudgetUs = 4'000;
 
@@ -162,6 +173,224 @@ namespace runtime_contract
         Fill,
         Skip,
     };
+
+    enum class ImageAtlasRegion
+    {
+        Front,
+        Side,
+        Back,
+    };
+
+    struct ImageAtlasMappingInput
+    {
+        bool cube{false};
+        ImageAtlasRegion region{ImageAtlasRegion::Front};
+        bool depth_is_y{false};
+        double local_x{0.0};
+        double local_y{0.0};
+        double local_z{0.0};
+        double normal_x{0.0};
+        double normal_y{0.0};
+        double normal_z{0.0};
+        double min_x{0.0};
+        double max_x{1.0};
+        double min_y{0.0};
+        double max_y{1.0};
+        double min_z{0.0};
+        double max_z{1.0};
+    };
+
+    struct ImageAtlasMappingResult
+    {
+        double u{0.125};
+        double v{0.5};
+        bool cube_side{false};
+        bool cube_edge{false};
+    };
+
+    inline ImageAtlasMappingResult map_image_atlas_coordinate(const ImageAtlasMappingInput& input)
+    {
+        const auto normalized = [](double value, double minimum, double maximum) {
+            const double range = maximum - minimum;
+            return std::abs(range) <= 0.000001 ? 0.5 : std::clamp((value - minimum) / range, 0.0, 1.0);
+        };
+        const double horizontal = input.depth_is_y
+                                      ? normalized(input.local_x, input.min_x, input.max_x)
+                                      : normalized(input.local_y, input.min_y, input.max_y);
+        const double depth = input.depth_is_y
+                                 ? normalized(input.local_y, input.min_y, input.max_y)
+                                 : normalized(input.local_x, input.min_x, input.max_x);
+        ImageAtlasMappingResult result{};
+        result.v = normalized(input.local_z, input.min_z, input.max_z);
+        const double normal_x = std::abs(input.normal_x);
+        const double normal_y = std::abs(input.normal_y);
+        const double normal_z = std::abs(input.normal_z);
+        if (input.cube && normal_z > normal_x && normal_z > normal_y)
+        {
+            const double centered_x = input.local_x - (input.min_x + input.max_x) * 0.5;
+            const double centered_y = input.local_y - (input.min_y + input.max_y) * 0.5;
+            result.u = std::clamp(std::atan2(centered_y, centered_x) / (2.0 * 3.14159265358979323846) + 0.5, 0.0, 1.0);
+            result.v = input.normal_z >= 0.0 ? 0.0 : 1.0;
+            result.cube_edge = true;
+            return result;
+        }
+        if (input.region == ImageAtlasRegion::Side)
+        {
+            const double side_coordinate = input.depth_is_y ? input.local_x : input.local_y;
+            const double horizontal_midpoint = input.depth_is_y
+                                                   ? (input.min_x + input.max_x) * 0.5
+                                                   : (input.min_y + input.max_y) * 0.5;
+            result.u = side_coordinate > horizontal_midpoint
+                           ? 0.25 + depth * 0.25
+                           : 0.75 + (1.0 - depth) * 0.25;
+            result.cube_side = input.cube;
+        }
+        else if (input.region == ImageAtlasRegion::Back)
+        {
+            result.u = 0.5 + (1.0 - horizontal) * 0.25;
+        }
+        else
+        {
+            result.u = horizontal * 0.25;
+        }
+        return result;
+    }
+
+    // Cube image designs are not UV-like unwraps. They are four orthographic
+    // views of one canonical, natural-standing reference pose. Keep this tiny
+    // projection contract shared by the bridge and its native validation test;
+    // the UI mirrors the same fixed 1024 x 512 canvas geometry.
+    enum class CubeCanonicalImageFace
+    {
+        Front,
+        Right,
+        Back,
+        Left,
+    };
+
+    struct CubeCanonicalImageProjectionInput
+    {
+        double local_x{0.0};
+        double local_y{0.0};
+        double local_z{0.0};
+        double normal_x{0.0};
+        double normal_y{-1.0};
+        double center_x{0.0};
+        double center_y{0.0};
+        double center_z{0.0};
+        double pixels_per_unit{1.0};
+    };
+
+    struct CubeCanonicalImageProjectionResult
+    {
+        CubeCanonicalImageFace face{CubeCanonicalImageFace::Front};
+        double u{0.125};
+        double v{0.5};
+    };
+
+    inline CubeCanonicalImageFace classify_cube_canonical_image_face(double normal_x, double normal_y)
+    {
+        if (std::abs(normal_x) >= std::abs(normal_y))
+        {
+            return normal_x >= 0.0 ? CubeCanonicalImageFace::Right : CubeCanonicalImageFace::Left;
+        }
+        return normal_y >= 0.0 ? CubeCanonicalImageFace::Back : CubeCanonicalImageFace::Front;
+    }
+
+    inline CubeCanonicalImageProjectionResult map_cube_canonical_image_coordinate(const CubeCanonicalImageProjectionInput& input)
+    {
+        CubeCanonicalImageProjectionResult result{};
+        result.face = classify_cube_canonical_image_face(input.normal_x, input.normal_y);
+        const double pixels_per_unit = std::isfinite(input.pixels_per_unit) && input.pixels_per_unit > 0.000001
+                                           ? input.pixels_per_unit
+                                           : 1.0;
+        double horizontal = input.local_x - input.center_x;
+        int tile = 0;
+        switch (result.face)
+        {
+        case CubeCanonicalImageFace::Front:
+            tile = 0;
+            break;
+        case CubeCanonicalImageFace::Right:
+            tile = 1;
+            horizontal = input.local_y - input.center_y;
+            break;
+        case CubeCanonicalImageFace::Back:
+            tile = 2;
+            horizontal = input.center_x - input.local_x;
+            break;
+        case CubeCanonicalImageFace::Left:
+            tile = 3;
+            horizontal = input.center_y - input.local_y;
+            break;
+        }
+        result.u = (static_cast<double>(tile) * 256.0 + 128.0 + horizontal * pixels_per_unit) / 1024.0;
+        result.v = 0.5 + (input.local_z - input.center_z) * pixels_per_unit / 512.0;
+        return result;
+    }
+
+    // Round uses the same four orthographic canvas tiles as Cube. Unlike the
+    // legacy normalized atlas, every tile shares one pixels-per-unit value:
+    // the narrow side silhouette must not be stretched to the front width.
+    struct RoundCanonicalImageProjectionInput
+    {
+        ImageAtlasRegion region{ImageAtlasRegion::Front};
+        bool depth_is_y{true};
+        double local_x{0.0};
+        double local_y{0.0};
+        double local_z{0.0};
+        double center_x{0.0};
+        double center_y{0.0};
+        double center_z{0.0};
+        double pixels_per_unit{1.0};
+    };
+
+    struct RoundCanonicalImageProjectionResult
+    {
+        int tile{0};
+        double u{0.125};
+        double v{0.5};
+    };
+
+    inline RoundCanonicalImageProjectionResult map_round_canonical_image_coordinate(
+        const RoundCanonicalImageProjectionInput& input)
+    {
+        RoundCanonicalImageProjectionResult result{};
+        const double pixels_per_unit =
+            std::isfinite(input.pixels_per_unit) && input.pixels_per_unit > 0.000001
+                ? input.pixels_per_unit
+                : 1.0;
+        const double front_horizontal = input.depth_is_y
+                                            ? input.local_x - input.center_x
+                                            : input.local_y - input.center_y;
+        double horizontal = front_horizontal;
+        switch (input.region)
+        {
+        case ImageAtlasRegion::Front:
+            result.tile = 0;
+            break;
+        case ImageAtlasRegion::Back:
+            result.tile = 2;
+            horizontal = -front_horizontal;
+            break;
+        case ImageAtlasRegion::Side:
+        {
+            const double side_coordinate = input.depth_is_y
+                                               ? input.local_x - input.center_x
+                                               : input.local_y - input.center_y;
+            const double side_horizontal = input.depth_is_y
+                                               ? input.local_y - input.center_y
+                                               : input.local_x - input.center_x;
+            result.tile = side_coordinate > 0.0 ? 1 : 3;
+            horizontal = result.tile == 1 ? side_horizontal : -side_horizontal;
+            break;
+        }
+        }
+        result.u = (static_cast<double>(result.tile) * 256.0 + 128.0 +
+                    horizontal * pixels_per_unit) / 1024.0;
+        result.v = 0.5 + (input.local_z - input.center_z) * pixels_per_unit / 512.0;
+        return result;
+    }
 
     enum class ReplayPass
     {
@@ -397,7 +626,48 @@ namespace runtime_contract
         std::vector<AdaptiveReplayEntry> entries{};
         std::size_t compressed_paint_entries{0};
         std::size_t expanded_paint_entries{0};
+        int adaptive_plan_worker_count{0};
+        bool adaptive_plan_parallel{false};
+        bool adaptive_plan_avx2_available{false};
+        bool adaptive_plan_avx2_used{false};
     };
+
+    inline bool adaptive_plan_avx2_available()
+    {
+#if defined(MECCHA_RUNTIME_CONTRACT_CAN_COMPILE_AVX2)
+        static const bool available = []() {
+#if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
+            int registers[4]{};
+            __cpuid(registers, 0);
+            if (registers[0] < 7)
+            {
+                return false;
+            }
+            __cpuidex(registers, 1, 0);
+            constexpr int osxsave_bit = 1 << 27;
+            constexpr int avx_bit = 1 << 28;
+            if ((registers[2] & (osxsave_bit | avx_bit)) != (osxsave_bit | avx_bit))
+            {
+                return false;
+            }
+            if ((_xgetbv(0) & 0x6) != 0x6)
+            {
+                return false;
+            }
+            __cpuidex(registers, 7, 0);
+            constexpr int avx2_bit = 1 << 5;
+            return (registers[1] & avx2_bit) != 0;
+#elif defined(__GNUC__) || defined(__clang__)
+            return __builtin_cpu_supports("avx2");
+#else
+            return false;
+#endif
+        }();
+        return available;
+#else
+        return false;
+#endif
+    }
 
     inline AdaptivePaintPlan build_adaptive_paint_plan(
         const std::vector<ReplayEntry>& replay_entries,
@@ -408,6 +678,7 @@ namespace runtime_contract
     {
         AdaptivePaintPlan plan{};
         plan.entries.reserve(replay_entries.size());
+        plan.adaptive_plan_avx2_available = adaptive_plan_avx2_available();
         if (replay_entries.empty())
         {
             return plan;
@@ -444,7 +715,7 @@ namespace runtime_contract
                 .push_back(index);
         }
 
-        const double threshold = std::clamp(tolerance_percent, 0.0, 10.0) / 100.0 * std::sqrt(3.0);
+        const double threshold = std::clamp(tolerance_percent, 0.0, 10.0) / 100.0;
         const double threshold_squared = threshold * threshold;
         const auto same_payload = [](const AdaptivePaintSample& center,
                                      const AdaptivePaintSample& other) {
@@ -452,12 +723,28 @@ namespace runtime_contract
                    center.region == other.region && center.uv_island == other.uv_island &&
                    center.material_key == other.material_key;
         };
-        const auto color_distance_squared = [](const AdaptivePaintSample& left,
-                                               const AdaptivePaintSample& right) {
+        const bool use_avx2 = plan.adaptive_plan_avx2_available;
+        plan.adaptive_plan_avx2_used = use_avx2;
+        const auto color_distance_squared = [use_avx2](const AdaptivePaintSample& left,
+                                                       const AdaptivePaintSample& right) {
+#if defined(MECCHA_RUNTIME_CONTRACT_CAN_COMPILE_AVX2)
+            if (use_avx2)
+            {
+                const __m256d vleft = _mm256_setr_pd(left.r, left.g, left.b, 0.0);
+                const __m256d vright = _mm256_setr_pd(right.r, right.g, right.b, 0.0);
+                const __m256d vdiff = _mm256_sub_pd(vleft, vright);
+                const __m256d vdiff2 = _mm256_mul_pd(vdiff, vdiff);
+                const __m256d vweights = _mm256_setr_pd(0.299, 0.587, 0.114, 0.0);
+                const __m256d vprod = _mm256_mul_pd(vdiff2, vweights);
+                alignas(32) double result[4]{};
+                _mm256_storeu_pd(result, vprod);
+                return result[0] + result[1] + result[2];
+            }
+#endif
             const double dr = left.r - right.r;
             const double dg = left.g - right.g;
             const double db = left.b - right.b;
-            return dr * dr + dg * dg + db * db;
+            return 0.299 * (dr * dr) + 0.587 * (dg * dg) + 0.114 * (db * db);
         };
         const auto visit_nearby = [&](const AdaptivePaintSample& center,
                                       double radius_uv,
@@ -489,9 +776,116 @@ namespace runtime_contract
         std::vector<bool> covered(samples.size(), false);
         std::vector<AdaptiveReplayEntry> paint_entries{};
         paint_entries.reserve(replay_entries.size());
-        constexpr std::array<double, 4> multipliers{4.0, 3.0, 2.0, 1.5};
-        for (const auto& entry : replay_entries)
+        constexpr std::array<double, 6> multipliers{8.0, 6.0, 4.0, 3.0, 2.0, 1.5};
+        const std::size_t num_replay_entries = replay_entries.size();
+        std::vector<double> candidate_multipliers(num_replay_entries, 1.0);
+
+        const unsigned int hw_threads = std::max(1u, std::thread::hardware_concurrency());
+        if (num_replay_entries > 128 && hw_threads > 1)
         {
+            const std::size_t num_threads = std::min<std::size_t>(hw_threads, 16);
+            plan.adaptive_plan_worker_count = static_cast<int>(num_threads);
+            plan.adaptive_plan_parallel = num_threads > 1;
+            const std::size_t chunk_size = (num_replay_entries + num_threads - 1) / num_threads;
+            std::vector<std::future<void>> futures;
+            futures.reserve(num_threads);
+
+            for (std::size_t thread_idx = 0; thread_idx < num_threads; ++thread_idx)
+            {
+                const std::size_t start_idx = thread_idx * chunk_size;
+                const std::size_t end_idx = std::min(start_idx + chunk_size, num_replay_entries);
+                if (start_idx >= end_idx) continue;
+
+                futures.push_back(std::async(std::launch::async, [&, start_idx, end_idx]() {
+                    for (std::size_t i = start_idx; i < end_idx; ++i)
+                    {
+                        const auto& entry = replay_entries[i];
+                        if (entry.pass != ReplayPass::Paint || entry.sample_index >= samples.size())
+                        {
+                            continue;
+                        }
+
+                        const auto& center = samples[entry.sample_index];
+                        const double center_luma = 0.299 * center.r + 0.587 * center.g + 0.114 * center.b;
+                        const double effective_threshold_squared = (center_luma < 0.20)
+                            ? threshold_squared * 2.25
+                            : threshold_squared;
+                        double multiplier = 1.0;
+                        if (center.paint_eligible && center.safe)
+                        {
+                            for (const auto candidate_multiplier : multipliers)
+                            {
+                                const double check_radius = std::max(
+                                    0.0, candidate_multiplier * base_radius_uv - std::max(0.0, edge_margin_uv));
+                                bool valid = true;
+                                visit_nearby(center, check_radius, [&](std::size_t, const AdaptivePaintSample& other) {
+                                    if (!same_payload(center, other) ||
+                                        color_distance_squared(center, other) > effective_threshold_squared)
+                                    {
+                                        valid = false;
+                                    }
+                                });
+                                if (valid)
+                                {
+                                    multiplier = candidate_multiplier;
+                                    break;
+                                }
+                            }
+                        }
+                        candidate_multipliers[i] = multiplier;
+                    }
+                }));
+            }
+            for (auto& f : futures)
+            {
+                f.get();
+            }
+        }
+        else
+        {
+            plan.adaptive_plan_worker_count = 1;
+            for (std::size_t i = 0; i < num_replay_entries; ++i)
+            {
+                const auto& entry = replay_entries[i];
+                if (entry.pass != ReplayPass::Paint || entry.sample_index >= samples.size())
+                {
+                    continue;
+                }
+
+                const auto& center = samples[entry.sample_index];
+                const double center_luma = 0.299 * center.r + 0.587 * center.g + 0.114 * center.b;
+                const double effective_threshold_squared = (center_luma < 0.20)
+                    ? threshold_squared * 2.25
+                    : threshold_squared;
+                double multiplier = 1.0;
+                if (center.paint_eligible && center.safe)
+                {
+                    for (const auto candidate_multiplier : multipliers)
+                    {
+                        const double check_radius = std::max(
+                            0.0, candidate_multiplier * base_radius_uv - std::max(0.0, edge_margin_uv));
+                        bool valid = true;
+                        visit_nearby(center, check_radius, [&](std::size_t, const AdaptivePaintSample& other) {
+                            if (!same_payload(center, other) ||
+                                color_distance_squared(center, other) > effective_threshold_squared)
+                            {
+                                valid = false;
+                            }
+                        });
+                        if (valid)
+                        {
+                            multiplier = candidate_multiplier;
+                            break;
+                        }
+                    }
+                }
+                candidate_multipliers[i] = multiplier;
+            }
+        }
+
+        for (std::size_t i = 0; i < num_replay_entries; ++i)
+        {
+            const auto& entry = replay_entries[i];
             if (entry.pass != ReplayPass::Paint || entry.sample_index >= samples.size())
             {
                 plan.entries.push_back({entry, 1.0});
@@ -503,29 +897,12 @@ namespace runtime_contract
                 continue;
             }
 
+            const double multiplier = candidate_multipliers[i];
             const auto& center = samples[entry.sample_index];
-            double multiplier = 1.0;
-            if (center.paint_eligible && center.safe)
-            {
-                for (const auto candidate_multiplier : multipliers)
-                {
-                    const double check_radius = std::max(
-                        0.0, candidate_multiplier * base_radius_uv - std::max(0.0, edge_margin_uv));
-                    bool valid = true;
-                    visit_nearby(center, check_radius, [&](std::size_t, const AdaptivePaintSample& other) {
-                        if (!same_payload(center, other) ||
-                            color_distance_squared(center, other) > threshold_squared)
-                        {
-                            valid = false;
-                        }
-                    });
-                    if (valid)
-                    {
-                        multiplier = candidate_multiplier;
-                        break;
-                    }
-                }
-            }
+            const double center_luma = 0.299 * center.r + 0.587 * center.g + 0.114 * center.b;
+            const double effective_threshold_squared = (center_luma < 0.20)
+                ? threshold_squared * 2.25
+                : threshold_squared;
 
             paint_entries.push_back({entry, multiplier});
             if (multiplier > 1.0)
@@ -538,7 +915,7 @@ namespace runtime_contract
             visit_nearby(center, coverage_radius, [&](std::size_t other_index,
                                                        const AdaptivePaintSample& other) {
                 if (same_payload(center, other) &&
-                    color_distance_squared(center, other) <= threshold_squared)
+                    color_distance_squared(center, other) <= effective_threshold_squared)
                 {
                     covered[other_index] = true;
                 }
@@ -549,6 +926,46 @@ namespace runtime_contract
         });
         plan.entries.insert(plan.entries.end(), paint_entries.begin(), paint_entries.end());
         return plan;
+    }
+
+    // A mesh can reuse UV islands.  When the game preserves triangle order,
+    // every runtime triangle can still be verified against its profile index
+    // without guessing which duplicate island owns the geometry.
+    template <typename Triangle, typename MatchRuntimeTriangle, typename ReorderRuntimeTriangle>
+    inline bool order_runtime_triangles_by_direct_profile_index(
+        const std::vector<Triangle>& runtime,
+        int expected_triangle_count,
+        MatchRuntimeTriangle match_runtime_triangle,
+        ReorderRuntimeTriangle reorder_runtime_triangle,
+        std::vector<Triangle>& ordered,
+        double& average_error)
+    {
+        ordered.clear();
+        average_error = 0.0;
+        if (expected_triangle_count <= 0 ||
+            static_cast<int>(runtime.size()) != expected_triangle_count)
+        {
+            return false;
+        }
+
+        ordered.reserve(static_cast<std::size_t>(expected_triangle_count));
+        double error_sum = 0.0;
+        for (int profile_triangle = 0;
+             profile_triangle < expected_triangle_count;
+             ++profile_triangle)
+        {
+            const auto& runtime_triangle = runtime[static_cast<std::size_t>(profile_triangle)];
+            const auto match = match_runtime_triangle(profile_triangle, runtime_triangle);
+            if (!match.ok || !std::isfinite(match.error))
+            {
+                ordered.clear();
+                return false;
+            }
+            ordered.push_back(reorder_runtime_triangle(runtime_triangle, match));
+            error_sum += match.error;
+        }
+        average_error = error_sum / static_cast<double>(expected_triangle_count);
+        return true;
     }
 
     constexpr bool event_watch_generation_active(bool enabled,

@@ -43,6 +43,49 @@
             return fallback;
         ++pos;
         std::string out{};
+        const auto hex_digit = [](char value) -> int {
+            if (value >= '0' && value <= '9') return value - '0';
+            if (value >= 'a' && value <= 'f') return value - 'a' + 10;
+            if (value >= 'A' && value <= 'F') return value - 'A' + 10;
+            return -1;
+        };
+        const auto read_unicode_escape = [&text, &hex_digit](std::size_t start, std::uint32_t& codepoint) -> bool {
+            if (start + 4 >= text.size())
+                return false;
+            codepoint = 0;
+            for (std::size_t offset = 1; offset <= 4; ++offset)
+            {
+                const int digit = hex_digit(text[start + offset]);
+                if (digit < 0)
+                    return false;
+                codepoint = (codepoint << 4) | static_cast<std::uint32_t>(digit);
+            }
+            return true;
+        };
+        const auto append_utf8 = [](std::string& target, std::uint32_t codepoint) {
+            if (codepoint <= 0x7F)
+            {
+                target.push_back(static_cast<char>(codepoint));
+            }
+            else if (codepoint <= 0x7FF)
+            {
+                target.push_back(static_cast<char>(0xC0 | (codepoint >> 6)));
+                target.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+            }
+            else if (codepoint <= 0xFFFF)
+            {
+                target.push_back(static_cast<char>(0xE0 | (codepoint >> 12)));
+                target.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+                target.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+            }
+            else
+            {
+                target.push_back(static_cast<char>(0xF0 | (codepoint >> 18)));
+                target.push_back(static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F)));
+                target.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+                target.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+            }
+        };
         bool escaped = false;
         for (; pos < text.size(); ++pos)
         {
@@ -59,6 +102,31 @@
                 case 'n': out.push_back('\n'); break;
                 case 'r': out.push_back('\r'); break;
                 case 't': out.push_back('\t'); break;
+                case 'u':
+                {
+                    std::uint32_t codepoint = 0;
+                    if (!read_unicode_escape(pos, codepoint))
+                        return fallback;
+                    if (codepoint >= 0xD800 && codepoint <= 0xDBFF)
+                    {
+                        std::uint32_t low = 0;
+                        if (pos + 10 >= text.size() || text[pos + 5] != '\\' || text[pos + 6] != 'u' ||
+                            !read_unicode_escape(pos + 6, low) || low < 0xDC00 || low > 0xDFFF)
+                            return fallback;
+                        codepoint = 0x10000 + ((codepoint - 0xD800) << 10) + (low - 0xDC00);
+                        pos += 10;
+                    }
+                    else if (codepoint >= 0xDC00 && codepoint <= 0xDFFF)
+                    {
+                        return fallback;
+                    }
+                    else
+                    {
+                        pos += 4;
+                    }
+                    append_utf8(out, codepoint);
+                    break;
+                }
                 default: out.push_back(ch); break;
                 }
                 escaped = false;
@@ -206,6 +274,80 @@
                  "paint_region_count",
                  "fill_region_count",
                  "skip_region_count",
+                 "image_fill_region_count",
+                 "profile_id",
+                 "image_paint_enabled",
+                 "image_paint_body_type",
+                 "image_paint_requested_body_type",
+                 "image_paint_body_type_source",
+                 "image_paint_body_type_auto_corrected",
+                 "image_paint_profile_kind",
+                 "image_paint_assignments",
+                 "image_paint_transparent_skips",
+                 "image_paint_cube_edge_assignments",
+                 "image_paint_cube_side_assignments",
+                 "image_paint_cube_canonical_mapping_failures",
+                 "image_paint_round_canonical_mapping_failures",
+                 "image_paint_atlas_ms",
+                 "image_paint_atlas_cache_hit",
+                 "image_paint_mapping_ms",
+                 "image_paint_mapping_workers",
+                 "image_paint_mapping_parallel",
+                 "image_paint_mapping_mode",
+                 "image_paint_candidate_ms",
+                 "image_paint_candidate_mode",
+                 "image_paint_revision",
+                 "image_paint_metallic",
+                 "image_paint_roughness",
+                 "image_paint_emissive",
+                 "image_paint_fill_color_r",
+                 "image_paint_fill_color_g",
+                 "image_paint_fill_color_b",
+                 "image_paint_fill_metallic",
+                 "image_paint_fill_roughness",
+                 "image_paint_fill_emissive",
+                 "runtime_triangle_cache_mode",
+                 "runtime_triangle_cache_failure",
+                 "runtime_triangle_profile_cache_failure",
+                 "runtime_triangle_cache_used",
+                 "runtime_triangle_cache_offset",
+                 "runtime_triangle_cache_stride",
+                 "runtime_triangle_cache_triangles",
+                 "runtime_triangle_cache_expected_triangles",
+                 "runtime_triangle_cache_array_headers_seen",
+                 "runtime_triangle_cache_matching_count_arrays_seen",
+                 "runtime_triangle_cache_capacity_rejections",
+                 "runtime_triangle_cache_read_rejections",
+                 "runtime_triangle_cache_uv_rejections",
+                 "runtime_triangle_cache_closest_triangle_count",
+                 "runtime_triangle_cache_closest_rejected_uv_error",
+                 "runtime_triangle_cache_profile_uv_mapping_mode",
+                 "runtime_triangle_cache_profile_uv_avg_error",
+                 "runtime_triangle_cache_warmup_attempted",
+                 "runtime_triangle_cache_warmup_reason",
+                 "runtime_triangle_cache_warmup_pre_avg_error",
+                 "runtime_triangle_cache_warmup_pre_samples",
+                 "runtime_triangle_cache_warmup_post_avg_error",
+                 "runtime_triangle_cache_warmup_post_samples",
+                 "runtime_triangle_cache_warmup_is_initialized_available",
+                 "runtime_triangle_cache_warmup_is_initialized_before_ok",
+                 "runtime_triangle_cache_warmup_is_initialized_before",
+                 "runtime_triangle_cache_warmup_is_initialized_after_ok",
+                 "runtime_triangle_cache_warmup_is_initialized_after",
+                 "runtime_triangle_cache_warmup_initialize_available",
+                 "runtime_triangle_cache_warmup_initialize_called",
+                 "runtime_triangle_cache_warmup_initialize_ok",
+                 "runtime_triangle_cache_warmup_initialize_skip_reason",
+                 "runtime_triangle_cache_warmup_initialized_mesh_before",
+                 "runtime_triangle_cache_warmup_initialized_mesh_after",
+                 "runtime_triangle_cache_warmup_hit_test_available",
+                 "runtime_triangle_cache_warmup_hit_test_uncached_called",
+                 "runtime_triangle_cache_warmup_hit_test_uncached_ok",
+                 "runtime_triangle_cache_warmup_hit_test_uncached_hit",
+                 "runtime_triangle_cache_warmup_hit_test_cached_called",
+                 "runtime_triangle_cache_warmup_hit_test_cached_ok",
+                 "runtime_triangle_cache_warmup_hit_test_cached_hit",
+                 "runtime_triangle_cache_warmup_failure",
                  "fill_all_regions",
                  "fill_scope",
                  "brush_pipeline",
@@ -316,6 +458,11 @@
                  "color_compression_disabled_reason",
                  "color_compression_expanded_strokes",
                  "color_compression_skipped_strokes",
+                 "adaptive_plan_ms",
+                 "adaptive_plan_worker_count",
+                 "adaptive_plan_parallel",
+                 "adaptive_plan_avx2_available",
+                 "adaptive_plan_avx2_used",
                  "replay_spatial_order",
                  "replay_spatial_current_view_vertical_min",
                  "replay_spatial_current_view_vertical_max",
@@ -356,6 +503,11 @@
                  "terminal",
                  "result",
                  "paint_elapsed_ms",
+                 "preprocessing_ms",
+                 "pose_ms",
+                 "capture_ms",
+                 "sample_ms",
+                 "adaptive_plan_ms",
                  "paint_eta_ms",
                  "replay_pass_order",
                  "replay_fill_end",

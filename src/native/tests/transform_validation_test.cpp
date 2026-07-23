@@ -3,13 +3,69 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <cctype>
+#include <cstdlib>
 #include <limits>
+#include <string>
 #include <vector>
+
+namespace
+{
+#include "../bridge/bridge_json.inc"
+}
 
 int main()
 {
+    struct DuplicateUvTriangle
+    {
+        int geometry_id{0};
+        double u{0.0};
+        double v{0.0};
+    };
+    struct DuplicateUvMatch
+    {
+        bool ok{false};
+        double error{1000000.0};
+    };
+    const std::vector<DuplicateUvTriangle> duplicated_uv_runtime{{
+        {101, 0.25, 0.75},
+        {202, 0.25, 0.75},
+    }};
+    std::vector<DuplicateUvTriangle> duplicated_uv_ordered{};
+    double duplicated_uv_average_error = 0.0;
+    const auto duplicated_uv_direct_index_ok =
+        runtime_contract::order_runtime_triangles_by_direct_profile_index(
+            duplicated_uv_runtime,
+            2,
+            [](int profile_triangle, const DuplicateUvTriangle& runtime) {
+                static constexpr std::array<double, 2> expected_u{{0.25, 0.25}};
+                static constexpr std::array<double, 2> expected_v{{0.75, 0.75}};
+                return DuplicateUvMatch{
+                    std::abs(runtime.u - expected_u[static_cast<std::size_t>(profile_triangle)]) <= 0.000001 &&
+                        std::abs(runtime.v - expected_v[static_cast<std::size_t>(profile_triangle)]) <= 0.000001,
+                    0.0};
+            },
+            [](const DuplicateUvTriangle& runtime, const DuplicateUvMatch&) { return runtime; },
+            duplicated_uv_ordered,
+            duplicated_uv_average_error);
+    if (!duplicated_uv_direct_index_ok || duplicated_uv_ordered.size() != 2 ||
+        duplicated_uv_ordered[0].geometry_id != 101 ||
+        duplicated_uv_ordered[1].geometry_id != 202 ||
+        duplicated_uv_average_error != 0.0)
+    {
+        return 31;
+    }
+
+    if (json_string_field(R"({"image_paint_rgba_base64":"AA\u002BAA=="})", "image_paint_rgba_base64") != "AA+AA==" ||
+        json_string_field(R"({"label":"\u3042\uD83D\uDE00"})", "label") !=
+            std::string("\xE3\x81\x82\xF0\x9F\x98\x80"))
+    {
+        return 28;
+    }
+
     sdk::FTransform valid{};
     valid.Rotation = {0.0, 0.0, 0.705717, 0.708494};
     valid.Translation = {-295.483835, 6223.716973, 8.323874};
@@ -63,6 +119,96 @@ int main()
         runtime_contract::event_watch_generation_active(true, 8, 7))
     {
         return 9;
+    }
+
+    const runtime_contract::ImageAtlasMappingInput round_front{
+        false, runtime_contract::ImageAtlasRegion::Front, false,
+        0.0, 0.80, 0.50, 0.0, 0.0, 1.0,
+        0.0, 1.0, 0.0, 1.0, 0.0, 1.0};
+    const auto round_front_coordinate = runtime_contract::map_image_atlas_coordinate(round_front);
+    const runtime_contract::ImageAtlasMappingInput cube_side{
+        true, runtime_contract::ImageAtlasRegion::Side, false,
+        0.75, 0.90, 0.25, 0.0, 1.0, 0.0,
+        0.0, 1.0, 0.0, 1.0, 0.0, 1.0};
+    const auto cube_side_coordinate = runtime_contract::map_image_atlas_coordinate(cube_side);
+    const runtime_contract::ImageAtlasMappingInput cube_top{
+        true, runtime_contract::ImageAtlasRegion::Front, false,
+        1.0, 0.50, 0.25, 0.0, 0.0, 1.0,
+        0.0, 1.0, 0.0, 1.0, 0.0, 1.0};
+    const runtime_contract::ImageAtlasMappingInput cube_bottom{
+        true, runtime_contract::ImageAtlasRegion::Front, false,
+        0.50, 0.0, 0.25, 0.0, 0.0, -1.0,
+        0.0, 1.0, 0.0, 1.0, 0.0, 1.0};
+    const auto cube_top_coordinate = runtime_contract::map_image_atlas_coordinate(cube_top);
+    const auto cube_bottom_coordinate = runtime_contract::map_image_atlas_coordinate(cube_bottom);
+    if (std::abs(round_front_coordinate.u - 0.20) > 0.000001 ||
+        std::abs(round_front_coordinate.v - 0.50) > 0.000001 ||
+        round_front_coordinate.cube_edge || round_front_coordinate.cube_side ||
+        std::abs(cube_side_coordinate.u - 0.4375) > 0.000001 ||
+        std::abs(cube_side_coordinate.v - 0.25) > 0.000001 ||
+        !cube_side_coordinate.cube_side || cube_side_coordinate.cube_edge ||
+        std::abs(cube_top_coordinate.u - 0.50) > 0.000001 ||
+        cube_top_coordinate.v != 0.0 || !cube_top_coordinate.cube_edge ||
+        std::abs(cube_bottom_coordinate.u - 0.25) > 0.000001 ||
+        cube_bottom_coordinate.v != 1.0 || !cube_bottom_coordinate.cube_edge)
+    {
+        return 27;
+    }
+
+    const runtime_contract::CubeCanonicalImageProjectionInput cube_canonical_front{
+        10.0, 3.0, 20.0, 0.0, -1.0, 0.0, 0.0, 0.0, 2.0};
+    const runtime_contract::CubeCanonicalImageProjectionInput cube_canonical_right{
+        3.0, 10.0, 20.0, 1.0, 0.0, 0.0, 0.0, 0.0, 2.0};
+    const runtime_contract::CubeCanonicalImageProjectionInput cube_canonical_back{
+        10.0, 3.0, 20.0, 0.0, 1.0, 0.0, 0.0, 0.0, 2.0};
+    const runtime_contract::CubeCanonicalImageProjectionInput cube_canonical_left{
+        3.0, 10.0, 20.0, -1.0, 0.0, 0.0, 0.0, 0.0, 2.0};
+    const auto cube_canonical_front_coordinate = runtime_contract::map_cube_canonical_image_coordinate(cube_canonical_front);
+    const auto cube_canonical_right_coordinate = runtime_contract::map_cube_canonical_image_coordinate(cube_canonical_right);
+    const auto cube_canonical_back_coordinate = runtime_contract::map_cube_canonical_image_coordinate(cube_canonical_back);
+    const auto cube_canonical_left_coordinate = runtime_contract::map_cube_canonical_image_coordinate(cube_canonical_left);
+    if (cube_canonical_front_coordinate.face != runtime_contract::CubeCanonicalImageFace::Front ||
+        cube_canonical_right_coordinate.face != runtime_contract::CubeCanonicalImageFace::Right ||
+        cube_canonical_back_coordinate.face != runtime_contract::CubeCanonicalImageFace::Back ||
+        cube_canonical_left_coordinate.face != runtime_contract::CubeCanonicalImageFace::Left ||
+        std::abs(cube_canonical_front_coordinate.u - (148.0 / 1024.0)) > 0.000001 ||
+        std::abs(cube_canonical_right_coordinate.u - (404.0 / 1024.0)) > 0.000001 ||
+        std::abs(cube_canonical_back_coordinate.u - (620.0 / 1024.0)) > 0.000001 ||
+        std::abs(cube_canonical_left_coordinate.u - (876.0 / 1024.0)) > 0.000001 ||
+        std::abs(cube_canonical_front_coordinate.v - (296.0 / 512.0)) > 0.000001 ||
+        std::abs(cube_canonical_right_coordinate.v - cube_canonical_front_coordinate.v) > 0.000001)
+    {
+        return 29;
+    }
+
+    const runtime_contract::RoundCanonicalImageProjectionInput round_canonical_front{
+        runtime_contract::ImageAtlasRegion::Front, true,
+        10.0, -3.0, 20.0, 0.0, 0.0, 0.0, 2.0};
+    const runtime_contract::RoundCanonicalImageProjectionInput round_canonical_right{
+        runtime_contract::ImageAtlasRegion::Side, true,
+        10.0, 3.0, 20.0, 0.0, 0.0, 0.0, 2.0};
+    const runtime_contract::RoundCanonicalImageProjectionInput round_canonical_back{
+        runtime_contract::ImageAtlasRegion::Back, true,
+        10.0, -3.0, 20.0, 0.0, 0.0, 0.0, 2.0};
+    const runtime_contract::RoundCanonicalImageProjectionInput round_canonical_left{
+        runtime_contract::ImageAtlasRegion::Side, true,
+        -10.0, 3.0, 20.0, 0.0, 0.0, 0.0, 2.0};
+    const auto round_canonical_front_coordinate = runtime_contract::map_round_canonical_image_coordinate(round_canonical_front);
+    const auto round_canonical_right_coordinate = runtime_contract::map_round_canonical_image_coordinate(round_canonical_right);
+    const auto round_canonical_back_coordinate = runtime_contract::map_round_canonical_image_coordinate(round_canonical_back);
+    const auto round_canonical_left_coordinate = runtime_contract::map_round_canonical_image_coordinate(round_canonical_left);
+    if (round_canonical_front_coordinate.tile != 0 ||
+        round_canonical_right_coordinate.tile != 1 ||
+        round_canonical_back_coordinate.tile != 2 ||
+        round_canonical_left_coordinate.tile != 3 ||
+        std::abs(round_canonical_front_coordinate.u - (148.0 / 1024.0)) > 0.000001 ||
+        std::abs(round_canonical_right_coordinate.u - (390.0 / 1024.0)) > 0.000001 ||
+        std::abs(round_canonical_back_coordinate.u - (620.0 / 1024.0)) > 0.000001 ||
+        std::abs(round_canonical_left_coordinate.u - (890.0 / 1024.0)) > 0.000001 ||
+        std::abs(round_canonical_front_coordinate.v - (296.0 / 512.0)) > 0.000001 ||
+        std::abs(round_canonical_right_coordinate.v - round_canonical_front_coordinate.v) > 0.000001)
+    {
+        return 30;
     }
 
     if (runtime_contract::paint_channel_write_cost(4) != 4 ||
@@ -230,7 +376,7 @@ int main()
     if (compressed.entries.size() != 3 ||
         compressed.compressed_paint_entries != 1 ||
         compressed.entries[0].replay.sample_index != 0 ||
-        compressed.entries[0].radius_multiplier != 4.0 ||
+        compressed.entries[0].radius_multiplier != 8.0 ||
         compressed.entries[1].replay.sample_index != 2 ||
         compressed.entries[2].replay.sample_index != 3)
     {

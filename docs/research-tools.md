@@ -78,6 +78,24 @@ The command writes `resources/mesh-profiles/paintman.mesh-profile-v2.json` after
 validating the expected Paintman LOD0 shape. It fails closed if CUE4Parse,
 game archives, mappings, or the expected mesh shape are unavailable.
 
+For an update that affects Image Paint, use the combined refresh command instead.
+With the requested body already selected in game and standing naturally, it
+regenerates the readonly asset profile, builds the development capture host, and
+bakes the exact one-shot RuntimePaintable vertices and skeleton into
+`ImageReferencePose`:
+
+~~~bash
+make refresh-image-reference \
+  REFERENCE_BODY=round \
+  MAPPINGS=/path/to/current-game.usmap \
+  CONFIRM_NEUTRAL_POSE=1
+~~~
+
+Use `REFERENCE_BODY=cube` for the cube mesh. The confirmation is intentional:
+the script must never silently bake an arbitrary live animation or run during
+normal painting. It restores the previous profile if generation, build, capture,
+or profile-identity validation fails.
+
 ## Update Workflow
 
 When a game update breaks painting, use this order:
@@ -93,7 +111,7 @@ When a game update breaks painting, use this order:
 4. Use UnrealMappingsDumper only when runtime reflection cannot resolve a
    trustworthy layout or the engine-side mapping changed.
 5. Generate a current `.usmap` locally if the previous mapping no longer works.
-6. Run `make mesh MAPPINGS=<path-to-current.usmap>` to regenerate the profile.
+6. With the body selected and neutral, run `make refresh-image-reference MAPPINGS=<path-to-current.usmap> CONFIRM_NEUTRAL_POSE=1` to regenerate its profile and fixed pose together.
 7. Review and commit regenerated shipping profiles in `resources/mesh-profiles/`.
    `scripts/build.ps1` copies profiles into `.build/bin/mesh-profiles/` for
    package/debug runs.

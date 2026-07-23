@@ -11,12 +11,15 @@
   <main class="workspace">
     <section class="column">
       <section class="panel panel-fill corner-accent">
-        <div class="panel-title">
-          <span data-i18n="settings">Settings</span>
+        <div class="settings-tabs" role="tablist" aria-label="Settings sections" data-i18n-aria-label="aria.settings.sections">
+          <button class="settings-tab active" type="button" data-settings-tab="paint" data-i18n="settings.paint">Paint settings</button>
+          <button class="settings-tab" type="button" data-settings-tab="image" data-i18n="settings.image">Image settings</button>
+          <button class="settings-tab" type="button" data-settings-tab="application" data-i18n="settings.app">Application Settings</button>
         </div>
 
         <div class="panel-scroll">
           <div class="panel-content settings-stack">
+            <section class="settings-tab-panel" data-settings-panel="paint">
             <div class="group">
             <div class="group-title" data-i18n="group.geometry">Geometry</div>
             <div class="setting-grid">
@@ -41,9 +44,9 @@
             <div class="group-title" data-i18n="group.material">Material</div>
             <div class="setting-grid">
               <label class="field app-wide">
-                <span data-i18n="auto.material">Auto Detect</span>
                 <div class="checkbox-row">
                   <input id="auto-material" class="setting-control" disabled type="checkbox">
+                  <span data-i18n="auto.material">Auto Detect</span>
                 </div>
               </label>
               <label class="field">
@@ -116,104 +119,73 @@
             </div>
           </div>
 
-            <div class="group image-picker-group" id="image-picker-section">
-              <div class="group-title">Image import preview</div>
-              <p class="image-picker-copy">Choose an image, then press F1.</p>
-              <input id="image-picker-input" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden>
-              <input id="image-picker-input-2" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" multiple hidden>
-              <div class="image-picker-option image-picker-top-option">
-                <strong>Images</strong>
-                <div class="segmented image-picker-segmented" role="group" aria-label="Number of images">
-                  <button class="active" type="button" data-image-count="1" aria-pressed="true">1 image</button>
-                  <button type="button" data-image-count="2" aria-pressed="false">Multiple images</button>
-                </div>
-              </div>
-              <div class="image-picker-actions">
-                <button id="image-picker-choose" class="primary image-drop-button" type="button">Choose image <span>(or drop)</span></button>
-                <button id="image-picker-clear" type="button" disabled>Clear</button>
-                <span id="image-picker-filename" class="image-picker-filename">No image selected</span>
-              </div>
-              <div id="image-picker-actions-2" class="image-picker-actions image-picker-second" hidden>
-                <button id="image-picker-choose-2" class="primary image-drop-button" type="button">Add images <span>(or drop)</span></button>
-                <button id="image-picker-clear-2" type="button" disabled>Clear added</button>
-                <span id="image-picker-filename-2" class="image-picker-filename">Add as many images as you want</span>
-                <div id="image-layer-list" class="image-layer-list"></div>
-              </div>
-              <div id="image-picker-preview" class="image-picker-preview checkerboard" aria-live="polite">
-                <span id="image-picker-empty" class="image-picker-empty">Choose an image to open the four-view editor</span>
-                <canvas id="image-wrap-editor" width="512" height="220" hidden></canvas>
-                <div id="image-picker-sources" hidden></div>
-              </div>
-              <div id="image-editor-mode-summary" class="image-editor-mode-summary">Meet at sides • Fit • Background #BCBCBC</div>
-              <div class="image-editor-tools">
-                <div id="image-picker-metadata" class="image-picker-metadata"></div>
-                <button id="image-picker-reset-placement" type="button" disabled>Reset placement</button>
-              </div>
-              <div class="image-picker-options">
-                <div id="image-picker-mirror-row" class="image-picker-option">
-                  <strong>Other side</strong>
-                  <div class="segmented image-picker-segmented" role="group" aria-label="Other side image behavior">
-                    <button class="active" type="button" data-mirror-mode="none" aria-pressed="true">None</button>
-                    <button type="button" data-mirror-mode="mirror" aria-pressed="false">Mirror image</button>
-                  </div>
-                </div>
-                <div id="image-picker-placement-row" class="image-picker-option">
-                  <strong>Whole-body placement</strong>
-                  <div class="segmented image-picker-segmented" role="group" aria-label="Image placement">
-                    <button class="active" type="button" data-image-placement="fit" aria-pressed="true">Fit</button>
-                    <button type="button" data-image-placement="crop" aria-pressed="false">Crop</button>
-                  </div>
-                  <small class="image-option-help">Fit shows everything. Crop lets you choose the part to keep.</small>
-                </div>
-                <div id="image-layer-snap-row" class="image-picker-option" hidden>
-                  <strong>Place selected image</strong>
-                  <div class="segmented image-picker-segmented image-picker-four" role="group" aria-label="Selected image panel">
-                    <button type="button" data-snap-panel="0">Front</button>
-                    <button type="button" data-snap-panel="1">Right</button>
-                    <button type="button" data-snap-panel="2">Back</button>
-                    <button type="button" data-snap-panel="3">Left</button>
-                  </div>
-                </div>
-                <div class="image-picker-option">
-                  <strong>Transparent pixels</strong>
-                  <div class="segmented image-picker-segmented" role="group" aria-label="Transparent pixel behavior">
-                    <button type="button" data-alpha-mode="skip" aria-pressed="false">Leave unpainted</button>
-                    <button class="active" type="button" data-alpha-mode="background" aria-pressed="true">Paint background</button>
-                  </div>
-                </div>
-                <label id="image-picker-background-row" class="field image-picker-background disabled">
-                  <span>Background color</span>
-                  <input id="image-picker-background" class="color-picker" type="color" value="#BCBCBC" disabled>
-                </label>
-                <div id="image-picker-wrap-row" class="image-picker-option">
-                  <strong>Wrap</strong>
-                  <div class="segmented image-picker-segmented image-picker-three" role="group" aria-label="Image wrap behavior">
-                    <button type="button" data-wrap-mode="base" aria-pressed="false">Base sides</button>
-                    <button class="active" type="button" data-wrap-mode="meet" aria-pressed="true">Meet at sides</button>
-                    <button type="button" data-wrap-mode="full" aria-pressed="false">Full wrap</button>
-                  </div>
-                </div>
-              </div>
-              <p class="image-picker-disclaimer"><strong>PNG transparency:</strong> Leave unpainted keeps transparent areas at the default body color. JPG and JPEG files have no transparent areas.</p>
-              <div class="image-design-library">
-                <strong>Saved designs</strong>
-                <div class="image-design-save-row">
-                  <input id="image-design-name" type="text" maxlength="60" placeholder="Design name">
-                  <button id="image-design-save" type="button" disabled>Save design</button>
-                </div>
-                <div class="image-design-load-row">
-                  <select id="image-design-list" aria-label="Saved designs">
-                    <option value="">No saved designs</option>
-                  </select>
-                  <button id="image-design-load" type="button" disabled>Load</button>
-                  <button id="image-design-delete" type="button" disabled>Delete</button>
-                </div>
-              </div>
-            </div>
-          </div>
+            </section>
 
-          <div class="sub-panel">
-            <div class="setting-grid app-grid">
+            <section class="settings-tab-panel" data-settings-panel="image" hidden>
+              <input id="image-file-input" type="file" accept="image/png,image/jpeg" multiple hidden>
+              <div class="image-settings-stack">
+                <div class="group image-design-actions">
+                  <div class="group-title" data-i18n="image.design">Image Design</div>
+                  <div class="image-design-action-grid">
+                    <button id="image-upload" class="image-edit-control" type="button" data-i18n="button.upload">Upload</button>
+                    <button id="image-preset-load" class="image-edit-control" type="button" data-i18n="button.load.preset">Load preset</button>
+                    <button id="image-preset-save" class="image-edit-control" type="button" data-i18n="button.save.preset">Save preset</button>
+                  </div>
+                  <div class="image-choice-list">
+                    <strong title="Changes the game surface mapping; it does not move the image in the atlas." data-i18n="image.body.type" data-i18n-title="aria.image.body.type">Body type</strong><div class="region-choice image-choice" role="group" aria-label="Body type" data-i18n-aria-label="aria.image.body.type">
+                      <button id="image-guide-round" class="image-edit-control active" type="button" data-i18n="body.round">Round</button>
+                      <button id="image-guide-cube" class="image-edit-control" type="button" data-i18n="body.cube">Cube</button>
+                    </div>
+                  </div>
+                  <div id="image-layer-list" class="image-layer-list" aria-live="polite"></div>
+                  <div class="image-canvas-wrap" id="image-drop-zone">
+                    <canvas id="image-placement-canvas" width="1024" height="512" aria-label="Four-face image placement canvas" data-i18n-aria-label="aria.image.canvas"></canvas>
+                  </div>
+                </div>
+                <div class="group" id="image-paint-section">
+                  <div class="group-title" data-i18n="group.geometry">Geometry</div>
+                  <div class="setting-grid">
+                    <label class="field app-wide"><span data-i18n="brush.size">Brush size</span><div class="range-row"><input id="image-brush-size" class="image-edit-control" type="range" min="1" max="10" step="0.5" value="5"><input id="image-brush-size-number" class="image-edit-control range-number" type="number" min="1" max="10" step="0.5" value="5"></div></label>
+                    <label class="field app-wide"><span data-i18n="color.compression.tolerance">Color compression tolerance</span><div class="range-row"><input id="image-color-compression-tolerance" class="image-edit-control" type="range" min="0" max="10" step="0.5" value="0"><input id="image-color-compression-tolerance-number" class="image-edit-control range-number" type="number" min="0" max="10" step="0.5" value="0"></div></label>
+                  </div>
+                </div>
+                <div class="group">
+                  <div class="group-title" data-i18n="group.material">Material</div>
+                  <div class="setting-grid">
+                    <label class="field"><span data-i18n="metallic">Metallic</span><div class="range-row"><input id="image-metallic" class="image-edit-control" type="range" min="0" max="1" step="0.01" value="0"><input id="image-metallic-number" class="image-edit-control range-number" type="number" min="0" max="1" step="0.01" value="0"></div></label>
+                    <label class="field"><span data-i18n="roughness">Roughness</span><div class="range-row"><input id="image-roughness" class="image-edit-control" type="range" min="0" max="1" step="0.01" value="1"><input id="image-roughness-number" class="image-edit-control range-number" type="number" min="0" max="1" step="0.01" value="1"></div></label>
+                    <label class="field"><span data-i18n="emissive">Emissive</span><div class="range-row"><input id="image-emissive" class="image-edit-control" type="range" min="0" max="1" step="0.01" value="0"><input id="image-emissive-number" class="image-edit-control range-number" type="number" min="0" max="1" step="0.01" value="0"></div></label>
+                  </div>
+                </div>
+                <div class="group" id="image-fill-section">
+                  <div class="group-title" data-i18n="mode.fill">Fill</div>
+                  <div class="setting-grid">
+                    <label class="field app-wide"><span data-i18n="fill.color">Color</span><div class="color-row"><input id="image-fill-color-picker" class="image-edit-control color-picker" type="color" value="#FFFFFF"><input id="image-fill-color" class="image-edit-control mono-input" type="text" spellcheck="false" placeholder="#FFFFFF"></div></label>
+                    <label class="field"><span data-i18n="metallic">Metallic</span><div class="range-row"><input id="image-fill-metallic" class="image-edit-control" type="range" min="0" max="1" step="0.01" value="1"><input id="image-fill-metallic-number" class="image-edit-control range-number" type="number" min="0" max="1" step="0.01" value="1"></div></label>
+                    <label class="field"><span data-i18n="roughness">Roughness</span><div class="range-row"><input id="image-fill-roughness" class="image-edit-control" type="range" min="0" max="1" step="0.01" value="0"><input id="image-fill-roughness-number" class="image-edit-control range-number" type="number" min="0" max="1" step="0.01" value="0"></div></label>
+                    <label class="field"><span data-i18n="emissive">Emissive</span><div class="range-row"><input id="image-fill-emissive" class="image-edit-control" type="range" min="0" max="1" step="0.01" value="0"><input id="image-fill-emissive-number" class="image-edit-control range-number" type="number" min="0" max="1" step="0.01" value="0"></div></label>
+                  </div>
+                </div>
+                <div class="group">
+                  <div class="group-title" data-i18n="regions">Regions</div>
+                  <div class="region-grid">
+                    <strong data-i18n="region.front">Front</strong>
+                    <div class="region-choice" data-image-region="frontRegionMode"></div>
+                    <strong data-i18n="region.right">Right</strong>
+                    <div class="region-choice" data-image-region="rightRegionMode"></div>
+                    <strong data-i18n="region.back">Back</strong>
+                    <div class="region-choice" data-image-region="backRegionMode"></div>
+                    <strong data-i18n="region.left">Left</strong>
+                    <div class="region-choice" data-image-region="leftRegionMode"></div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-tab-panel" data-settings-panel="application" hidden>
+              <div class="group">
+                <div class="group-title" data-i18n="settings.app">Application</div>
+                <div class="setting-grid app-grid">
               <label class="field app-wide">
                 <span data-i18n="language">Language</span>
                 <div class="select-wrap">
@@ -228,9 +200,9 @@
                 </div>
               </label>
               <label class="field">
-                <span data-i18n="always.on.top">Always on top</span>
                 <div class="checkbox-row">
                   <input id="always-on-top" class="setting-control" disabled type="checkbox">
+                  <span data-i18n="always.on.top">Always on top</span>
                 </div>
               </label>
               <label class="field">
@@ -240,7 +212,11 @@
                   <input id="opacity-number" class="setting-control range-number" disabled type="number" min="35" max="100" step="1">
                 </div>
               </label>
-              <div class="hotkey-list app-wide">
+                </div>
+              </div>
+              <div class="group">
+                <div class="group-title" data-i18n="group.hotkeys">Hotkeys</div>
+                <div class="hotkey-list">
                 <div class="hotkey-row">
                   <span data-i18n="start.hotkey">Start hotkey</span>
                   <input id="start-hotkey" class="setting-control mono-input" disabled type="text" readonly>
@@ -261,8 +237,29 @@
                   <input id="stop-hotkey" class="setting-control mono-input" disabled type="text" readonly>
                   <button class="record-hotkey" type="button" disabled data-hotkey-key="app.stopHotkey" data-hotkey-input="stop-hotkey" data-i18n="button.record">Record</button>
                 </div>
+                <div class="hotkey-row">
+                  <span data-i18n="hotkey.image.paint">Image paint hotkey</span>
+                  <input id="image-start-hotkey" class="setting-control mono-input" disabled type="text" readonly>
+                  <button class="record-hotkey" type="button" disabled data-hotkey-key="app.imageStartHotkey" data-hotkey-input="image-start-hotkey" data-i18n="button.record">Record</button>
+                </div>
+                <div class="hotkey-row">
+                  <span data-i18n="hotkey.image.preview">Image preview hotkey</span>
+                  <input id="image-preview-hotkey" class="setting-control mono-input" disabled type="text" readonly>
+                  <button class="record-hotkey" type="button" disabled data-hotkey-key="app.imagePreviewHotkey" data-hotkey-input="image-preview-hotkey" data-i18n="button.record">Record</button>
+                </div>
+                <div class="hotkey-row">
+                  <span data-i18n="hotkey.image.unpreview">Image unpreview hotkey</span>
+                  <input id="image-unpreview-hotkey" class="setting-control mono-input" disabled type="text" readonly>
+                  <button class="record-hotkey" type="button" disabled data-hotkey-key="app.imageUnpreviewHotkey" data-hotkey-input="image-unpreview-hotkey" data-i18n="button.record">Record</button>
+                </div>
+                <div class="hotkey-row">
+                  <span data-i18n="hotkey.image.stop">Image stop hotkey</span>
+                  <input id="image-stop-hotkey" class="setting-control mono-input" disabled type="text" readonly>
+                  <button class="record-hotkey" type="button" disabled data-hotkey-key="app.imageStopHotkey" data-hotkey-input="image-stop-hotkey" data-i18n="button.record">Record</button>
+                </div>
               </div>
-            </div>
+              </div>
+            </section>
           </div>
         </div>
 
@@ -302,7 +299,7 @@
       <span><span data-i18n="footer.bridge">BRIDGE</span>: <b id="footer-bridge" class="status-token">-</b></span>
     </div>
     <div>
-      <a href="https://github.com/acentrist/MecchaCamouflage/blob/main/LICENSE.txt" data-i18n="link.license">License</a>
+      <span id="footer-zoom">100%</span>
       <span>|</span>
       <a href="https://github.com/acentrist/MecchaCamouflage" data-i18n="link.github">GitHub</a>
       <span>|</span>
@@ -320,22 +317,11 @@
 
   <div id="crop-editor-dialog" class="crop-editor-dialog" hidden>
     <div class="crop-editor-card" role="dialog" aria-modal="true" aria-labelledby="crop-editor-title">
-      <strong id="crop-editor-title">Choose what to crop</strong>
-      <span class="crop-editor-help">Drag the box over the part you want to keep.</span>
-      <div class="crop-editor-stage-wrap">
-        <div id="crop-editor-stage" class="crop-editor-stage">
-          <img id="crop-editor-image" alt="Image being cropped">
-          <div id="crop-editor-selection" class="crop-editor-selection"></div>
-        </div>
-      </div>
-      <label class="crop-editor-zoom">
-        <span>Zoom</span>
-        <input id="crop-editor-zoom" type="range" min="100" max="400" step="1" value="100">
-      </label>
-      <div class="crop-editor-actions">
-        <button id="crop-editor-cancel" type="button">Cancel</button>
-        <button id="crop-editor-use" class="primary" type="button">Use crop</button>
-      </div>
+      <strong id="crop-editor-title" data-i18n="dialog.crop.title">Crop selected image</strong>
+      <span class="crop-editor-help" data-i18n="dialog.crop.help">Zoom in to shrink the selection, drag it into place, then choose Apply crop.</span>
+      <div class="crop-editor-stage-wrap"><div id="crop-editor-stage" class="crop-editor-stage"><img id="crop-editor-image" alt="Image being cropped" data-i18n-alt="dialog.crop.image.alt"><div id="crop-editor-selection" class="crop-editor-selection"></div></div></div>
+      <label class="crop-editor-zoom"><span data-i18n="dialog.crop.zoom">Zoom</span><input id="crop-editor-zoom" type="range" min="100" max="400" step="1" value="100"></label>
+      <div class="crop-editor-actions"><button id="crop-editor-reset" type="button" data-i18n="dialog.crop.reset">Reset crop</button><button id="crop-editor-cancel" type="button" data-i18n="button.cancel">Cancel</button><button id="crop-editor-apply" class="primary" type="button" data-i18n="dialog.crop.apply">Apply crop</button></div>
     </div>
   </div>
 

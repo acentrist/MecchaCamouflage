@@ -15,6 +15,11 @@ public sealed class AppPaths
         VersionRoot = Path.Combine(VersionsDirectory, Version);
         ConfigDirectory = Path.Combine(VersionRoot, "config");
         ConfigPath = Path.Combine(ConfigDirectory, "config.json");
+        ActiveImageStatePath = Path.Combine(ConfigDirectory, "image-paint.mcpstate");
+        ImagePresetsDirectory = Path.Combine(VersionRoot, "image-presets");
+        // Legacy v1.6.3 named-image library. It is retained only for a
+        // one-time same-version migration into ActiveImageStatePath.
+        ImageDesignsDirectory = Path.Combine(VersionRoot, "image-designs");
         LogDirectory = Path.Combine(VersionRoot, "logs");
         RuntimeDirectory = Path.Combine(VersionRoot, "runtime");
         BridgeInstancesDirectory = Path.Combine(RootDirectory, "bridge-instances");
@@ -30,6 +35,9 @@ public sealed class AppPaths
     public string VersionRoot { get; }
     public string ConfigDirectory { get; }
     public string ConfigPath { get; }
+    public string ActiveImageStatePath { get; }
+    public string ImagePresetsDirectory { get; }
+    public string ImageDesignsDirectory { get; }
     public string LogDirectory { get; }
     public string RuntimeDirectory { get; }
     public string BridgeInstancesDirectory { get; }
@@ -41,6 +49,7 @@ public sealed class AppPaths
     public void EnsureBaseDirectories()
     {
         Directory.CreateDirectory(ConfigDirectory);
+        Directory.CreateDirectory(ImagePresetsDirectory);
         Directory.CreateDirectory(LogDirectory);
         Directory.CreateDirectory(BridgeInstancesDirectory);
         Directory.CreateDirectory(BridgeProgressDirectory);

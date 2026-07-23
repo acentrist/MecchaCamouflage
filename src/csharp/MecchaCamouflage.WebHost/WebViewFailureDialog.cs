@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using MecchaCamouflage.Core;
 
 namespace MecchaCamouflage.WebHost;
 
@@ -12,6 +13,8 @@ internal static class WebViewFailureDialog
 {
     public static WebViewRecoveryAction Show(
         IWin32Window owner,
+        LocalizationCatalog localization,
+        string locale,
         string message,
         string diagnostics,
         string manualInstallUrl,
@@ -19,7 +22,7 @@ internal static class WebViewFailureDialog
     {
         using var dialog = new Form
         {
-            Text = "Meccha Camouflage",
+            Text = localization.Text(locale, "app.title"),
             StartPosition = FormStartPosition.CenterParent,
             FormBorderStyle = FormBorderStyle.FixedDialog,
             MinimizeBox = false,
@@ -46,14 +49,14 @@ internal static class WebViewFailureDialog
             Top = 76,
             Width = 584,
             Height = 34,
-            Text = "Diagnostic details are included below. If the runtime is missing or installation failed, install Microsoft Edge WebView2 Runtime from the official download page."
+            Text = localization.Text(locale, "dialog.webview.details")
         };
         var manualInstallLink = new LinkLabel
         {
             AutoSize = true,
             Left = 18,
             Top = 114,
-            Text = "Open official WebView2 Runtime download page"
+            Text = localization.Text(locale, "dialog.webview.download")
         };
         manualInstallLink.LinkClicked += (_, _) =>
         {
@@ -79,7 +82,7 @@ internal static class WebViewFailureDialog
         };
         var close = new Button
         {
-            Text = "Close",
+            Text = localization.Text(locale, "button.close"),
             DialogResult = DialogResult.Cancel,
             Left = 527,
             Top = 244,
@@ -92,7 +95,7 @@ internal static class WebViewFailureDialog
         {
             var retry = new Button
             {
-                Text = "Retry once",
+                Text = localization.Text(locale, "button.retry.once"),
                 DialogResult = DialogResult.Retry,
                 Left = 435,
                 Top = 244,

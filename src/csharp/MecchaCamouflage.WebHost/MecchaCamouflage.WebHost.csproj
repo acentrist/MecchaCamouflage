@@ -65,7 +65,7 @@
       <LogicalName>packaged/native/runtime-injector.exe</LogicalName>
     </EmbeddedResource>
     <EmbeddedResource Include="$(MecchaMeshProfilesDir)\*.json" Condition="'$(MecchaMeshProfilesDir)' != ''">
-      <LogicalName>packaged/mesh-profiles/%(Filename)%(Extension)</LogicalName>
+      <LogicalName>packaged/web/mesh-profiles/%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>
     <EmbeddedResource Include="$(MecchaWebView2BootstrapperPath)" Condition="'$(MecchaWebView2BootstrapperPath)' != ''">
       <LogicalName>packaged/webview2-bootstrapper/MicrosoftEdgeWebview2Setup.exe</LogicalName>

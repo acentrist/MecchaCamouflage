@@ -432,7 +432,9 @@ public sealed class RuntimeBridgeService
     {
         paths.EnsureBaseDirectories();
         var nativeRoot = PackagedAssets.ResolveRequiredAssetRoot(paths, "native", log);
-        var profilesRoot = PackagedAssets.ResolveRequiredAssetRoot(paths, "mesh-profiles", log);
+        // Mesh profiles live beneath the packaged Web root so the Image editor
+        // and the native bridge read one identical, versioned copy.
+        var profilesRoot = PackagedAssets.ResolveRequiredAssetRoot(paths, "web", log);
         var bridgeSource = ResolvePackagedNativeAsset(nativeRoot, "runtime-bridge.dll");
         var injectorSource = ResolvePackagedNativeAsset(nativeRoot, "runtime-injector.exe");
         if (!File.Exists(bridgeSource) || !File.Exists(injectorSource))
@@ -638,9 +640,9 @@ public sealed class RuntimeBridgeService
 
     private static void CopyMeshProfiles(string profilesRoot, string instanceDirectory)
     {
-        var source = Path.Combine(profilesRoot, "mesh-profiles");
+        var source = Path.Combine(profilesRoot, "web", "mesh-profiles");
         if (!Directory.Exists(source))
-            return;
+            throw new DirectoryNotFoundException("Packaged mesh profiles are missing from the Web assets.");
         var target = Path.Combine(instanceDirectory, "mesh-profiles");
         Directory.CreateDirectory(target);
         foreach (var file in Directory.EnumerateFiles(source, "*.json", SearchOption.TopDirectoryOnly))

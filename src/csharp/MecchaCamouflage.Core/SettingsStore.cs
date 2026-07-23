@@ -51,7 +51,24 @@ public sealed class SettingsStore
         settings.StopHotkey = ReadString(root, "stop_hotkey", settings.StopHotkey);
         settings.PreviewHotkey = ReadString(root, "preview_hotkey", settings.PreviewHotkey);
         settings.UnPreviewHotkey = ReadString(root, "unpreview_hotkey", settings.UnPreviewHotkey);
+        settings.ImageStartHotkey = ReadString(root, "image_start_hotkey", settings.ImageStartHotkey);
+        settings.ImagePreviewHotkey = ReadString(root, "image_preview_hotkey", settings.ImagePreviewHotkey);
+        settings.ImageUnPreviewHotkey = ReadString(root, "image_unpreview_hotkey", settings.ImageUnPreviewHotkey);
+        settings.ImageStopHotkey = ReadString(root, "image_stop_hotkey", settings.ImageStopHotkey);
+        settings.ActiveImageDesignId = ReadString(root, "active_image_design_id", settings.ActiveImageDesignId);
         settings.LogRetentionDays = ReadInt(root, "log_retention_days", settings.LogRetentionDays);
+
+        if (root.TryGetPropertyValue("image", out var imageNode) && imageNode is JsonObject)
+        {
+            try
+            {
+                settings.Image = imageNode.Deserialize<ImagePaintSettings>(Options) ?? new ImagePaintSettings();
+            }
+            catch (JsonException)
+            {
+                settings.Image = new ImagePaintSettings();
+            }
+        }
 
         var paint = settings.Paint;
         // v1.6.3 retires the two-pass brush pipeline. Existing configs retain
@@ -131,6 +148,14 @@ public sealed class SettingsStore
             settings.UnPreviewHotkey = "F3";
         if (string.IsNullOrWhiteSpace(settings.StopHotkey))
             settings.StopHotkey = "F4";
+        if (string.IsNullOrWhiteSpace(settings.ImageStartHotkey))
+            settings.ImageStartHotkey = "F5";
+        if (string.IsNullOrWhiteSpace(settings.ImagePreviewHotkey))
+            settings.ImagePreviewHotkey = "F6";
+        if (string.IsNullOrWhiteSpace(settings.ImageUnPreviewHotkey))
+            settings.ImageUnPreviewHotkey = "F7";
+        if (string.IsNullOrWhiteSpace(settings.ImageStopHotkey))
+            settings.ImageStopHotkey = "F8";
 
         settings.Paint.BrushSizeTexels = Math.Clamp(settings.Paint.BrushSizeTexels, 1.0, 10.0);
         settings.Paint.SideSourceMaxUv = Math.Clamp(settings.Paint.SideSourceMaxUv, 0.001, 0.50);
@@ -142,6 +167,10 @@ public sealed class SettingsStore
         settings.Paint.FillRoughness = Math.Clamp(settings.Paint.FillRoughness, 0.0, 1.0);
         settings.Paint.FillEmissive = Math.Clamp(settings.Paint.FillEmissive, 0.0, 1.0);
         settings.Paint.ColorCompressionTolerance = Math.Clamp(settings.Paint.ColorCompressionTolerance, 0.0, 10.0);
+        settings.Image ??= new ImagePaintSettings();
+        settings.Image.ClampDraft();
+        if (settings.Image.Enabled && !settings.Image.TryValidate(out _))
+            settings.Image = new ImagePaintSettings();
         return settings;
     }
 
@@ -162,6 +191,11 @@ public sealed class SettingsStore
         preview_hotkey = settings.PreviewHotkey,
         unpreview_hotkey = settings.UnPreviewHotkey,
         stop_hotkey = settings.StopHotkey,
+        image_start_hotkey = settings.ImageStartHotkey,
+        image_preview_hotkey = settings.ImagePreviewHotkey,
+        image_unpreview_hotkey = settings.ImageUnPreviewHotkey,
+        image_stop_hotkey = settings.ImageStopHotkey,
+        active_image_design_id = settings.ActiveImageDesignId,
         brush_size_texels = settings.Paint.BrushSizeTexels,
         side_source_max_uv = settings.Paint.SideSourceMaxUv,
         front_back_source_max_uv = settings.Paint.FrontBackSourceMaxUv,
