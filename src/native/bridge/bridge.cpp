@@ -3499,6 +3499,10 @@ namespace
         std::uintptr_t component{0};
         std::uintptr_t relay_component{0};
         std::uintptr_t local_paint_at_uv_function{0};
+        // UNVALIDATED desync fix: the game's own client->server flush RPC that
+        // pushes locally recorded strokes to the server so joining clients see
+        // them. Resolved by reflection, zero when the build does not expose it.
+        std::uintptr_t flush_recorded_strokes_to_server_function{0};
     };
 
     struct SdkViewportInfo
@@ -4157,6 +4161,11 @@ namespace
             }
         }
         ctx.local_paint_at_uv_function = ref.find_function(ctx.component, "PaintAtUVWithBrush");
+        // UNVALIDATED desync fix: resolve the game's client->server flush RPC.
+        // Zero if this build does not expose it, in which case paint stays
+        // local-only (unchanged behavior) rather than guessing a route.
+        ctx.flush_recorded_strokes_to_server_function =
+            ref.find_function(ctx.component, "FlushRecordedStrokesToServer");
         ctx.ok = true;
         ctx.stage = "sdk_ready";
         ctx.message = "SDK context ready";
@@ -4982,6 +4991,13 @@ namespace
                                          std::uintptr_t function,
                                          const sdk::FPaintStroke& stroke,
                                          std::string& failure) -> bool;
+
+    // UNVALIDATED desync fix: forward declaration so the paint tick can flush
+    // recorded strokes to the server at completion. Definition follows the
+    // PaintAtUVWithBrush call site.
+    auto sdk_flush_recorded_strokes_to_server(std::uintptr_t component,
+                                              std::uintptr_t function,
+                                              std::string& failure) -> bool;
 
     auto sdk_resolve_skinned_pose(Reflection& ref,
                                   std::uintptr_t mesh,
@@ -8995,6 +9011,13 @@ namespace
         std::uintptr_t component_outer{0};
         std::uintptr_t k2_get_pawn_function{0};
         std::uintptr_t local_paint_at_uv_function{0};
+        // UNVALIDATED desync fix: game client->server flush RPC, and its
+        // one-shot bookkeeping. See sdk_flush_recorded_strokes_to_server.
+        std::uintptr_t flush_recorded_strokes_to_server_function{0};
+        bool server_flushed{false};
+        int server_flush_calls{0};
+        int server_flush_failures{0};
+        std::string server_flush_failure{};
         // PaintAtUVWithBrush records work for the game's own renderer.  This
         // bridge must never outrun that renderer and mistake submission for
         // completed paint.
@@ -11493,6 +11516,8 @@ namespace
             async_job->component_outer = safe_read<std::uintptr_t>(ctx.component + OffOuter);
             async_job->k2_get_pawn_function = ctx.k2_get_pawn_function;
             async_job->local_paint_at_uv_function = ctx.local_paint_at_uv_function;
+            async_job->flush_recorded_strokes_to_server_function =
+                ctx.flush_recorded_strokes_to_server_function;
             async_job->direct_queue_manager = ref.find_first_instance("RuntimePaintReplicationManager");
             async_job->direct_recorded_count_function =
                 ref.find_function(ctx.component, "GetRecordedStrokeCount");
@@ -12036,6 +12061,25 @@ namespace
         }
         if (job->local_offset >= job->strokes.size())
         {
+            // UNVALIDATED desync fix: every stroke is now recorded locally.
+            // Push the recorded set to the server exactly once so joining
+            // clients see the paint. No-op when the flush RPC is unavailable
+            // (local-only, the prior behavior). A flush failure is recorded but
+            // never aborts the job or triggers a retry.
+            if (!job->server_flushed && job->flush_recorded_strokes_to_server_function)
+            {
+                job->server_flushed = true;
+                ++job->server_flush_calls;
+                std::string flush_failure{};
+                if (!sdk_flush_recorded_strokes_to_server(
+                        job->component,
+                        job->flush_recorded_strokes_to_server_function,
+                        flush_failure))
+                {
+                    ++job->server_flush_failures;
+                    job->server_flush_failure = flush_failure;
+                }
+            }
             const auto queue_after_submission = direct_paint_capture_queue_snapshot(job);
             direct_paint_record_queue_snapshot(job, queue_after_submission);
             const int pending_after_submission =
@@ -13147,6 +13191,40 @@ namespace
         params.BrushSettings = stroke.BrushSettings;
         params.Channel = stroke.TargetChannel;
         return process_event(component, function, reinterpret_cast<std::uint8_t*>(&params), failure);
+    }
+
+    // UNVALIDATED desync fix (issues #204/#186/#196). Local PaintAtUVWithBrush
+    // only records strokes on the calling machine; it replicates to other
+    // clients solely from network authority (the listen-server host). This
+    // pushes the recorded strokes to the server through the game's own flush
+    // RPC so a joining client's paint reaches everyone. It is called ONCE at
+    // job completion, not per stroke, so it does not reintroduce the per-stroke
+    // RPC flood (issue #201). Requires validation against a live game build: the
+    // function is resolved by reflection and may be absent, and its no-argument
+    // signature is asserted before the call. Fails closed on any mismatch.
+    auto sdk_flush_recorded_strokes_to_server(std::uintptr_t component,
+                                              std::uintptr_t function,
+                                              std::string& failure) -> bool
+    {
+        if (!function)
+        {
+            failure = "FlushRecordedStrokesToServer_unavailable";
+            return false;
+        }
+        if (!live_uobject(component))
+        {
+            failure = "paint_component_unavailable";
+            return false;
+        }
+        const int params_size = safe_read<int>(function + OffPropertiesSize, 0);
+        if (params_size != 0)
+        {
+            failure = "FlushRecordedStrokesToServer_params_size_unexpected:" +
+                      std::to_string(params_size);
+            return false;
+        }
+        std::uint8_t params[8]{};
+        return process_event(component, function, params, failure);
     }
 
     struct SdkFrontColorStats

@@ -16,11 +16,15 @@ namespace runtime_contract
     constexpr std::size_t FPropertyElementSizeOffset = 0x34;
     // Keep direct dispatch bounded so one scheduler tick cannot monopolize the
     // game thread. This is a CPU safety limit, not a network pacing setting.
-    constexpr int NativeRecordedPaintMaxCallsPerTick = 6;
+    // UNVALIDATED: raised 6 -> 12 for throughput. Safe only when paint stays
+    // local (replication happens through a single end-of-job server flush, not
+    // a per-stroke RPC); the LocalDispatchCpuBudgetUs slice still caps a tick.
+    constexpr int NativeRecordedPaintMaxCallsPerTick = 12;
     // Permit at most a small, game-owned recorded-paint lead. Waiting for zero
     // serializes every stroke; an unbounded lead recreates the visible dotted
     // frontier on joining clients.
-    constexpr int NativeRecordedPaintQueueTargetStrokes = 4;
+    // UNVALIDATED: raised 4 -> 8 to let bursts run before draining.
+    constexpr int NativeRecordedPaintQueueTargetStrokes = 8;
     constexpr int FastLocalCadenceMs = 1;
     constexpr std::uint64_t LocalDispatchCpuBudgetUs = 4'000;
 
