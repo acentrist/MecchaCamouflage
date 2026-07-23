@@ -10,6 +10,18 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# VsDevCmd.bat resolves vswhere by bare name. When the Visual Studio Installer
+# directory (which contains vswhere.exe) is not on PATH, VsDevCmd writes a
+# benign "vswhere.exe is not recognized" line to stderr. Under the Stop
+# preference above, PowerShell can promote that stderr line to a terminating
+# NativeCommandError and fail an otherwise successful build. Put the Installer
+# directory on PATH so the notice is never emitted, making the build succeed
+# from a plain shell as well as from a VS Developer PowerShell.
+$vsInstallerDir = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer"
+if ((Test-Path $vsInstallerDir) -and ($env:PATH -notlike "*$vsInstallerDir*")) {
+    $env:PATH = "$vsInstallerDir;$env:PATH"
+}
+
 function Resolve-ProjectVersion {
     param(
         [string]$Requested,
@@ -73,6 +85,11 @@ function Invoke-VsToolCommand {
         [Parameter(Mandatory = $true)][string[]]$ToolArgs
     )
     $pushed = Push-NativeToolWorkingDirectory
+    # See Invoke-VsToolCapture: keep benign native-tool stderr from being
+    # promoted to a terminating error under the Stop preference. The exit code
+    # remains the success signal.
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     try {
         if (Get-Command $ToolName -ErrorAction SilentlyContinue) {
             & $ToolName @ToolArgs
@@ -89,6 +106,7 @@ function Invoke-VsToolCommand {
         if ($LASTEXITCODE -ne 0) { throw "$ToolName failed with exit code $LASTEXITCODE" }
     }
     finally {
+        $ErrorActionPreference = $previousErrorActionPreference
         if ($pushed) { Pop-Location }
     }
 }
@@ -99,6 +117,15 @@ function Invoke-VsToolCapture {
         [Parameter(Mandatory = $true)][string[]]$ToolArgs
     )
     $pushed = Push-NativeToolWorkingDirectory
+    # Native tools (VsDevCmd, dumpbin) write benign notices to stderr. Under the
+    # script-level $ErrorActionPreference='Stop', merging that stderr with 2>&1
+    # promotes each line to a terminating NativeCommandError before the exit code
+    # is ever checked, failing an otherwise successful build (for example
+    # VsDevCmd's "vswhere.exe is not recognized" notice when the Installer
+    # directory is not on PATH). Capture without that promotion and rely on the
+    # tool's exit code, which is the real success signal.
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     try {
         if (Get-Command $ToolName -ErrorAction SilentlyContinue) {
             $output = & $ToolName @ToolArgs 2>&1
@@ -116,6 +143,7 @@ function Invoke-VsToolCapture {
         return $output
     }
     finally {
+        $ErrorActionPreference = $previousErrorActionPreference
         if ($pushed) { Pop-Location }
     }
 }
