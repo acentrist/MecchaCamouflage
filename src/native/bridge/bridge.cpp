@@ -4023,6 +4023,13 @@ namespace
                ",\"relay_component_class\":\"" + json_escape(ref.class_name(ctx.relay_component)) + "\"" +
                ",\"function_paint_at_uv_with_brush_available\":" + std::string(json_bool(ctx.local_paint_at_uv_function != 0)) +
                ",\"function_paint_at_uv_with_brush\":\"" + hex_address(ctx.local_paint_at_uv_function) + "\"" +
+               // UNVALIDATED desync fix telemetry: whether this game build exposes
+               // the client->server flush RPC. If false, the desync fix is a no-op
+               // and paint stays local-only.
+               ",\"function_flush_recorded_strokes_to_server_available\":" +
+                   std::string(json_bool(ctx.flush_recorded_strokes_to_server_function != 0)) +
+               ",\"function_flush_recorded_strokes_to_server\":\"" +
+                   hex_address(ctx.flush_recorded_strokes_to_server_function) + "\"" +
                ",\"param_schema\":\"PaintAtUVWithBrush{Uv,ChannelData,BrushSettings,Channel}\"" +
                std::string(",\"sdk_replication_api\":\"component_recorded_strokes\"") +
                ",\"multiplayer_replicated\":false" +
@@ -11838,6 +11845,18 @@ namespace
                               ok ? 0 : 1,
                               message,
                               job->metadata + mesh_first_replay_pass_metadata(job) +
+                                  // UNVALIDATED desync fix telemetry: did the
+                                  // end-of-job server flush fire, and did it succeed?
+                                  ",\"server_flush_attempted\":" +
+                                      json_bool(job->server_flushed) +
+                                  ",\"server_flush_calls\":" +
+                                      std::to_string(job->server_flush_calls) +
+                                  ",\"server_flush_failures\":" +
+                                      std::to_string(job->server_flush_failures) +
+                                  (job->server_flush_failure.empty()
+                                       ? std::string{}
+                                       : ",\"server_flush_failure\":\"" +
+                                             json_escape(job->server_flush_failure) + "\"") +
                                   ",\"local_stroke_calls\":" +
                                       std::to_string(job->local_stroke_calls) +
                                   ",\"local_stroke_success\":" +
