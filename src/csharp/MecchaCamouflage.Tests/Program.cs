@@ -318,8 +318,13 @@ static void NativeProductionLocalSyncUsesPerStrokePaint()
     var contract = File.ReadAllText(Path.Combine(
         FindRepositoryRoot(),
         "src", "native", "include", "runtime_contract.hpp"));
-    Assert(contract.Contains("constexpr int NativeRecordedPaintMaxCallsPerTick = 6;", StringComparison.Ordinal) &&
-           contract.Contains("constexpr int NativeRecordedPaintQueueTargetStrokes = 4;", StringComparison.Ordinal) &&
+    // UNVALIDATED (wip/desync branch): throughput experiment. MaxCallsPerTick and
+    // QueueTargetStrokes are raised from the shipped 6/4 to 12/8, coupled to the
+    // single end-of-job server flush so the larger local recorded-paint lead is
+    // not streamed to joining clients as a dotted frontier. The values are still
+    // pinned (bounded), guarding against an accidental unbounded window.
+    Assert(contract.Contains("constexpr int NativeRecordedPaintMaxCallsPerTick = 12;", StringComparison.Ordinal) &&
+           contract.Contains("constexpr int NativeRecordedPaintQueueTargetStrokes = 8;", StringComparison.Ordinal) &&
            contract.Contains("constexpr int FastLocalCadenceMs = 1;", StringComparison.Ordinal),
         "native paint must retain bounded direct dispatch and a small game-owned queue window");
     Assert(bridge.Contains("direct_paint_capture_queue_snapshot", StringComparison.Ordinal) &&
