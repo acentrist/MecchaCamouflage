@@ -404,6 +404,22 @@ body.editing .region-grid > strong {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.paint-speed-choice {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.paint-speed-help {
+  display: block;
+  min-height: 42px;
+  margin-top: 7px;
+  color: var(--muted);
+  font: 10px/14px var(--font-mono);
+}
+
+.paint-speed-help.exact-warning {
+  color: #ffb4ab;
+}
+
 #fill-section.disabled,
 #image-fill-section.disabled {
   opacity: 0.55;

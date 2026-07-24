@@ -97,6 +97,7 @@ public sealed class SettingsStore
         paint.FillRoughness = ReadDouble(root, "fill_roughness", paint.FillRoughness);
         paint.FillEmissive = ReadDouble(root, "fill_emissive", paint.FillEmissive);
         paint.ColorCompressionTolerance = ReadDouble(root, "color_compression_tolerance", paint.ColorCompressionTolerance);
+        paint.PaintSpeed = ReadString(root, "paint_speed", paint.PaintSpeed);
         var hasPersistedFillPbr =
             root.TryGetPropertyValue("fill_metallic", out _) &&
             root.TryGetPropertyValue("fill_roughness", out _) &&
@@ -167,6 +168,9 @@ public sealed class SettingsStore
         settings.Paint.FillRoughness = Math.Clamp(settings.Paint.FillRoughness, 0.0, 1.0);
         settings.Paint.FillEmissive = Math.Clamp(settings.Paint.FillEmissive, 0.0, 1.0);
         settings.Paint.ColorCompressionTolerance = Math.Clamp(settings.Paint.ColorCompressionTolerance, 0.0, 10.0);
+        settings.Paint.PaintSpeed = settings.Paint.PaintSpeed is "exact" or "balanced" or "fast"
+            ? settings.Paint.PaintSpeed
+            : "fast";
         settings.Image ??= new ImagePaintSettings();
         settings.Image.ClampDraft();
         if (settings.Image.Enabled && !settings.Image.TryValidate(out _))
@@ -210,7 +214,8 @@ public sealed class SettingsStore
         fill_metallic = settings.Paint.FillMetallic,
         fill_roughness = settings.Paint.FillRoughness,
         fill_emissive = settings.Paint.FillEmissive,
-        color_compression_tolerance = settings.Paint.ColorCompressionTolerance
+        color_compression_tolerance = settings.Paint.ColorCompressionTolerance,
+        paint_speed = settings.Paint.PaintSpeed
     };
 
     public static string RegionModeText(RegionMode mode) => mode switch

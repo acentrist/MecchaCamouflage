@@ -383,6 +383,29 @@ int main()
         return 25;
     }
 
+    const auto reference_fast = runtime_contract::build_reference_fast_paint_plan(
+        adaptive_entries, adaptive_samples, 0.01, 1.0);
+    if (reference_fast.entries.size() != 3 ||
+        reference_fast.compressed_paint_entries != 1 ||
+        reference_fast.expanded_paint_entries != 3 ||
+        reference_fast.entries[0].replay.sample_index != 0 ||
+        reference_fast.entries[0].radius_multiplier != 4.0 ||
+        reference_fast.entries[1].replay.sample_index != 2 ||
+        reference_fast.entries[1].radius_multiplier != 4.0 ||
+        reference_fast.entries[2].replay.sample_index != 3 ||
+        reference_fast.entries[2].radius_multiplier != 4.0)
+    {
+        return 27;
+    }
+    const auto reference_exact = runtime_contract::build_reference_fast_paint_plan(
+        adaptive_entries, adaptive_samples, 0.01, 0.0);
+    if (reference_exact.entries.size() != adaptive_entries.size() ||
+        reference_exact.compressed_paint_entries != 0 ||
+        reference_exact.entries[0].radius_multiplier != 1.0)
+    {
+        return 28;
+    }
+
     if (runtime_contract::production_material_stroke_count(3) != 3 ||
         runtime_contract::production_material_sample_index(0) != 0 ||
         runtime_contract::production_material_sample_index(1) != 1 ||

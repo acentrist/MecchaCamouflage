@@ -80,7 +80,8 @@ public static class BridgePayloadBuilder
                 ["fill_metallic"] = paint.FillMetallic,
                 ["fill_roughness"] = paint.FillRoughness,
                 ["fill_emissive"] = paint.FillEmissive,
-                ["color_compression_tolerance"] = paint.ColorCompressionTolerance
+                ["color_compression_tolerance"] = paint.ColorCompressionTolerance,
+                ["paint_speed"] = paint.PaintSpeed
             },
             ["image_paint_enabled"] = image is not null,
             ["image_paint_width"] = image?.Width ?? 0,
@@ -107,7 +108,9 @@ public static class BridgePayloadBuilder
             ["image_paint_metallic"] = image?.Metallic ?? 0.0,
             ["image_paint_roughness"] = image?.Roughness ?? 1.0,
             ["image_paint_emissive"] = image?.Emissive ?? 0.0,
-            ["image_paint_revision"] = image?.Revision ?? 0
+            ["image_paint_revision"] = image?.Revision ?? 0,
+            ["paint_speed"] = paint.PaintSpeed,
+            ["image_paint_quality"] = paint.PaintSpeed
         };
         if (options.DiagnosticStrokeLimit > 0)
             payload["diagnostic_stroke_limit"] = Math.Clamp(options.DiagnosticStrokeLimit, 1, 10_000);

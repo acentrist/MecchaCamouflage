@@ -21,6 +21,7 @@ public sealed class HostSession
     [
         "paint.brushSizeTexels",
         "paint.colorCompressionTolerance",
+        "paint.paintSpeed",
         "paint.autoMaterial",
         "paint.metallic",
         "paint.roughness",
@@ -629,6 +630,9 @@ public sealed class HostSession
             case "geometry":
                 next.Paint.BrushSizeTexels = defaults.Paint.BrushSizeTexels;
                 next.Paint.ColorCompressionTolerance = defaults.Paint.ColorCompressionTolerance;
+                break;
+            case "paint.speed":
+                next.Paint.PaintSpeed = defaults.Paint.PaintSpeed;
                 break;
             case "paint.material":
             case "material":
@@ -1516,7 +1520,8 @@ public sealed class HostSession
                 paint.FillRoughness,
                 paint.FillEmissive,
                 paint.UsesFill,
-                paint.ColorCompressionTolerance),
+                paint.ColorCompressionTolerance,
+                paint.PaintSpeed),
             new AppSnapshot(
                 settings.GameProcessName,
                 settings.AlwaysOnTop,
@@ -1555,6 +1560,7 @@ public sealed class HostSession
         var sections = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
         {
             ["paint.geometry"] = map["paint.brushSizeTexels"] || map["paint.colorCompressionTolerance"],
+            ["paint.speed"] = map["paint.paintSpeed"],
             ["paint.material"] = map["paint.autoMaterial"] || map["paint.metallic"] || map["paint.roughness"] || map["paint.emissive"],
             ["regions"] = map["paint.frontRegionMode"] || map["paint.sideRegionMode"] || map["paint.backRegionMode"],
             ["fill.material"] = map["paint.fillColor"] || map["paint.fillMetallic"] || map["paint.fillRoughness"] || map["paint.fillEmissive"],
@@ -1581,6 +1587,7 @@ public sealed class HostSession
         "paint.fillRoughness" => Nearly(left.Paint.FillRoughness, right.Paint.FillRoughness),
         "paint.fillEmissive" => Nearly(left.Paint.FillEmissive, right.Paint.FillEmissive),
         "paint.colorCompressionTolerance" => Nearly(left.Paint.ColorCompressionTolerance, right.Paint.ColorCompressionTolerance),
+        "paint.paintSpeed" => left.Paint.PaintSpeed == right.Paint.PaintSpeed,
         "app.processName" => left.GameProcessName == right.GameProcessName,
         "app.alwaysOnTop" => left.AlwaysOnTop == right.AlwaysOnTop,
         "app.opacity" => Nearly(left.Opacity, right.Opacity),
@@ -1613,6 +1620,7 @@ public sealed class HostSession
             case "paint.fillRoughness": settings.Paint.FillRoughness = defaults.Paint.FillRoughness; break;
             case "paint.fillEmissive": settings.Paint.FillEmissive = defaults.Paint.FillEmissive; break;
             case "paint.colorCompressionTolerance": settings.Paint.ColorCompressionTolerance = defaults.Paint.ColorCompressionTolerance; break;
+            case "paint.paintSpeed": settings.Paint.PaintSpeed = defaults.Paint.PaintSpeed; break;
             case "app.processName": settings.GameProcessName = defaults.GameProcessName; break;
             case "app.alwaysOnTop": settings.AlwaysOnTop = defaults.AlwaysOnTop; break;
             case "app.opacity": settings.Opacity = defaults.Opacity; break;
@@ -1650,6 +1658,7 @@ public sealed class HostSession
             case "paint.fillRoughness": settings.Paint.FillRoughness = value.GetDouble(); break;
             case "paint.fillEmissive": settings.Paint.FillEmissive = value.GetDouble(); break;
             case "paint.colorCompressionTolerance": settings.Paint.ColorCompressionTolerance = value.GetDouble(); break;
+            case "paint.paintSpeed": settings.Paint.PaintSpeed = value.GetString() ?? settings.Paint.PaintSpeed; break;
             case "app.language": settings.Language = value.GetString() ?? settings.Language; break;
             case "app.processName": settings.GameProcessName = value.GetString() ?? settings.GameProcessName; break;
             case "app.alwaysOnTop": settings.AlwaysOnTop = value.GetBoolean(); break;

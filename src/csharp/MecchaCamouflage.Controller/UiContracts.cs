@@ -45,7 +45,8 @@ public sealed record PaintSnapshot(
     double FillRoughness,
     double FillEmissive,
     bool UsesFill,
-    double ColorCompressionTolerance = 0.0);
+    double ColorCompressionTolerance = 0.0,
+    string PaintSpeed = "fast");
 
 public sealed record AppSnapshot(
     string ProcessName,

@@ -14,6 +14,7 @@ var tests = new List<(string Name, Action Run)>
     ("single brush settings clamp to supported range", SingleBrushSettingsClampToSupportedRange),
     ("app defaults use 99 percent opacity", AppDefaultsUse99PercentOpacity),
     ("payload sends a single brush and compression tolerance", PayloadSendsSingleBrushPipeline),
+    ("paint speed persists and reaches native", PaintSpeedPersistsAndReachesNative),
     ("image payload carries a full canonical canvas", ImagePayloadCarriesFullCanonicalCanvas),
     ("image transparency fills regions before painting opaque pixels", ImageTransparencyFillsRegionsBeforePaintingOpaquePixels),
     ("image region skip suppresses only Fill", ImageRegionSkipSuppressesOnlyFill),
@@ -71,6 +72,7 @@ var tests = new List<(string Name, Action Run)>
     ("settings detect supported system language", SettingsDetectSupportedSystemLanguage),
     ("ui snapshot exposes a single brush", UiSnapshotExposesSingleBrush),
     ("web ui exposes one brush slider and compression tolerance", WebUiExposesSingleBrushSliderAndCompressionTolerance),
+    ("web ui exposes fast normal and exact paint modes", WebUiExposesPaintSpeedModes),
     ("web ui persists image designs through the tabbed editor", WebUiImagePaintEditorUsesSavedTransaction),
     ("web ui keeps a running paint editable as a next-run draft", WebUiKeepsRunningPaintEditableAsNextRunDraft),
     ("web ui preserves image actions during paint snapshots", WebUiPreservesImageActionsDuringPaintSnapshots),
@@ -587,6 +589,30 @@ static void PayloadSendsSingleBrushPipeline()
         "payload should send the compression tolerance");
     Assert(!tuning.TryGetProperty("brush_1_size_texels", out _) && !tuning.TryGetProperty("brush_2_size_texels", out _),
         "payload should not send retired two-brush keys");
+}
+
+static void PaintSpeedPersistsAndReachesNative()
+{
+    using var temp = new TempHome();
+    var paths = new AppPaths("paint-speed-test");
+    var settings = new AppSettings();
+    settings.Paint.PaintSpeed = "exact";
+    new SettingsStore(paths).Save(settings);
+
+    var loaded = new SettingsStore(paths).Load();
+    Assert(loaded.Paint.PaintSpeed == "exact", "paint speed should persist");
+
+    var payload = BridgePayloadBuilder.BuildPaintPayload(
+        loaded, 42, "Game.exe", new PaintRequestOptions());
+    using var document = JsonDocument.Parse(payload);
+    Assert(document.RootElement.GetProperty("paint_speed").GetString() == "exact" &&
+           document.RootElement.GetProperty("image_paint_quality").GetString() == "exact" &&
+           document.RootElement.GetProperty("tuning").GetProperty("paint_speed").GetString() == "exact",
+        "paint speed should reach native for normal and image paint");
+
+    loaded.Paint.PaintSpeed = "unsupported";
+    Assert(SettingsStore.Clamp(loaded).Paint.PaintSpeed == "fast",
+        "unsupported paint speed should fall back to fast");
 }
 
 static void ImagePayloadCarriesFullCanonicalCanvas()
@@ -1379,7 +1405,9 @@ static void UiSnapshotExposesSingleBrush()
         1.0,
         0.0,
         0.0,
-        true);
+        true,
+        0.0,
+        "exact");
     var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
@@ -1388,6 +1416,8 @@ static void UiSnapshotExposesSingleBrush()
 
     Assert(Math.Abs(doc.RootElement.GetProperty("brushSizeTexels").GetDouble() - 7.5) < 0.000001,
         "snapshot should expose the single brush");
+    Assert(doc.RootElement.GetProperty("paintSpeed").GetString() == "exact",
+        "snapshot should expose the selected paint speed");
     Assert(!doc.RootElement.TryGetProperty("brush1SizeTexels", out _) &&
            !doc.RootElement.TryGetProperty("brush2SizeTexels", out _),
         "snapshot should not expose retired two-brush fields");
@@ -1407,6 +1437,22 @@ static void WebUiExposesSingleBrushSliderAndCompressionTolerance()
     Assert(app.Contains("paint.colorCompressionTolerance", StringComparison.Ordinal), "web UI should bind compression tolerance");
     Assert(!app.Contains("paint.brush1", StringComparison.Ordinal) && !app.Contains("paint.brush2", StringComparison.Ordinal),
         "web UI should not retain two-brush bindings");
+}
+
+static void WebUiExposesPaintSpeedModes()
+{
+    var repository = FindRepositoryRoot();
+    var index = File.ReadAllText(Path.Combine(repository, "src", "csharp", "MecchaCamouflage.WebHost", "web", "index.html"));
+    var app = File.ReadAllText(Path.Combine(repository, "src", "csharp", "MecchaCamouflage.WebHost", "web", "app.js"));
+    Assert(index.Contains("id=\"paint-speed-section\"", StringComparison.Ordinal) &&
+           index.Contains("data-paint-quality=\"fast\"", StringComparison.Ordinal) &&
+           index.Contains("data-paint-quality=\"balanced\"", StringComparison.Ordinal) &&
+           index.Contains("data-paint-quality=\"exact\"", StringComparison.Ordinal),
+        "web UI should offer Fast, Normal, and Exact");
+    Assert(app.Contains("paint.paintSpeed", StringComparison.Ordinal) &&
+           app.Contains("full normal-size cleanup pass", StringComparison.Ordinal) &&
+           app.Contains("can take around 30 minutes", StringComparison.Ordinal),
+        "paint speed controls should bind to settings and explain their practical tradeoffs");
 }
 
 static void WebUiKeepsThemeColorOnReadonlyControls()

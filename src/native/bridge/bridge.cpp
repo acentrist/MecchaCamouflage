@@ -63,6 +63,7 @@ namespace
     // queue has drained.  The former 240-second listener timeout could release
     // admission while a low-FPS client was still rendering a valid job.
     constexpr int PaintRequestTimeoutSeconds = 900;
+    constexpr int ExactPaintRequestTimeoutSeconds = 7200;
     // Total duration may legitimately grow at very low FPS. Fail only when a
     // measurable receiver queue makes no forward progress for this interval.
     constexpr int LocalQueueDrainIdleTimeoutMs = 120000;
@@ -11626,6 +11627,18 @@ namespace
         auto side_region_mode = mesh_first_parse_region_mode(request, "side_region_mode");
         auto back_region_mode = mesh_first_parse_region_mode(request, "back_region_mode");
         const bool image_paint_enabled = json_bool_field(request, "image_paint_enabled", false);
+        const std::string requested_paint_speed = lower_copy(json_string_field(
+            request,
+            "paint_speed",
+            json_string_field(request, "image_paint_quality", "fast")));
+        const std::string paint_speed =
+            requested_paint_speed == "exact" ||
+                    requested_paint_speed == "balanced" ||
+                    requested_paint_speed == "fast"
+                ? requested_paint_speed
+                : "fast";
+        const bool fast_paint = paint_speed == "fast";
+        const bool exact_paint = paint_speed == "exact";
         const auto image_front_region_mode =
             mesh_first_parse_image_region_mode(request, "image_paint_front_region_mode");
         const auto image_right_region_mode =
@@ -11819,8 +11832,17 @@ namespace
         metadata += ",\"brush_pipeline\":\"fill_single_brush\"";
         metadata += ",\"brush_size_texels\":" + std::to_string(tuning_brush_size_texels);
         metadata += ",\"coverage_step_texels\":" + std::to_string(tuning_brush_size_texels);
+        const double configured_color_compression_tolerance =
+            image_paint_enabled
+                ? image_paint_color_compression_tolerance
+                : tuning_color_compression_tolerance;
         const double active_color_compression_tolerance =
-            image_paint_enabled ? image_paint_color_compression_tolerance : tuning_color_compression_tolerance;
+            exact_paint
+                ? 0.0
+                : (fast_paint && image_paint_enabled
+                       ? std::max(1.25, configured_color_compression_tolerance)
+                       : configured_color_compression_tolerance);
+        metadata += ",\"paint_speed\":\"" + json_escape(paint_speed) + "\"";
         metadata += ",\"color_compression_tolerance\":" +
                     std::to_string(active_color_compression_tolerance);
         metadata += ",\"side_source_max_uv\":" + std::to_string(tuning_side_source_max_uv);
@@ -13391,15 +13413,53 @@ namespace
                                         1});
         }
         const auto plan_start = std::chrono::high_resolution_clock::now();
-        const auto adaptive_replay_plan = runtime_contract::build_adaptive_paint_plan(
-            replay_plan.entries,
-            adaptive_samples,
-            brush_radius_uv,
-            compression_enabled ? active_color_compression_tolerance : 0.0,
-            0.8 / static_cast<double>(std::max(1, active_texture_size)));
+        auto adaptive_replay_plan =
+            fast_paint
+                ? runtime_contract::build_reference_fast_paint_plan(
+                      replay_plan.entries,
+                      adaptive_samples,
+                      brush_radius_uv,
+                      compression_enabled
+                          ? active_color_compression_tolerance
+                          : 0.0,
+                      0.8 / static_cast<double>(
+                                std::max(1, active_texture_size)))
+                : runtime_contract::build_adaptive_paint_plan(
+                      replay_plan.entries,
+                      adaptive_samples,
+                      brush_radius_uv,
+                      compression_enabled
+                          ? active_color_compression_tolerance
+                          : 0.0,
+                      0.8 / static_cast<double>(
+                                std::max(1, active_texture_size)));
+        std::size_t fast_refinement_strokes = 0;
+        if (fast_paint)
+        {
+            std::vector<runtime_contract::AdaptiveReplayEntry> full_refinement{};
+            full_refinement.reserve(replay_plan.paint_count);
+            for (const auto& entry : replay_plan.entries)
+            {
+                if (entry.pass != runtime_contract::ReplayPass::Paint)
+                {
+                    continue;
+                }
+                full_refinement.push_back({entry, 1.0});
+            }
+            fast_refinement_strokes = full_refinement.size();
+            adaptive_replay_plan.entries.insert(
+                adaptive_replay_plan.entries.end(),
+                full_refinement.begin(),
+                full_refinement.end());
+        }
         const auto plan_end = std::chrono::high_resolution_clock::now();
         const double adaptive_plan_ms = std::chrono::duration<double, std::milli>(plan_end - plan_start).count();
         metadata += ",\"adaptive_plan_ms\":" + std::to_string(adaptive_plan_ms);
+        metadata += ",\"fast_reference_planner\":" +
+                    std::string(json_bool(fast_paint));
+        metadata += ",\"fast_refinement_strokes\":" +
+                    std::to_string(fast_refinement_strokes);
+        metadata += ",\"fast_refinement_radius_multiplier\":1.000000";
         metadata += ",\"color_compression_requested\":" +
                     std::string(json_bool(compression_requested));
         metadata += ",\"color_compression_enabled\":" +
@@ -18094,8 +18154,16 @@ namespace
             post_paint_dispatch_message();
         }
         std::unique_lock<std::mutex> lock(g_paint_jobs_mutex);
+        const std::string request_paint_speed = lower_copy(json_string_field(
+            request,
+            "paint_speed",
+            json_string_field(request, "image_paint_quality", "fast")));
+        const int request_timeout_seconds =
+            request_paint_speed == "exact"
+                ? ExactPaintRequestTimeoutSeconds
+                : PaintRequestTimeoutSeconds;
         const auto deadline = std::chrono::steady_clock::now() +
-                              std::chrono::seconds(PaintRequestTimeoutSeconds);
+                              std::chrono::seconds(request_timeout_seconds);
         const auto dispatch_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(8);
         auto finish_response = [&](std::string response, bool uninstall_hook = true) -> std::string {
             if (lock.owns_lock())

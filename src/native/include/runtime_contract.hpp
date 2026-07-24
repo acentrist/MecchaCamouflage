@@ -632,6 +632,185 @@ namespace runtime_contract
         bool adaptive_plan_avx2_used{false};
     };
 
+    inline AdaptivePaintPlan build_reference_fast_paint_plan(
+        const std::vector<ReplayEntry>& replay_entries,
+        const std::vector<AdaptivePaintSample>& samples,
+        double base_radius_uv,
+        double tolerance_percent,
+        double edge_margin_uv = 0.0)
+    {
+        AdaptivePaintPlan plan{};
+        plan.entries.reserve(replay_entries.size());
+        plan.adaptive_plan_worker_count = 1;
+        if (replay_entries.empty())
+        {
+            return plan;
+        }
+        if (tolerance_percent <= 0.0 || base_radius_uv <= 0.000001 || samples.empty())
+        {
+            for (const auto& entry : replay_entries)
+            {
+                plan.entries.push_back({entry, 1.0});
+            }
+            return plan;
+        }
+
+        int grid_size = 128;
+        if (samples.size() > 200000)
+        {
+            grid_size = 256;
+        }
+        if (samples.size() > 500000)
+        {
+            grid_size = 512;
+        }
+        std::vector<std::vector<std::size_t>> grid(
+            static_cast<std::size_t>(grid_size * grid_size));
+        const auto cell_coordinate = [&](double value) {
+            const double finite_value = std::isfinite(value) ? value : 0.0;
+            return std::clamp(
+                static_cast<int>(std::floor(finite_value * grid_size)),
+                0,
+                grid_size - 1);
+        };
+        for (std::size_t index = 0; index < samples.size(); ++index)
+        {
+            const auto& sample = samples[index];
+            grid[static_cast<std::size_t>(
+                     cell_coordinate(sample.v) * grid_size +
+                     cell_coordinate(sample.u))]
+                .push_back(index);
+        }
+
+        const double threshold =
+            std::clamp(tolerance_percent, 0.0, 10.0) / 100.0 * std::sqrt(3.0);
+        const double threshold_squared = threshold * threshold;
+        const auto same_payload = [](const AdaptivePaintSample& center,
+                                     const AdaptivePaintSample& other) {
+            return center.paint_eligible && center.safe &&
+                   other.paint_eligible && other.safe &&
+                   center.region == other.region &&
+                   center.uv_island == other.uv_island &&
+                   center.material_key == other.material_key;
+        };
+        const auto color_distance_squared = [](const AdaptivePaintSample& left,
+                                               const AdaptivePaintSample& right) {
+            const double dr = left.r - right.r;
+            const double dg = left.g - right.g;
+            const double db = left.b - right.b;
+            return dr * dr + dg * dg + db * db;
+        };
+        const auto visit_nearby = [&](const AdaptivePaintSample& center,
+                                      double radius_uv,
+                                      const auto& visit) {
+            const double safe_radius = std::max(0.0, radius_uv);
+            const double radius_squared = safe_radius * safe_radius;
+            const int min_u = cell_coordinate(center.u - safe_radius);
+            const int max_u = cell_coordinate(center.u + safe_radius);
+            const int min_v = cell_coordinate(center.v - safe_radius);
+            const int max_v = cell_coordinate(center.v + safe_radius);
+            for (int cell_v = min_v; cell_v <= max_v; ++cell_v)
+            {
+                for (int cell_u = min_u; cell_u <= max_u; ++cell_u)
+                {
+                    for (const auto other_index :
+                         grid[static_cast<std::size_t>(
+                             cell_v * grid_size + cell_u)])
+                    {
+                        const auto& other = samples[other_index];
+                        const double du = other.u - center.u;
+                        const double dv = other.v - center.v;
+                        if (du * du + dv * dv <= radius_squared)
+                        {
+                            visit(other_index, other);
+                        }
+                    }
+                }
+            }
+        };
+
+        std::vector<bool> covered(samples.size(), false);
+        std::vector<AdaptiveReplayEntry> paint_entries{};
+        paint_entries.reserve(replay_entries.size());
+        constexpr std::array<double, 4> multipliers{4.0, 3.0, 2.0, 1.5};
+        for (const auto& entry : replay_entries)
+        {
+            if (entry.pass != ReplayPass::Paint ||
+                entry.sample_index >= samples.size())
+            {
+                plan.entries.push_back({entry, 1.0});
+                continue;
+            }
+            if (covered[entry.sample_index])
+            {
+                ++plan.compressed_paint_entries;
+                continue;
+            }
+
+            const auto& center = samples[entry.sample_index];
+            double multiplier = 1.0;
+            if (center.paint_eligible && center.safe)
+            {
+                for (const auto candidate_multiplier : multipliers)
+                {
+                    const double check_radius = std::max(
+                        0.0,
+                        candidate_multiplier * base_radius_uv -
+                            std::max(0.0, edge_margin_uv));
+                    bool valid = true;
+                    visit_nearby(
+                        center,
+                        check_radius,
+                        [&](std::size_t, const AdaptivePaintSample& other) {
+                            if (!same_payload(center, other) ||
+                                color_distance_squared(center, other) >
+                                    threshold_squared)
+                            {
+                                valid = false;
+                            }
+                        });
+                    if (valid)
+                    {
+                        multiplier = candidate_multiplier;
+                        break;
+                    }
+                }
+            }
+
+            paint_entries.push_back({entry, multiplier});
+            if (multiplier > 1.0)
+            {
+                ++plan.expanded_paint_entries;
+            }
+            covered[entry.sample_index] = true;
+            const double coverage_radius = std::max(
+                0.0,
+                multiplier * base_radius_uv -
+                    std::max(0.0, edge_margin_uv));
+            visit_nearby(
+                center,
+                coverage_radius,
+                [&](std::size_t other_index,
+                    const AdaptivePaintSample& other) {
+                    if (same_payload(center, other) &&
+                        color_distance_squared(center, other) <=
+                            threshold_squared)
+                    {
+                        covered[other_index] = true;
+                    }
+                });
+        }
+        std::stable_sort(
+            paint_entries.begin(),
+            paint_entries.end(),
+            [](const auto& left, const auto& right) {
+                return left.radius_multiplier > right.radius_multiplier;
+            });
+        plan.entries.insert(
+            plan.entries.end(), paint_entries.begin(), paint_entries.end());
+        return plan;
+    }
+
     inline bool adaptive_plan_avx2_available()
     {
 #if defined(MECCHA_RUNTIME_CONTRACT_CAN_COMPILE_AVX2)

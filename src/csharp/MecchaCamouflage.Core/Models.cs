@@ -52,6 +52,7 @@ public sealed class PaintSettings
     public double FillRoughness { get; set; } = 0.0;
     public double FillEmissive { get; set; } = 0.0;
     public double ColorCompressionTolerance { get; set; } = 5.0;
+    public string PaintSpeed { get; set; } = "fast";
 
     public bool UsesFill =>
         FrontRegionMode == RegionMode.Fill ||

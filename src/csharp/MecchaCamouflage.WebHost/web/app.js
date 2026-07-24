@@ -334,6 +334,27 @@ function statusClass(value) {
   return "idle";
 }
 
+function renderPaintSpeed(paint, editable) {
+  const speed = ["fast", "balanced", "exact"].includes(paint.paintSpeed)
+    ? paint.paintSpeed
+    : "fast";
+  for (const button of document.querySelectorAll("[data-paint-quality]")) {
+    const active = button.dataset.paintQuality === speed;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+    setControlDisabled(button, !editable);
+  }
+  const help = byId("paint-speed-help");
+  if (!help) return;
+  const descriptions = {
+    fast: "Paints broad matching areas first, then continues with a full normal-size cleanup pass. The design becomes useful sooner without stopping at the rough result.",
+    balanced: "Uses the current regular planner for dependable detail and a practical wait. This is the best choice for most matches.",
+    exact: "Uses the smallest available strokes with no color compression. Exact is not made for normal games and can take around 30 minutes; use it for hosted tests or showcases."
+  };
+  help.textContent = descriptions[speed];
+  help.classList.toggle("exact-warning", speed === "exact");
+}
+
 function renderSettings(snapshot) {
   const paint = snapshot.settings.paint;
   const editable = canStartLiveDraftEdit();
@@ -350,6 +371,7 @@ function renderSettings(snapshot) {
   setNumberPair("fill-metallic", "fill-metallic-number", paint.fillMetallic);
   setNumberPair("fill-roughness", "fill-roughness-number", paint.fillRoughness);
   setNumberPair("fill-emissive", "fill-emissive-number", paint.fillEmissive);
+  renderPaintSpeed(paint, editable);
   const app = snapshot.settings.app;
   applyThemeColor(app.themeColor);
   setChecked("always-on-top", app.alwaysOnTop);
@@ -705,6 +727,7 @@ function diffSnapshots(before, after) {
     "app.language",
     "paint.brushSizeTexels",
     "paint.colorCompressionTolerance",
+    "paint.paintSpeed",
     "paint.autoMaterial",
     "paint.metallic",
     "paint.roughness",
@@ -1011,6 +1034,16 @@ function initializeSettingsTabs() {
         loadCommittedImageDesign().catch(error => showError(error.message || String(error)));
       }
       renderImageEditor();
+    });
+  }
+}
+
+function initializePaintSpeed() {
+  for (const button of document.querySelectorAll("[data-paint-quality]")) {
+    button.addEventListener("click", () => {
+      if (!canEditControl(button)) return;
+      setDraftSetting("paint.paintSpeed", button.dataset.paintQuality || "fast");
+      renderSettings(currentSnapshot());
     });
   }
 }
@@ -2307,6 +2340,7 @@ function applyImageCrop() {
 
 document.addEventListener("DOMContentLoaded", () => {
   initializeSettingsTabs();
+  initializePaintSpeed();
   initializeImageEditor();
   bindRangePair("brush-size", "brush-size-number", "paint.brushSizeTexels");
   bindRangePair("color-compression-tolerance", "color-compression-tolerance-number", "paint.colorCompressionTolerance");
