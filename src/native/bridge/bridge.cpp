@@ -1367,6 +1367,7 @@ namespace
         double b{1.0};
         double roughness{0.0};
         double metallic{1.0};
+        double emissive{0.0};
         int apply_mode{0};
     };
 
@@ -1379,6 +1380,7 @@ namespace
         double b{1.0};
         double roughness{0.65};
         double metallic{0.0};
+        double emissive{0.0};
         double screen_nx{0.5};
         double screen_ny{0.5};
         int uv_island{-1};
@@ -8015,6 +8017,7 @@ namespace
         double b{1.0};
         double roughness{0.65};
         double metallic{0.0};
+        double emissive{0.0};
         double source_distance_uv{0.0};
         double source_distance_component{0.0};
         bool source_candidate{false};
@@ -9310,6 +9313,7 @@ namespace
         color.b = clamp01(color.b);
         color.roughness = 0.65;
         color.metallic = 0.0;
+        color.emissive = 0.0;
         return true;
     }
 
@@ -9401,6 +9405,7 @@ namespace
                     sample.b = clamp01(direct_source->b);
                     sample.roughness = clamp01(std::max(0.35, direct_source->roughness));
                     sample.metallic = clamp01(direct_source->metallic);
+                    sample.emissive = clamp01(direct_source->emissive);
                     sample.unsafe = false;
                     ++stats.source_direct_assignments;
                     ++stats.enabled_samples;
@@ -9464,6 +9469,7 @@ namespace
                         sample.b = clamp01(best->b);
                         sample.roughness = clamp01(std::max(0.35, best->roughness));
                         sample.metallic = clamp01(best->metallic);
+                        sample.emissive = clamp01(best->emissive);
                         sample.unsafe = !std::isfinite(sample.source_distance_component) ||
                                         sample.source_distance_component > side_component_distance_limit;
                         if (sample.unsafe)
@@ -9509,6 +9515,7 @@ namespace
                         sample.b = clamp01(projected_color.b);
                         sample.roughness = clamp01(projected_color.roughness);
                         sample.metallic = clamp01(projected_color.metallic);
+                        sample.emissive = clamp01(projected_color.emissive);
                         sample.unsafe = false;
                         ++stats.source_projection_assignments;
                         ++stats.enabled_samples;
@@ -13476,22 +13483,15 @@ namespace
                         stroke_roughness = clamp01(sample.roughness);
                         ++material_properties_source_sample_fallbacks;
                     }
-                    if (emissive_properties.ok)
-                    {
-                        stroke_emissive = emissive_properties.emissive;
-                        ++material_properties_emissive_auto_samples;
-                    }
-                    else
-                    {
-                        ++material_properties_emissive_manual_fallbacks;
-                    }
+                    stroke_emissive = 0.0;
+                    ++material_properties_emissive_manual_fallbacks;
                 }
                 const auto apply_mode = research_apply_mode >= 0
                                             ? static_cast<sdk::EPaintChannelApplyMode>(research_apply_mode)
                                             : sdk::EPaintChannelApplyMode::Override;
-                channel = sdk_make_channel(sdk_srgb_to_linear_unit(sample.r),
-                                           sdk_srgb_to_linear_unit(sample.g),
-                                           sdk_srgb_to_linear_unit(sample.b),
+                channel = sdk_make_channel(clamp01(sample.r),
+                                           clamp01(sample.g),
+                                           clamp01(sample.b),
                                            stroke_metallic,
                                            stroke_roughness,
                                            stroke_emissive,
@@ -16030,7 +16030,7 @@ namespace
         params.WorldContextObject = reinterpret_cast<void*>(ctx.pawn);
         params.Width = width;
         params.Height = height;
-        params.Format = sdk::ETextureRenderTargetFormat::RTF_RGBA8_SRGB;
+        params.Format = sdk::ETextureRenderTargetFormat::RTF_RGBA8;
         params.ClearColor.R = 0.0f;
         params.ClearColor.G = 0.0f;
         params.ClearColor.B = 0.0f;
@@ -16599,6 +16599,65 @@ namespace
         return out;
     }
 
+    auto sdk_hide_actor_and_all_components(Reflection& ref, std::uintptr_t capture_component, std::uintptr_t actor) -> bool
+    {
+        if (!live_uobject(capture_component) || !live_uobject(actor))
+        {
+            return false;
+        }
+        bool any_hidden = false;
+
+        any_hidden = sdk_call_object_param(ref, capture_component, "HideActorComponents", actor) || any_hidden;
+
+        const auto root_component_offset = ref.resolve_property_offset("Actor", "RootComponent");
+        const auto attach_children_offset = ref.resolve_property_offset("SceneComponent", "AttachChildren");
+        const auto owned_components_offset = ref.resolve_property_offset("Actor", "OwnedComponents");
+
+        if (root_component_offset >= 0)
+        {
+            const auto root = safe_read<std::uintptr_t>(actor + root_component_offset);
+            if (live_uobject(root))
+            {
+                any_hidden = sdk_call_object_param(ref, capture_component, "HideComponent", root) || any_hidden;
+                if (attach_children_offset >= 0)
+                {
+                    const auto data = safe_read<std::uintptr_t>(root + attach_children_offset);
+                    const auto count = safe_read<int>(root + attach_children_offset + 8);
+                    if (data && count > 0 && count <= 512)
+                    {
+                        for (int i = 0; i < count; ++i)
+                        {
+                            const auto child = safe_read<std::uintptr_t>(data + static_cast<std::uintptr_t>(i) * 8);
+                            if (live_uobject(child))
+                            {
+                                any_hidden = sdk_call_object_param(ref, capture_component, "HideComponent", child) || any_hidden;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (owned_components_offset >= 0)
+        {
+            const auto data = safe_read<std::uintptr_t>(actor + owned_components_offset);
+            const auto count = safe_read<int>(actor + owned_components_offset + 8);
+            if (data && count > 0 && count <= 512)
+            {
+                for (int i = 0; i < count; ++i)
+                {
+                    const auto comp = safe_read<std::uintptr_t>(data + static_cast<std::uintptr_t>(i) * 8);
+                    if (live_uobject(comp))
+                    {
+                        any_hidden = sdk_call_object_param(ref, capture_component, "HideComponent", comp) || any_hidden;
+                    }
+                }
+            }
+        }
+
+        return any_hidden;
+    }
+
     auto sdk_configure_scene_capture_component_typed(std::uintptr_t capture_component,
                                                      std::uintptr_t render_target,
                                                      double fov_degrees = 90.0) -> bool
@@ -16813,7 +16872,12 @@ namespace
             return out;
         }
         out.texture_target_written = sdk_configure_scene_capture_component_typed(out.capture_component, out.render_target, out.capture_fov);
-        out.hide_component_called = native_front.mesh && sdk_call_object_param(ref, out.capture_component, "HideComponent", native_front.mesh);
+        std::string get_owner_failure{};
+        std::uintptr_t mesh_owner = native_front.mesh ? sdk_call_no_params_return_object(ref, native_front.mesh, "GetOwner", get_owner_failure) : 0;
+        bool hidden_owner = mesh_owner && sdk_hide_actor_and_all_components(ref, out.capture_component, mesh_owner);
+        bool hidden_pawn = ctx.pawn && sdk_hide_actor_and_all_components(ref, out.capture_component, ctx.pawn);
+        bool hidden_mesh = native_front.mesh && sdk_call_object_param(ref, out.capture_component, "HideComponent", native_front.mesh);
+        out.hide_component_called = hidden_owner || hidden_pawn || hidden_mesh;
         if (!out.texture_target_written)
         {
             out.failure = "front_capture_texture_target_write_failed";
@@ -17117,8 +17181,16 @@ namespace
         }
 
         auto& bulk = bulk_candidates[static_cast<std::size_t>(best_candidate)];
+
+        // Perform second capture pass for FinalColorLDR AFTER calibration succeeds
+        *reinterpret_cast<std::uint8_t*>(out.capture_component + sdk::FieldOffsets::SceneCaptureComponent_CaptureSource) =
+            static_cast<std::uint8_t>(sdk::ESceneCaptureSource::FinalColorLDR);
+        sdk_call_no_params(ref, out.capture_component, "CaptureScene");
+        Sleep(5);
+        auto bulk_candidates_ldr = sdk_read_render_target_bulk_candidates(ref, ctx, out.render_target, out.width, out.height, nullptr);
+
         out.bulk_readback_used = true;
-        out.texture_source = "bulk_calibrated_direct_texture";
+        out.texture_source = "bulk_calibrated_hybrid_base_ldr";
         out.bulk_backend = bulk.backend;
         out.bulk_inner_type = bulk.inner_type;
         out.bulk_bool_variant = bulk.bool_variant;
@@ -17132,13 +17204,58 @@ namespace
         out.capture_transform_backend = std::string(best_flip_x || best_flip_y ? "bulk_calibrated_flip" : "bulk_calibrated_identity");
         out.capture_flip_x = best_flip_x;
         out.capture_flip_y = best_flip_y;
-        for (auto& pixel : bulk.pixels)
+        
+        const bool has_ldr = best_candidate >= 0 &&
+                             best_candidate < static_cast<int>(bulk_candidates_ldr.size()) &&
+                             bulk_candidates_ldr[static_cast<std::size_t>(best_candidate)].pixels.size() == bulk.pixels.size();
+
+        out.capture_pixels.resize(bulk.pixels.size());
+        for (std::size_t i = 0; i < out.capture_pixels.size(); ++i)
         {
-            pixel = sdk_apply_bulk_color_transform(pixel, best_transform);
-            pixel.roughness = 0.65;
-            pixel.metallic = 0.0;
+            auto px_base = sdk_apply_bulk_color_transform(bulk.pixels[i], best_transform);
+            Color final_px = px_base;
+            if (has_ldr)
+            {
+                auto px_ldr = sdk_apply_bulk_color_transform(bulk_candidates_ldr[static_cast<std::size_t>(best_candidate)].pixels[i], best_transform);
+                const double lr = clamp01(px_ldr.r);
+                const double lg = clamp01(px_ldr.g);
+                const double lb = clamp01(px_ldr.b);
+                const double br = clamp01(px_base.r);
+                const double bg = clamp01(px_base.g);
+                const double bb = clamp01(px_base.b);
+
+                const double dr = lr - br;
+                const double dg = lg - bg;
+                const double db = lb - bb;
+                const double mean_d = (dr + dg + db) / 3.0;
+                const double var_d = ((dr - mean_d) * (dr - mean_d) + (dg - mean_d) * (dg - mean_d) + (db - mean_d) * (db - mean_d)) / 3.0;
+                const double stddev_d = std::sqrt(var_d);
+
+                const double ldr_bright = (lr + lg + lb) / 3.0;
+                const double base_bright = (br + bg + bb) / 3.0;
+                const double bright_diff = ldr_bright - base_bright;
+
+                // 1) Shadow Protection: If LDR is darker than BaseColor, ALWAYS use BaseColor.
+                // 2) Sunlight Specular Filter: Sunlight reflections on wet ground add uniform brightness across channels (stddev_d < 0.14).
+                // 3) True Chromatic Emissive Filter: True emissive objects (glowing bulbs, neon, lasers) have high chromatic variance (stddev_d >= 0.14).
+                bool is_emissive = false;
+                if (bright_diff > 0.18 && ldr_bright > 0.50)
+                {
+                    if (stddev_d >= 0.14 || (ldr_bright > 0.88 && bright_diff > 0.55 && stddev_d > 0.08))
+                    {
+                        is_emissive = true;
+                    }
+                }
+
+                if (is_emissive)
+                {
+                    final_px = px_ldr;
+                }
+            }
+            final_px.roughness = 0.65;
+            final_px.metallic = 0.0;
+            out.capture_pixels[i] = final_px;
         }
-        out.capture_pixels = std::move(bulk.pixels);
         out.capture_pixels_available = out.capture_pixels.size() >= static_cast<std::size_t>(out.width) * static_cast<std::size_t>(out.height);
 
         out.samples.reserve(projected.size());
@@ -17179,6 +17296,7 @@ namespace
             auto resolved_color = raw_color;
             resolved_color.roughness = 0.65;
             resolved_color.metallic = 0.0;
+            resolved_color.emissive = 0.0;
             const auto resolved_delta = sdk_color_distance_rgb(raw_color, resolved_color);
             if (std::isfinite(resolved_delta))
             {
@@ -17192,6 +17310,7 @@ namespace
             sample.b = clamp01(resolved_color.b);
             sample.metallic = clamp01(resolved_color.metallic);
             sample.roughness = clamp01(resolved_color.roughness);
+            sample.emissive = clamp01(resolved_color.emissive);
             out.samples.push_back(sample);
             const double values[]{sample.r, sample.g, sample.b};
             bool whiteish = true;
