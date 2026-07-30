@@ -51,6 +51,9 @@ public:
         const PaintQueueObservation& observation)
         -> std::expected<void, PaintJobCoordinatorError>;
 
+    [[nodiscard]] auto requires_queue_observation() const noexcept
+        -> bool;
+
 private:
     enum class Stage : std::uint8_t
     {

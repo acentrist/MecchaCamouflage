@@ -93,7 +93,8 @@ not yet complete.
 - One preview state machine owns the cross-feature lease, guards component
   identity, and makes restore exactly-once.
 - Snapshots are immutable shared values with monotonic revisions. Diagnostic
-  history has a hard capacity and stable sequence numbers.
+  history has a hard capacity and stable sequence numbers. Command queue
+  pressure is published with the same immutable snapshot.
 - The bounded game-thread scheduler keeps separate control and frame lanes.
   One slot is reserved from frame admission, and resolve/rebind/restore work
   drains before Paint/texture work, so teardown and rebinding cannot be

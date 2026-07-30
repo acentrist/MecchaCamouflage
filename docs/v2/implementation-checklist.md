@@ -115,6 +115,9 @@ Evidence:
 - [x] Implement structured compatibility failures and bounded diagnostics.
 - [ ] Implement representative retained Paint and Image Paint runtime
   operations on the game-thread path.
+  - [x] Connect typed Paint capture, planning, dispatch, queue observation, and
+    completion through `ApplicationRoot` with a fake game-thread runtime.
+  - [ ] Connect representative Image Paint and production UE4SS operations.
 - [x] Implement restore-before-unregister explicit unload ordering.
 - [ ] Pass fake-runtime, thread-affinity, lifecycle fault, and concurrent
   uninstall tests.
@@ -191,6 +194,8 @@ Evidence:
   failure, and stale-result rejection through the shared job generation.
 - [x] Implement the bounded typed albedo/packed-PBR preview snapshot controller,
   ownership guards, apply recovery, replacement restore, and shutdown restore.
+- [x] Connect typed Start/Cancel Paint, capture, planning, dispatch, queue
+  observation, progress, and terminal completion through `ApplicationRoot`.
 - [ ] Implement exact preview capture/apply/restore ownership.
 - [ ] Dispatch only through game-owned `PaintAtUVWithBrush`.
 - [x] Implement bounded per-frame pacing, progress, cancellation, and terminal

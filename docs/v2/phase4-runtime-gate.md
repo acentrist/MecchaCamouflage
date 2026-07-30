@@ -11,9 +11,10 @@ open.
 
 - `meccha_application` is built independently from UE4SS and depends only on
   project-owned core interfaces.
-- `ApplicationRoot` owns the runtime lifecycle, loaded configuration, job and
-  preview state machines, compatibility state, bounded diagnostics, and
-  immutable snapshot publisher. Platform adapters remain injected ports.
+- `ApplicationRoot` owns the runtime lifecycle, loaded configuration, bounded
+  typed command queue, Paint planner/worker/coordinator, job and preview state
+  machines, compatibility state, bounded diagnostics, and immutable snapshot
+  publisher. Platform adapters remain injected ports.
 - The root runtime state is explicit:
   `Cold -> Initializing -> Compatible | Incompatible -> ShuttingDown ->
   Stopped`.
@@ -53,6 +54,11 @@ open.
 - `RuntimeOperationExecutor` is the sole typed dispatcher from scheduled
   operations to `UnrealRuntimePort`. It independently rejects direct
   off-game-thread calls and preserves adapter failures unchanged.
+- `PaintGameRuntimePort` is the only root-facing capture/queue-observation
+  boundary. A Start Paint command is captured on the HUD callback, planned
+  from copied values off-thread, admitted through the lifecycle-owned queue,
+  executed through `PaintAtUvWithBrush`, and completed only after observed
+  runtime drain.
 - Shutdown closes scheduling, deterministically discards pending feature work,
   requires transient UI/preview/input restoration on the game thread, and
   refuses callback unregistration until restoration succeeds.
@@ -89,14 +95,19 @@ open.
 - cancellation of queued work during shutdown;
 - restore-before-unregister ordering.
 
+`application_root_paint_test` additionally covers bounded command
+backpressure, immutable snapshot queue pressure, typed Paint capture,
+off-thread planning, lifecycle-owned dispatch, runtime queue observation,
+terminal completion, and frame-owned UI/ESP toggles end to end.
+
 The test runs in both the Linux secret-free build and the Windows MSVC
 `/W4 /WX` build.
 
 ## Remaining Phase 4 work
 
-- Add Paint, Image Paint, ESP, UI, and the production
-  `UnrealRuntimeAdapter` to the existing owned root as those modules are
-  implemented.
+- Add Paint preview composition, Image Paint, ESP, full UI, persistence
+  lifecycle, and the production `UnrealRuntimeAdapter` to the existing owned
+  root as those modules are implemented.
 - Implement the pinned UE4SS callback registration adapter and prove exact
   callback unregistration against its real APIs.
 - Bind the typed Paint/Image requests to validated reflected UFunction and

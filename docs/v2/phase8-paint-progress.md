@@ -110,6 +110,13 @@ confirmation window; they do not permit immediate completion or cancellation.
 The captured component handle belongs to the job and does not change when a
 controller/freecam pawn changes.
 
+`ApplicationRoot` now owns the complete fake-runtime Paint path. On each HUD
+callback it drains a bounded number of typed commands, captures through
+`PaintGameRuntimePort`, starts the immutable worker/coordinator generation,
+observes authoritative queue state only after dispatch begins, and publishes
+the resulting job and command-queue state. The root never captures or observes
+Paint from `on_update()`.
+
 ## Preview ownership and recovery boundary
 
 `PaintPreviewController` owns the only project-side original preview snapshot.
@@ -166,13 +173,16 @@ tests pass on GCC and MSVC Release. `paint_preview_controller` covers
 game-thread enforcement, capture reuse, replacement ordering, strict image
 bounds, wrong-component and repeat guards, apply recovery, retained recovery
 failure, shutdown restoration, malformed capture, and invalid-handle expiry.
-The secret-free Linux suite currently passes all 30 registered tests.
+`application_root_paint` covers the end-to-end command, capture, worker,
+dispatch, execution, observation, completion, command backpressure, and
+frame-owned UI/ESP path. The secret-free Linux suite currently passes all 32
+registered tests.
 
 ## Remaining gate
 
 - Capture the live component/profile/source appearance and preview snapshot
   through validated reflected contracts on the game thread.
-- Connect the coordinator to `ApplicationRoot`, live game queue observers, and
-  exact preview restoration.
+- Implement the production UE4SS capture/queue-observer contracts and connect
+  Paint preview composition plus exact reflected restoration.
 - Complete fake-runtime failures and the deferred single-/two-client live
   matrix before Phase 8 can close.

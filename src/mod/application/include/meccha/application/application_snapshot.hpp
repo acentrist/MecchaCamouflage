@@ -1,5 +1,6 @@
 #pragma once
 
+#include <meccha/application/application_command_queue.hpp>
 #include <meccha/application/compatibility.hpp>
 #include <meccha/application/game_thread_scheduler.hpp>
 #include <meccha/application/job_state.hpp>
@@ -74,6 +75,7 @@ struct ApplicationSnapshot
     core::ApplicationConfig settings{};
     JobSnapshot job{};
     PreviewLeaseSnapshot preview{};
+    CommandQueueSnapshot command_queue{};
     QueueSnapshot runtime_queue{};
     std::optional<HudFrameIdentity> frame_identity{};
     CompatibilitySnapshot compatibility{};

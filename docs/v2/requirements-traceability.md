@@ -61,7 +61,7 @@ inventory drift.
 | ID | Retained contract | v1 authority | v2 owner | Required evidence | Replaces/deletes |
 | --- | --- | --- | --- | --- | --- |
 | RUNTIME-001 | The mod loads through the pinned UE4SS runtime and exports only `start_mod`/`uninstall_mod`. | `RuntimeBridgeService`, injector, `BridgeStartV1` | `mod` composition root | T0, T2, T4 | Custom injector/bootstrap ABI |
-| RUNTIME-002 | Every UObject discovery/read/write/UFunction call occurs on the game thread. | Bridge tick/ProcessEvent paths | `GameThreadScheduler`, `UnrealRuntimeAdapter` | T1, T2, T4 | Bridge worker UObject access |
+| RUNTIME-002 | Every UObject discovery/read/write/UFunction call occurs on the game thread. | Bridge tick/ProcessEvent paths | `ApplicationRoot`, `PaintGameRuntimePort`, `GameThreadScheduler`, `UnrealRuntimeAdapter` | T1, T2, T4 | Bridge worker UObject access |
 | RUNTIME-003 | World, controller, pawn, HUD, and Canvas bindings recover after travel/replacement/freecam/spectator changes. | Bridge context and ESP rebinding | `HudFrameAdapter`, runtime adapter | T2, T4 | Resident bridge context globals |
 | RUNTIME-004 | Explicit unload restores leases, unregisters callbacks, drains in-flight calls, and leaves no callback into unloaded code. | Bridge quiescence logic | Lifecycle state machine | T1, T2, T4 | Bridge shutdown/reinjection lifecycle |
 | RUNTIME-005 | Every game-specific class/property/UFunction/layout is validated and failure is actionable/fail-closed. | Reflection helpers, `SDK` assertions | Compatibility table | T0, T2, T4 | Custom permissive reflection scanners |

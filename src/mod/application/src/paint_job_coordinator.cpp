@@ -164,6 +164,12 @@ auto PaintJobCoordinator::request_cancel(
     return {};
 }
 
+auto PaintJobCoordinator::requires_queue_observation() const noexcept
+    -> bool
+{
+    return stage_ == Stage::Dispatch;
+}
+
 auto PaintJobCoordinator::consume_planning(
     PaintPlanningCompletion completion,
     std::uint64_t now_ms,
