@@ -161,6 +161,36 @@ ApplicationRoot::ApplicationRoot(
     image_editor_ = &image_editor;
 }
 
+ApplicationRoot::ApplicationRoot(
+    RuntimeCallbackPort& callbacks,
+    GameThreadExecutor& executor,
+    AtomicTextStorage& config_storage,
+    PaintGameRuntimePort& paint_runtime,
+    GameThreadContext& game_thread_context,
+    PaintPreviewRuntimePort& paint_preview_runtime,
+    ImagePaintGameRuntimePort& image_runtime,
+    ImageEditorSessionPort& image_editor,
+    EspGameRuntimePort& esp_runtime,
+    std::size_t queue_capacity,
+    std::size_t command_capacity,
+    std::size_t diagnostic_capacity)
+    : ApplicationRoot{
+          callbacks,
+          executor,
+          config_storage,
+          paint_runtime,
+          game_thread_context,
+          paint_preview_runtime,
+          image_runtime,
+          image_editor,
+          queue_capacity,
+          command_capacity,
+          diagnostic_capacity}
+{
+    esp_frames_ =
+        std::make_unique<EspFrameCoordinator>(esp_runtime);
+}
+
 auto ApplicationRoot::initialize()
     -> std::expected<void, ApplicationRootError>
 {
@@ -381,7 +411,9 @@ auto ApplicationRoot::on_hud_frame_complete(
         }
         if (advance)
         {
-            process_commands(monotonic_milliseconds());
+            process_commands(
+                monotonic_milliseconds(),
+                *runtime_snapshot.frame_identity);
         }
         if (advance_root_shutdown)
         {
@@ -446,7 +478,9 @@ auto ApplicationRoot::record_command_error(
         command_id);
 }
 
-auto ApplicationRoot::process_commands(std::uint64_t now_ms) noexcept
+auto ApplicationRoot::process_commands(
+    std::uint64_t now_ms,
+    const HudFrameIdentity& frame_identity) noexcept
     -> void
 {
     try
@@ -460,6 +494,7 @@ auto ApplicationRoot::process_commands(std::uint64_t now_ms) noexcept
         advance_paint(now_ms);
         advance_image_paint(now_ms);
         advance_paint_preview(now_ms);
+        advance_esp(frame_identity);
     }
     catch (...)
     {
@@ -695,6 +730,44 @@ auto ApplicationRoot::advance_image_editor() -> void
                 *completion->result->config;
         }
     }
+}
+
+auto ApplicationRoot::advance_esp(
+    const HudFrameIdentity& frame_identity) -> void
+{
+    if (!esp_frames_)
+    {
+        return;
+    }
+
+    auto settings = core::EspSettings{};
+    auto enabled = false;
+    {
+        const auto lock = std::scoped_lock{state_mutex_};
+        settings = settings_.esp;
+        enabled = esp_enabled_;
+    }
+
+    const auto previous = esp_frames_->snapshot();
+    const auto advanced =
+        esp_frames_->tick(enabled, settings, frame_identity);
+    if (advanced ||
+        previous.phase == EspFramePhase::Failed)
+    {
+        return;
+    }
+    if (advanced.error().runtime)
+    {
+        record_runtime_error(
+            *advanced.error().runtime,
+            std::nullopt);
+        return;
+    }
+
+    const auto lock = std::scoped_lock{state_mutex_};
+    diagnostics_.push(
+        DiagnosticSeverity::Error,
+        GenericFailureMessage);
 }
 
 auto ApplicationRoot::begin_paint(
@@ -1397,6 +1470,10 @@ auto ApplicationRoot::publish_locked(
     snapshot.runtime_phase = phase_;
     snapshot.ui_open = ui_open_;
     snapshot.esp_enabled = esp_enabled_;
+    snapshot.esp =
+        esp_frames_
+            ? esp_frames_->snapshot()
+            : EspFrameSnapshot{};
     snapshot.settings = settings_;
     snapshot.image_editor =
         image_editor_

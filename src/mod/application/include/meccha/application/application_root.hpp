@@ -3,6 +3,7 @@
 #include <meccha/application/application_command_queue.hpp>
 #include <meccha/application/application_snapshot.hpp>
 #include <meccha/application/config_store.hpp>
+#include <meccha/application/esp_frame_coordinator.hpp>
 #include <meccha/application/image_editor_session.hpp>
 #include <meccha/application/image_paint_game_runtime.hpp>
 #include <meccha/application/image_paint_job_coordinator.hpp>
@@ -59,6 +60,19 @@ public:
         PaintPreviewRuntimePort& paint_preview_runtime,
         ImagePaintGameRuntimePort& image_runtime,
         ImageEditorSessionPort& image_editor,
+        EspGameRuntimePort& esp_runtime,
+        std::size_t queue_capacity,
+        std::size_t command_capacity,
+        std::size_t diagnostic_capacity);
+    ApplicationRoot(
+        RuntimeCallbackPort& callbacks,
+        GameThreadExecutor& executor,
+        AtomicTextStorage& config_storage,
+        PaintGameRuntimePort& paint_runtime,
+        GameThreadContext& game_thread_context,
+        PaintPreviewRuntimePort& paint_preview_runtime,
+        ImagePaintGameRuntimePort& image_runtime,
+        ImageEditorSessionPort& image_editor,
         std::size_t queue_capacity,
         std::size_t command_capacity,
         std::size_t diagnostic_capacity);
@@ -102,7 +116,11 @@ private:
         std::optional<CommandId> command_id) -> void;
     auto record_command_error(CommandId command_id) -> void;
     auto advance_image_editor() -> void;
-    auto process_commands(std::uint64_t now_ms) noexcept -> void;
+    auto advance_esp(
+        const HudFrameIdentity& frame_identity) -> void;
+    auto process_commands(
+        std::uint64_t now_ms,
+        const HudFrameIdentity& frame_identity) noexcept -> void;
     auto process_command(
         ApplicationCommand command,
         std::uint64_t now_ms) -> void;
@@ -148,6 +166,7 @@ private:
     PaintGameRuntimePort* paint_runtime_{};
     ImagePaintGameRuntimePort* image_paint_runtime_{};
     ImageEditorSessionPort* image_editor_{};
+    std::unique_ptr<EspFrameCoordinator> esp_frames_{};
     std::unique_ptr<ApplicationCommandQueue> command_queue_{};
     std::unique_ptr<PaintPreviewController> paint_previews_{};
     std::optional<RuntimeObjectHandle> active_paint_component_{};

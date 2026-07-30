@@ -515,6 +515,50 @@ public:
     JobGeneration observed_generation{};
     bool hold_queues{};
 };
+
+class FakeEspRuntime final : public EspGameRuntimePort
+{
+public:
+    auto capture()
+        -> std::expected<
+            CapturedEspFrame,
+            RuntimeExecutionError> override
+    {
+        ++capture_count;
+        return CapturedEspFrame{
+            frame_identity,
+            {},
+            {1920.0, 1080.0},
+            {core::EspTargetCapture{
+                91U,
+                92U,
+                core::EspRole::Hider,
+                core::EspRole::Unknown,
+                "Player",
+                core::EspWorldPoint{100.0, 0.0, 0.0},
+            }},
+        };
+    }
+
+    auto draw(
+        const HudFrameIdentity& identity,
+        const core::EspPrimitiveFrame& frame)
+        -> std::expected<void, RuntimeExecutionError> override
+    {
+        ++draw_count;
+        drawn_identity = identity;
+        line_count = frame.lines.size();
+        text_count = frame.texts.size();
+        return {};
+    }
+
+    HudFrameIdentity frame_identity{};
+    HudFrameIdentity drawn_identity{};
+    std::size_t capture_count{};
+    std::size_t draw_count{};
+    std::size_t line_count{};
+    std::size_t text_count{};
+};
 } // namespace
 
 auto main() -> int
@@ -531,6 +575,10 @@ auto main() -> int
     auto paint = UnusedPaintRuntime{};
     auto projects = ReadyProject{};
     auto image = FakeImageRuntime{};
+    constexpr auto Frame =
+        HudFrameIdentity{1U, 2U, 3U, 4U};
+    auto esp = FakeEspRuntime{};
+    esp.frame_identity = Frame;
     auto root = ApplicationRoot{
         callbacks,
         executor,
@@ -540,13 +588,12 @@ auto main() -> int
         preview,
         image,
         projects,
+        esp,
         4U,
         2U,
         8U,
     };
 
-    constexpr auto Frame =
-        HudFrameIdentity{1U, 2U, 3U, 4U};
     passed &= expect(
         root.initialize().has_value(),
         "the Image Paint composition root did not initialize");
@@ -560,6 +607,50 @@ auto main() -> int
         callbacks.invoke(Frame);
         return enqueued;
     };
+
+    callbacks.invoke(Frame);
+    passed &= expect(
+        !root.snapshot()->ui_open &&
+            root.snapshot()->esp.phase ==
+                EspFramePhase::Active &&
+            root.snapshot()->esp.line_count == 1U &&
+            root.snapshot()->esp.text_count == 1U &&
+            esp.capture_count == 1U &&
+            esp.draw_count == 1U &&
+            esp.drawn_identity == Frame &&
+            esp.line_count == 1U &&
+            esp.text_count == 1U,
+        "ESP did not render while the control panel was closed");
+
+    passed &= expect(
+        route(ToggleUi{201U}) ==
+                CommandEnqueueResult::Accepted &&
+            root.snapshot()->ui_open &&
+            esp.draw_count == 3U &&
+            route(ToggleUi{202U}) ==
+                CommandEnqueueResult::Accepted &&
+            !root.snapshot()->ui_open &&
+            esp.draw_count == 5U,
+        "ESP rendering was coupled to the control panel state");
+
+    const auto before_disable = esp.draw_count;
+    passed &= expect(
+        route(ToggleEsp{203U}) ==
+                CommandEnqueueResult::Accepted &&
+            !root.snapshot()->esp_enabled &&
+            root.snapshot()->esp.phase ==
+                EspFramePhase::Disabled &&
+            esp.capture_count == before_disable &&
+            esp.draw_count == before_disable &&
+            route(ToggleEsp{204U}) ==
+                CommandEnqueueResult::Accepted &&
+            root.snapshot()->esp_enabled &&
+            root.snapshot()->esp.phase ==
+                EspFramePhase::Active &&
+            esp.capture_count == before_disable + 2U &&
+            esp.draw_count == before_disable + 2U,
+        "the typed ESP toggle did not gate frame capture and draw");
+
     passed &= expect(
         route(LoadImageProject{
             251U,

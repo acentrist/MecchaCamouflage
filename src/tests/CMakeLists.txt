@@ -236,6 +236,30 @@ target_link_libraries(
 )
 add_test(NAME core_contract COMMAND meccha_core_contract_tests)
 
+add_executable(meccha_esp_frame_tests esp_frame_test.cpp)
+target_link_libraries(
+    meccha_esp_frame_tests
+    PRIVATE
+        MecchaCamouflage::Core
+        meccha_build_options
+)
+add_test(NAME esp_frame COMMAND meccha_esp_frame_tests)
+
+add_executable(
+    meccha_esp_frame_coordinator_tests
+    esp_frame_coordinator_test.cpp
+)
+target_link_libraries(
+    meccha_esp_frame_coordinator_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(
+    NAME esp_frame_coordinator
+    COMMAND meccha_esp_frame_coordinator_tests
+)
+
 add_executable(
     meccha_image_compositor_tests
     image_compositor_test.cpp

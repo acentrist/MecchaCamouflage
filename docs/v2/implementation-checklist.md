@@ -152,6 +152,9 @@ Evidence:
 - [x] Port retained value types and validation to focused C++ modules.
 - [ ] Port profile, region, color/PBR, atlas-mapping, pacing, compression, ESP,
   and timing algorithms.
+  - [x] Port bounded ESP role/spectator filtering, avatar-cache policy,
+    perspective projection, capsule/pose bounds, viewport clipping, and
+    frame-primitive construction.
 - [x] Implement typed commands and immutable revisioned snapshots.
 - [x] Implement bounded concurrent typed-command admission, FIFO frame drains,
   close/discard shutdown, and invalid command-ID rejection.
@@ -298,13 +301,32 @@ Evidence:
 
 - [ ] Implement coherent game-thread target/role/avatar/pose capture.
 - [ ] Implement project-owned projection and Canvas primitive rendering.
+  - [x] Implement bounded project-owned target values, role/spectator
+    filtering, projection, clipping, capsule/pose bounds, and line/text
+    primitive construction without graphics or Unreal dependencies.
+  - [x] Coordinate exact-HUD-frame capture/build/draw through a typed runtime
+    port and publish immutable frame diagnostics.
+  - [ ] Implement the production UE4SS capture and UCanvas draw adapters.
 - [ ] Implement every scope, primitive, role color, and clipping rule.
+  - [x] Cover every configured scope, primitive toggle, role color, and
+    viewport/behind-camera clipping rule in the pure builder.
 - [ ] Invalidate/rebuild on role, avatar, spectator, travel, HUD, and lifetime
   changes.
+  - [x] Specify and test the project-owned role/avatar cache policy and reject
+    stale HUD frame identities before draw.
+  - [ ] Apply the policy to validated production weak Unreal handles across
+    travel, HUD, freecam, spectator, role, and avatar transitions.
 - [ ] Pass projection, filtering, skeleton, invalidation, fake-runtime, and
   forbidden-hook tests.
+  - [x] Pass pure projection/filtering/skeleton/resource tests, coordinator
+    failure tests, and root integration proving ESP remains active while the
+    panel is closed.
 - [ ] DEFERRED — maintainer interaction required: complete all live ESP and
   lifecycle checks.
+
+Evidence:
+
+- [`phase10-esp-progress.md`](phase10-esp-progress.md)
 
 ## Phase 11 — Full product UI and integration
 

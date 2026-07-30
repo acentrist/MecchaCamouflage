@@ -7,6 +7,7 @@ add_library(
         src/callback_barrier.cpp
         src/config_codec.cpp
         src/config_store.cpp
+        src/esp_frame_coordinator.cpp
         src/game_thread_scheduler.cpp
         src/image_composition_worker.cpp
         src/image_decode_worker.cpp

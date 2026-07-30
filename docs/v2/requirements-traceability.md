@@ -125,16 +125,16 @@ inventory drift.
 
 | ID | Retained contract | v1 authority | v2 owner | Required evidence | Replaces/deletes |
 | --- | --- | --- | --- | --- | --- |
-| ESP-001 | ESP defaults enabled and remains active while the panel is closed. | `Models`, native Present behavior | ESP engine/UI | T1, T4 | External UI/native Present coupling |
-| ESP-002 | Scope supports all/hider/hunter. | `Models`, Session/Web UI | ESP filter | T1, T4 | JSON config command |
-| ESP-003 | Boxes, skeletons, names, distance, and snaplines are independently toggleable and default on. | `Models` | ESP model/renderer | T1, T4 | D3D primitive config |
-| ESP-004 | Hider color defaults `#00FF88`; hunter color defaults `#FF0000`. | `Models` | ESP model | T1, T4 | C# settings |
-| ESP-005 | Spectators are excluded before target geometry. | Bridge ESP capture | ESP capture | T1, T2, T4 | Bridge snapshot |
-| ESP-006 | Role changes and avatar replacement invalidate cached identity/geometry. | Bridge avatar directory/capture | ESP capture cache | T1, T2, T4 | Bridge globals |
-| ESP-007 | Skeleton topology is selected safely and pose/root fallback never uses partial invalid data. | Bridge pose/capture, projection tests | ESP capture/core | T1, T2, T4 | Bridge pose reader |
-| ESP-008 | Projection/clipping honors viewport/aspect and distant snaplines reach the edge. | `Native contracts`, projection tests | ESP core | T1, T2, T4 | D3D renderer math |
+| ESP-001 | ESP defaults enabled and remains active while the panel is closed. | `Models`, native Present behavior | `ApplicationRoot` + `EspFrameCoordinator` | T1, T4 | External UI/native Present coupling |
+| ESP-002 | Scope supports all/hider/hunter. | `Models`, Session/Web UI | ESP core frame builder | T1, T4 | JSON config command |
+| ESP-003 | Boxes, skeletons, names, distance, and snaplines are independently toggleable and default on. | `Models` | ESP core frame builder + Canvas renderer | T1, T4 | D3D primitive config |
+| ESP-004 | Hider color defaults `#00FF88`; hunter color defaults `#FF0000`. | `Models` | ESP core frame builder | T1, T4 | C# settings |
+| ESP-005 | Spectators are excluded before target geometry. | Bridge ESP capture | ESP core frame builder + runtime capture | T1, T2, T4 | Bridge snapshot |
+| ESP-006 | Role changes and avatar replacement invalidate cached identity/geometry. | Bridge avatar directory/capture | ESP core cache policy + runtime capture cache | T1, T2, T4 | Bridge globals |
+| ESP-007 | Skeleton topology is selected safely and pose/root fallback never uses partial invalid data. | Bridge pose/capture, projection tests | ESP core frame builder + runtime capture | T1, T2, T4 | Bridge pose reader |
+| ESP-008 | Projection/clipping honors viewport/aspect and distant snaplines reach the edge. | `Native contracts`, projection tests | ESP core frame builder | T1, T2, T4 | D3D renderer math |
 | ESP-009 | Lobby/match/travel/HUD/freecam/spectator transitions rebind without stale UObjects. | Bridge DrawHUD rebinding | Runtime/ESP | T2, T4 | ProcessEvent-vtable path |
-| ESP-010 | ESP renders only through frame-scoped UCanvas primitives. | v1 Canvas capture feasibility; PLAN | Canvas renderer | T0, T4 | DXGI/D3D/Present/MinHook |
+| ESP-010 | ESP renders only through frame-scoped UCanvas primitives. | v1 Canvas capture feasibility; PLAN | `EspFrameCoordinator` + Canvas renderer | T0, T4 | DXGI/D3D/Present/MinHook |
 
 ## UI, input, localization, and diagnostics
 

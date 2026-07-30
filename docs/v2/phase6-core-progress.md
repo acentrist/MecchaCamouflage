@@ -104,10 +104,19 @@ not yet complete.
 
 ### ESP
 
-- Scope/role filtering with spectator exclusion.
-- Role-roster avatar replacement selection.
-- Spectator-safe geometry capabilities.
-- Bounds expansion and projection-scale calibration.
+- Bounded immutable target, view, viewport, capsule, skeleton, line, and text
+  values without Unreal or graphics dependencies.
+- Scope/current-role filtering with spectator exclusion and role colors.
+- Role-roster avatar replacement selection and explicit cache refresh/reuse
+  policy.
+- Perspective projection for all aspect constraints, projection-scale
+  calibration, capsule/pose bounds, full viewport line clipping, and
+  behind-camera snapline direction.
+- Independently controlled box, skeleton, name, distance, and snapline
+  primitives with invalid-topology fallback and bounded diagnostics.
+- Exact-HUD-frame capture/build/draw coordination through a project-owned
+  runtime port; production UE4SS capture and UCanvas drawing remain Phase 10
+  work.
 
 ### Configuration boundary
 
@@ -172,7 +181,7 @@ copied inputs, bounded concurrency, generation-checked cancellation,
 planner/composer errors, immutable publication, worker reuse, exception
 containment, and terminal shutdown. `application_command_queue_test` covers
 hard capacity, invalid IDs, FIFO bounded drains, concurrent publication, and
-terminal close/discard. The secret-free Linux suite currently passes all 46
+terminal close/discard. The secret-free Linux suite currently passes all 48
 registered tests.
 
 ## Deliberate non-port

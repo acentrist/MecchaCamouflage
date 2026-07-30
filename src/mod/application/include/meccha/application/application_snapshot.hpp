@@ -2,6 +2,7 @@
 
 #include <meccha/application/application_command_queue.hpp>
 #include <meccha/application/compatibility.hpp>
+#include <meccha/application/esp_frame_coordinator.hpp>
 #include <meccha/application/game_thread_scheduler.hpp>
 #include <meccha/application/image_editor_session.hpp>
 #include <meccha/application/job_state.hpp>
@@ -73,6 +74,7 @@ struct ApplicationSnapshot
         ApplicationRuntimePhase::Cold};
     bool ui_open{};
     bool esp_enabled{true};
+    EspFrameSnapshot esp{};
     core::ApplicationConfig settings{};
     ImageEditorSessionSnapshot image_editor{};
     JobSnapshot job{};
