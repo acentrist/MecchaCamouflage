@@ -2,6 +2,9 @@ add_library(
     meccha_ui
     STATIC
         src/canvas.cpp
+        src/image_crop.cpp
+        src/image_editor_interaction.cpp
+        src/image_editor_view.cpp
         src/input_lease.cpp
         src/interaction.cpp
         src/layout.cpp

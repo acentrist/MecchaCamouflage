@@ -179,6 +179,18 @@ target_link_libraries(
 add_test(NAME ui_text_edit COMMAND meccha_ui_text_edit_tests)
 
 add_executable(
+    meccha_ui_image_editor_tests
+    ui_image_editor_test.cpp
+)
+target_link_libraries(
+    meccha_ui_image_editor_tests
+    PRIVATE
+        MecchaCamouflage::Ui
+        meccha_build_options
+)
+add_test(NAME ui_image_editor COMMAND meccha_ui_image_editor_tests)
+
+add_executable(
     meccha_mesh_profile_codec_tests
     mesh_profile_codec_test.cpp
 )

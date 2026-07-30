@@ -221,8 +221,11 @@ Evidence:
 - [x] Implement responsive viewport/DPI scaling.
 - [ ] Implement localized game-font and packaged OFL fallback-glyph paths.
 - [ ] Render representative ESP primitives while the panel is closed.
-- [ ] Complete the retained two-layer Image Paint editor vertical slice.
-- [ ] Keep body guides above layers and outside the canonical atlas.
+- [x] Complete the retained portable two-layer Image Paint editor vertical
+  slice with topmost selection, retained move/resize/crop/order transitions,
+  immutable layer edits, Canvas atlas display, and selection handles.
+- [x] Keep body guides above layers and outside the canonical atlas through a
+  separate exact-profile/version-bound Canvas texture overlay.
 - [ ] Pass layout, hit-test, input-lease, glyph, editor, worker-result, and
   texture-lifetime tests.
   - [x] Pass portable Canvas clipping/resource and input-lease rollback/retry/
@@ -233,6 +236,8 @@ Evidence:
     activation, value-mapping, duplicate-ID, and high-DPI scale tests.
   - [x] Pass portable keyboard navigation/activation/cancel tests and ordered
     bounded single-line UTF-8 edit/cursor/commit/cancel tests.
+  - [x] Pass portable two-layer selection, move, resize, reorder, crop,
+    cancellation, guide-ordering, identity, limit, and clip-unwind tests.
 - [ ] DEFERRED — maintainer interaction required: verify the complete Canvas
   viability checklist in the live game.
 
@@ -353,6 +358,9 @@ Evidence:
     publish persistence/draft pressure in immutable snapshots, preserve current
     edits during rename, drain draft writes before delete, and close the
     session only after runtime callbacks are unregistered.
+  - [x] Implement bounded project-owned layer selection, move, corner resize,
+    reorder, crop/zoom, exact cancellation, and immutable edit results for the
+    in-game Canvas editor.
   - [ ] Connect those values to the complete in-game editor lifecycle.
 - [x] Implement deterministic cancellable 1024×512 RGBA composition.
   - [x] Run composition on one owned worker with copied immutable inputs,
@@ -360,6 +368,10 @@ Evidence:
     results, exception containment, and terminal shutdown.
   - [x] Reject stale project revisions in the application/editor owner.
 - [ ] Implement versioned round/cube/fukuyoka guide overlays.
+  - [x] Define an exact image-profile/schema-bound guide texture contract and
+    render it separately after the canonical atlas.
+  - [ ] Generate and lifetime-manage the guide textures from the three exact
+    packaged reference profiles through the production runtime adapter.
 - [ ] Implement game-thread preview texture lifetime.
 - [ ] Implement all profile mappings and reuse the accepted Paint dispatch.
   - [x] Decode immutable reference vertices/indices from each exact packaged
@@ -393,6 +405,8 @@ Evidence:
   - [ ] Connect native picker/import and complete UCanvas project controls.
 - [ ] Pass decoder, layer, guide, atlas, mapping, preset, fake-runtime, and
   resource-limit tests.
+  - [x] Pass portable editor gesture/crop/order and guide overlay isolation/
+    identity/ordering/limit tests.
 - [ ] DEFERRED — maintainer interaction required: complete the full Image Paint
   visual/editor/live-paint checklist.
 

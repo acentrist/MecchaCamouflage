@@ -106,6 +106,33 @@ protocol, and preserves the text state outside runtime objects. The future
 input adapter supplies only committed UTF-8 event sequences; OS/IME composition
 state does not leak into the UI or application model.
 
+## Image Paint editor boundary
+
+`update_image_editor_interaction` retains the v1 editor behavior without
+retaining DOM state. A bounded ordered pointer stream selects the topmost layer,
+but checks all corner handles before any rectangle body. Move and four-corner
+resize gestures capture the exact original placement. They emit one
+normalized replacement value, preserve the retained 24-canonical-pixel minimum
+size, commit only on release, and restore the exact captured placement on
+cancel without overwriting unrelated current layer fields. The active gesture
+is rejected if its asset is replaced or removed.
+
+Layer ordering returns a copied ordered collection and the new selected index.
+The crop session derives the Fit-shaped base crop from decoded source dimensions
+and the normalized atlas placement, preserves its aspect at a bounded 1–4×
+zoom, clamps movement inside the source, binds apply/restore to the exact asset,
+and retains the exact original crop for cancellation. No editor transition
+mutates a project, worker, texture, or UObject.
+
+`draw_image_editor` is the portable two-layer vertical slice. It draws one
+canonical-atlas texture, then an optional guide texture whose schema, body, and
+complete frozen ImageReference profile identity must match, then layer
+outlines and selected resize handles. The guide is therefore a separate Canvas
+primitive after the atlas; it is never passed to the compositor, persisted
+atlas, preset, preview planner, or Paint dispatcher. A failed draw unwinds both
+clip scopes before returning. Production profile-to-guide texture construction
+and Unreal texture lifetime remain open work.
+
 ## Exact input lease
 
 `InputLeaseController` owns the panel input transition while a future Unreal
@@ -152,15 +179,19 @@ controls, text-field Canvas integration, and duplicate-ID propagation.
 activation, cancel, and conflicting-key refusal. `ui_text_edit` covers ordered
 multibyte editing, UTF-8 cursor boundaries, commit/cancel, byte/event limits,
 single-line enforcement, and terminal-sequence refusal. `ui_canvas` verifies
-the bounded high-DPI text-scale contract.
+the bounded high-DPI text-scale contract. `ui_image_editor` covers two-layer
+topmost selection, handle priority, move/resize, retained minimum size, exact
+cancel, reorder, source-aspect crop/zoom/move/apply/restore, stale-asset and
+event bounds, exact guide identity and ordering, and clip cleanup after a
+primitive-limit failure.
 
-All seven tests run in the normal Linux graph, the mandatory ASan/UBSan graph,
+All eight tests run in the normal Linux graph, the mandatory ASan/UBSan graph,
 and the Windows MSVC x64 Release graph.
 
 ## Remaining feasibility work
 
-- Implement editor gestures, body guides, and immutable command/snapshot
-  binding above this protocol.
+- Implement immutable command/snapshot binding above the editor protocol.
+- Build and lifetime-manage the three exact packaged profile guide textures.
 - Implement the validated UCanvas and Unreal input adapters only after the
   protected UE4SS graph compiles the exact interfaces.
 - Prove localized font/text, texture creation/lifetime, clipping, mouse input,

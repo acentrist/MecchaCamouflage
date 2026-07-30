@@ -12,6 +12,26 @@ operations, and application root. These modules do not create Unreal textures
 or drive the complete in-game editor lifecycle.
 Phase 9 therefore remains open.
 
+## Portable Canvas editor
+
+The project-owned UI layer now consumes the existing immutable `ImageLayer`
+values directly. Its bounded pointer transition preserves the retained
+topmost-layer and handle-first hit order, move, four-corner resize, 24-pixel
+minimum size, layer reorder, crop/zoom/move/apply, release commit, and exact
+gesture-field restoration without overwriting unrelated layer fields. Results
+are replacement layer values rather than direct
+project or runtime mutation, so a later binding can enqueue typed editor
+commands against an immutable application snapshot.
+
+The portable renderer displays the ready canonical atlas as one texture,
+validates an optional guide against its overlay schema and the complete frozen
+round/cube/fukuyoka ImageReference identity, and submits that guide as a
+separate later Canvas texture. Selection outlines and handles remain UI
+primitives. The guide can therefore never enter the canonical RGBA atlas,
+`.mcpreset`, preview planning, or Paint dispatch. The producer and lifetime
+owner for the three native guide textures is intentionally not guessed before
+the protected UE4SS/UCanvas adapter is available.
+
 ## Native decoder boundary
 
 `NativeImageSourceDecoder` accepts only a validated 64-character content
@@ -161,6 +181,12 @@ when its job generation, project ID, or revision is no longer current.
 admission, stale-generation cancellation, cancellation propagation, completion
 tags, immutable publication, worker reuse, exception containment, and terminal
 shutdown.
+
+`ui_image_editor_test` covers the portable two-layer editor, including
+selection and handle precedence, normalized move/resize, retained minimum size,
+release/cancel behavior, reorder, aspect-derived bounded crop sessions, stale
+asset refusal, event bounds, exact guide identity, guide-after-atlas primitive
+ordering, and clip-stack recovery after a bounded Canvas failure.
 
 ## Paint-plan boundary
 
