@@ -220,6 +220,44 @@ auto main() -> int
                 9U,
         "editor mutation did not bind current revision");
 
+    auto removal_snapshot = snapshot;
+    removal_snapshot.image_editor.document->layers.push_back(
+        core::ImageLayer{
+            "asset-2",
+            "overlay.png",
+            core::ImageMime::Png,
+            64U,
+        });
+    auto removal_router = InputCommandRouter{500U};
+    const auto layer_remove = removal_router.route_ui_actions(
+        removal_snapshot,
+        std::array{
+            envelope(UiMutateCurrentImageProject{
+                RemoveImageLayerMutation{
+                    1U,
+                    "asset-2",
+                },
+            }),
+        });
+    const auto* remove_command =
+        layer_remove && layer_remove->commands.size() == 1U
+            ? std::get_if<MutateImageProject>(
+                  &layer_remove->commands.front())
+            : nullptr;
+    const auto* remove_mutation =
+        remove_command
+            ? std::get_if<RemoveImageLayerMutation>(
+                  &remove_command->mutation)
+            : nullptr;
+    passed &= expect(
+        remove_mutation &&
+            remove_command->id == 500U &&
+            remove_command->project_id == ProjectId &&
+            remove_command->expected_revision == 9U &&
+            remove_mutation->layer_index == 1U &&
+            remove_mutation->expected_asset_id == "asset-2",
+        "layer removal did not bind current project identity");
+
     const auto toggle = router.route_ui_actions(
         snapshot,
         std::array{

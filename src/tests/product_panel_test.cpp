@@ -325,7 +325,7 @@ auto main(int argc, char** argv) -> int
     const auto layer_toolbar_y =
         atlas_rect.y + atlas_rect.height + 8.0;
     const auto layer_toolbar_width =
-        (atlas_rect.width - 4.0 * LayerToolbarGap) / 5.0;
+        (atlas_rect.width - 5.0 * LayerToolbarGap) / 6.0;
     auto wrap_input = atlas_input;
     wrap_input.pointer = ui::PointerFrame{
         {
@@ -471,6 +471,63 @@ auto main(int argc, char** argv) -> int
                 "overlay-image",
         "Image Paint backward ordering did not emit one guarded reorder");
 
+    auto layer_remove_input = wrap_input;
+    layer_remove_input.pointer.position.x =
+        atlas_rect.x +
+        5.0 * (layer_toolbar_width + LayerToolbarGap) +
+        layer_toolbar_width * 0.5;
+    const auto layer_remove = compose_product_panel(
+        model,
+        atlas_select->state,
+        layer_remove_input,
+        english);
+    const auto* layer_remove_ui_mutation =
+        layer_remove && layer_remove->action
+            ? std::get_if<UiMutateCurrentImageProject>(
+                  &layer_remove->action->action)
+            : nullptr;
+    const auto* layer_remove_mutation =
+        layer_remove_ui_mutation
+            ? std::get_if<RemoveImageLayerMutation>(
+                  &layer_remove_ui_mutation->mutation)
+            : nullptr;
+    passed &= expect(
+        layer_remove_mutation &&
+            layer_remove_mutation->layer_index == 0U &&
+            layer_remove_mutation->expected_asset_id ==
+                "source-image" &&
+            layer_remove->state.image_editor.awaiting_revision,
+        "Image Paint Remove did not emit one guarded layer mutation");
+
+    auto one_layer_model = model;
+    one_layer_model.image_paint.document->layers.pop_back();
+    auto one_layer_input = atlas_input;
+    one_layer_input.image_editor->sources.pop_back();
+    auto one_layer_select_input = one_layer_input;
+    one_layer_select_input.pointer = atlas_select_input.pointer;
+    const auto one_layer_select = compose_product_panel(
+        one_layer_model,
+        image_tab->state,
+        one_layer_select_input,
+        english);
+    if (!one_layer_select)
+    {
+        return 1;
+    }
+    auto last_layer_remove_input = one_layer_input;
+    last_layer_remove_input.pointer = layer_remove_input.pointer;
+    const auto last_layer_remove = compose_product_panel(
+        one_layer_model,
+        one_layer_select->state,
+        last_layer_remove_input,
+        english);
+    passed &= expect(
+        last_layer_remove &&
+            !last_layer_remove->action &&
+            !last_layer_remove->state.image_editor
+                 .awaiting_revision,
+        "Image Paint Remove admitted deletion of the final layer");
+
     auto crop_input = wrap_input;
     crop_input.pointer.position.x =
         atlas_rect.x +
@@ -548,7 +605,8 @@ auto main(int argc, char** argv) -> int
             crop_border_count == 4,
         "Crop did not replace the atlas with its bounded source view");
 
-    const auto crop_unit_width = layer_toolbar_width;
+    const auto crop_unit_width =
+        (atlas_rect.width - 4.0 * LayerToolbarGap) / 5.0;
     const auto crop_slider = ui::CanvasRect{
         atlas_rect.x + crop_unit_width + LayerToolbarGap,
         layer_toolbar_y,

@@ -352,6 +352,61 @@ auto main() -> int
             "an editor mutation wrapped the project revision");
         overflow_session.shutdown(false);
     }
+    {
+        auto removal_session = ImageEditorSession{
+            decoder,
+            composer,
+            projects,
+            persistence,
+            1ms,
+        };
+        auto removable = project(hasher, 20U);
+        const auto removed_asset_id =
+            removable.layers.front().asset_id;
+        const auto retained_asset_id =
+            removable.layers.back().asset_id;
+        passed &= expect(
+            removal_session
+                    .submit_edit(std::move(removable))
+                    .has_value(),
+            "the layer-removal fixture did not enter the editor");
+        const auto removed = removal_session.mutate(
+            ProjectId,
+            20U,
+            RemoveImageLayerMutation{
+                0U,
+                removed_asset_id,
+            });
+        const auto after_remove =
+            removal_session.session_snapshot().document;
+        passed &= expect(
+            removed.has_value() && after_remove &&
+                after_remove->revision == 21U &&
+                after_remove->layers.size() == 1U &&
+                after_remove->layers.front().asset_id ==
+                    retained_asset_id &&
+                wait_until_ready(removal_session, 21U),
+            "layer removal did not publish one guarded editor revision");
+        const auto removal_draft =
+            projects.load_active_draft();
+        passed &= expect(
+            removal_draft && *removal_draft &&
+                (*removal_draft)->revision == 21U &&
+                (*removal_draft)->sources.size() == 1U &&
+                (*removal_draft)->sources.front().asset_id ==
+                    retained_asset_id &&
+                removal_session.mutate(
+                    ProjectId,
+                    21U,
+                    RemoveImageLayerMutation{
+                        0U,
+                        retained_asset_id,
+                    }) ==
+                    std::unexpected(
+                        ImageEditorMutationError::InvalidLayer),
+            "layer removal retained orphan source bytes or removed the final layer");
+        removal_session.shutdown(false);
+    }
 
     auto session = ImageEditorSession{
         decoder,

@@ -371,6 +371,9 @@ Evidence:
   - [x] Connect source-identity-bound Crop controls to the portable product
     panel with local zoom/center edits, exact cancellation, source-texture
     rendering, and one guarded layer mutation only on Apply.
+  - [x] Connect selected-layer removal through an index/asset-guarded mutation
+    that preserves the non-empty project invariant and removes newly orphaned
+    encoded source ownership in the same application transaction.
   - [ ] Connect those values to the complete in-game editor lifecycle.
 - [x] Implement deterministic cancellable 1024×512 RGBA composition.
   - [x] Run composition on one owned worker with copied immutable inputs,
@@ -520,8 +523,11 @@ Evidence:
     session that renders the opaque source texture, freezes scrolling during
     drag, supports localized zoom/Apply/Cancel controls, and emits one isolated
     guarded layer replacement only on Apply.
-  - [ ] Connect import/removal and body-guide generation/lifetime through the
-    product panel.
+  - [x] Connect localized selected-layer removal through the product panel,
+    disable removal for the final layer, and publish only one guarded typed
+    mutation.
+  - [ ] Connect import and body-guide generation/lifetime through the product
+    panel.
 - [ ] Complete F9 and configurable F1–F8 hotkey behavior.
   - [x] Implement a bounded application-owned F1–F24 command router with the
     F9/F1–F8 defaults, validated remapping, physical-key repeat suppression
@@ -574,6 +580,9 @@ Evidence:
   - [x] Prove localized Diagnostics summaries, message translation, command and
     compatibility details, omitted counts, empty state, compact scrolling, and
     rejection of incoherent queue presentation.
+  - [x] Prove selected-layer removal routing, project/revision/index/asset
+    guards, orphan-source cleanup, revision publication, and final-layer
+    refusal across the session, action router, and product panel.
 - [ ] DEFERRED — maintainer interaction required: complete the full in-game UI
   walkthrough across languages/resolutions/DPI.
 

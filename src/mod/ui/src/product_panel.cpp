@@ -76,6 +76,7 @@ auto labels_valid(const ProductPanelLabels& labels) -> bool
            valid_label(labels.image_wrap) &&
            valid_label(labels.image_mirror) &&
            valid_label(labels.image_crop) &&
+           valid_label(labels.image_remove) &&
            valid_label(labels.crop_zoom) &&
            valid_label(labels.crop_apply) &&
            valid_label(labels.crop_cancel) &&
@@ -539,6 +540,12 @@ auto build_product_panel_labels(
     const application::LocalizationCatalog& catalog,
     std::string_view locale) -> ProductPanelLabels
 {
+    const auto image_remove = catalog.format(
+        locale,
+        "image.action.remove",
+        std::array<std::string_view, 1U>{
+            catalog.text(locale, "settings.image"),
+        });
     return {
         {
             std::string{catalog.text(locale, "settings.paint")},
@@ -557,6 +564,7 @@ auto build_product_panel_labels(
         std::string{catalog.text(locale, "image.action.wrap")},
         std::string{catalog.text(locale, "image.action.mirror")},
         std::string{catalog.text(locale, "image.action.crop")},
+        image_remove ? *image_remove : std::string{},
         std::string{catalog.text(locale, "dialog.crop.zoom")},
         std::string{catalog.text(locale, "dialog.crop.apply")},
         std::string{catalog.text(locale, "button.cancel")},

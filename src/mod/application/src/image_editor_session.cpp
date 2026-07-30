@@ -296,6 +296,66 @@ auto ImageEditorSession::mutate(
                 }
                 return true;
             }
+            else if constexpr (
+                std::is_same_v<Request, RemoveImageLayerMutation>)
+            {
+                if (edited.layers.size() <= 1U ||
+                    request.layer_index >=
+                        edited.layers.size() ||
+                    request.expected_asset_id.empty() ||
+                    edited.layers[request.layer_index].asset_id !=
+                        request.expected_asset_id)
+                {
+                    return std::unexpected(
+                        ImageEditorMutationError::InvalidLayer);
+                }
+
+                auto still_referenced = false;
+                for (auto index = std::size_t{};
+                     index < edited.layers.size();
+                     ++index)
+                {
+                    if (index != request.layer_index &&
+                        edited.layers[index].asset_id ==
+                            request.expected_asset_id)
+                    {
+                        still_referenced = true;
+                        break;
+                    }
+                }
+                auto source = edited.sources.end();
+                if (!still_referenced)
+                {
+                    source = std::ranges::find_if(
+                        edited.sources,
+                        [&request](
+                            const core::ImageSourceAsset& candidate)
+                        {
+                            return candidate.asset_id ==
+                                   request.expected_asset_id;
+                        });
+                    if (source == edited.sources.end())
+                    {
+                        return std::unexpected(
+                            ImageEditorMutationError::InvalidProject);
+                    }
+                }
+
+                edited.layers.erase(
+                    edited.layers.begin() +
+                    static_cast<std::ptrdiff_t>(
+                        request.layer_index));
+                if (!still_referenced)
+                {
+                    edited.sources.erase(source);
+                }
+                if (!core::validate(edited).empty())
+                {
+                    return std::unexpected(
+                        ImageEditorMutationError::InvalidProject);
+                }
+                return true;
+            }
             else
             {
                 if (!core::validate(request.settings).empty())

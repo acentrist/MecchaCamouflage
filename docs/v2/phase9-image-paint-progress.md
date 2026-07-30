@@ -34,6 +34,15 @@ sources, and project/revision replacement discard the local session without a
 command. Invalid, duplicate, oversized, zero, or unrelated source bindings
 fail before Canvas composition.
 
+Selected-layer removal is also application-owned. The Canvas toolbar emits
+only an index/asset-guarded `RemoveImageLayerMutation`; the editor session
+validates the current revision, refuses removal of the final layer, advances
+exactly one revision, and removes encoded source bytes only when no retained
+layer references that asset. The immutable snapshot never receives those
+bytes. Session, action-router, and panel tests cover stale/wrong identity
+refusal, revision publication, orphan-source cleanup, and the non-empty
+project invariant.
+
 The portable renderer displays the ready canonical atlas as one texture,
 validates an optional guide against its overlay schema and the complete frozen
 round/cube/fukuyoka ImageReference identity, and submits that guide as a

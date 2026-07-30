@@ -257,13 +257,17 @@ scroll exclusion, stale-asset refusal, edit refusal, duplicate suppression,
 and revision acknowledgement.
 
 The selected-layer toolbar additionally exposes universal backward/forward
-order controls plus localized seam-wrap and front/back-mirror toggles. Ordering
-emits one `ReorderImageLayerMutation`; wrap and mirror copy the immutable layer
-and emit one `ReplaceImageLayerMutation`. Every operation retains the selected
-index and expected asset identity, enters the same revision-wait state, and is
-disabled without an exact ready atlas, edit ownership, valid selection, or
-available destination. Tests cover both order directions and isolated wrap/
-mirror fields across two layers.
+order controls plus localized seam-wrap, front/back-mirror, and Remove
+controls. Ordering emits one `ReorderImageLayerMutation`; wrap and mirror copy
+the immutable layer and emit one `ReplaceImageLayerMutation`; Remove emits one
+`RemoveImageLayerMutation`. Every operation retains the selected index and
+expected asset identity, enters the same revision-wait state, and is disabled
+without an exact ready atlas, edit ownership, valid selection, or available
+destination. Remove is also disabled for the final layer so the project remains
+valid and non-empty. The application owner removes newly orphaned encoded
+source bytes in the same transaction. Tests cover both order directions,
+isolated wrap/mirror fields, guarded removal, orphan-source cleanup, and
+final-layer refusal across two layers.
 
 Crop is a separate source-bound local session rather than an atlas mutation
 gesture. The frame binding carries bounded opaque source textures with exact
@@ -304,12 +308,12 @@ details, omitted counts, the empty state, compact scrolling, and incoherent
 queue refusal.
 
 This remains a partial product UI milestone. The Image Paint atlas interaction
-import/removal and project file operations, direct hotkey capture UX, localized
+import and project file operations, direct hotkey capture UX, localized
 progress/ETA formatting, and the production UCanvas adapter remain open.
 
 ## Remaining work
 
-- Compose Image Paint import/removal/project operations.
+- Compose Image Paint import/project operations.
 - Connect the remaining Image Paint operations to the implemented typed
   product-action router without direct runtime mutation.
 - Enqueue the returned product action through the production callback boundary.

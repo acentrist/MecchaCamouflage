@@ -36,6 +36,7 @@ struct ProductPanelLabels
     std::string image_wrap{};
     std::string image_mirror{};
     std::string image_crop{};
+    std::string image_remove{};
     std::string crop_zoom{};
     std::string crop_apply{};
     std::string crop_cancel{};

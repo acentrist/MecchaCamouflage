@@ -49,6 +49,7 @@ constexpr auto LayerToolbarIds = std::array{
     ui::WidgetId{633U},
     ui::WidgetId{634U},
     ui::WidgetId{635U},
+    ui::WidgetId{636U},
 };
 constexpr auto CropZoomId = ui::WidgetId{641U};
 constexpr auto CropApplyId = ui::WidgetId{642U};
@@ -199,6 +200,35 @@ auto publish_layer_reorder(
                     model.image_paint.document
                         ->layers[layer_index]
                         .asset_id,
+                },
+            },
+        };
+    }
+    return {};
+}
+
+auto publish_layer_remove(
+    std::size_t layer_index,
+    std::string expected_asset_id,
+    const application::ProductUiModel& model,
+    std::optional<application::ProductUiActionEnvelope>& action)
+    -> std::expected<void, ProductPanelError>
+{
+    if (expected_asset_id.empty() ||
+        expected_asset_id.size() >
+            application::MaximumProductUiAssetIdBytes)
+    {
+        return std::unexpected(ProductPanelError{
+            ProductPanelValidationError::InvalidState});
+    }
+    if (!action)
+    {
+        action = application::ProductUiActionEnvelope{
+            model.source_revision,
+            application::UiMutateCurrentImageProject{
+                application::RemoveImageLayerMutation{
+                    layer_index,
+                    std::move(expected_asset_id),
                 },
             },
         };
@@ -930,7 +960,7 @@ auto compose_image_settings_section(
         else
         {
             const auto button_width =
-                (toolbar.width - 4.0 * button_gap) / 5.0;
+                (toolbar.width - 5.0 * button_gap) / 6.0;
             const auto toolbar_button = [&](
                                             std::size_t index,
                                             std::string_view text,
@@ -1101,6 +1131,30 @@ auto compose_image_settings_section(
                 }
                 state.image_editor.crop = *started;
                 state.image_editor.crop_dragging = false;
+            }
+
+            const auto remove = toolbar_button(
+                5U,
+                labels.image_remove,
+                toolbar_enabled &&
+                    document.layers.size() > 1U,
+                false);
+            if (!remove)
+            {
+                return std::unexpected(remove.error());
+            }
+            if (remove->activated)
+            {
+                const auto published = publish_layer_remove(
+                    *selected,
+                    document.layers[*selected].asset_id,
+                    model,
+                    action);
+                if (!published)
+                {
+                    return published;
+                }
+                state.image_editor.awaiting_revision = true;
             }
         }
     }

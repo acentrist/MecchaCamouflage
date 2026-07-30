@@ -97,6 +97,25 @@ auto valid_mutation(
                                .asset_id ==
                            request.expected_asset_id;
             }
+            else if constexpr (
+                std::is_same_v<Request, RemoveImageLayerMutation>)
+            {
+                if (!bounded_asset_id(
+                        request.expected_asset_id))
+                {
+                    return false;
+                }
+                if (!document)
+                {
+                    return true;
+                }
+                return document->layers.size() > 1U &&
+                       request.layer_index <
+                           document->layers.size() &&
+                       document->layers[request.layer_index]
+                               .asset_id ==
+                           request.expected_asset_id;
+            }
             else
             {
                 return core::validate(request.settings).empty() &&
