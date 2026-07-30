@@ -7,6 +7,7 @@
 
 #include <expected>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -65,6 +66,58 @@ public:
         -> std::expected<void, LauncherEffectError> override;
 };
 
+class LauncherMaterialProvider
+{
+public:
+    LauncherMaterialProvider() = default;
+    LauncherMaterialProvider(const LauncherMaterialProvider&) = delete;
+    auto operator=(const LauncherMaterialProvider&)
+        -> LauncherMaterialProvider& = delete;
+    LauncherMaterialProvider(LauncherMaterialProvider&&) = delete;
+    auto operator=(LauncherMaterialProvider&&)
+        -> LauncherMaterialProvider& = delete;
+    virtual ~LauncherMaterialProvider() = default;
+
+    virtual auto managed_loader()
+        -> std::expected<
+            const ManagedLoaderMaterial*,
+            LauncherEffectError> = 0;
+
+    virtual auto shared_mod()
+        -> std::expected<
+            const SharedModMaterial*,
+            LauncherEffectError> = 0;
+};
+
+class Win32LauncherMaterialProvider final
+    : public LauncherMaterialProvider
+{
+public:
+    Win32LauncherMaterialProvider(
+        const PayloadManifest& manifest,
+        Sha256Digest manifest_sha256,
+        std::filesystem::path active_runtime_directory,
+        RuntimePayloadSource& payload_source);
+
+    auto managed_loader()
+        -> std::expected<
+            const ManagedLoaderMaterial*,
+            LauncherEffectError> override;
+
+    auto shared_mod()
+        -> std::expected<
+            const SharedModMaterial*,
+            LauncherEffectError> override;
+
+private:
+    const PayloadManifest& manifest_;
+    Sha256Digest manifest_sha256_{};
+    std::filesystem::path active_runtime_directory_{};
+    RuntimePayloadSource& payload_source_;
+    std::optional<ManagedLoaderMaterial> managed_loader_{};
+    std::optional<SharedModMaterial> shared_mod_{};
+};
+
 class Win32LauncherExecutionBackend final
     : public LauncherExecutionBackend
 {
@@ -76,8 +129,7 @@ public:
         std::filesystem::path game_directory,
         std::filesystem::path ownership_directory,
         std::filesystem::path shared_runtime_directory,
-        const ManagedLoaderMaterial& managed_loader_material,
-        const SharedModMaterial& shared_mod_material,
+        LauncherMaterialProvider& material_provider,
         ElevatedLoaderBroker& elevated_loader_broker,
         SteamGameLauncher& steam_launcher);
 
@@ -109,8 +161,7 @@ private:
     std::filesystem::path game_directory_{};
     std::filesystem::path ownership_directory_{};
     std::filesystem::path shared_runtime_directory_{};
-    const ManagedLoaderMaterial& managed_loader_material_;
-    const SharedModMaterial& shared_mod_material_;
+    LauncherMaterialProvider& material_provider_;
     ElevatedLoaderBroker& elevated_loader_broker_;
     SteamGameLauncher& steam_launcher_;
 };

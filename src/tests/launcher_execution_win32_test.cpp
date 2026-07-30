@@ -16,6 +16,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -257,6 +258,72 @@ public:
 private:
     std::vector<std::string>& sequence_;
 };
+
+class StaticMaterialProvider final : public LauncherMaterialProvider
+{
+public:
+    StaticMaterialProvider(
+        const ManagedLoaderMaterial& managed,
+        const SharedModMaterial& shared,
+        std::vector<std::string>* sequence = nullptr)
+        : managed_{managed},
+          shared_{shared},
+          sequence_{sequence}
+    {
+    }
+
+    auto managed_loader()
+        -> std::expected<
+            const ManagedLoaderMaterial*,
+            LauncherEffectError> override
+    {
+        if (sequence_ != nullptr)
+        {
+            sequence_->emplace_back("managed material");
+        }
+        return &managed_;
+    }
+
+    auto shared_mod()
+        -> std::expected<
+            const SharedModMaterial*,
+            LauncherEffectError> override
+    {
+        if (sequence_ != nullptr)
+        {
+            sequence_->emplace_back("shared material");
+        }
+        return &shared_;
+    }
+
+private:
+    const ManagedLoaderMaterial& managed_;
+    const SharedModMaterial& shared_;
+    std::vector<std::string>* sequence_{};
+};
+
+class MapPayloadSource final : public RuntimePayloadSource
+{
+public:
+    auto read_file(std::string_view relative_path)
+        -> std::expected<
+            std::vector<std::byte>,
+            RuntimePayloadError> override
+    {
+        ++reads;
+        const auto found = files.find(std::string{relative_path});
+        if (found == files.end())
+        {
+            return std::unexpected(RuntimePayloadError{
+                "missing payload fixture",
+            });
+        }
+        return found->second;
+    }
+
+    std::unordered_map<std::string, std::vector<std::byte>> files{};
+    std::size_t reads{};
+};
 } // namespace
 
 auto main() -> int
@@ -274,6 +341,10 @@ auto main() -> int
             .lexically_normal();
     const auto managed_material = ManagedLoaderMaterial{};
     const auto shared_material = SharedModMaterial{};
+    StaticMaterialProvider material_provider{
+        managed_material,
+        shared_material,
+        &sequence};
     Win32LauncherExecutionBackend backend{
         storage,
         manifest,
@@ -281,8 +352,7 @@ auto main() -> int
         root / "game",
         root / "ownership",
         root / "shared",
-        managed_material,
-        shared_material,
+        material_provider,
         broker,
         steam,
     };
@@ -313,6 +383,7 @@ auto main() -> int
                 std::vector<std::string>{"steam"} &&
             sequence ==
                 std::vector<std::string>{
+                    "managed material",
                     "broker apply elevated",
                     "steam",
                 },
@@ -385,6 +456,9 @@ auto main() -> int
         },
         override_bytes,
     };
+    StaticMaterialProvider normal_material_provider{
+        normal_material,
+        shared_material};
     Win32LauncherExecutionBackend normal_backend{
         normal_storage,
         manifest,
@@ -392,8 +466,7 @@ auto main() -> int
         normal.root / "game",
         normal.root / "ownership",
         normal.root / "shared",
-        normal_material,
-        shared_material,
+        normal_material_provider,
         normal_broker,
         normal_steam,
     };
@@ -478,6 +551,9 @@ auto main() -> int
         shared_sequence};
     RecordingBroker shared_broker{shared_sequence};
     RecordingSteamLauncher shared_steam{shared_sequence};
+    StaticMaterialProvider shared_material_provider{
+        managed_material,
+        shared_material_fixture};
     Win32LauncherExecutionBackend shared_backend{
         shared_storage,
         manifest,
@@ -485,8 +561,7 @@ auto main() -> int
         shared.root / "game",
         shared.root / "ownership",
         shared.root / "shared",
-        managed_material,
-        shared_material_fixture,
+        shared_material_provider,
         shared_broker,
         shared_steam,
     };
@@ -527,7 +602,56 @@ auto main() -> int
                 "runtime",
         "shared execution removal touched the runtime or left the mod");
 
-    if (all_passed && normal_passed && shared_passed)
+    TemporaryTree provider_tree{};
+    const auto provider_proxy = bytes("provider-proxy");
+    const auto provider_proxy_hash = sha256_bytes(provider_proxy);
+    auto provider_passed = expect(
+        provider_proxy_hash.has_value(),
+        "lazy material fixture could not be hashed");
+    auto provider_manifest = PayloadManifest{
+        1,
+        "2.0.0",
+        "6c26f038751b3d96059d4a9148f5d093012d55ad",
+        {
+            ManifestFile{
+                "dwmapi.dll",
+                FileRole::Proxy,
+                provider_proxy.size(),
+                provider_proxy_hash.value_or(Sha256Digest{}),
+            },
+        },
+        {},
+        provider_proxy.size(),
+    };
+    MapPayloadSource provider_source{};
+    provider_source.files.emplace(
+        "dwmapi.dll",
+        provider_proxy);
+    const auto active =
+        (provider_tree.root / "runtime/active").lexically_normal();
+    Win32LauncherMaterialProvider lazy_provider{
+        provider_manifest,
+        manifest,
+        active,
+        provider_source};
+    provider_passed &= expect(
+        !lazy_provider.managed_loader(),
+        "managed material was built before runtime publication");
+    fs::create_directories(active);
+    const auto built_material = lazy_provider.managed_loader();
+    const auto cached_material = lazy_provider.managed_loader();
+    provider_passed &= expect(
+        built_material &&
+            cached_material &&
+            *built_material == *cached_material &&
+            (**built_material).proxy_bytes == provider_proxy &&
+            !(**built_material).override_bytes.empty() &&
+            provider_source.reads == 2U,
+        "managed material was not retried once and cached after "
+        "runtime publication");
+
+    if (all_passed && normal_passed && shared_passed &&
+        provider_passed)
     {
         std::cout << "PASS launcher_execution_win32\n";
         return 0;

@@ -5,6 +5,7 @@
 #include <windows.h>
 #include <shellapi.h>
 
+#include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -50,6 +51,64 @@ auto Win32SteamGameLauncher::launch()
     return {};
 }
 
+Win32LauncherMaterialProvider::Win32LauncherMaterialProvider(
+    const PayloadManifest& manifest,
+    Sha256Digest manifest_sha256,
+    std::filesystem::path active_runtime_directory,
+    RuntimePayloadSource& payload_source)
+    : manifest_(manifest),
+      manifest_sha256_(manifest_sha256),
+      active_runtime_directory_(
+          std::move(active_runtime_directory)),
+      payload_source_(payload_source)
+{
+}
+
+auto Win32LauncherMaterialProvider::managed_loader()
+    -> std::expected<
+        const ManagedLoaderMaterial*,
+        LauncherEffectError>
+{
+    if (!managed_loader_)
+    {
+        auto built = build_managed_loader_material(
+            manifest_,
+            manifest_sha256_,
+            active_runtime_directory_,
+            payload_source_);
+        if (!built)
+        {
+            return effect_error(
+                "Managed loader material",
+                built.error().detail);
+        }
+        managed_loader_ = std::move(*built);
+    }
+    return std::addressof(*managed_loader_);
+}
+
+auto Win32LauncherMaterialProvider::shared_mod()
+    -> std::expected<
+        const SharedModMaterial*,
+        LauncherEffectError>
+{
+    if (!shared_mod_)
+    {
+        auto built = build_shared_mod_material(
+            manifest_,
+            manifest_sha256_,
+            payload_source_);
+        if (!built)
+        {
+            return effect_error(
+                "Shared mod material",
+                built.error().detail);
+        }
+        shared_mod_ = std::move(*built);
+    }
+    return std::addressof(*shared_mod_);
+}
+
 Win32LauncherExecutionBackend::Win32LauncherExecutionBackend(
     RuntimeStorage& runtime_storage,
     Sha256Digest manifest_sha256,
@@ -57,8 +116,7 @@ Win32LauncherExecutionBackend::Win32LauncherExecutionBackend(
     std::filesystem::path game_directory,
     std::filesystem::path ownership_directory,
     std::filesystem::path shared_runtime_directory,
-    const ManagedLoaderMaterial& managed_loader_material,
-    const SharedModMaterial& shared_mod_material,
+    LauncherMaterialProvider& material_provider,
     ElevatedLoaderBroker& elevated_loader_broker,
     SteamGameLauncher& steam_launcher)
     : runtime_storage_(runtime_storage),
@@ -68,8 +126,7 @@ Win32LauncherExecutionBackend::Win32LauncherExecutionBackend(
       ownership_directory_(std::move(ownership_directory)),
       shared_runtime_directory_(
           std::move(shared_runtime_directory)),
-      managed_loader_material_(managed_loader_material),
-      shared_mod_material_(shared_mod_material),
+      material_provider_(material_provider),
       elevated_loader_broker_(elevated_loader_broker),
       steam_launcher_(steam_launcher)
 {
@@ -115,19 +172,24 @@ auto Win32LauncherExecutionBackend::apply_managed_loader(
     const ManagedLoaderPlan& plan)
     -> std::expected<void, LauncherEffectError>
 {
+    const auto material = material_provider_.managed_loader();
+    if (!material)
+    {
+        return std::unexpected(material.error());
+    }
     if (plan.elevated)
     {
         return elevated_loader_broker_.apply(
             plan,
             game_directory_,
             ownership_directory_,
-            managed_loader_material_);
+            **material);
     }
     auto applied = apply_managed_loader_plan(
         plan,
         game_directory_,
         ownership_directory_,
-        managed_loader_material_);
+        **material);
     if (!applied)
     {
         return effect_error(
@@ -141,11 +203,16 @@ auto Win32LauncherExecutionBackend::apply_shared_mod(
     SharedModAction action)
     -> std::expected<void, LauncherEffectError>
 {
+    const auto material = material_provider_.shared_mod();
+    if (!material)
+    {
+        return std::unexpected(material.error());
+    }
     auto applied = apply_shared_mod_plan(
         action,
         shared_runtime_directory_,
         ownership_directory_,
-        shared_mod_material_);
+        **material);
     if (!applied)
     {
         return effect_error(
@@ -199,11 +266,16 @@ auto Win32LauncherExecutionBackend::remove_shared_mod(
     const RemovalPlan& plan)
     -> std::expected<void, LauncherEffectError>
 {
+    const auto material = material_provider_.shared_mod();
+    if (!material)
+    {
+        return std::unexpected(material.error());
+    }
     auto removed = apply_shared_mod_removal(
         plan,
         shared_runtime_directory_,
         ownership_directory_,
-        shared_mod_material_);
+        **material);
     if (!removed)
     {
         return effect_error(

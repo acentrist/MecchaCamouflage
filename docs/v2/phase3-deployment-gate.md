@@ -170,6 +170,11 @@ remains open.
   removal request. Normal managed and shared integration tests operate on real
   temporary Windows trees; Steam launch remains an injected final effect and
   is not invoked by the tests.
+- Managed-loader and shared-mod material is requested lazily by the execution
+  backend. Managed material therefore cannot be constructed until runtime
+  publication/reuse has succeeded and the stable `active` directory can be
+  validated. Successful material is cached for the invocation; a failed
+  precondition is not cached and remains explicitly retryable.
 - Active Steam launch options are resolved from the calling user's HKCU
   `SteamPath` and `ActiveProcess/ActiveUser`, then read from that exact
   `userdata/<account>/config/localconfig.vdf` through the bounded VDF reader.
@@ -250,7 +255,8 @@ failed effect.
 The Win32 execution suite additionally proves read-only exact runtime reuse,
 normal owned-loader publication, elevated loader-only handoff, loader-before-
 cache removal, shared-mod installation/removal, and preservation of the shared
-UE4SS runtime.
+UE4SS runtime. It also proves material-provider ordering before normal/elevated
+effects and retry-once/cache-after-success behavior across runtime publication.
 The command-line and Windows single-instance suites prove the exact public
 switch grammar, conflicting/hostile input rejection, concurrent-instance
 refusal, and deterministic guard release.
