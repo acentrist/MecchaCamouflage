@@ -757,6 +757,21 @@ if(WIN32)
     )
 
     add_executable(
+        meccha_elevated_protocol_win32_tests
+        elevated_protocol_win32_test.cpp
+    )
+    target_link_libraries(
+        meccha_elevated_protocol_win32_tests
+        PRIVATE
+            MecchaCamouflage::LauncherCore
+            meccha_build_options
+    )
+    add_test(
+        NAME elevated_protocol_win32
+        COMMAND meccha_elevated_protocol_win32_tests
+    )
+
+    add_executable(
         meccha_managed_loader_tests
         managed_loader_win32_test.cpp
     )

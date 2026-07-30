@@ -42,6 +42,7 @@ if(WIN32)
             src/composition_win32.cpp
             src/elevated_broker_win32.cpp
             src/elevated_loader_win32.cpp
+            src/elevated_protocol_win32.cpp
             src/embedded_payload_win32.cpp
             src/execution_win32.cpp
             src/game_discovery_win32.cpp

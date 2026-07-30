@@ -7,7 +7,9 @@
 #include <expected>
 #include <filesystem>
 #include <optional>
+#include <span>
 #include <string>
+#include <vector>
 
 namespace meccha::launcher
 {
@@ -80,6 +82,17 @@ struct ElevatedLoaderMutationResult
         -> bool = default;
 };
 
+struct ElevatedLoaderMutationResponse
+{
+    std::string request_nonce{};
+    std::expected<
+        ElevatedLoaderMutationResult,
+        ElevatedLoaderMutationError> outcome{};
+
+    auto operator==(const ElevatedLoaderMutationResponse&) const
+        -> bool = default;
+};
+
 class ElevatedLoaderMutationPlatform
 {
 public:
@@ -129,6 +142,30 @@ public:
     ElevatedLoaderMutationPlatform& platform)
     -> std::expected<
         ElevatedLoaderMutationResult,
+        ElevatedLoaderMutationError>;
+
+[[nodiscard]] auto encode_elevated_loader_request(
+    const ElevatedLoaderMutationRequest& request)
+    -> std::expected<
+        std::vector<std::byte>,
+        ElevatedLoaderMutationError>;
+
+[[nodiscard]] auto decode_elevated_loader_request(
+    std::span<const std::byte> bytes)
+    -> std::expected<
+        ElevatedLoaderMutationRequest,
+        ElevatedLoaderMutationError>;
+
+[[nodiscard]] auto encode_elevated_loader_response(
+    const ElevatedLoaderMutationResponse& response)
+    -> std::expected<
+        std::vector<std::byte>,
+        ElevatedLoaderMutationError>;
+
+[[nodiscard]] auto decode_elevated_loader_response(
+    std::span<const std::byte> bytes)
+    -> std::expected<
+        ElevatedLoaderMutationResponse,
         ElevatedLoaderMutationError>;
 #endif
 } // namespace meccha::launcher

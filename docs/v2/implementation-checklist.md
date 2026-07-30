@@ -126,6 +126,9 @@ Evidence:
   - [x] Coordinate original-user receipt intents, privileged-client results,
     exact result verification, finalization, and partial/failure recovery
     without requesting a client for exact reuse.
+  - [x] Define a bounded canonical binary broker request/response protocol with
+    nonce echo, strict framing, UTF-16 path validation, and no arbitrary target
+    or ownership path.
   - [ ] Implement the minimal elevated two-file broker.
 - [x] Implement safe reuse, repair, update, cleanup, and `--remove`.
 - [ ] Pass temporary-tree, hostile-path, reparse, interrupted-transaction,

@@ -237,6 +237,13 @@ open.
   privileged success, false success, nonce failure, and finalization failure
   all run deterministic receipt recovery. Exact reuse never acquires a nonce or
   calls the privileged client.
+- The internal broker wire format is bounded canonical binary rather than JSON
+  or public CLI fields. Its fixed schema carries one nonce, one manifest hash,
+  one validated UTF-16 game directory, and the two implicit loader-file
+  action/measurement tuples. Responses echo the nonce and carry either the
+  exact mutation flags or one bounded UTF-8 typed error. Truncation, trailing
+  bytes, unknown enums, invalid UTF-16/UTF-8, embedded NULs, and oversized
+  content are rejected.
 - Native writability observation walks only absolute normalized plain
   directory components, rejects reparses, opens the nearest existing directory
   with the exact create/delete-child access needed by publication, and treats
@@ -391,6 +398,10 @@ receipt coordination with the restricted executor, rollback after a
 pre-mutation client failure, deterministic ownership after proxy-only partial
 success, refusal of false client success, and zero privileged-client/nonce
 calls for exact reuse.
+The broker-protocol suite proves Unicode request and typed success/error
+round trips, rejection at every truncated request length, strict trailing-data
+and unknown-action refusal, embedded-NUL path refusal, response truncation
+refusal, and bounded error detail.
 The command-line and Windows single-instance suites prove the exact public
 switch grammar, conflicting/hostile input rejection, concurrent-instance
 refusal, and deterministic guard release.
