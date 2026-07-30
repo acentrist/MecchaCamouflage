@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "requirements": [
+    "PAINT-001",
+    "PAINT-002",
+    "PAINT-005",
+    "PAINT-006",
+    "PAINT-007",
+    "PAINT-008",
+    "PAINT-009",
+    "PAINT-011",
+    "PAINT-012"
+  ],
+  "settings": {
+    "defaults": {
+      "brush_size_texels": 5.0,
+      "side_source_max_uv": 0.08,
+      "front_back_source_max_uv": 0.45,
+      "front_mode": "skip",
+      "side_mode": "paint",
+      "back_mode": "paint",
+      "auto_material": false,
+      "include_scene_lighting": false,
+      "paint_material": {
+        "metallic": 0.0,
+        "roughness": 1.0,
+        "emissive": 0.0
+      },
+      "fill_color": "#FFFFFF",
+      "fill_material": {
+        "metallic": 1.0,
+        "roughness": 0.0,
+        "emissive": 0.0
+      },
+      "color_compression_tolerance_percent": 5.0
+    },
+    "ranges": {
+      "brush_size_texels": [1.0, 10.0],
+      "side_source_max_uv": [0.001, 0.5],
+      "front_back_source_max_uv": [0.001, 2.0],
+      "material_component": [0.0, 1.0],
+      "color_compression_tolerance_percent": [0.0, 10.0]
+    },
+    "region_modes": ["paint", "fill", "skip"]
+  },
+  "replay_plan_cases": [
+    {
+      "id": "fill-base-then-paint-overwrite",
+      "texture_size": 1024,
+      "brush_size_texels": 5.0,
+      "fill_radius_texels": 4.0,
+      "candidates": [
+        {
+          "sample": 0,
+          "region": "front",
+          "mode": "fill",
+          "uv_island": 0,
+          "uv": [0.1, 0.1],
+          "current_vertical": 1.0,
+          "fallback_vertical": 1.0,
+          "horizontal": 0.0,
+          "ordinal": 0
+        },
+        {
+          "sample": 1,
+          "region": "side",
+          "mode": "paint",
+          "uv_island": 1,
+          "uv": [0.2, 0.2],
+          "current_vertical": 0.0,
+          "fallback_vertical": 0.0,
+          "horizontal": -1.0,
+          "ordinal": 1
+        },
+        {
+          "sample": 2,
+          "region": "back",
+          "mode": "skip",
+          "uv_island": 2,
+          "uv": [0.3, 0.3],
+          "current_vertical": null,
+          "fallback_vertical": -1.0,
+          "horizontal": 1.0,
+          "ordinal": 2
+        }
+      ],
+      "expected": {
+        "ordered_entries": [
+          {"pass": "fill", "sample": 0, "row": 0},
+          {"pass": "fill", "sample": 1, "row": 128},
+          {"pass": "fill", "sample": 2, "row": 256},
+          {"pass": "paint", "sample": 1, "row": 102}
+        ],
+        "fill_end": 3,
+        "fill_count": 3,
+        "paint_count": 1,
+        "fill_candidates": 3,
+        "fill_deduplicated": 0,
+        "paint_candidates": 1,
+        "paint_deduplicated": 0,
+        "used_current_view_fallback": true,
+        "current_view_fallback_candidates": 1
+      }
+    }
+  ],
+  "adaptive_compression_cases": [
+    {
+      "id": "disabled-preserves-every-entry",
+      "base_radius_uv": 0.01,
+      "tolerance_percent": 0.0,
+      "input_samples": 3,
+      "expected_entries": 3,
+      "expected_compressed_entries": 0,
+      "expected_radius_multipliers": [1.0, 1.0, 1.0]
+    },
+    {
+      "id": "near-identical-same-material-samples-coalesce",
+      "base_radius_uv": 0.01,
+      "tolerance_percent": 5.0,
+      "samples": [
+        {"uv": [0.5, 0.5], "rgb": [0.4, 0.5, 0.6], "region": "front", "uv_island": 1, "material_key": 42},
+        {"uv": [0.52, 0.5], "rgb": [0.4, 0.5, 0.6], "region": "front", "uv_island": 1, "material_key": 42}
+      ],
+      "expected_entries": 1,
+      "expected_compressed_entries": 1,
+      "expected_expanded_entries": 1,
+      "expected_radius_multipliers": [8.0]
+    }
+  ],
+  "preview_disposition_cases": [
+    {"snapshot": null, "current_component": 10, "expected": "create"},
+    {"snapshot": 10, "current_component": 10, "expected": "reuse"},
+    {"snapshot": 10, "current_component": 11, "expected": "replace"}
+  ]
+}

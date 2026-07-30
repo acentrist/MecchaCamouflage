@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "requirements": [
+    "ESP-002",
+    "ESP-005",
+    "ESP-006",
+    "ESP-007",
+    "ESP-008"
+  ],
+  "scope_cases": [
+    {"scope": "all", "role": "hider", "expected": true},
+    {"scope": "all", "role": "hunter", "expected": true},
+    {"scope": "all", "role": "spectator", "expected": false},
+    {"scope": "hider", "role": "hider", "expected": true},
+    {"scope": "hider", "role": "hunter", "expected": false},
+    {"scope": "hider", "role": "spectator", "expected": false},
+    {"scope": "hunter", "role": "hider", "expected": false},
+    {"scope": "hunter", "role": "hunter", "expected": true},
+    {"scope": "hunter", "role": "spectator", "expected": false}
+  ],
+  "avatar_source_cases": [
+    {
+      "id": "spectator-shell-replaced-by-role-avatar",
+      "input": {"roster_role": "hider", "player_array_pawn_role": "spectator", "role_roster_pawn_role": "hider", "same_player_state": true},
+      "expected": "role_roster"
+    },
+    {
+      "id": "current-active-avatar-wins",
+      "input": {"roster_role": "hunter", "player_array_pawn_role": "hunter", "role_roster_pawn_role": "hunter", "same_player_state": true},
+      "expected": "player_array"
+    },
+    {
+      "id": "mismatched-player-state-is-rejected",
+      "input": {"roster_role": "hider", "player_array_pawn_role": "unknown", "role_roster_pawn_role": "hider", "same_player_state": false},
+      "expected": "player_array"
+    }
+  ],
+  "geometry_cases": [
+    {"input": {"spectator": true, "root_is_capsule": true, "skeletal_mesh": true}, "expected": {"root_capsule": false, "skeletal_mesh": false}},
+    {"input": {"spectator": false, "root_is_capsule": true, "skeletal_mesh": false}, "expected": {"root_capsule": true, "skeletal_mesh": false}},
+    {"input": {"spectator": false, "root_is_capsule": false, "skeletal_mesh": true}, "expected": {"root_capsule": false, "skeletal_mesh": true}}
+  ],
+  "screen_bounds_cases": [
+    {
+      "input": {"bounds": [100.0, 50.0, 300.0, 250.0], "horizontal_ratio": 0.1, "vertical_ratio": 0.2},
+      "expected": [80.0, 10.0, 320.0, 290.0]
+    },
+    {
+      "input": {"bounds": [100.0, 50.0, 100.0, 250.0], "horizontal_ratio": 0.1, "vertical_ratio": 0.2},
+      "expected": [100.0, 50.0, 100.0, 250.0]
+    }
+  ],
+  "projection_scale_cases": [
+    {"input": {"center": 960.0, "raw_screen": 1440.0, "engine_screen": 1680.0}, "expected": 1.5},
+    {"input": {"center": 960.0, "raw_screen": 960.5, "engine_screen": 961.0}, "expected": -1.0},
+    {"input": {"center": 960.0, "raw_screen": 1440.0, "engine_screen": 2400.0}, "expected": -1.0}
+  ]
+}

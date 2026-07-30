@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "requirements": [
+    "RUNTIME-007",
+    "PAINT-014",
+    "PAINT-015",
+    "PAINT-016"
+  ],
+  "pacing_cases": [
+    {
+      "id": "v1-fallback-capacity",
+      "input": {"batches_per_second": 0, "strokes_per_batch": 0, "writes_per_frame": 0, "max_calls_per_tick": 0, "min_remote_frames": 0, "adaptive_interval": false, "max_adaptive_frames": 0},
+      "expected": {"batches_per_second": 20, "strokes_per_batch": 20, "network_strokes_per_second": 320, "receiver_strokes_per_second": 320, "effective_strokes_per_second": 320, "strokes_per_window": 16, "calls_per_tick": 1, "network_window_ms": 50, "cadence_ms": 4, "final_confirmation_ms": 434}
+    },
+    {
+      "id": "normal-network-bound",
+      "input": {"batches_per_second": 20, "strokes_per_batch": 20, "writes_per_frame": 0, "max_calls_per_tick": 4, "min_remote_frames": 1, "adaptive_interval": false, "max_adaptive_frames": 0},
+      "expected": {"batches_per_second": 20, "strokes_per_batch": 20, "network_strokes_per_second": 320, "receiver_strokes_per_second": 320, "effective_strokes_per_second": 320, "strokes_per_window": 16, "calls_per_tick": 3, "network_window_ms": 50, "cadence_ms": 10, "final_confirmation_ms": 434}
+    },
+    {
+      "id": "receiver-bound-adaptive",
+      "input": {"batches_per_second": 60, "strokes_per_batch": 100, "writes_per_frame": 2, "max_calls_per_tick": 2, "min_remote_frames": 2, "adaptive_interval": true, "max_adaptive_frames": 4},
+      "expected": {"batches_per_second": 60, "strokes_per_batch": 100, "network_strokes_per_second": 4800, "receiver_strokes_per_second": 24, "effective_strokes_per_second": 24, "strokes_per_window": 2, "calls_per_tick": 2, "network_window_ms": 17, "cadence_ms": 84, "final_confirmation_ms": 270}
+    }
+  ],
+  "terminal_drain_cases": [
+    {
+      "id": "outgoing-queue-blocks",
+      "input": {"observer_available": true, "observer_saw_activity": true, "visual_pending": 0, "outgoing_available": true, "outgoing_pending": 1, "elapsed_ms": 1000, "confirmation_ms": 434},
+      "expected_complete": false
+    },
+    {
+      "id": "visual-queue-blocks-after-observed-activity",
+      "input": {"observer_available": true, "observer_saw_activity": true, "visual_pending": 1, "outgoing_available": true, "outgoing_pending": 0, "elapsed_ms": 1000, "confirmation_ms": 434},
+      "expected_complete": false
+    },
+    {
+      "id": "confirmation-window-blocks",
+      "input": {"observer_available": true, "observer_saw_activity": true, "visual_pending": 0, "outgoing_available": true, "outgoing_pending": 0, "elapsed_ms": 433, "confirmation_ms": 434},
+      "expected_complete": false
+    },
+    {
+      "id": "drained-and-confirmed",
+      "input": {"observer_available": true, "observer_saw_activity": true, "visual_pending": 0, "outgoing_available": true, "outgoing_pending": 0, "elapsed_ms": 434, "confirmation_ms": 434},
+      "expected_complete": true
+    },
+    {
+      "id": "unproven-observer-still-requires-time",
+      "input": {"observer_available": false, "observer_saw_activity": false, "visual_pending": 999, "outgoing_available": false, "outgoing_pending": 999, "elapsed_ms": 434, "confirmation_ms": 434},
+      "expected_complete": true
+    }
+  ]
+}

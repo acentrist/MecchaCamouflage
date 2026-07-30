@@ -35,17 +35,25 @@ Draft PR: [#233](https://github.com/acentrist/MecchaCamouflage/pull/233)
 
 ## Phase 1 — v1 behavioral baseline and traceability
 
-- [ ] Assign stable requirement IDs for Paint, Image Paint, ESP, UI,
+- [x] Assign stable requirement IDs for Paint, Image Paint, ESP, UI,
   persistence, runtime, launcher, localization, and release behavior.
-- [ ] Map each retained behavior to v1 source, v1 evidence, v2 owner, planned
+- [x] Map each retained behavior to v1 source, v1 evidence, v2 owner, planned
   automated evidence, planned live evidence, and eventual deletion.
-- [ ] Record defaults, ranges, hotkeys, profiles, locales, image limits, atlas,
+- [x] Record defaults, ranges, hotkeys, profiles, locales, image limits, atlas,
   preset incompatibility, and body-guide behavior.
-- [ ] Classify every existing test as port, characterization, rewrite, or
+- [x] Classify every existing test as port, characterization, rewrite, or
   architecture-only retirement.
-- [ ] Create deterministic fixtures for retained pure algorithms.
-- [ ] Inventory all game-specific reflected contracts and profile inputs.
-- [ ] Resolve or explicitly block every behavior ambiguity.
+- [x] Create deterministic fixtures for retained pure algorithms.
+- [x] Inventory all game-specific reflected contracts and profile inputs.
+- [x] Resolve or explicitly block every behavior ambiguity.
+
+Evidence:
+
+- [`requirements-traceability.md`](requirements-traceability.md)
+- [`test-migration.md`](test-migration.md)
+- [`compatibility-contracts.md`](compatibility-contracts.md)
+- `src/tests/fixtures/v1`
+- `python3 tools/v2/verify_phase1.py`
 
 ## Phase 2 — C++ build graph and pinned UE4SS source gate
 
