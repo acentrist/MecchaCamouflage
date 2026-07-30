@@ -248,6 +248,21 @@ add_test(
     COMMAND meccha_image_profile_mapping_tests
 )
 
+add_executable(
+    meccha_image_paint_planning_worker_tests
+    image_paint_planning_worker_test.cpp
+)
+target_link_libraries(
+    meccha_image_paint_planning_worker_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(
+    NAME image_paint_planning_worker
+    COMMAND meccha_image_paint_planning_worker_tests
+)
+
 add_executable(meccha_paint_planner_tests paint_planner_test.cpp)
 target_link_libraries(
     meccha_paint_planner_tests

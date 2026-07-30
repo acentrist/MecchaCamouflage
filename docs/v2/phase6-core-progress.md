@@ -42,6 +42,11 @@ not yet complete.
   publishes immutable atlases tagged with job generation, project identity,
   and project revision; and contains cancellation, typed compositor failures,
   exceptions, reuse, and terminal shutdown.
+- The Image Paint planning worker applies the same ownership rules to copied
+  triangle captures, canonical profile/atlas values, and project identity. It
+  publishes the immutable Image Paint plan only with job generation and
+  project revision tags, and contains typed planner failure, cancellation,
+  exceptions, reuse, and terminal shutdown.
 
 ### Image Paint
 
@@ -157,7 +162,7 @@ copied inputs, bounded concurrency, generation-checked cancellation,
 planner/composer errors, immutable publication, worker reuse, exception
 containment, and terminal shutdown. `application_command_queue_test` covers
 hard capacity, invalid IDs, FIFO bounded drains, concurrent publication, and
-terminal close/discard. The secret-free Linux suite currently passes all 38
+terminal close/discard. The secret-free Linux suite currently passes all 39
 registered tests.
 
 ## Deliberate non-port

@@ -247,6 +247,10 @@ Evidence:
     performed inside the planner, independent face Fill/Skip,
     alpha/background routing, Fill-first ordering, material isolation,
     compression, cancellation, and resource bounds.
+  - [x] Run Image Paint planning on one owned worker with copied immutable
+    capture/profile/atlas input, one active generation, typed cancellation and
+    failures, project/revision-tagged results, exception containment, reuse,
+    and terminal shutdown.
   - [ ] Connect the resulting shared plan to the accepted dispatcher.
 - [ ] Integrate v2 project/preset management.
 - [ ] Pass decoder, layer, guide, atlas, mapping, preset, fake-runtime, and

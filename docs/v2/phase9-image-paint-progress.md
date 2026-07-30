@@ -134,6 +134,13 @@ Fill-first overwrite, color/material/radius selection, all three accepted
 profile pairs, profile mismatch, truncated atlas, malformed anchors,
 unsafe-sample exclusion, and cancellation.
 
+`ImagePaintPlanningWorker` copies the complete plan request into one owned
+generation and publishes an immutable `ImagePaintPlan` tagged with job
+generation, project ID, and project revision. Its contract mirrors the
+composition worker: no concurrent start, stop-token propagation, typed planner
+failure, exception containment, collection before reuse, and cancel/join on
+shutdown. `image_paint_planning_worker_test` directly covers those rules.
+
 The runtime adapter still needs to capture the validated triangle/barycentric
 anchors and the application root must dispatch the resulting shared plan.
 Until that integration is complete, this is a tested pure boundary rather than
