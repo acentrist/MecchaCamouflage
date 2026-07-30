@@ -112,7 +112,7 @@ inventory drift.
 | IMAGE-010 | Image material defaults M=0/R=1/E=0; brush defaults `5` in `[1,10]`; compression defaults `0` in `[0,10]`. | `Models` | Project model/planner | T1, T4 | C# model |
 | IMAGE-011 | Image Fill color/PBR belongs to the saved project and does not inherit mutable Paint-tab state. | `Models`, preset tests | Project model | T1, T4 | C# active state |
 | IMAGE-012 | Alpha skip/background behavior and background material encoding remain deterministic. | `Models`, image transparency tests | `core/image_compositor` + planner | T1, T2, T4 | Browser/Bridge encoding |
-| IMAGE-013 | Layer composition is cancellable off-thread and stale results cannot replace a newer edit. | Web UI behavior, PLAN concurrency contract | Worker/application generation | T1, T2 | Browser rendering loop |
+| IMAGE-013 | Layer composition is cancellable off-thread and stale results cannot replace a newer edit. | Web UI behavior, PLAN concurrency contract | `ImageCompositionWorker` tags + application revision owner | T1, T2 | Browser rendering loop |
 | IMAGE-014 | Preview texture creation/mutation/destruction occurs only on the game thread. | Bridge preview path | Runtime adapter | T2, T4 | Texture import/chunk bridge |
 | IMAGE-015 | Preview/restore/cancel reuse the single preview/job ownership rules. | Session image commands | Application state machine | T1, T2, T4 | HostSession |
 | IMAGE-016 | The three body guides align with the accepted profiles, remain above layers, and are excluded from the atlas. | Web UI guide tests, profile JSON | Profile guide/UI | T1, T2, T4 | Packaged browser guides |

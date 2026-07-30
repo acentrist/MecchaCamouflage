@@ -37,6 +37,11 @@ not yet complete.
 - The preview build worker owns one immutable plan request and original-channel
   pair, serializes generations, forwards cancellation through planning and
   composition, publishes immutable channel buffers, and contains exceptions.
+- The Image Paint composition worker similarly owns copied settings, layer
+  collections, and decoded-source descriptors; permits one active generation;
+  publishes immutable atlases tagged with job generation, project identity,
+  and project revision; and contains cancellation, typed compositor failures,
+  exceptions, reuse, and terminal shutdown.
 
 ### Image Paint
 
@@ -143,7 +148,7 @@ copied inputs, bounded concurrency, generation-checked cancellation,
 planner/composer errors, immutable publication, worker reuse, exception
 containment, and terminal shutdown. `application_command_queue_test` covers
 hard capacity, invalid IDs, FIFO bounded drains, concurrent publication, and
-terminal close/discard. The secret-free Linux suite currently passes all 35
+terminal close/discard. The secret-free Linux suite currently passes all 36
 registered tests.
 
 ## Deliberate non-port

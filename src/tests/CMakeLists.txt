@@ -203,6 +203,21 @@ target_link_libraries(
 )
 add_test(NAME image_compositor COMMAND meccha_image_compositor_tests)
 
+add_executable(
+    meccha_image_composition_worker_tests
+    image_composition_worker_test.cpp
+)
+target_link_libraries(
+    meccha_image_composition_worker_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(
+    NAME image_composition_worker
+    COMMAND meccha_image_composition_worker_tests
+)
+
 add_executable(meccha_paint_planner_tests paint_planner_test.cpp)
 target_link_libraries(
     meccha_paint_planner_tests

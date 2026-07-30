@@ -231,6 +231,10 @@ Evidence:
     v2-only persistence, and content-addressed source ownership.
   - [ ] Connect those values to the complete in-game editor lifecycle.
 - [x] Implement deterministic cancellable 1024×512 RGBA composition.
+  - [x] Run composition on one owned worker with copied immutable inputs,
+    one active generation, typed cancellation/failures, revision-tagged
+    results, exception containment, and terminal shutdown.
+  - [ ] Reject stale project revisions in the application/editor owner.
 - [ ] Implement versioned round/cube/fukuyoka guide overlays.
 - [ ] Implement game-thread preview texture lifetime.
 - [ ] Implement all profile mappings and reuse the accepted Paint dispatch.

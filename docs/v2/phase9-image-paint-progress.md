@@ -4,9 +4,10 @@
 
 The dependency-free canonical atlas compositor is implemented and covered by a
 focused contract test. It consumes validated immutable project/layer values and
-decoded RGBA buffers, but it does not decode files, create Unreal textures,
-drive the application state machine, or dispatch paint. Phase 9 therefore
-remains open.
+decoded RGBA buffers. An owned one-generation application worker now runs that
+composition off-thread. Neither module decodes files, creates Unreal textures,
+drives the full application state machine, or dispatches paint. Phase 9
+therefore remains open.
 
 ## Canonical composition contract
 
@@ -66,11 +67,37 @@ on every composed row, and while finalizing the atlas.
 
 The test is part of the secret-free Linux and Windows MSVC suites.
 
+## Worker boundary
+
+`ImageCompositionWorker` copies the settings, ordered layers, and decoded-source
+descriptors into one owned `std::jthread`. The referenced decoded RGBA vectors
+remain shared and immutable. It:
+
+- rejects generation zero, malformed project IDs, revision zero, concurrent
+  starts, and starts after shutdown;
+- forwards its stop token to the compositor;
+- tags every completion with job generation, project ID, and project revision;
+- publishes only an immutable atlas value;
+- converts compositor failures and escaping exceptions into typed failures;
+  and
+- joins the completed thread before accepting another request, and cancels and
+  joins on shutdown.
+
+The worker does not own the current editable project revision. The future
+application/editor owner must compare all three completion tags and discard a
+result when its job generation, project ID, or revision is no longer current.
+
+`image_composition_worker_test` covers copied collections, single-generation
+admission, stale-generation cancellation, cancellation propagation, completion
+tags, immutable publication, worker reuse, exception containment, and terminal
+shutdown.
+
 ## Remaining work
 
 - Implement bounded WIC PNG/JPEG adapters.
 - Select, pin, license, and implement the bounded native WebP adapter.
-- Add the owned cancellable composition worker and stale-revision rejection.
+- Connect the worker and reject stale revisions in the application/editor
+  owner.
 - Connect project persistence and editing commands to the application root.
 - Derive and version all three editor-only guide overlays.
 - Implement game-thread texture creation/update/release through the accepted
