@@ -102,6 +102,10 @@ payload, so Phase 3 remains open.
 - A plan marked for elevation performs no local mutation and returns an
   explicit broker-required result. The broker protocol remains separate and
   is not emulated by an unsafe fallback.
+- Managed removal preflights both ownership receipts and current file hashes
+  before deletion. It removes the proxy first so that any later interruption
+  leaves a harmless override rather than an active proxy, and exact unowned
+  proxy content is never removed.
 
 ## Automated evidence
 
@@ -126,7 +130,8 @@ the junction fixture remains mandatory and passes.
 
 The managed-loader suite covers payload and generated-override material,
 two-file creation, exact reuse, stale-plan preflight, exact-unowned proxy
-coexistence, payload tampering, and zero-mutation elevated handoff.
+coexistence, payload tampering, Unicode-path short-path-or-refusal behavior,
+stale removal, ownership-safe removal, and zero-mutation elevated handoff.
 
 Covered Windows directory cases:
 

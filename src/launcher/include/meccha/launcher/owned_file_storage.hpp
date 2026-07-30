@@ -53,6 +53,9 @@ public:
         std::span<const std::byte> payload)
         -> std::expected<OwnedFileInstallResult, OwnedFileStoreError>;
 
+    [[nodiscard]] auto removable()
+        -> std::expected<bool, OwnedFileStoreError>;
+
     auto remove_owned()
         -> std::expected<bool, OwnedFileStoreError>;
 

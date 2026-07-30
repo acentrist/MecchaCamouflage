@@ -44,6 +44,12 @@ struct ManagedLoaderApplyResult
     std::optional<OwnedFileInstallResult> override_file{};
 };
 
+struct ManagedLoaderRemovalResult
+{
+    bool proxy_removed{};
+    bool override_removed{};
+};
+
 #ifdef _WIN32
 [[nodiscard]] auto build_managed_loader_material(
     const PayloadManifest& manifest,
@@ -58,5 +64,11 @@ auto apply_managed_loader_plan(
     const std::filesystem::path& ownership_directory,
     const ManagedLoaderMaterial& material)
     -> std::expected<ManagedLoaderApplyResult, ManagedLoaderError>;
+
+auto apply_managed_loader_removal(
+    const RemovalPlan& plan,
+    const std::filesystem::path& game_directory,
+    const std::filesystem::path& ownership_directory)
+    -> std::expected<ManagedLoaderRemovalResult, ManagedLoaderError>;
 #endif
 } // namespace meccha::launcher

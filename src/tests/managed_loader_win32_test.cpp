@@ -284,6 +284,76 @@ auto main() -> int
             fs::is_empty(elevated.root / "game"),
         "elevated plan mutated files before broker handoff");
 
+    const auto stale_removal = apply_managed_loader_removal(
+        RemovalPlan{},
+        lifecycle.root / "game",
+        lifecycle.root / "ownership");
+    passed &= expect(
+        !stale_removal &&
+            stale_removal.error().code ==
+                ManagedLoaderErrorCode::Plan &&
+            fs::exists(
+                lifecycle.root / "game" / "dwmapi.dll") &&
+            fs::exists(
+                lifecycle.root / "game" / "override.txt"),
+        "stale removal plan changed loader files");
+
+    const auto elevated_removal = apply_managed_loader_removal(
+        RemovalPlan{
+            RemovalAction::None,
+            RemovalAction::RemoveOwned,
+            RemovalAction::RemoveOwned,
+            RemovalAction::None,
+            true,
+        },
+        lifecycle.root / "game",
+        lifecycle.root / "ownership");
+    passed &= expect(
+        !elevated_removal &&
+            elevated_removal.error().code ==
+                ManagedLoaderErrorCode::ElevationRequired &&
+            fs::exists(
+                lifecycle.root / "game" / "dwmapi.dll"),
+        "elevated removal changed files before broker handoff");
+
+    const auto removed = apply_managed_loader_removal(
+        RemovalPlan{
+            RemovalAction::None,
+            RemovalAction::RemoveOwned,
+            RemovalAction::RemoveOwned,
+            RemovalAction::None,
+            false,
+        },
+        lifecycle.root / "game",
+        lifecycle.root / "ownership");
+    passed &= expect(
+        removed && removed->proxy_removed &&
+            removed->override_removed &&
+            !fs::exists(
+                lifecycle.root / "game" / "dwmapi.dll") &&
+            !fs::exists(
+                lifecycle.root / "game" / "override.txt"),
+        "owned managed loader files were not removed");
+
+    const auto exact_removed = apply_managed_loader_removal(
+        RemovalPlan{
+            RemovalAction::None,
+            RemovalAction::None,
+            RemovalAction::RemoveOwned,
+            RemovalAction::None,
+            false,
+        },
+        exact_proxy.root / "game",
+        exact_proxy.root / "ownership");
+    passed &= expect(
+        exact_removed && !exact_removed->proxy_removed &&
+            exact_removed->override_removed &&
+            fs::exists(
+                exact_proxy.root / "game" / "dwmapi.dll") &&
+            !fs::exists(
+                exact_proxy.root / "game" / "override.txt"),
+        "removal deleted an exact unowned shared proxy");
+
     package.payload.files["dwmapi.dll"] = bytes("tampered");
     const auto bad_payload = build_managed_loader_material(
         package.manifest,

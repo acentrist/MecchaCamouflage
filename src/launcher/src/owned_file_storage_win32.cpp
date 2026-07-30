@@ -478,6 +478,100 @@ auto Win32OwnedFileStore::remove_owned()
     {
         return std::unexpected(recovered.error());
     }
+    auto can_remove = removable();
+    if (!can_remove)
+    {
+        return std::unexpected(can_remove.error());
+    }
+    if (!*can_remove)
+    {
+        return false;
+    }
+    auto receipt = detail::read_owned_file_receipt(
+        ownership_record_,
+        manifest_path_,
+        role_,
+        false);
+    if (!receipt)
+    {
+        return std::unexpected(receipt.error());
+    }
+    auto current = detail::measure_plain_file(target_);
+    if (!current)
+    {
+        return std::unexpected(current.error());
+    }
+    if (!*receipt || !matches(*current, (**receipt).next))
+    {
+        return error(
+            OwnedFileStoreErrorCode::Conflict,
+            "Owned-file content changed during removal.");
+    }
+    auto removing = detail::write_owned_file_receipt(
+        ownership_record_,
+        Receipt{
+            ReceiptPhase::Removing,
+            (**receipt).next,
+            std::nullopt,
+        });
+    if (!removing)
+    {
+        return std::unexpected(removing.error());
+    }
+    auto removed = detail::delete_plain_file(target_);
+    if (!removed)
+    {
+        return std::unexpected(removed.error());
+    }
+    auto receipt_removed =
+        detail::delete_plain_file(ownership_record_);
+    if (!receipt_removed)
+    {
+        return std::unexpected(receipt_removed.error());
+    }
+    return true;
+}
+
+auto Win32OwnedFileStore::removable()
+    -> std::expected<bool, OwnedFileStoreError>
+{
+    auto identity = validate_store_identity(
+        target_,
+        ownership_record_,
+        manifest_path_);
+    if (!identity)
+    {
+        return std::unexpected(identity.error());
+    }
+    auto target_parent = detail::require_plain_directory_tree(
+        target_.parent_path());
+    if (!target_parent)
+    {
+        return std::unexpected(target_parent.error());
+    }
+    auto receipt_parent = detail::inspect_plain_directory_tree(
+        ownership_record_.parent_path());
+    if (!receipt_parent)
+    {
+        return std::unexpected(receipt_parent.error());
+    }
+    if (!*receipt_parent)
+    {
+        return false;
+    }
+    const auto staging =
+        detail::measure_plain_file(
+            detail::owned_file_staging_path(target_));
+    if (!staging)
+    {
+        return std::unexpected(staging.error());
+    }
+    if (*staging)
+    {
+        return error(
+            OwnedFileStoreErrorCode::Conflict,
+            "Owned-file removal found a staging file.");
+    }
     auto receipt = detail::read_owned_file_receipt(
         ownership_record_,
         manifest_path_,
@@ -507,28 +601,6 @@ auto Win32OwnedFileStore::remove_owned()
         return error(
             OwnedFileStoreErrorCode::Conflict,
             "Refusing to remove changed owned-file content.");
-    }
-    auto removing = detail::write_owned_file_receipt(
-        ownership_record_,
-        Receipt{
-            ReceiptPhase::Removing,
-            (**receipt).next,
-            std::nullopt,
-        });
-    if (!removing)
-    {
-        return std::unexpected(removing.error());
-    }
-    auto removed = detail::delete_plain_file(target_);
-    if (!removed)
-    {
-        return std::unexpected(removed.error());
-    }
-    auto receipt_removed =
-        detail::delete_plain_file(ownership_record_);
-    if (!receipt_removed)
-    {
-        return std::unexpected(receipt_removed.error());
     }
     return true;
 }

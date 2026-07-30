@@ -349,4 +349,98 @@ auto apply_managed_loader_plan(
         *override_result,
     };
 }
+
+auto apply_managed_loader_removal(
+    const RemovalPlan& plan,
+    const fs::path& game_directory,
+    const fs::path& ownership_directory)
+    -> std::expected<ManagedLoaderRemovalResult, ManagedLoaderError>
+{
+    if (plan.runtime_cache != RemovalAction::None ||
+        plan.mod != RemovalAction::None)
+    {
+        return error(
+            ManagedLoaderErrorCode::Plan,
+            "The loader remover received non-loader actions.");
+    }
+    if (plan.elevated_loader)
+    {
+        return error(
+            ManagedLoaderErrorCode::ElevationRequired,
+            "The managed loader removal requires the minimal "
+            "elevated broker.");
+    }
+
+    Win32OwnedFileStore proxy_store{
+        game_directory / "dwmapi.dll",
+        ownership_directory / "dwmapi.owner.json",
+        "dwmapi.dll",
+        FileRole::Proxy};
+    Win32OwnedFileStore override_store{
+        game_directory / "override.txt",
+        ownership_directory / "override.owner.json",
+        "override.txt",
+        FileRole::Override};
+    auto proxy_recovered = proxy_store.recover();
+    if (!proxy_recovered)
+    {
+        return store_error("dwmapi.dll", proxy_recovered.error());
+    }
+    auto override_recovered = override_store.recover();
+    if (!override_recovered)
+    {
+        return store_error(
+            "override.txt",
+            override_recovered.error());
+    }
+    const auto proxy_removable = proxy_store.removable();
+    if (!proxy_removable)
+    {
+        return store_error(
+            "dwmapi.dll",
+            proxy_removable.error());
+    }
+    const auto override_removable = override_store.removable();
+    if (!override_removable)
+    {
+        return store_error(
+            "override.txt",
+            override_removable.error());
+    }
+    const auto remove_proxy =
+        plan.proxy == RemovalAction::RemoveOwned;
+    const auto remove_override =
+        plan.override_file == RemovalAction::RemoveOwned;
+    if (remove_proxy != *proxy_removable ||
+        remove_override != *override_removable)
+    {
+        return error(
+            ManagedLoaderErrorCode::Plan,
+            "The loader filesystem changed after removal planning; "
+            "nothing was removed.");
+    }
+
+    auto result = ManagedLoaderRemovalResult{};
+    if (remove_proxy)
+    {
+        auto removed = proxy_store.remove_owned();
+        if (!removed)
+        {
+            return store_error("dwmapi.dll", removed.error());
+        }
+        result.proxy_removed = *removed;
+    }
+    if (remove_override)
+    {
+        auto removed = override_store.remove_owned();
+        if (!removed)
+        {
+            return store_error(
+                "override.txt",
+                removed.error());
+        }
+        result.override_removed = *removed;
+    }
+    return result;
+}
 } // namespace meccha::launcher
