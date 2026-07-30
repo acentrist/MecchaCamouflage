@@ -4,6 +4,8 @@ This checklist tracks execution of [`PLAN.md`](../../PLAN.md). `PLAN.md` is the
 architecture and acceptance contract; this file records execution status
 without weakening that contract.
 
+Draft PR: [#233](https://github.com/acentrist/MecchaCamouflage/pull/233)
+
 ## Status rules
 
 - `[x]` means the item has direct evidence.
@@ -23,10 +25,10 @@ without weakening that contract.
 - [x] Create local branch `release/v1.x` at `v1.6.7`.
 - [x] Create local branch `rewrite/ue4ss-v2` from `main`.
 - [x] Commit `PLAN.md` as the first rewrite commit.
-- [ ] Push `release/v1.x`.
-- [ ] Push `rewrite/ue4ss-v2`.
-- [ ] Open the public Draft PR with the locked title.
-- [ ] Add this phase checklist to the Draft PR.
+- [x] Push `release/v1.x`.
+- [x] Push `rewrite/ue4ss-v2`.
+- [x] Open the public Draft PR with the locked title.
+- [x] Add this phase checklist to the Draft PR.
 - [x] Record the v1 source, test, submodule, build, and payload baseline.
 - [x] Run every available v1 deterministic build/test check and record
   pre-existing failures separately.
