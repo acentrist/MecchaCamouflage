@@ -5,6 +5,7 @@
 #include <meccha/application/config_store.hpp>
 #include <meccha/application/paint_game_runtime.hpp>
 #include <meccha/application/paint_job_coordinator.hpp>
+#include <meccha/application/paint_preview_build_worker.hpp>
 #include <meccha/application/paint_preview_controller.hpp>
 #include <meccha/application/runtime_lifecycle.hpp>
 
@@ -64,6 +65,13 @@ public:
         -> std::shared_ptr<const ApplicationSnapshot>;
 
 private:
+    struct ActivePaintPreviewBuild
+    {
+        JobGeneration generation{};
+        CommandId command_id{};
+        RuntimeObjectHandle component{};
+    };
+
     auto on_hud_frame_complete(
         const std::expected<std::size_t, RuntimeLifecycleError>& result,
         const RuntimeLifecycleSnapshot& runtime_snapshot) noexcept
@@ -73,12 +81,24 @@ private:
     auto record_runtime_error(
         const RuntimeExecutionError& error,
         std::optional<CommandId> command_id) -> void;
+    auto record_preview_error(
+        const PaintPreviewError& error,
+        CommandId command_id) -> void;
     auto record_command_error(CommandId command_id) -> void;
     auto process_commands(std::uint64_t now_ms) noexcept -> void;
     auto process_command(
         ApplicationCommand command,
         std::uint64_t now_ms) -> void;
+    auto begin_paint(
+        StartPaint request,
+        std::uint64_t now_ms) -> void;
+    auto begin_paint_preview(PreviewPaint request) -> void;
+    auto restore_paint_preview(
+        RestorePaintPreview request) -> void;
+    auto defer_for_paint_preview(
+        ApplicationCommand command) -> void;
     auto advance_paint(std::uint64_t now_ms) -> void;
+    auto advance_paint_preview(std::uint64_t now_ms) -> void;
     auto publish_locked(
         const RuntimeLifecycleSnapshot& runtime_snapshot) -> void;
     auto publish_locked() -> void;
@@ -95,13 +115,20 @@ private:
     bool runtime_initialized_{};
     RuntimeLifecycle lifecycle_;
     CorePaintPlanBuilder paint_plan_builder_{};
+    CorePaintPlanBuilder paint_preview_plan_builder_{};
     PaintPlanningWorker paint_planner_;
+    PaintPreviewBuildWorker paint_preview_builder_;
     PaintDispatchController paint_dispatcher_;
     PaintJobCoordinator paint_jobs_;
     PaintGameRuntimePort* paint_runtime_{};
     std::unique_ptr<ApplicationCommandQueue> command_queue_{};
     std::unique_ptr<PaintPreviewController> paint_previews_{};
     std::optional<RuntimeObjectHandle> active_paint_component_{};
+    std::optional<ActivePaintPreviewBuild>
+        active_paint_preview_build_{};
+    std::optional<ApplicationCommand>
+        deferred_paint_preview_command_{};
+    JobGeneration paint_preview_generation_{};
     bool ui_open_{};
     bool esp_enabled_{true};
 };

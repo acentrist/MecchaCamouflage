@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <expected>
+#include <limits>
 #include <mutex>
 #include <type_traits>
 #include <utility>
@@ -13,6 +14,21 @@ namespace
 {
 constexpr auto GenericFailureMessage = "error.operation.failed";
 constexpr auto CommandBudget = std::size_t{16U};
+
+auto active_job(JobPhase phase) -> bool
+{
+    return phase == JobPhase::Planning ||
+           phase == JobPhase::Dispatching ||
+           phase == JobPhase::Cancelling ||
+           phase == JobPhase::Draining;
+}
+
+auto command_id(const ApplicationCommand& command) -> CommandId
+{
+    return std::visit(
+        [](const auto& request) { return request.id; },
+        command);
+}
 
 auto monotonic_milliseconds() -> std::uint64_t
 {
@@ -78,6 +94,7 @@ ApplicationRoot::ApplicationRoot(
       diagnostics_{diagnostic_capacity},
       lifecycle_{callbacks, executor, queue_capacity, this},
       paint_planner_{paint_plan_builder_},
+      paint_preview_builder_{paint_preview_plan_builder_},
       paint_dispatcher_{lifecycle_, jobs_},
       paint_jobs_{jobs_, paint_planner_, paint_dispatcher_}
 {
@@ -323,6 +340,27 @@ auto ApplicationRoot::record_runtime_error(
         command_id);
 }
 
+auto ApplicationRoot::record_preview_error(
+    const PaintPreviewError& error,
+    CommandId command_id) -> void
+{
+    auto recorded = false;
+    if (error.runtime_error)
+    {
+        record_runtime_error(*error.runtime_error, command_id);
+        recorded = true;
+    }
+    if (error.recovery_error)
+    {
+        record_runtime_error(*error.recovery_error, command_id);
+        recorded = true;
+    }
+    if (!recorded)
+    {
+        record_command_error(command_id);
+    }
+}
+
 auto ApplicationRoot::record_command_error(
     CommandId command_id) -> void
 {
@@ -344,6 +382,7 @@ auto ApplicationRoot::process_commands(std::uint64_t now_ms) noexcept
             process_command(std::move(command), now_ms);
         }
         advance_paint(now_ms);
+        advance_paint_preview(now_ms);
     }
     catch (...)
     {
@@ -363,44 +402,12 @@ auto ApplicationRoot::process_command(
             using Request = std::decay_t<decltype(request)>;
             if constexpr (std::is_same_v<Request, StartPaint>)
             {
-                if (paint_previews_ &&
-                    preview_.snapshot().feature)
-                {
-                    const auto restored =
-                        paint_previews_->restore_active();
-                    if (!restored)
-                    {
-                        record_command_error(request.id);
-                        return;
-                    }
-                }
-                auto captured =
-                    paint_runtime_->capture(request.settings);
-                if (!captured)
-                {
-                    record_runtime_error(
-                        captured.error(),
-                        request.id);
-                    return;
-                }
-                if (!captured->component.valid() ||
-                    captured->plan.settings != request.settings)
-                {
-                    record_command_error(request.id);
-                    return;
-                }
-                const auto started = paint_jobs_.start(
-                    request.id,
-                    captured->component,
-                    std::move(captured->plan),
-                    captured->pacing,
-                    now_ms);
-                if (!started)
-                {
-                    record_command_error(request.id);
-                    return;
-                }
-                active_paint_component_ = captured->component;
+                begin_paint(std::move(request), now_ms);
+            }
+            else if constexpr (
+                std::is_same_v<Request, PreviewPaint>)
+            {
+                begin_paint_preview(std::move(request));
             }
             else if constexpr (std::is_same_v<Request, CancelPaint>)
             {
@@ -439,11 +446,7 @@ auto ApplicationRoot::process_command(
             else if constexpr (
                 std::is_same_v<Request, RestorePaintPreview>)
             {
-                if (!paint_previews_ ||
-                    !paint_previews_->restore_active())
-                {
-                    record_command_error(request.id);
-                }
+                restore_paint_preview(std::move(request));
             }
             else if constexpr (std::is_same_v<Request, ToggleUi>)
             {
@@ -473,6 +476,218 @@ auto ApplicationRoot::process_command(
             }
         },
         std::move(command));
+}
+
+auto ApplicationRoot::begin_paint(
+    StartPaint request,
+    std::uint64_t now_ms) -> void
+{
+    if (active_paint_preview_build_)
+    {
+        defer_for_paint_preview(
+            ApplicationCommand{std::move(request)});
+        return;
+    }
+    if (active_job(jobs_.snapshot().phase))
+    {
+        record_command_error(request.id);
+        return;
+    }
+    if (paint_previews_ && preview_.snapshot().feature)
+    {
+        const auto restored =
+            paint_previews_->restore_active();
+        if (!restored)
+        {
+            record_preview_error(
+                restored.error(),
+                request.id);
+            return;
+        }
+    }
+
+    auto captured =
+        paint_runtime_->capture(request.settings);
+    if (!captured)
+    {
+        record_runtime_error(
+            captured.error(),
+            request.id);
+        return;
+    }
+    if (!captured->component.valid() ||
+        captured->plan.settings != request.settings)
+    {
+        record_command_error(request.id);
+        return;
+    }
+    const auto component = captured->component;
+    const auto started = paint_jobs_.start(
+        request.id,
+        component,
+        std::move(captured->plan),
+        captured->pacing,
+        now_ms);
+    if (!started)
+    {
+        record_command_error(request.id);
+        return;
+    }
+    active_paint_component_ = component;
+}
+
+auto ApplicationRoot::begin_paint_preview(
+    PreviewPaint request) -> void
+{
+    if (active_job(jobs_.snapshot().phase) ||
+        !paint_previews_)
+    {
+        record_command_error(request.id);
+        return;
+    }
+    if (active_paint_preview_build_)
+    {
+        defer_for_paint_preview(
+            ApplicationCommand{std::move(request)});
+        return;
+    }
+    if (preview_.snapshot().feature)
+    {
+        const auto restored =
+            paint_previews_->restore_active();
+        if (!restored)
+        {
+            record_preview_error(
+                restored.error(),
+                request.id);
+            return;
+        }
+    }
+
+    auto captured =
+        paint_runtime_->capture(request.settings);
+    if (!captured)
+    {
+        record_runtime_error(
+            captured.error(),
+            request.id);
+        return;
+    }
+    if (!captured->component.valid() ||
+        captured->plan.settings != request.settings)
+    {
+        record_command_error(request.id);
+        return;
+    }
+
+    const auto component = captured->component;
+    const auto acquired =
+        paint_previews_->begin(Feature::Paint, component);
+    if (!acquired)
+    {
+        record_preview_error(
+            acquired.error(),
+            request.id);
+        return;
+    }
+    auto original =
+        paint_previews_->source(Feature::Paint, component);
+    if (!original)
+    {
+        record_preview_error(
+            original.error(),
+            request.id);
+        static_cast<void>(
+            paint_previews_->restore_active());
+        return;
+    }
+    if (paint_preview_generation_ ==
+        std::numeric_limits<JobGeneration>::max())
+    {
+        record_command_error(request.id);
+        static_cast<void>(
+            paint_previews_->restore_active());
+        return;
+    }
+
+    const auto generation = ++paint_preview_generation_;
+    const auto started = paint_preview_builder_.start(
+        generation,
+        PaintPreviewBuildRequest{
+            std::move(captured->plan),
+            std::move(*original),
+        });
+    if (!started)
+    {
+        record_command_error(request.id);
+        static_cast<void>(
+            paint_previews_->restore_active());
+        return;
+    }
+    active_paint_preview_build_ = ActivePaintPreviewBuild{
+        generation,
+        request.id,
+        component,
+    };
+}
+
+auto ApplicationRoot::restore_paint_preview(
+    RestorePaintPreview request) -> void
+{
+    if (!paint_previews_)
+    {
+        record_command_error(request.id);
+        return;
+    }
+    if (active_paint_preview_build_)
+    {
+        defer_for_paint_preview(
+            ApplicationCommand{std::move(request)});
+        return;
+    }
+
+    const auto restored = paint_previews_->restore_active();
+    if (!restored)
+    {
+        record_preview_error(
+            restored.error(),
+            request.id);
+    }
+    else if (*restored == PaintPreviewRestore::NoPreview)
+    {
+        record_command_error(request.id);
+    }
+}
+
+auto ApplicationRoot::defer_for_paint_preview(
+    ApplicationCommand command) -> void
+{
+    if (!active_paint_preview_build_)
+    {
+        record_command_error(command_id(command));
+        return;
+    }
+    deferred_paint_preview_command_ = std::move(command);
+    const auto cancelled = paint_preview_builder_.request_cancel(
+        active_paint_preview_build_->generation);
+    if (cancelled ==
+            PaintPreviewBuildCancelResult::StaleGeneration ||
+        cancelled == PaintPreviewBuildCancelResult::Idle)
+    {
+        const auto deferred_id =
+            command_id(*deferred_paint_preview_command_);
+        deferred_paint_preview_command_.reset();
+        active_paint_preview_build_.reset();
+        const auto restored =
+            paint_previews_->restore_active();
+        if (!restored)
+        {
+            record_preview_error(
+                restored.error(),
+                deferred_id);
+        }
+        record_command_error(deferred_id);
+    }
 }
 
 auto ApplicationRoot::advance_paint(std::uint64_t now_ms) -> void
@@ -524,6 +739,77 @@ auto ApplicationRoot::advance_paint(std::uint64_t now_ms) -> void
         ticked->phase == JobPhase::Failed)
     {
         active_paint_component_.reset();
+    }
+}
+
+auto ApplicationRoot::advance_paint_preview(
+    std::uint64_t now_ms) -> void
+{
+    auto completed = paint_preview_builder_.poll();
+    if (!completed)
+    {
+        return;
+    }
+    if (!active_paint_preview_build_ ||
+        completed->generation !=
+            active_paint_preview_build_->generation)
+    {
+        const auto id = active_paint_preview_build_
+                            ? active_paint_preview_build_->command_id
+                            : CommandId{};
+        active_paint_preview_build_.reset();
+        const auto restored =
+            paint_previews_->restore_active();
+        if (!restored && id != 0U)
+        {
+            record_preview_error(restored.error(), id);
+        }
+        record_command_error(id);
+        return;
+    }
+
+    const auto active = *active_paint_preview_build_;
+    active_paint_preview_build_.reset();
+    if (deferred_paint_preview_command_)
+    {
+        auto deferred =
+            std::move(*deferred_paint_preview_command_);
+        deferred_paint_preview_command_.reset();
+        const auto restored =
+            paint_previews_->restore_active();
+        if (!restored)
+        {
+            record_preview_error(
+                restored.error(),
+                command_id(deferred));
+            return;
+        }
+        process_command(std::move(deferred), now_ms);
+        return;
+    }
+
+    if (!completed->result)
+    {
+        record_command_error(active.command_id);
+        const auto restored =
+            paint_previews_->restore_active();
+        if (!restored)
+        {
+            record_preview_error(
+                restored.error(),
+                active.command_id);
+        }
+        return;
+    }
+    const auto applied = paint_previews_->apply(
+        Feature::Paint,
+        active.component,
+        **completed->result);
+    if (!applied)
+    {
+        record_preview_error(
+            applied.error(),
+            active.command_id);
     }
 }
 

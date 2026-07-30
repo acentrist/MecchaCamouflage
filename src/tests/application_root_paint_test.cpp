@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <expected>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -28,6 +29,21 @@ auto expect(bool condition, std::string_view message) -> bool
                   << message << '\n';
     }
     return condition;
+}
+
+auto image(std::uint32_t dimension = 8U) -> PaintTextureImage
+{
+    const auto bytes = static_cast<std::size_t>(
+        dimension * dimension * 4U);
+    return PaintTextureImage{
+        dimension,
+        std::make_shared<const std::vector<std::byte>>(
+            bytes,
+            std::byte{0x11}),
+        std::make_shared<const std::vector<std::byte>>(
+            bytes,
+            std::byte{0x22}),
+    };
 }
 
 class FakeStorage final : public AtomicTextStorage
@@ -110,34 +126,43 @@ public:
 class FakePreviewRuntime final : public PaintPreviewRuntimePort
 {
 public:
-    auto capture(RuntimeObjectHandle)
+    auto capture(RuntimeObjectHandle component)
         -> std::expected<
             PaintPreviewSnapshot,
             RuntimeExecutionError> override
     {
-        return std::unexpected(RuntimeExecutionError{
-            RuntimeExecutionErrorCode::OperationFailure,
-            std::nullopt,
-        });
+        ++capture_count;
+        return PaintPreviewSnapshot{
+            component,
+            image(),
+        };
     }
 
-    auto apply(RuntimeObjectHandle, const PaintTextureImage&)
+    auto apply(
+        RuntimeObjectHandle component,
+        const PaintTextureImage& applied)
         -> std::expected<void, RuntimeExecutionError> override
     {
-        return std::unexpected(RuntimeExecutionError{
-            RuntimeExecutionErrorCode::OperationFailure,
-            std::nullopt,
-        });
+        ++apply_count;
+        applied_component = component;
+        applied_image = applied;
+        return {};
     }
 
-    auto restore(const PaintPreviewSnapshot&)
+    auto restore(const PaintPreviewSnapshot& snapshot)
         -> std::expected<void, RuntimeExecutionError> override
     {
-        return std::unexpected(RuntimeExecutionError{
-            RuntimeExecutionErrorCode::OperationFailure,
-            std::nullopt,
-        });
+        ++restore_count;
+        restored_components.push_back(snapshot.component);
+        return {};
     }
+
+    std::size_t capture_count{};
+    std::size_t apply_count{};
+    std::size_t restore_count{};
+    RuntimeObjectHandle applied_component{};
+    PaintTextureImage applied_image{};
+    std::vector<RuntimeObjectHandle> restored_components{};
 };
 
 class FakePaintRuntime final : public PaintGameRuntimePort
@@ -295,6 +320,82 @@ auto main() -> int
             !root.snapshot()->esp_enabled &&
             root.snapshot()->command_queue.queued == 0U,
         "UI/ESP commands did not mutate only frame-owned state");
+
+    passed &= expect(
+        root.enqueue_command(PreviewPaint{
+            105U,
+            core::PaintSettings{},
+        }) == CommandEnqueueResult::Accepted,
+        "the root rejected a typed Paint preview command");
+    for (auto attempt = 0; attempt < 1000; ++attempt)
+    {
+        callbacks.invoke(Frame);
+        if (preview_runtime.apply_count == 1U)
+        {
+            break;
+        }
+        std::this_thread::sleep_for(1ms);
+    }
+    passed &= expect(
+        paint_runtime.capture_count == 2U &&
+            preview_runtime.capture_count == 1U &&
+            preview_runtime.apply_count == 1U &&
+            preview_runtime.applied_component ==
+                RuntimeObjectHandle{71U, 9U} &&
+            preview_runtime.applied_image.dimension == 8U &&
+            root.snapshot()->preview.feature == Feature::Paint,
+        "Paint preview capture, off-thread build, or game-thread apply was "
+        "not connected");
+
+    passed &= expect(
+        root.enqueue_command(RestorePaintPreview{106U}) ==
+            CommandEnqueueResult::Accepted,
+        "the root rejected explicit Paint preview restoration");
+    callbacks.invoke(Frame);
+    passed &= expect(
+        preview_runtime.restore_count == 1U &&
+            !root.snapshot()->preview.feature,
+        "explicit Paint preview restoration did not release the exact lease");
+
+    passed &= expect(
+        root.enqueue_command(PreviewPaint{
+            107U,
+            core::PaintSettings{},
+        }) == CommandEnqueueResult::Accepted,
+        "the replacement preview fixture was rejected");
+    for (auto attempt = 0; attempt < 1000; ++attempt)
+    {
+        callbacks.invoke(Frame);
+        if (preview_runtime.apply_count == 2U)
+        {
+            break;
+        }
+        std::this_thread::sleep_for(1ms);
+    }
+    passed &= expect(
+        root.enqueue_command(StartPaint{
+            108U,
+            core::PaintSettings{},
+        }) == CommandEnqueueResult::Accepted,
+        "the post-preview Paint fixture was rejected");
+    for (auto attempt = 0; attempt < 1000; ++attempt)
+    {
+        callbacks.invoke(Frame);
+        const auto current = root.snapshot();
+        if (current->job.command_id == 108U &&
+            current->job.phase == JobPhase::Completed)
+        {
+            break;
+        }
+        std::this_thread::sleep_for(1ms);
+    }
+    passed &= expect(
+        preview_runtime.restore_count == 2U &&
+            !root.snapshot()->preview.feature &&
+            root.snapshot()->job.command_id == 108U &&
+            root.snapshot()->job.phase == JobPhase::Completed,
+        "real Paint did not restore an active preview before capture and "
+        "dispatch");
 
     if (passed)
     {

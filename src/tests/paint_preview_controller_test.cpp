@@ -157,6 +157,14 @@ auto main() -> int
             leases.snapshot().component_identity ==
                 First.identity,
         "same-component preview did not retain one original snapshot");
+    const auto source =
+        previews.source(Feature::Paint, First);
+    passed &= expect(
+        source &&
+            source->dimension == 2U &&
+            source->albedo_rgba &&
+            source->packed_pbr_rgba,
+        "the active lease did not expose immutable composition input");
     passed &= expect(
         previews.apply(Feature::Paint, First, image()).has_value() &&
             runtime.apply_count == 1U &&
@@ -185,6 +193,7 @@ auto main() -> int
     passed &= expect(
         previews.restore(First) ==
                 PaintPreviewRestore::WrongComponent &&
+            !previews.source(Feature::Paint, Second) &&
             runtime.restore_count == 1U &&
             previews.restore(Second) ==
                 PaintPreviewRestore::Restored &&

@@ -115,7 +115,12 @@ callback it drains a bounded number of typed commands, captures through
 `PaintGameRuntimePort`, starts the immutable worker/coordinator generation,
 observes authoritative queue state only after dispatch begins, and publishes
 the resulting job and command-queue state. The root never captures or observes
-Paint from `on_update()`.
+Paint from `on_update()`. Typed `PreviewPaint` also restores any prior lease
+before a fresh capture, acquires one immutable original snapshot, starts the
+preview-build worker, and applies only the matching completed generation on a
+later game-thread frame. `RestorePaintPreview` cancels an in-flight build
+before exact restoration, and `StartPaint` defers until the same restoration
+has completed so preview pixels cannot contaminate real Paint capture.
 
 ## Preview ownership and recovery boundary
 
@@ -192,7 +197,8 @@ containment, and terminal shutdown. `paint_preview_controller` covers
 game-thread enforcement, capture reuse, replacement ordering, strict image
 bounds, wrong-component and repeat guards, apply recovery, retained recovery
 failure, shutdown restoration, malformed capture, and invalid-handle expiry.
-`application_root_paint` covers the end-to-end command, capture, worker,
+`application_root_paint` covers the end-to-end real-Paint and preview commands,
+capture, workers, game-thread preview apply/restore, restore-before-real-Paint,
 dispatch, execution, observation, completion, command backpressure, and
 frame-owned UI/ESP path. `paint_preview_composer` adds Fill/Paint overwrite
 ordering, packed-PBR quantization, edge clipping, original immutability,
@@ -204,6 +210,8 @@ secret-free Linux suite currently passes all 34 registered tests.
 - Capture the live component/profile/source appearance and preview snapshot
   through validated reflected contracts on the game thread.
 - Implement the production UE4SS capture/queue-observer contracts and connect
-  Paint preview composition plus exact reflected restoration.
+  exact reflected preview export/import/verification.
+- Coordinate root-owned preview restoration with the lifecycle quiesce barrier
+  before callback unregistration.
 - Complete fake-runtime failures and the deferred single-/two-client live
   matrix before Phase 8 can close.

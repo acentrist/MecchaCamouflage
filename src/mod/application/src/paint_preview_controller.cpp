@@ -172,6 +172,38 @@ auto PaintPreviewController::apply(
         applied.error());
 }
 
+auto PaintPreviewController::source(
+    Feature feature,
+    RuntimeObjectHandle component)
+    -> std::expected<PaintTextureImage, PaintPreviewError>
+{
+    if (!thread_context_.is_game_thread())
+    {
+        return failure(PaintPreviewErrorCode::WrongThread);
+    }
+    if (!component.valid())
+    {
+        return failure(
+            PaintPreviewErrorCode::InvalidComponent);
+    }
+    if (!lease_consistent() || !snapshot_)
+    {
+        return failure(PaintPreviewErrorCode::NoPreview);
+    }
+    const auto lease = leases_.snapshot();
+    if (snapshot_->component != component ||
+        lease.component_identity != component.identity)
+    {
+        return failure(
+            PaintPreviewErrorCode::InvalidComponent);
+    }
+    if (!lease.feature || *lease.feature != feature)
+    {
+        return failure(PaintPreviewErrorCode::WrongFeature);
+    }
+    return snapshot_->original;
+}
+
 auto PaintPreviewController::restore(
     RuntimeObjectHandle component)
     -> std::expected<PaintPreviewRestore, PaintPreviewError>

@@ -108,6 +108,11 @@ public:
         const PaintTextureImage& image)
         -> std::expected<void, PaintPreviewError>;
 
+    [[nodiscard]] auto source(
+        Feature feature,
+        RuntimeObjectHandle component)
+        -> std::expected<PaintTextureImage, PaintPreviewError>;
+
     [[nodiscard]] auto restore(RuntimeObjectHandle component)
         -> std::expected<
             PaintPreviewRestore,

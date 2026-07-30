@@ -201,6 +201,8 @@ Evidence:
   an exception boundary.
 - [x] Connect typed Start/Cancel Paint, capture, planning, dispatch, queue
   observation, progress, and terminal completion through `ApplicationRoot`.
+- [x] Connect typed Preview/Restore Paint through `ApplicationRoot`, including
+  restore-before-real-Paint ordering and game-thread-only capture/apply.
 - [ ] Implement exact preview capture/apply/restore ownership.
 - [ ] Dispatch only through game-owned `PaintAtUVWithBrush`.
 - [x] Implement bounded per-frame pacing, progress, cancellation, and terminal

@@ -105,7 +105,8 @@ The test runs in both the Linux secret-free build and the Windows MSVC
 
 ## Remaining Phase 4 work
 
-- Add Paint preview composition, Image Paint, ESP, full UI, persistence
+- Add production reflected Paint preview import/export, Image Paint, ESP, full
+  UI, persistence
   lifecycle, and the production `UnrealRuntimeAdapter` to the existing owned
   root as those modules are implemented.
 - Implement the pinned UE4SS callback registration adapter and prove exact
