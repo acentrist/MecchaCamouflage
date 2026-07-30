@@ -50,6 +50,21 @@ add_test(
 )
 
 add_executable(
+    meccha_input_command_router_tests
+    input_command_router_test.cpp
+)
+target_link_libraries(
+    meccha_input_command_router_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(
+    NAME input_command_router
+    COMMAND meccha_input_command_router_tests
+)
+
+add_executable(
     meccha_application_root_tests
     application_root_test.cpp
 )

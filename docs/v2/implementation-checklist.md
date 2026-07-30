@@ -455,12 +455,22 @@ Evidence:
 - [ ] Bind UI only to typed commands and immutable snapshots.
 - [ ] Complete all editor interactions and body-guide behavior.
 - [ ] Complete F9 and configurable F1–F8 hotkey behavior.
+  - [x] Implement a bounded application-owned F1–F24 command router with the
+    F9/F1–F8 defaults, validated remapping, physical-key repeat suppression
+    until release, immutable snapshot capture, unavailable-project rejection,
+    monotonic command IDs, input-loss release, and terminal shutdown.
+  - [ ] Register all supported keys once and connect the production UE4SS input
+    callbacks to the router.
 - [ ] Complete progress, backpressure, compatibility, and diagnostics display.
 - [ ] Complete responsive themes, DPI, clipping, fonts, and all 16 languages.
 - [ ] Ensure panel close preserves ESP and active jobs.
 - [ ] Pass UI action/state, gesture, hotkey, layout, and localization tests.
 - [ ] DEFERRED — maintainer interaction required: complete the full in-game UI
   walkthrough across languages/resolutions/DPI.
+
+Evidence:
+
+- [`phase11-ui-progress.md`](phase11-ui-progress.md)
 
 ## Phase 12 — Launcher, payload, and CI hardening
 
