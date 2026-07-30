@@ -151,6 +151,10 @@ Evidence:
 - [ ] Pass unit, property, golden, state-machine, dependency-boundary, and
   supported sanitizer/static-analysis checks.
 
+Evidence:
+
+- [`phase6-core-progress.md`](phase6-core-progress.md)
+
 ## Phase 7 — Configuration, localization, and persistence
 
 - [ ] Specify and implement the strict v2 config schema.
