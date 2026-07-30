@@ -94,14 +94,19 @@ shutdown.
 
 ## Paint-plan boundary
 
-`core/image_paint_plan` converts a canonical atlas and already mapped runtime
+`core/image_paint_plan` converts a canonical atlas and triangle-anchored runtime
 capture samples into the same immutable `PaintPlan` used by normal Paint. It
-does not own reflection, UObjects, dispatch, or profile geometry loading.
+does not own reflection, UObjects, or dispatch.
 
 - Both raw and image-reference identities must be the frozen matching
   round/cube/fukuyoka pair selected by the project body type.
-- Every captured sample carries validated paint UV/spatial data plus its
-  canonical atlas coordinate and Front/Right/Back/Left face.
+- `decode_canonical_image_profile` extends the strict profile decoder to retain
+  immutable image-reference positions and indices. It validates exact vertex
+  order and finite coordinates before core accepts the geometry.
+- Core computes the frozen canonical center, orientation, and pixels-per-unit
+  scale from those reference vertices. Every captured sample carries validated
+  paint UV/spatial data plus a triangle index and barycentric weights; core
+  derives its Front/Right/Back/Left face and atlas coordinate.
 - Atlas sampling uses the frozen v1 nearest-pixel orientation, including the
   vertical flip between projection coordinates and image rows.
 - Transparent pixels and the reserved Background marker do not emit image
@@ -116,16 +121,23 @@ does not own reflection, UObjects, dispatch, or profile geometry loading.
 - Output uses no scene-lighting or Auto Material path and is directly
   compatible with the shared bounded Paint dispatcher.
 
-`image_paint_planner_test` covers independent four-face routing, transparent
-and Background-marker handling, Fill-first overwrite, color/material/radius
-selection, all three accepted profile identity pairs, profile mismatch,
-truncated atlas, malformed mapping values, unsafe-sample exclusion, and
-cancellation.
+`image_profile_mapping_test` covers immutable geometry validation, all three
+body contracts, front/back face projection, invalid identity/counts/anchors,
+degenerate triangles, and cancellation. `mesh_profile_codec_test` now decodes
+all three packaged image profiles, maps the barycentric center of every shipped
+triangle, proves every profile reaches all four faces, and rejects a corrupted
+reference-vertex order.
 
-The runtime adapter still needs to derive the canonical coordinates from the
-verified reference-profile geometry. Until that mapping and dispatcher
-integration are complete, this is a tested pure boundary rather than a
-production Image Paint path.
+`image_paint_planner_test` covers the resulting end-to-end pure mapping and
+independent four-face routing, transparent and Background-marker handling,
+Fill-first overwrite, color/material/radius selection, all three accepted
+profile pairs, profile mismatch, truncated atlas, malformed anchors,
+unsafe-sample exclusion, and cancellation.
+
+The runtime adapter still needs to capture the validated triangle/barycentric
+anchors and the application root must dispatch the resulting shared plan.
+Until that integration is complete, this is a tested pure boundary rather than
+a production Image Paint path.
 
 ## Remaining work
 
@@ -137,8 +149,8 @@ production Image Paint path.
 - Derive and version all three editor-only guide overlays.
 - Implement game-thread texture creation/update/release through the accepted
   runtime adapter.
-- Map captured triangles through all three canonical image-reference profiles
-  and connect the resulting shared Paint plan to the accepted dispatcher.
+- Capture triangle/barycentric anchors through the runtime adapter and connect
+  the resulting shared Paint plan to the accepted dispatcher.
 - Build the complete UCanvas editor and pass fake-runtime and live checks.
 
 No decoder, runtime, or UI fallback is implied by this core milestone.

@@ -3,6 +3,7 @@
 #include <meccha/core/image_project.hpp>
 #include <meccha/core/mesh_profile.hpp>
 
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <fstream>
@@ -110,6 +111,59 @@ auto main(int argc, char** argv) -> int
                         test.body,
                         test.role),
             "a packaged mesh profile failed its frozen identity");
+        if (test.role == core::MeshProfileRole::ImageReference)
+        {
+            const auto canonical =
+                application::decode_canonical_image_profile(
+                    json,
+                    test.body);
+            auto face_counts = std::array<std::size_t, 4U>{};
+            auto all_triangles_mapped = canonical.has_value();
+            if (canonical)
+            {
+                for (auto triangle = std::size_t{};
+                     triangle <
+                     canonical->geometry.identity.triangle_count;
+                     ++triangle)
+                {
+                    const auto mapped = core::map_image_triangle(
+                        *canonical,
+                        core::ImageTriangleAnchor{
+                            triangle,
+                            1.0 / 3.0,
+                            1.0 / 3.0,
+                            1.0 / 3.0});
+                    if (!mapped)
+                    {
+                        all_triangles_mapped = false;
+                        break;
+                    }
+                    ++face_counts[static_cast<std::size_t>(
+                        mapped->face)];
+                }
+            }
+            passed &= expect(
+                canonical &&
+                    canonical->geometry.identity ==
+                        core::expected_mesh_profile(
+                            test.body,
+                            core::MeshProfileRole::ImageReference) &&
+                    canonical->geometry.positions &&
+                    canonical->geometry.positions->size() ==
+                        canonical->geometry.identity.vertex_count &&
+                    canonical->geometry.indices &&
+                    canonical->geometry.indices->size() ==
+                        canonical->geometry.identity.index_count &&
+                    all_triangles_mapped &&
+                    std::ranges::all_of(
+                        face_counts,
+                        [](std::size_t count)
+                        {
+                            return count > 0U;
+                        }),
+                "a packaged image-reference profile did not produce "
+                "complete four-face canonical geometry");
+        }
     }
 
     auto aliased = read_file(
@@ -169,6 +223,36 @@ auto main(int argc, char** argv) -> int
             oversized.error().code ==
                 application::MeshProfileCodecErrorCode::TooLarge,
         "an oversized profile was accepted");
+
+    auto invalid_reference_vertex =
+        read_file(root / "paintman.image-profile-v2.json");
+    const auto pose_position =
+        invalid_reference_vertex.find("\"ImageReferencePose\"");
+    const auto vertices_position =
+        invalid_reference_vertex.find(
+            "\"Vertices\"",
+            pose_position);
+    const auto reference_index_position =
+        invalid_reference_vertex.find(
+            R"("Index":  0)",
+            vertices_position);
+    if (reference_index_position != std::string::npos)
+    {
+        invalid_reference_vertex.replace(
+            reference_index_position,
+            std::string_view{R"("Index":  0)"}.size(),
+            R"("Index":  1)");
+    }
+    const auto rejected_reference_vertex =
+        application::decode_canonical_image_profile(
+            invalid_reference_vertex,
+            core::BodyProfile::Round);
+    passed &= expect(
+        reference_index_position != std::string::npos &&
+            !rejected_reference_vertex &&
+            rejected_reference_vertex.error().code ==
+                application::MeshProfileCodecErrorCode::InvalidProfile,
+        "an out-of-order image-reference vertex was accepted");
 
     if (passed)
     {

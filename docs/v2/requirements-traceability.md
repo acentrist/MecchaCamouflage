@@ -107,7 +107,7 @@ inventory drift.
 | IMAGE-005 | Each layer preserves center, size, normalized crop, seam wrap, and front/back mirror. | `Models.ImagePaintLayer`, Web UI | Project model + `core/image_compositor` | T1, T4 | JavaScript transforms |
 | IMAGE-006 | Crop is finite, positive, normalized, and remains inside the source. | `Models.TryValidate` | `core/image_project` + `core/image_compositor` | T1 | C# validation |
 | IMAGE-007 | Placement preserves the existing fit/fill semantics. | `Models.Placement`, Web UI compositor | `core/image_compositor` + UI | T1, T4 | Browser canvas |
-| IMAGE-008 | Body type is round/cube/fukuyoka and profile selection follows the chosen body. | `Models`, Bridge image planner | Profile mapping + `core/image_paint_plan` identity gate | T1, T2, T4 | Bridge mapping |
+| IMAGE-008 | Body type is round/cube/fukuyoka and profile selection follows the chosen body. | `Models`, Bridge image planner | `decode_canonical_image_profile` + `core/image_profile_mapping` + planner identity gate | T1, T2, T4 | Bridge mapping |
 | IMAGE-009 | Four faces independently select Fill or Skip beneath opaque image pixels. | `Models`, payload/routing tests | `core/image_paint_plan` | T1, T2, T4 | Bridge image routing |
 | IMAGE-010 | Image material defaults M=0/R=1/E=0; brush defaults `5` in `[1,10]`; compression defaults `0` in `[0,10]`. | `Models` | Project model + `core/image_paint_plan` | T1, T4 | C# model |
 | IMAGE-011 | Image Fill color/PBR belongs to the saved project and does not inherit mutable Paint-tab state. | `Models`, preset tests | Project model + `core/image_paint_plan` | T1, T4 | C# active state |

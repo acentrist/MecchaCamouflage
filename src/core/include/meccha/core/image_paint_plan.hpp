@@ -1,6 +1,7 @@
 #pragma once
 
 #include <meccha/core/image_compositor.hpp>
+#include <meccha/core/image_profile_mapping.hpp>
 #include <meccha/core/paint_plan.hpp>
 
 #include <cstddef>
@@ -12,14 +13,6 @@
 
 namespace meccha::core
 {
-enum class ImageAtlasFace : std::uint8_t
-{
-    Front,
-    Right,
-    Back,
-    Left,
-};
-
 struct CapturedImagePaintSample
 {
     Region paint_region{Region::Front};
@@ -30,9 +23,7 @@ struct CapturedImagePaintSample
     double current_view_vertical{};
     double fallback_view_vertical{};
     double horizontal{};
-    ImageAtlasFace face{ImageAtlasFace::Front};
-    double atlas_u{};
-    double atlas_v{};
+    ImageTriangleAnchor image_anchor{};
     bool safe{true};
 
     auto operator==(const CapturedImagePaintSample&) const -> bool =
@@ -42,7 +33,7 @@ struct CapturedImagePaintSample
 struct ImagePaintPlanRequest
 {
     MeshProfileIdentity raw_profile{};
-    MeshProfileIdentity image_profile{};
+    CanonicalImageProfile image_profile{};
     ImageProjectSettings settings{};
     std::shared_ptr<const std::vector<std::byte>> atlas{};
     std::vector<CapturedImagePaintSample> samples{};

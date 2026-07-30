@@ -27,14 +27,6 @@ auto region_valid(Region region) -> bool
            region == Region::Back;
 }
 
-auto face_valid(ImageAtlasFace face) -> bool
-{
-    return face == ImageAtlasFace::Front ||
-           face == ImageAtlasFace::Right ||
-           face == ImageAtlasFace::Back ||
-           face == ImageAtlasFace::Left;
-}
-
 auto mode_for(
     ImageAtlasFace face,
     const ImageProjectSettings& settings) -> FaceBaseMode
@@ -163,13 +155,15 @@ auto build_image_paint_plan(
     }
     if (!validate(request.raw_profile).empty() ||
         request.raw_profile.role != MeshProfileRole::Raw ||
-        !validate(request.image_profile).empty() ||
-        request.image_profile.role != MeshProfileRole::ImageReference ||
+        !validate(request.image_profile.geometry.identity).empty() ||
+        request.image_profile.geometry.identity.role !=
+            MeshProfileRole::ImageReference ||
         request.raw_profile.body != request.settings.body ||
-        request.image_profile.body != request.settings.body ||
-        request.image_profile.base_profile_id !=
+        request.image_profile.geometry.identity.body !=
+            request.settings.body ||
+        request.image_profile.geometry.identity.base_profile_id !=
             request.raw_profile.profile_id ||
-        request.image_profile.base_profile_hash !=
+        request.image_profile.geometry.identity.base_profile_hash !=
             request.raw_profile.profile_hash)
     {
         return std::unexpected(ImagePaintPlanError::InvalidProfile);
@@ -221,9 +215,15 @@ auto build_image_paint_plan(
             (sample.has_current_view_position &&
              !std::isfinite(sample.current_view_vertical)) ||
             !std::isfinite(sample.fallback_view_vertical) ||
-            !std::isfinite(sample.horizontal) ||
-            !face_valid(sample.face) ||
-            !unit(sample.atlas_u) || !unit(sample.atlas_v))
+            !std::isfinite(sample.horizontal))
+        {
+            return std::unexpected(
+                ImagePaintPlanError::InvalidSample);
+        }
+        const auto mapped = map_image_triangle(
+            request.image_profile,
+            sample.image_anchor);
+        if (!mapped)
         {
             return std::unexpected(
                 ImagePaintPlanError::InvalidSample);
@@ -237,7 +237,7 @@ auto build_image_paint_plan(
         }
         else
         {
-            if (mode_for(sample.face, request.settings) ==
+            if (mode_for(mapped->face, request.settings) ==
                 FaceBaseMode::Fill)
             {
                 fill_candidates.push_back(
@@ -246,7 +246,7 @@ auto build_image_paint_plan(
             }
 
             const auto pixel =
-                atlas_color(atlas, sample.atlas_u, sample.atlas_v);
+                atlas_color(atlas, mapped->u, mapped->v);
             color = Rgb8{pixel[0U], pixel[1U], pixel[2U]};
             if (pixel[3U] == ImageBackgroundAlphaMarker)
             {

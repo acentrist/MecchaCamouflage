@@ -56,59 +56,114 @@ auto write_pixel(
 }
 
 auto sample(
-    ImageAtlasFace face,
     double paint_u,
-    double atlas_u,
+    std::size_t triangle_index,
     bool safe = true) -> CapturedImagePaintSample
 {
     return CapturedImagePaintSample{
-        face == ImageAtlasFace::Front
+        triangle_index == 0U
             ? Region::Front
-            : (face == ImageAtlasFace::Back
+            : (triangle_index == 2U
                    ? Region::Back
                    : Region::Side),
-        static_cast<int>(face),
+        static_cast<int>(triangle_index),
         paint_u,
         0.5,
         true,
         1.0 - paint_u,
         1.0 - paint_u,
         paint_u,
-        face,
-        atlas_u,
-        0.5,
+        ImageTriangleAnchor{
+            triangle_index,
+            1.0 / 3.0,
+            1.0 / 3.0,
+            1.0 / 3.0,
+        },
         safe,
     };
+}
+
+auto image_profile(BodyProfile body) -> CanonicalImageProfile
+{
+    const auto identity = expected_mesh_profile(
+        body,
+        MeshProfileRole::ImageReference);
+    auto positions = std::vector<Vector3d>(
+        identity.vertex_count,
+        Vector3d{});
+    positions[0U] = {-1.0, -1.0, -1.0};
+    positions[1U] = {1.0, -1.0, -1.0};
+    positions[2U] = {0.0, -1.0, 1.0};
+    positions[3U] = {1.0, -1.0, -1.0};
+    positions[4U] = {1.0, 1.0, -1.0};
+    positions[5U] = {1.0, 0.0, 1.0};
+    positions[6U] = {1.0, 1.0, -1.0};
+    positions[7U] = {-1.0, 1.0, -1.0};
+    positions[8U] = {0.0, 1.0, 1.0};
+    positions[9U] = {-1.0, 1.0, -1.0};
+    positions[10U] = {-1.0, -1.0, -1.0};
+    positions[11U] = {-1.0, 0.0, 1.0};
+    auto indices = std::vector<std::uint32_t>(
+        identity.index_count,
+        0U);
+    for (auto index = std::size_t{}; index < 12U; ++index)
+    {
+        indices[index] = static_cast<std::uint32_t>(index);
+    }
+    indices.back() =
+        static_cast<std::uint32_t>(identity.vertex_count - 1U);
+    auto built = build_canonical_image_profile(
+        ImageReferenceGeometry{
+            identity,
+            std::make_shared<const std::vector<Vector3d>>(
+                std::move(positions)),
+            std::make_shared<const std::vector<std::uint32_t>>(
+                std::move(indices)),
+        });
+    return std::move(*built);
 }
 
 auto request(BodyProfile body = BodyProfile::Round)
     -> ImagePaintPlanRequest
 {
+    auto profile = image_profile(body);
     auto atlas = std::vector<std::byte>(
         CanonicalAtlasByteLength,
         std::byte{});
+    const auto front = map_image_triangle(
+        profile,
+        ImageTriangleAnchor{0U, 1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0});
+    const auto right = map_image_triangle(
+        profile,
+        ImageTriangleAnchor{1U, 1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0});
+    const auto back = map_image_triangle(
+        profile,
+        ImageTriangleAnchor{2U, 1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0});
+    const auto left = map_image_triangle(
+        profile,
+        ImageTriangleAnchor{3U, 1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0});
     write_pixel(
         atlas,
-        0.125,
-        0.5,
+        front->u,
+        front->v,
         Rgb8{255U, 0U, 0U},
         255U);
     write_pixel(
         atlas,
-        0.375,
-        0.5,
+        right->u,
+        right->v,
         Rgb8{0U, 255U, 0U},
         0U);
     write_pixel(
         atlas,
-        0.625,
-        0.5,
+        back->u,
+        back->v,
         Rgb8{0U, 0U, 255U},
         255U);
     write_pixel(
         atlas,
-        0.875,
-        0.5,
+        left->u,
+        left->v,
         Rgb8{12U, 34U, 56U},
         ImageBackgroundAlphaMarker);
 
@@ -127,17 +182,15 @@ auto request(BodyProfile body = BodyProfile::Round)
 
     return ImagePaintPlanRequest{
         expected_mesh_profile(body, MeshProfileRole::Raw),
-        expected_mesh_profile(
-            body,
-            MeshProfileRole::ImageReference),
+        std::move(profile),
         settings,
         std::make_shared<const std::vector<std::byte>>(
             std::move(atlas)),
         {
-            sample(ImageAtlasFace::Front, 0.1, 0.125),
-            sample(ImageAtlasFace::Right, 0.3, 0.375),
-            sample(ImageAtlasFace::Back, 0.6, 0.625),
-            sample(ImageAtlasFace::Left, 0.9, 0.875),
+            sample(0.1, 0U),
+            sample(0.3, 1U),
+            sample(0.6, 2U),
+            sample(0.9, 3U),
         },
     };
 }
@@ -224,9 +277,7 @@ auto main() -> int
     }
 
     auto mismatched = request(BodyProfile::Cube);
-    mismatched.image_profile = expected_mesh_profile(
-        BodyProfile::Round,
-        MeshProfileRole::ImageReference);
+    mismatched.image_profile = image_profile(BodyProfile::Round);
     passed &= expect(
         build_image_paint_plan(mismatched) ==
             std::unexpected(ImagePaintPlanError::InvalidProfile),
@@ -241,19 +292,19 @@ auto main() -> int
         "a truncated canonical atlas was accepted");
 
     auto invalid_sample = request();
-    invalid_sample.samples.front().atlas_u =
+    invalid_sample.samples.front().image_anchor.barycentric_a =
         std::numeric_limits<double>::quiet_NaN();
     passed &= expect(
         build_image_paint_plan(invalid_sample) ==
             std::unexpected(ImagePaintPlanError::InvalidSample),
         "a non-finite atlas coordinate was accepted");
     auto invalid_face = request();
-    invalid_face.samples.front().face =
-        static_cast<ImageAtlasFace>(0xFFU);
+    invalid_face.samples.front().image_anchor.triangle_index =
+        invalid_face.image_profile.geometry.identity.triangle_count;
     passed &= expect(
         build_image_paint_plan(invalid_face) ==
             std::unexpected(ImagePaintPlanError::InvalidSample),
-        "an unknown atlas face was accepted");
+        "an out-of-range image-reference triangle was accepted");
 
     auto unsafe = request();
     unsafe.samples.front().safe = false;

@@ -10,6 +10,14 @@ inline constexpr std::uint32_t CanonicalAtlasWidth = 1024U;
 inline constexpr std::uint32_t CanonicalAtlasHeight = 512U;
 inline constexpr std::uint32_t CanonicalAtlasTileWidth = 256U;
 
+enum class ImageAtlasFace : std::uint8_t
+{
+    Front,
+    Right,
+    Back,
+    Left,
+};
+
 struct AtlasMappingInput
 {
     bool cube{};

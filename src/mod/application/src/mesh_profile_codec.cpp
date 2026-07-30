@@ -171,6 +171,30 @@ public:
         return static_cast<std::int64_t>(number);
     }
 
+    auto number(const Object& object_value, std::string_view key) const
+        -> std::expected<double, MeshProfileCodecError>
+    {
+        const auto value = member(object_value, key);
+        if (!value)
+        {
+            return std::unexpected(value.error());
+        }
+        if (!(*value)->is_number())
+        {
+            return malformed(
+                "Mesh profile field is not a number: " +
+                std::string{key});
+        }
+        const auto number = (*value)->get<double>();
+        if (!std::isfinite(number))
+        {
+            return malformed(
+                "Mesh profile field is not finite: " +
+                std::string{key});
+        }
+        return number;
+    }
+
     auto array(const Object& object_value, std::string_view key) const
         -> std::expected<
             std::reference_wrapper<const Array>,
@@ -229,12 +253,12 @@ private:
 
     const Object& root_;
 };
-} // namespace
 
-auto decode_mesh_profile_identity(
+auto decode_mesh_profile(
     std::string_view json,
     core::BodyProfile body,
-    core::MeshProfileRole role)
+    core::MeshProfileRole role,
+    core::ImageReferenceGeometry* geometry_output)
     -> std::expected<
         core::MeshProfileIdentity,
         MeshProfileCodecError>
@@ -377,6 +401,11 @@ auto decode_mesh_profile_identity(
     }
 
     auto maximum_index = std::optional<std::size_t>{};
+    auto decoded_indices = std::vector<std::uint32_t>{};
+    if (geometry_output != nullptr)
+    {
+        decoded_indices.reserve(indices->get().size());
+    }
     for (const auto& index : indices->get())
     {
         if (!index.is_number())
@@ -398,6 +427,11 @@ auto decode_mesh_profile_identity(
         maximum_index = maximum_index
                             ? std::max(*maximum_index, converted)
                             : converted;
+        if (geometry_output != nullptr)
+        {
+            decoded_indices.push_back(
+                static_cast<std::uint32_t>(converted));
+        }
     }
 
     const auto validate_nested_indices =
@@ -536,6 +570,7 @@ auto decode_mesh_profile_identity(
     }
 
     auto reference_pose_count = std::size_t{};
+    auto reference_positions = std::vector<core::Vector3d>{};
     if (role == core::MeshProfileRole::ImageReference)
     {
         const auto profile_role =
@@ -556,11 +591,57 @@ auto decode_mesh_profile_identity(
         const auto transforms = reader.array(
             pose->get(),
             "ComponentTransforms");
-        if (!transforms)
+        const auto reference_vertices = reader.array(
+            pose->get(),
+            "Vertices");
+        if (!transforms || !reference_vertices)
         {
-            return std::unexpected(transforms.error());
+            return std::unexpected(
+                !transforms
+                    ? transforms.error()
+                    : reference_vertices.error());
         }
         reference_pose_count = transforms->get().size();
+        if (reference_vertices->get().size() != *vertex_count)
+        {
+            return invalid_profile(
+                core::MeshProfileField::ReferencePose,
+                "Image-reference vertex count does not match the profile.");
+        }
+        reference_positions.reserve(
+            reference_vertices->get().size());
+        for (auto position = std::size_t{};
+             position < reference_vertices->get().size();
+             ++position)
+        {
+            const auto* vertex =
+                reference_vertices->get()[position].get_if<Object>();
+            if (vertex == nullptr)
+            {
+                return malformed(
+                    "Image-reference vertex is not an object.");
+            }
+            const auto index = reader.size(*vertex, "Index");
+            const auto x = reader.number(*vertex, "X");
+            const auto y = reader.number(*vertex, "Y");
+            const auto z = reader.number(*vertex, "Z");
+            if (!index || !x || !y || !z)
+            {
+                if (!index)
+                    return std::unexpected(index.error());
+                if (!x) return std::unexpected(x.error());
+                if (!y) return std::unexpected(y.error());
+                return std::unexpected(z.error());
+            }
+            if (*index != position)
+            {
+                return invalid_profile(
+                    core::MeshProfileField::ReferencePose,
+                    "Image-reference vertex order is invalid.");
+            }
+            reference_positions.push_back(
+                core::Vector3d{*x, *y, *z});
+        }
     }
     else if (
         root->contains("ProfileRole") ||
@@ -607,6 +688,60 @@ auto decode_mesh_profile_identity(
             "Mesh profile does not match the frozen body contract.",
         });
     }
+    if (geometry_output != nullptr)
+    {
+        *geometry_output = core::ImageReferenceGeometry{
+            identity,
+            std::make_shared<
+                const std::vector<core::Vector3d>>(
+                std::move(reference_positions)),
+            std::make_shared<
+                const std::vector<std::uint32_t>>(
+                std::move(decoded_indices)),
+        };
+    }
     return identity;
+}
+} // namespace
+
+auto decode_mesh_profile_identity(
+    std::string_view json,
+    core::BodyProfile body,
+    core::MeshProfileRole role)
+    -> std::expected<
+        core::MeshProfileIdentity,
+        MeshProfileCodecError>
+{
+    return decode_mesh_profile(json, body, role, nullptr);
+}
+
+auto decode_canonical_image_profile(
+    std::string_view json,
+    core::BodyProfile body)
+    -> std::expected<
+        core::CanonicalImageProfile,
+        MeshProfileCodecError>
+{
+    auto geometry = core::ImageReferenceGeometry{};
+    const auto identity = decode_mesh_profile(
+        json,
+        body,
+        core::MeshProfileRole::ImageReference,
+        &geometry);
+    if (!identity)
+    {
+        return std::unexpected(identity.error());
+    }
+    auto profile =
+        core::build_canonical_image_profile(std::move(geometry));
+    if (!profile)
+    {
+        return std::unexpected(MeshProfileCodecError{
+            MeshProfileCodecErrorCode::InvalidProfile,
+            {core::MeshProfileField::ReferencePose},
+            "Image-reference geometry cannot build a canonical profile.",
+        });
+    }
+    return std::move(*profile);
 }
 } // namespace meccha::application

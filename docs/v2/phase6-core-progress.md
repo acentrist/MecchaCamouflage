@@ -62,8 +62,11 @@ not yet complete.
   or traversing the atlas, and composition honors cancellation per layer and
   row.
 - The Image Paint planner accepts only exact matching raw/image-reference
-  profile identities, validated mapped capture samples, and one canonical
-  atlas. It samples atlas pixels deterministically, treats the reserved
+  profiles, validated triangle/barycentric capture samples, and one canonical
+  atlas. The application codec retains immutable image-reference vertices and
+  indices from the strict packaged profile. Core derives the frozen canonical
+  bounds/scale, maps every captured triangle into a Front/Right/Back/Left
+  coordinate, samples atlas pixels deterministically, treats the reserved
   Background marker as non-paintable, keeps each face's Fill/Skip choice
   independent, emits Fill before opaque image Paint, isolates Fill and image
   materials, and returns the same bounded `PaintPlan` consumed by Paint.
@@ -154,7 +157,7 @@ copied inputs, bounded concurrency, generation-checked cancellation,
 planner/composer errors, immutable publication, worker reuse, exception
 containment, and terminal shutdown. `application_command_queue_test` covers
 hard capacity, invalid IDs, FIFO bounded drains, concurrent publication, and
-terminal close/discard. The secret-free Linux suite currently passes all 37
+terminal close/discard. The secret-free Linux suite currently passes all 38
 registered tests.
 
 ## Deliberate non-port

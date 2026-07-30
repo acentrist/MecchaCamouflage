@@ -238,12 +238,16 @@ Evidence:
 - [ ] Implement versioned round/cube/fukuyoka guide overlays.
 - [ ] Implement game-thread preview texture lifetime.
 - [ ] Implement all profile mappings and reuse the accepted Paint dispatch.
-  - [x] Convert validated pre-mapped capture samples and canonical atlas
-    pixels into the shared immutable `PaintPlan`, with independent face
-    Fill/Skip, alpha/background routing, Fill-first ordering, material
-    isolation, compression, cancellation, and resource bounds.
-  - [ ] Build the canonical reference-profile geometry mapping and connect the
-    resulting plan to the accepted dispatcher.
+  - [x] Decode immutable reference vertices/indices from each exact packaged
+    image profile, validate canonical bounds/topology, and map
+    triangle+barycentric captures for every round/cube/fukuyoka triangle into
+    the four atlas faces.
+  - [x] Convert validated triangle-anchored capture samples and canonical atlas
+    pixels into the shared immutable `PaintPlan`, with the canonical mapping
+    performed inside the planner, independent face Fill/Skip,
+    alpha/background routing, Fill-first ordering, material isolation,
+    compression, cancellation, and resource bounds.
+  - [ ] Connect the resulting shared plan to the accepted dispatcher.
 - [ ] Integrate v2 project/preset management.
 - [ ] Pass decoder, layer, guide, atlas, mapping, preset, fake-runtime, and
   resource-limit tests.
