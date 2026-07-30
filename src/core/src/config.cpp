@@ -86,6 +86,10 @@ auto validate(const ApplicationConfig& config)
         errors.push_back(ConfigurationField::DuplicateHotkey);
     }
 
+    if (!validate(config.esp).empty())
+    {
+        errors.push_back(ConfigurationField::Esp);
+    }
     if (!validate(config.paint).empty())
     {
         errors.push_back(ConfigurationField::Paint);

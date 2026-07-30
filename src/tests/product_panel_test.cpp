@@ -542,6 +542,190 @@ auto main(int argc, char** argv) -> int
                 esp_toggle->action->action),
         "ESP toggle did not emit its typed action");
 
+    auto esp_settings_input = default_input();
+    esp_settings_input.pointer = ui::PointerFrame{
+        {
+            esp_shell->layout->content.x +
+                esp_shell->layout->content.width * 0.75,
+            esp_shell->layout->content.y + 68.0,
+        },
+        true,
+        false,
+        true,
+        0.0,
+    };
+    const auto esp_scope = compose_product_panel(
+        model,
+        esp_shell->state,
+        esp_settings_input,
+        english);
+    const auto* esp_scope_action =
+        esp_scope && esp_scope->action
+            ? std::get_if<UiApplySettings>(
+                  &esp_scope->action->action)
+            : nullptr;
+    auto expected_esp_scope = model.settings.config;
+    expected_esp_scope.esp.scope = core::EspScope::Hider;
+    passed &= expect(
+        esp_scope_action &&
+            esp_scope_action->settings == expected_esp_scope &&
+            core::validate(esp_scope_action->settings).empty(),
+        "ESP scope control did not emit a validated complete config");
+
+    const auto invoke_esp_control =
+        [&](std::size_t row,
+            double horizontal_fraction,
+            double vertical_in_row = 22.0)
+        -> std::optional<core::ApplicationConfig>
+    {
+        constexpr auto RowHeight = 44.0;
+        constexpr auto ToggleInset = 46.0;
+        constexpr auto RowCount = 8.0;
+        const auto viewport_height =
+            esp_shell->layout->content.height - ToggleInset;
+        const auto maximum_offset =
+            std::max(
+                0.0,
+                RowCount * RowHeight - viewport_height);
+        const auto offset = std::clamp(
+            static_cast<double>(row) * RowHeight -
+                viewport_height * 0.5,
+            0.0,
+            maximum_offset);
+        auto next_state = esp_shell->state;
+        next_state.section_scroll[2U].offset_y = offset;
+
+        const auto control_x =
+            esp_shell->layout->content.x +
+            esp_shell->layout->content.width * 0.42 + 8.0;
+        const auto control_width =
+            esp_shell->layout->content.width * 0.58 - 8.0;
+        auto next_input = default_input();
+        next_input.pointer = ui::PointerFrame{
+            {
+                control_x +
+                    control_width * horizontal_fraction,
+                esp_shell->layout->content.y + ToggleInset +
+                    static_cast<double>(row) * RowHeight -
+                    offset + vertical_in_row,
+            },
+            true,
+            false,
+            true,
+            0.0,
+        };
+        const auto output = compose_product_panel(
+            model,
+            next_state,
+            next_input,
+            english);
+        const auto* settings =
+            output && output->action
+                ? std::get_if<UiApplySettings>(
+                      &output->action->action)
+                : nullptr;
+        return settings
+                   ? std::optional{settings->settings}
+                   : std::nullopt;
+    };
+    const auto esp_changed_only =
+        [&](const std::optional<core::ApplicationConfig>& config,
+            auto&& changed,
+            auto&& restore) -> bool
+    {
+        if (!config || !core::validate(*config).empty() ||
+            !changed(config->esp))
+        {
+            return false;
+        }
+        auto restored = *config;
+        restore(restored.esp, model.esp.settings);
+        return restored == model.settings.config;
+    };
+
+    passed &= expect(
+        esp_changed_only(
+            invoke_esp_control(1U, 0.5),
+            [](const core::EspSettings& settings)
+            {
+                return !settings.boxes;
+            },
+            [](core::EspSettings& changed,
+               const core::EspSettings& original)
+            {
+                changed.boxes = original.boxes;
+            }) &&
+            esp_changed_only(
+                invoke_esp_control(2U, 0.5),
+                [](const core::EspSettings& settings)
+                {
+                    return !settings.skeletons;
+                },
+                [](core::EspSettings& changed,
+                   const core::EspSettings& original)
+                {
+                    changed.skeletons = original.skeletons;
+                }) &&
+            esp_changed_only(
+                invoke_esp_control(3U, 0.5),
+                [](const core::EspSettings& settings)
+                {
+                    return !settings.names;
+                },
+                [](core::EspSettings& changed,
+                   const core::EspSettings& original)
+                {
+                    changed.names = original.names;
+                }) &&
+            esp_changed_only(
+                invoke_esp_control(4U, 0.5),
+                [](const core::EspSettings& settings)
+                {
+                    return !settings.distance;
+                },
+                [](core::EspSettings& changed,
+                   const core::EspSettings& original)
+                {
+                    changed.distance = original.distance;
+                }) &&
+            esp_changed_only(
+                invoke_esp_control(5U, 0.5),
+                [](const core::EspSettings& settings)
+                {
+                    return !settings.snaplines;
+                },
+                [](core::EspSettings& changed,
+                   const core::EspSettings& original)
+                {
+                    changed.snaplines = original.snaplines;
+                }),
+        "an ESP primitive toggle changed an invalid or unrelated field");
+
+    passed &= expect(
+        esp_changed_only(
+            invoke_esp_control(6U, 0.5, 8.0),
+            [](const core::EspSettings& settings)
+            {
+                return settings.hider_color.red > 0U;
+            },
+            [](core::EspSettings& changed,
+               const core::EspSettings& original)
+            {
+                changed.hider_color = original.hider_color;
+            }) &&
+            esp_changed_only(
+                invoke_esp_control(7U, 0.5, 8.0),
+                [](const core::EspSettings& settings)
+                {
+                    return settings.hunter_color.red < 255U;
+                },
+                [](core::EspSettings& changed,
+                   const core::EspSettings& original)
+                {
+                    changed.hunter_color = original.hunter_color;
+                }),
+        "an ESP role-color control changed an invalid or unrelated field");
+
     auto settings_state = initial->state;
     settings_state.selected = ProductUiSection::Settings;
     const auto settings_shell = compose_product_panel(

@@ -316,6 +316,18 @@ auto add_corner_box(
 }
 } // namespace
 
+auto validate(const EspSettings& settings)
+    -> std::vector<EspSettingField>
+{
+    if (settings.scope != EspScope::All &&
+        settings.scope != EspScope::Hider &&
+        settings.scope != EspScope::Hunter)
+    {
+        return {EspSettingField::Scope};
+    }
+    return {};
+}
+
 auto esp_scope_matches(EspScope scope, EspRole role) -> bool
 {
     return role != EspRole::Spectator &&

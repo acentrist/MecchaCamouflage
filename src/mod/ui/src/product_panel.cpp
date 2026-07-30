@@ -1,5 +1,6 @@
 #include <meccha/product_ui/product_panel.hpp>
 
+#include "product_panel_esp.hpp"
 #include "product_panel_paint.hpp"
 #include "product_panel_settings.hpp"
 
@@ -75,6 +76,12 @@ auto labels_valid(const ProductPanelLabels& labels) -> bool
                valid_label) &&
            std::ranges::all_of(
                labels.region_mode_labels,
+               valid_label) &&
+           std::ranges::all_of(
+               labels.esp_setting_labels,
+               valid_label) &&
+           std::ranges::all_of(
+               labels.esp_scope_labels,
                valid_label);
 }
 
@@ -317,6 +324,21 @@ auto build_product_panel_labels(
             std::string{catalog.text(locale, "mode.fill")},
             std::string{catalog.text(locale, "mode.skip")},
         },
+        {
+            "Targets",
+            "Boxes",
+            "Skeletons",
+            "Names",
+            "Distance",
+            "Snaplines",
+            "Hider RGB",
+            "Hunter RGB",
+        },
+        {
+            std::string{catalog.text(locale, "log.all")},
+            "Hider",
+            "Hunter",
+        },
     };
 }
 
@@ -505,6 +527,20 @@ auto compose_product_panel(
                 0U,
                 application::UiToggleEsp{},
             };
+        }
+        const auto settings =
+            detail::compose_esp_settings_section(
+                canvas,
+                widgets,
+                *layout,
+                model,
+                labels,
+                input,
+                previous,
+                action);
+        if (!settings)
+        {
+            return std::unexpected(settings.error());
         }
     }
     else if (

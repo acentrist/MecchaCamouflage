@@ -122,6 +122,7 @@ enum class ConfigurationField : std::uint8_t
     UiScale,
     HotkeyRange,
     DuplicateHotkey,
+    Esp,
     Paint,
     ImageSettings,
     ImageBrushSize,

@@ -49,6 +49,14 @@ struct EspSettings
     auto operator==(const EspSettings&) const -> bool = default;
 };
 
+enum class EspSettingField : std::uint8_t
+{
+    Scope,
+};
+
+[[nodiscard]] auto validate(const EspSettings& settings)
+    -> std::vector<EspSettingField>;
+
 [[nodiscard]] auto esp_scope_matches(EspScope scope, EspRole role) -> bool;
 
 [[nodiscard]] auto select_esp_pawn_source(

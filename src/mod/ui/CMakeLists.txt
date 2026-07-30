@@ -31,6 +31,7 @@ add_library(
     meccha_product_ui
     STATIC
         src/product_panel.cpp
+        src/product_panel_esp.cpp
         src/product_panel_paint.cpp
         src/product_panel_settings.cpp
 )

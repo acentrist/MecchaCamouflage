@@ -136,10 +136,11 @@ most one revision-bound product action.
 
 The shell currently renders all five localized section tabs, Paint and Image
 Paint Start/Preview/Restore/Cancel rows, the complete portable Paint and
-Settings controls, an ESP toggle, and a language-neutral completed/total and
-command-queue summary. It applies viewport/DPI/configured scale, safe-area
-fitting, clipping, and the configured theme accent. Disabled presentation
-actions cannot emit commands. Tab switching changes only local panel state.
+Settings controls, the complete portable ESP section, and a language-neutral
+completed/total and command-queue summary. It applies
+viewport/DPI/configured scale, safe-area fitting, clipping, and the configured
+theme accent. Disabled presentation actions cannot emit commands. Tab
+switching changes only local panel state.
 
 Closing the panel emits an empty frame, releases pointer capture and keyboard
 focus, preserves the selected section, and does not mutate the model's ESP,
@@ -192,15 +193,33 @@ Portable tests exercise all three sampling/size values, all three region
 controls, both toggles, all six material values, Fill color, compression,
 field isolation, full-config validity, and the pre-existing action row.
 
-This remains a partial product UI milestone. ESP settings, the full Image
-Paint canvas integration, project file operations, direct hotkey capture UX,
-localized progress/compatibility/diagnostics formatting, and the production
-UCanvas adapter remain open.
+## Complete portable ESP section
+
+The ESP section preserves the dedicated master toggle action and adds the
+All/Hider/Hunter scope, independent Boxes/Skeletons/Names/Distance/Snaplines
+toggles, and Hider/Hunter RGB controls. Non-master edits copy the exact
+immutable complete config, change one field, validate it, and publish one
+revision-bound settings action. The master toggle retains its dedicated
+application command because the application root owns its atomic
+persisted/runtime transition.
+
+The section has retained bounded scrolling and clipped control exclusion.
+Portable tests cover exact scope cycling, every primitive, both role colors,
+full-config field isolation, and master-enable preservation. Core and complete
+config validation now reject unknown `EspScope` enum values before the panel
+or frame builder can consume them. ESP-specific English role and primitive
+terms match the v1 product vocabulary; translation expansion remains part of
+the still-open full localization pass.
+
+This remains a partial product UI milestone. The full Image Paint canvas
+integration, project file operations, direct hotkey capture UX, localized
+progress/compatibility/diagnostics formatting, and the production UCanvas
+adapter remain open.
 
 ## Remaining work
 
-- Compose the complete Image Paint, ESP, and Diagnostics Canvas sections from
-  the implemented shell and immutable presentation values.
+- Compose the complete Image Paint and Diagnostics Canvas sections from the
+  implemented shell and immutable presentation values.
 - Connect the Image Paint editor and project operations to the implemented
   typed product-action router without direct runtime mutation.
 - Enqueue the returned product action through the production callback boundary.

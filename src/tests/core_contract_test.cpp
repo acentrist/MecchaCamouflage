@@ -606,6 +606,13 @@ auto main() -> int
                 -1.0,
         "ESP geometry/projection contracts drifted");
 
+    auto invalid_esp = EspSettings{};
+    invalid_esp.scope = static_cast<EspScope>(255U);
+    passed &= expect(
+        validate(invalid_esp) ==
+            std::vector{EspSettingField::Scope},
+        "an invalid ESP scope enum was accepted");
+
     const ApplicationConfig config_defaults{};
     passed &= expect(
         validate(config_defaults).empty() &&
@@ -631,6 +638,7 @@ auto main() -> int
     invalid_config.ui.scale = 2.01;
     invalid_config.ui.hotkeys.toggle_ui =
         static_cast<FunctionKey>(0U);
+    invalid_config.esp.scope = static_cast<EspScope>(255U);
     passed &= expect(
         validate(invalid_config) ==
             std::vector{
@@ -638,6 +646,7 @@ auto main() -> int
                 ConfigurationField::Language,
                 ConfigurationField::UiScale,
                 ConfigurationField::HotkeyRange,
+                ConfigurationField::Esp,
             },
         "configuration validation errors are incomplete or unstable");
 

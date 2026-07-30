@@ -34,6 +34,8 @@ struct ProductPanelLabels
     std::array<std::string, 9U> hotkey_labels{};
     std::array<std::string, 16U> paint_setting_labels{};
     std::array<std::string, 3U> region_mode_labels{};
+    std::array<std::string, 8U> esp_setting_labels{};
+    std::array<std::string, 3U> esp_scope_labels{};
 
     auto operator==(const ProductPanelLabels&) const -> bool = default;
 };
