@@ -348,6 +348,21 @@ if(WIN32)
     add_test(NAME config_storage COMMAND meccha_config_storage_tests)
 
     add_executable(
+        meccha_image_project_storage_tests
+        image_project_storage_win32_test.cpp
+    )
+    target_link_libraries(
+        meccha_image_project_storage_tests
+        PRIVATE
+            MecchaCamouflage::Application
+            meccha_build_options
+    )
+    add_test(
+        NAME image_project_storage
+        COMMAND meccha_image_project_storage_tests
+    )
+
+    add_executable(
         meccha_runtime_storage_tests
         runtime_storage_win32_test.cpp
     )

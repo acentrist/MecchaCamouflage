@@ -2,8 +2,9 @@
 
 Phase 7 is open. The strict configuration codec, atomic Windows `config.json`
 path, localization catalog boundary, immutable project model, and v2-only
-preset codec are implemented. Active-draft/project filesystem publication and
-final glyph coverage are not yet complete.
+preset codec, project coordinator, and shared atomic Win32 file adapter are
+implemented. Runtime active-draft integration and final glyph coverage are not
+yet complete.
 
 ## Configuration contract
 
@@ -31,21 +32,24 @@ missing file returns validated defaults without creating a directory or file.
 A malformed file returns an error and is left byte-for-byte untouched.
 Invalid candidates never reach storage.
 
-The Windows implementation:
+The Windows config and project adapters share one managed-file primitive. It:
 
 - resolves LocalAppData through `SHGetKnownFolderPath`;
-- uses `%LOCALAPPDATA%\MecchaCamouflage\v2\config.json`;
-- creates only the two managed directory components;
-- rejects managed directories, target files, and staging paths that are
+- uses `%LOCALAPPDATA%\MecchaCamouflage\v2\config.json` and
+  `%LOCALAPPDATA%\MecchaCamouflage\v2\image-projects\*.mcpreset`;
+- creates only the required managed directory components;
+- serializes publication/cleanup through a bounded cross-process Windows
+  mutex;
+- rejects managed directories, targets, and owned staging paths that are
   directories or reparse points;
 - accepts only one safe internal file-name component;
 - performs bounded handle-based reads and rechecks the opened file attributes;
-- writes a fixed, owned `config.json.tmp` with `CREATE_NEW`,
+- writes a unique same-directory GUID staging name with `CREATE_NEW`,
   `FILE_FLAG_WRITE_THROUGH`, and `FlushFileBuffers`;
 - replaces the destination with
   `MoveFileExW(MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)`;
-- removes only an interrupted plain staging file and fails closed on an unsafe
-  staging conflict.
+- removes only exact product-owned interrupted staging names, preserves
+  staging-like unknown files, and fails closed on an unsafe owned conflict.
 
 The previous valid destination remains intact when validation, staging,
 writing, flushing, or publication fails.
@@ -57,10 +61,11 @@ retired-field absence, unknown/missing/duplicate fields, old schemas, invalid
 values, trailing data, size limits, default loading, failure preservation, and
 the isolated v2 data root.
 
-`config_storage` is Windows-only and covers missing reads without directory
-creation, initial publication, replacement, bounded reads, traversal
-rejection, interrupted regular staging recovery, and fail-closed unsafe
-staging conflicts.
+`config_storage` and `image_project_storage` are Windows-only and cover missing
+reads without directory creation, initial publication, replacement, bounded
+reads/writes, traversal rejection, interrupted unique staging recovery,
+unknown staging preservation, fail-closed unsafe conflicts, idempotent removal,
+and non-ASCII LocalAppData paths.
 
 ## Localization boundary
 
@@ -122,18 +127,19 @@ implemented.
 Windows uses BCrypt; secret-free portable codec tests inject a deterministic
 test hasher without adding a selectable production fake.
 
-`ImageProjectStore` now coordinates named projects and the active recovery
+`ImageProjectStore` coordinates named projects and the active recovery
 draft through a project-owned atomic-storage port. It keeps project IDs out of
 filesystem path parsing, preserves structured storage/codec failures, rejects
 embedded-ID/file-name mismatches, requires consecutive revisions for saves and
 renames, and makes delete/clear idempotent. The portable contract is verified
 with missing, stale, corrupt, legacy, mismatched, overflow, and injected I/O
-cases. The production Win32 storage adapter remains part of the gate below.
+cases. `Win32AtomicProjectStorage` publishes those containers only inside the
+managed `image-projects` area through the shared atomic-file primitive.
 
 ## Remaining gate
 
-- Active Image Paint draft and named-project storage must atomically publish
-  the accepted container.
+- The application composition root must wire the project store and implement
+  active-draft lifecycle/debounce behavior.
 - The final v2-only UI key set and game/OFL fallback glyph coverage remain.
 - Reparse-point, power-loss, antivirus-lock, non-ASCII path, and native file
   picker coverage must be completed before Phase 7 closes.

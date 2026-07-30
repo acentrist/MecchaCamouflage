@@ -36,7 +36,9 @@ if(WIN32)
     target_sources(
         meccha_application
         PRIVATE
+            src/atomic_file_win32.cpp
             src/config_storage_win32.cpp
+            src/image_project_storage_win32.cpp
     )
     target_link_libraries(
         meccha_application

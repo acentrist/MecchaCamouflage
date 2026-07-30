@@ -2,6 +2,7 @@
 
 #include <Windows.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -95,6 +96,11 @@ auto main() -> int
         "Win32 storage uses the wrong v2 data root");
 
     const auto missing = storage.read_text("config.json", 128U);
+    if (!missing)
+    {
+        std::cerr << "config missing-read detail: "
+                  << missing.error().detail << '\n';
+    }
     passed &= expect(
         missing && !*missing &&
             !fs::exists(storage.root()),
@@ -114,8 +120,14 @@ auto main() -> int
     const auto second = storage.read_text("config.json", 128U);
     passed &= expect(
         second && *second == std::optional<std::string>{"second"} &&
-            !fs::exists(storage.root() / "config.json.tmp"),
-        "atomic replacement left stale state");
+            std::ranges::none_of(
+                fs::directory_iterator{storage.root()},
+                [](const fs::directory_entry& entry)
+                {
+                    return entry.path().filename().wstring().starts_with(
+                        L"config.json.tmp.");
+                }),
+        "atomic replacement left unique staging state");
 
     const auto too_large = storage.read_text("config.json", 5U);
     passed &= expect(
@@ -135,7 +147,9 @@ auto main() -> int
         "relative path traversal escaped the v2 root");
 
     {
-        const auto stale = storage.root() / "config.json.tmp";
+        const auto stale =
+            storage.root() /
+            "config.json.tmp.00000000000000000000000000000000";
         auto stream = std::ofstream{stale, std::ios::binary};
         stream << "interrupted";
     }
@@ -148,8 +162,34 @@ auto main() -> int
             *recovered == std::optional<std::string>{"recovered"},
         "recovery did not publish the new value");
 
+    const auto foreign_staging =
+        storage.root() / "config.json.tmp.foreign";
+    {
+        auto stream =
+            std::ofstream{foreign_staging, std::ios::binary};
+        stream << "foreign";
+    }
+    passed &= expect(
+        storage.write_text_atomic(
+            "config.json",
+            "foreign-preserved") &&
+            fs::exists(foreign_staging),
+        "storage removed an unowned staging-like file");
+
+    const auto oversized_write = storage.write_text_atomic(
+        "config.json",
+        std::string(MaximumConfigBytes + 1U, 'x'));
+    passed &= expect(
+        !oversized_write &&
+            oversized_write.error().code ==
+                TextStorageErrorCode::TooLarge,
+        "oversized configuration bytes reached staging");
+
     std::error_code error{};
-    fs::create_directory(storage.root() / "config.json.tmp", error);
+    fs::create_directory(
+        storage.root() /
+            "config.json.tmp.11111111111111111111111111111111",
+        error);
     const auto conflict =
         storage.write_text_atomic("config.json", "must-not-publish");
     const auto preserved = storage.read_text("config.json", 128U);
@@ -157,8 +197,26 @@ auto main() -> int
         !conflict &&
             conflict.error().code == TextStorageErrorCode::Conflict &&
             preserved &&
-            *preserved == std::optional<std::string>{"recovered"},
+            *preserved ==
+                std::optional<std::string>{"foreign-preserved"},
         "unsafe staging conflict replaced the valid config");
+
+    const auto unicode_local_app_data =
+        temporary.path() / L"日本語";
+    fs::create_directory(unicode_local_app_data, error);
+    auto unicode_storage =
+        Win32AtomicTextStorage{unicode_local_app_data};
+    const auto unicode_written =
+        unicode_storage.write_text_atomic(
+            "config.json",
+            "unicode-path");
+    const auto unicode_read =
+        unicode_storage.read_text("config.json", 128U);
+    passed &= expect(
+        unicode_written && unicode_read &&
+            *unicode_read ==
+                std::optional<std::string>{"unicode-path"},
+        "non-ASCII LocalAppData path did not round trip");
 
     if (passed)
     {
