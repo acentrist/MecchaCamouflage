@@ -6,9 +6,9 @@ The manifest, ownership, loader-policy, recoverable transaction, native
 Windows managed-runtime storage, side-effect-free preparation/removal
 planning, portable observation-to-plan workflow, concrete normal/shared
 execution backend, read-only runtime/shared-state classification, and Steam
-launch effect are implemented. The native observation/material composition
-root, production elevated broker, and final embedded-resource binding remain
-open, so Phase 3 remains open.
+launch effect are implemented. The native original-user observation source is
+also implemented; its execution composition root, production elevated broker,
+and final embedded-resource binding remain open, so Phase 3 remains open.
 
 ## Implemented contracts
 
@@ -187,6 +187,15 @@ open, so Phase 3 remains open.
   generation remains removable even when it is incompatible with the current
   payload, while mixed managed ownership and an active shared runtime fail
   closed.
+- The native original-user source binds active-user Steam launch options,
+  retained loader targets, managed proxy/override ownership, post-recovery
+  cache identity, and shared runtime/config/mod classification into that
+  assembler. It resolves the selected shared runtime root once for the
+  execution composition root and never attaches to the game process.
+- Native writability observation walks only absolute normalized plain
+  directory components, rejects reparses, opens the nearest existing directory
+  with the exact create/delete-child access needed by publication, and treats
+  access denied as a planning input. It creates no probe file or directory.
 - Runtime reuse now has a strictly read-only transaction check: `active` must
   match the expected manifest and no journal, staging, or rollback generation
   may exist. Runtime removal first completes the existing recovery state
@@ -309,6 +318,10 @@ normal owned-loader publication, elevated loader-only handoff, loader-before-
 cache removal, shared-mod installation/removal, and preservation of the shared
 UE4SS runtime. It also proves material-provider ordering before normal/elevated
 effects and retry-once/cache-after-success behavior across runtime publication.
+The Win32 observation-source suite proves read-only clean-managed and
+launch-option shared-runtime assembly, exact resolved-root retention,
+no ownership-directory creation, one platform read per observation, and a
+non-mutating current-user access probe for a not-yet-created cache path.
 The command-line and Windows single-instance suites prove the exact public
 switch grammar, conflicting/hostile input rejection, concurrent-instance
 refusal, and deterministic guard release.
@@ -338,10 +351,10 @@ without adding a test-only branch to production coordination.
 
 ## Remaining Phase 3 work
 
-- Consume the active-user launch-option lookup in the native composition root.
 - Invoke the native folder-picker fallback from automatic discovery failures.
-- Build the native observation/material composition root around the Win32
-  execution backend and connect the concrete Steam URI launcher.
+- Bind the observation source's selected shared runtime root to the Win32
+  execution backend, then build the native material/execution composition root
+  and connect the concrete Steam URI launcher.
 - Validate Unicode and ANSI-round-trip behavior of the pinned proxy's
   narrow-string `override.txt` reader. Use a verified short path when
   available and fail closed if the stable runtime path cannot be represented;
