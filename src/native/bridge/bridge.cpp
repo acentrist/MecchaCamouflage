@@ -11048,7 +11048,7 @@ namespace
                 const auto edge0 = sdk_vec_sub(triangle.world[1], triangle.world[0]);
                 const auto edge1 = sdk_vec_sub(triangle.world[2], triangle.world[0]);
                 const double world_area = sdk_vec_len(sdk_vec_cross(edge0, edge1)) * 0.5;
-                if (!std::isfinite(uv_area) || uv_area <= 0.0 ||
+                if (!std::isfinite(uv_area) || uv_area < 0.0 ||
                     !std::isfinite(world_area) || world_area <= 0.000001)
                 {
                     valid = false;
@@ -11297,7 +11297,8 @@ namespace
                                              const SdkContext& ctx,
                                              std::uintptr_t mesh,
                                              const SdkViewportInfo& viewport,
-                                             const char* reason) -> MeshFirstRuntimePaintWarmup
+                                             const char* reason,
+                                             bool force_initialize) -> MeshFirstRuntimePaintWarmup
     {
         MeshFirstRuntimePaintWarmup out{};
         out.attempted = true;
@@ -11327,7 +11328,27 @@ namespace
         }
         else if (out.is_initialized_before)
         {
-            out.initialize_skip_reason = "already_initialized";
+            // A missing triangle cache means the bridge cannot find the
+            // RuntimePaintable's internal arrays even though the component
+            // reports it is initialized.  Force a re-initialization when the
+            // caller explicitly requests it so the game rebuilds its cached
+            // triangles before the bridge re-scans.
+            if (force_initialize)
+            {
+                const auto initialized = sdk_call_no_params_detail(ref, ctx.component, "InitializePaint");
+                out.initialize_called = initialized.wrote_params;
+                out.initialize_ok = initialized.process_ok;
+                out.initialize_skip_reason = initialized.process_ok ? "" : initialized.failure;
+                if (!initialized.process_ok && !initialized.failure.empty())
+                {
+                    if (!out.failure.empty()) { out.failure += ";"; }
+                    out.failure += "initialize_paint:" + initialized.failure;
+                }
+            }
+            else
+            {
+                out.initialize_skip_reason = "already_initialized";
+            }
         }
         else
         {
@@ -18110,6 +18131,7 @@ namespace
         MeshFirstRuntimeTriangleCache runtime_triangle_cache{};
         std::string runtime_triangle_cache_mode{};
         std::string runtime_triangle_profile_cache_failure{};
+        MeshFirstRuntimeTriangleCache runtime_triangle_dynamic_cache{};
         auto resolve_runtime_triangle_cache_once = [&]() {
             MeshFirstRuntimeTriangleCache cache{};
             std::string mode{"profile_verified"};
@@ -18122,6 +18144,7 @@ namespace
                     mesh_first_resolve_runtime_triangle_cache_dynamic(
                         ctx.component,
                         cache.expected_triangle_count);
+                runtime_triangle_dynamic_cache = dynamic_cache;
                 if (runtime_contract::
                         runtime_triangle_dynamic_fallback_allowed(
                             cache.ok,
@@ -18175,7 +18198,8 @@ namespace
                                                                        warmup_viewport,
                                                                        runtime_cache_missing_before_warmup
                                                                            ? "runtime_triangle_cache_unavailable"
-                                                                           : "runtime_triangle_coordinate_cache_unstable");
+                                                                           : "runtime_triangle_coordinate_cache_unstable",
+                                                                       runtime_cache_missing_before_warmup);
             auto resolved = resolve_runtime_triangle_cache_once();
             runtime_triangle_cache = std::move(std::get<0>(resolved));
             runtime_triangle_cache_mode = std::move(std::get<1>(resolved));
@@ -18228,6 +18252,12 @@ namespace
                     json_escape(runtime_triangle_cache.profile_uv_mapping_mode) + "\"";
         metadata += ",\"runtime_triangle_cache_profile_uv_avg_error\":" + std::to_string(runtime_triangle_cache.profile_uv_avg_error);
         metadata += ",\"runtime_triangle_cache_failure\":\"" + json_escape(runtime_triangle_cache.failure) + "\"";
+        metadata += ",\"runtime_triangle_dynamic_cache_ok\":" + std::string(json_bool(runtime_triangle_dynamic_cache.ok));
+        metadata += ",\"runtime_triangle_dynamic_cache_triangles\":" + std::to_string(runtime_triangle_dynamic_cache.triangle_count);
+        metadata += ",\"runtime_triangle_dynamic_cache_headers\":" + std::to_string(runtime_triangle_dynamic_cache.array_headers_seen);
+        metadata += ",\"runtime_triangle_dynamic_cache_matching\":" + std::to_string(runtime_triangle_dynamic_cache.matching_count_arrays_seen);
+        metadata += ",\"runtime_triangle_dynamic_cache_read_rejections\":" + std::to_string(runtime_triangle_dynamic_cache.read_rejections);
+        metadata += ",\"runtime_triangle_dynamic_cache_failure\":\"" + json_escape(runtime_triangle_dynamic_cache.failure) + "\"";
         const bool runtime_uses_profile_topology =
             profile_available && runtime_triangle_cache_mode == "profile_verified";
         const bool runtime_uses_profile_component_world =
