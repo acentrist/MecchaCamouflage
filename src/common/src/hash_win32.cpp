@@ -1,4 +1,4 @@
-#include <meccha/launcher/hash.hpp>
+#include <meccha/common/hash.hpp>
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-namespace meccha::launcher
+namespace meccha::common
 {
 namespace
 {
@@ -334,4 +334,4 @@ auto sha256_file(const std::filesystem::path& path)
         *digest,
     };
 }
-} // namespace meccha::launcher
+} // namespace meccha::common

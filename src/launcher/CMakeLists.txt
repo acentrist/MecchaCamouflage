@@ -4,7 +4,6 @@ add_library(
         src/command_line.cpp
         src/execution.cpp
         src/game_discovery.cpp
-        src/hash.cpp
         src/loader.cpp
         src/loader_observation.cpp
         src/manifest.cpp
@@ -26,6 +25,7 @@ target_link_libraries(
     meccha_launcher_core
     PUBLIC
         meccha_build_identity
+        MecchaCamouflage::Common
         meccha_core
     PRIVATE
         glaze::glaze
@@ -38,7 +38,6 @@ if(WIN32)
         PRIVATE
             src/execution_win32.cpp
             src/game_discovery_win32.cpp
-            src/hash_win32.cpp
             src/loader_observation_win32.cpp
             src/managed_loader_win32.cpp
             src/owned_file_storage_win32.cpp
@@ -51,7 +50,6 @@ if(WIN32)
         meccha_launcher_core
         PRIVATE
             advapi32
-            bcrypt
             ole32
             shell32
             uuid

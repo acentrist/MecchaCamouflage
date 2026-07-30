@@ -1,9 +1,9 @@
-#include <meccha/launcher/hash.hpp>
+#include <meccha/common/hash.hpp>
 
 #include <array>
 #include <optional>
 
-namespace meccha::launcher
+namespace meccha::common
 {
 auto sha256_hex(const Sha256Digest& digest) -> std::string
 {
@@ -77,4 +77,4 @@ auto sha256_file(const std::filesystem::path&)
     });
 }
 #endif
-} // namespace meccha::launcher
+} // namespace meccha::common
