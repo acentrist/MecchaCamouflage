@@ -234,6 +234,23 @@ auto main() -> int
         reused && *reused == OwnedFileInstallResult::Reused,
         "exact owned content was rewritten");
 
+    const auto receipt_only_expectation =
+        expectation("1.1.0", "proxy-one");
+    const auto receipt_only_update = store.install(
+        receipt_only_expectation,
+        first_payload);
+    const auto receipt_only_owned =
+        store.observe(receipt_only_expectation);
+    passed &= expect(
+        receipt_only_update &&
+            *receipt_only_update ==
+                OwnedFileInstallResult::Reused &&
+            receipt_only_owned &&
+            *receipt_only_owned == ArtifactState::ExactOwned &&
+            read_text(target) == "proxy-one",
+        "unchanged owned bytes were rewritten instead of refreshing "
+        "ownership metadata");
+
     const auto second_expectation = expectation("2.0.0", "proxy-two");
     const auto second_payload = bytes("proxy-two");
     const auto previous = store.observe(second_expectation);
@@ -367,6 +384,46 @@ auto main() -> int
             !fs::exists(
                 read_only_observation_tree.root / "ownership"),
         "read-only observation or no-op removal created metadata");
+
+    TemporaryTree missing_parent_tree{};
+    const auto nested_target =
+        missing_parent_tree.root / "game" / "Mods" /
+        "MecchaCamouflage" / "dlls" / "main.dll";
+    const auto nested_record =
+        missing_parent_tree.root / "ownership" /
+        "Mods" / "MecchaCamouflage" / "dlls" /
+        "main.dll.owner.json";
+    Win32OwnedFileStore missing_parent_store{
+        nested_target,
+        nested_record,
+        "Mods/MecchaCamouflage/dlls/main.dll",
+        FileRole::Mod};
+    auto nested_expectation = first_expectation;
+    nested_expectation.file.path =
+        "Mods/MecchaCamouflage/dlls/main.dll";
+    nested_expectation.file.role = FileRole::Mod;
+    const auto nested_observation =
+        missing_parent_store.observe(nested_expectation);
+    const auto target_parent_absent =
+        !fs::exists(nested_target.parent_path());
+    const auto record_parent_absent =
+        !fs::exists(nested_record.parent_path());
+    const auto nested_install = missing_parent_store.install(
+        nested_expectation,
+        first_payload);
+    const auto nested_remove =
+        missing_parent_store.remove_owned();
+    passed &= expect(
+        nested_observation &&
+            *nested_observation == ArtifactState::Missing &&
+            target_parent_absent && record_parent_absent &&
+            nested_install &&
+            *nested_install == OwnedFileInstallResult::Created &&
+            nested_remove && *nested_remove &&
+            !fs::exists(nested_target) &&
+            !fs::exists(nested_record),
+        "nested owned-file lifecycle did not preserve read-only "
+        "observation or create missing parents during installation");
 
     TemporaryTree recovery_tree{};
     const auto recovery_target =

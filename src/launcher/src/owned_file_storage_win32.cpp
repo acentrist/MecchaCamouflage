@@ -96,7 +96,7 @@ auto Win32OwnedFileStore::recover()
     {
         return std::unexpected(identity.error());
     }
-    auto target_parent = detail::require_plain_directory_tree(
+    auto target_parent = detail::inspect_plain_directory_tree(
         target_.parent_path());
     if (!target_parent)
     {
@@ -277,7 +277,7 @@ auto Win32OwnedFileStore::observe(
             "Owned-file expectation does not match the store "
             "identity.");
     }
-    auto target_parent = detail::require_plain_directory_tree(
+    auto target_parent = detail::inspect_plain_directory_tree(
         target_.parent_path());
     if (!target_parent)
     {
@@ -379,6 +379,12 @@ auto Win32OwnedFileStore::install(
             "Owned-file target is not safe to create or replace.");
     }
 
+    auto target_parent = detail::ensure_plain_directory_tree(
+        target_.parent_path());
+    if (!target_parent)
+    {
+        return std::unexpected(target_parent.error());
+    }
     auto receipt_parent = detail::ensure_plain_directory_tree(
         ownership_record_.parent_path());
     if (!receipt_parent)
@@ -414,6 +420,39 @@ auto Win32OwnedFileStore::install(
     if (!installing)
     {
         return std::unexpected(installing.error());
+    }
+
+    if (*state == ArtifactState::OwnedPrevious)
+    {
+        auto unchanged = detail::measure_plain_file(target_);
+        if (!unchanged)
+        {
+            return std::unexpected(unchanged.error());
+        }
+        if (previous && matches(*unchanged, *previous) &&
+            matches(*unchanged, next))
+        {
+            auto completed = detail::write_owned_file_receipt(
+                ownership_record_,
+                complete_receipt(next));
+            if (!completed)
+            {
+                return std::unexpected(completed.error());
+            }
+            auto verified = detail::measure_plain_file(target_);
+            if (!verified)
+            {
+                return std::unexpected(verified.error());
+            }
+            if (!matches(*verified, next))
+            {
+                return error(
+                    OwnedFileStoreErrorCode::Conflict,
+                    "Owned-file content changed while refreshing "
+                    "its ownership receipt.");
+            }
+            return OwnedFileInstallResult::Reused;
+        }
     }
 
     const auto temporary =
@@ -543,11 +582,15 @@ auto Win32OwnedFileStore::removable()
     {
         return std::unexpected(identity.error());
     }
-    auto target_parent = detail::require_plain_directory_tree(
+    auto target_parent = detail::inspect_plain_directory_tree(
         target_.parent_path());
     if (!target_parent)
     {
         return std::unexpected(target_parent.error());
+    }
+    if (!*target_parent)
+    {
+        return false;
     }
     auto receipt_parent = detail::inspect_plain_directory_tree(
         ownership_record_.parent_path());

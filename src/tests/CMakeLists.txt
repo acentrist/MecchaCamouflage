@@ -170,6 +170,18 @@ if(WIN32)
     )
 
     add_executable(
+        meccha_shared_mod_tests
+        shared_mod_win32_test.cpp
+    )
+    target_link_libraries(
+        meccha_shared_mod_tests
+        PRIVATE
+            MecchaCamouflage::LauncherCore
+            meccha_build_options
+    )
+    add_test(NAME shared_mod COMMAND meccha_shared_mod_tests)
+
+    add_executable(
         meccha_config_storage_tests
         config_storage_win32_test.cpp
     )

@@ -106,6 +106,31 @@ payload, so Phase 3 remains open.
   before deletion. It removes the proxy first so that any later interruption
   leaves a harmless override rather than an active proxy, and exact unowned
   proxy content is never removed.
+- Owned-file installation creates previously absent plain parent directories
+  only after read-only preflight succeeds. Observation and no-op removal keep
+  absent target and receipt trees absent. An owned-version update whose bytes
+  are unchanged refreshes only the recoverable receipt instead of rewriting
+  the target.
+- Shared-mod material accepts only canonical `mod` entries below
+  `Mods/MecchaCamouflage`, requires `dlls/main.dll` plus an empty
+  `enabled.txt`, and verifies every byte against the payload manifest before
+  inspecting the destination.
+- Shared installation requires an existing plain shared-runtime root and
+  `Mods` directory. It verifies the pinned runtime/config hashes before and
+  after target preflight, creates directories only below
+  `Mods/MecchaCamouflage`, and keeps its ownership receipts in the original
+  user's LocalAppData ownership tree.
+- Shared ownership receipts are scoped by the exact absolute shared-runtime
+  root. A receipt created for one compatible UE4SS tree cannot authorize
+  replacement or removal in a different tree, even when its bytes happen to
+  match.
+- Exact owned and exact unowned shared mods are reusable without rewriting or
+  claiming content. Unknown, modified, stale-plan, and reparse targets fail
+  closed before any mod payload is installed.
+- Shared removal preflights every current manifest file and deletes only
+  receipt-backed, hash-matched MecchaCamouflage files. `UE4SS.dll`,
+  `Mods/mods.txt`, loader files, settings, unrelated mods, and exact unowned
+  MecchaCamouflage files are never changed.
 
 ## Automated evidence
 
@@ -132,6 +157,13 @@ The managed-loader suite covers payload and generated-override material,
 two-file creation, exact reuse, stale-plan preflight, exact-unowned proxy
 coexistence, payload tampering, Unicode-path short-path-or-refusal behavior,
 stale removal, ownership-safe removal, and zero-mutation elevated handoff.
+
+The shared-mod suite covers canonical material construction, fresh nested
+installation, exact-owned and exact-unowned reuse, all-file conflict preflight,
+receipt-only unchanged-file updates, changed-file replacement, hash-safe
+removal after a runtime-owner update, cross-root receipt rejection, payload
+tampering, foreign mod-path rejection, preservation of `Mods/mods.txt`, and a
+privilege-free target-directory junction fixture.
 
 Covered Windows directory cases:
 
@@ -162,9 +194,10 @@ without adding a test-only branch to production coordination.
   path.
 - Connect the validated preparation/removal plans to native side-effect
   orchestration.
-- Implement compatible shared-tree observation and mod-only installation.
-- Implement the managed `dwmapi.dll` and `override.txt` mutation set,
-  ownership persistence, exact-match reuse, and removal.
+- Add a durable shared-mod installed-file ledger so a future manifest can
+  safely remove receipt-backed files that no longer exist in the new payload.
+  Current-manifest install, update, reuse, and removal are implemented; removed
+  paths must not be guessed or enumerated from an untrusted destination tree.
 - Validate Unicode and ANSI-round-trip behavior of the pinned proxy's
   narrow-string `override.txt` reader. Use a verified short path when
   available and fail closed if the stable runtime path cannot be represented;
