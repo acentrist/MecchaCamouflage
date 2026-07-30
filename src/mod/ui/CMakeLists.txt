@@ -32,6 +32,7 @@ add_library(
     STATIC
         src/product_panel.cpp
         src/product_panel_esp.cpp
+        src/product_panel_image.cpp
         src/product_panel_paint.cpp
         src/product_panel_settings.cpp
 )

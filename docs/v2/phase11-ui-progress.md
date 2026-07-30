@@ -135,8 +135,8 @@ bounded `CanvasFrame`, the responsive layout, the next local UI state, and at
 most one revision-bound product action.
 
 The shell currently renders all five localized section tabs, Paint and Image
-Paint Start/Preview/Restore/Cancel rows, the complete portable Paint and
-Settings controls, the complete portable ESP section, and a language-neutral
+Paint Start/Preview/Restore/Cancel rows, the complete portable Paint, Image
+Paint project-settings, Settings, and ESP controls, and a language-neutral
 completed/total and command-queue summary. It applies
 viewport/DPI/configured scale, safe-area fitting, clipping, and the configured
 theme accent. Disabled presentation actions cannot emit commands. Tab
@@ -211,16 +211,38 @@ or frame builder can consume them. ESP-specific English role and primitive
 terms match the v1 product vocabulary; translation expansion remains part of
 the still-open full localization pass.
 
-This remains a partial product UI milestone. The full Image Paint canvas
-integration, project file operations, direct hotkey capture UX, localized
+## Complete portable Image Paint project settings
+
+The Image Paint section retains its four job/preview actions and adds all 16
+persisted project controls: body profile, placement mode, transparent-pixel
+behavior, independent Front/Right/Back/Left Fill/Skip bases, brush size,
+compression tolerance, independent Image and Fill material values, and Fill
+color. Labels and option values reuse the shipped localization catalogs.
+
+Unlike application settings, these controls copy the exact immutable current
+document settings and emit a `ReplaceImageProjectSettingsMutation`. The action
+is bound to the rendered application snapshot revision, while the application
+router/session continue to own current project identity and revision checks.
+An absent document, unavailable edit ownership, an invalid value, or divergent
+document/presentation state fails closed. No Canvas callback mutates an editor
+document or runtime object directly.
+
+The section has bounded local scrolling and excludes clipped controls from
+interaction. Portable tests exercise every mapping/face/brush/material/color
+field, exact field isolation, validation, revision binding, unavailable edits,
+compact scrolling, and divergent-document refusal.
+
+This remains a partial product UI milestone. The Image Paint atlas interaction
+and project file operations, direct hotkey capture UX, localized
 progress/compatibility/diagnostics formatting, and the production UCanvas
 adapter remain open.
 
 ## Remaining work
 
-- Compose the complete Image Paint and Diagnostics Canvas sections from the
-  implemented shell and immutable presentation values.
-- Connect the Image Paint editor and project operations to the implemented
+- Compose the Image Paint atlas editor/project operations and the complete
+  Diagnostics Canvas section from the implemented shell and immutable
+  presentation values.
+- Connect Image Paint layer gestures and project operations to the implemented
   typed product-action router without direct runtime mutation.
 - Enqueue the returned product action through the production callback boundary.
 - Connect the production UE4SS key callbacks and input lease.

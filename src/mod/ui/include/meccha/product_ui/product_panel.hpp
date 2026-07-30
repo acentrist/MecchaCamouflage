@@ -34,6 +34,11 @@ struct ProductPanelLabels
     std::array<std::string, 9U> hotkey_labels{};
     std::array<std::string, 16U> paint_setting_labels{};
     std::array<std::string, 3U> region_mode_labels{};
+    std::array<std::string, 16U> image_setting_labels{};
+    std::array<std::string, 3U> body_profile_labels{};
+    std::array<std::string, 2U> placement_mode_labels{};
+    std::array<std::string, 2U> alpha_mode_labels{};
+    std::array<std::string, 2U> face_mode_labels{};
     std::array<std::string, 8U> esp_setting_labels{};
     std::array<std::string, 3U> esp_scope_labels{};
 

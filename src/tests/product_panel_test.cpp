@@ -48,6 +48,16 @@ auto ready_model() -> meccha::application::ProductUiModel
     model.ui_open = true;
     model.paint.actions = {true, true, false, false};
     model.image_paint.actions = {true, true, false, false};
+    model.image_paint.document = ImageEditorDocumentSnapshot{
+        "0123456789abcdef0123456789abcdef",
+        "Current project",
+        9U,
+        meccha::core::ImageProjectSettings{},
+        {},
+    };
+    model.image_paint.settings =
+        model.image_paint.document->settings;
+    model.image_paint.project.edit = true;
     model.esp.enabled = true;
     model.esp.can_toggle = true;
     model.settings.config = meccha::core::ApplicationConfig{};
@@ -151,6 +161,349 @@ auto main(int argc, char** argv) -> int
                 ProductUiSection::ImagePaint &&
             !image_tab->action,
         "section activation emitted a command or selected the wrong tab");
+    if (!image_tab || !image_tab->layout)
+    {
+        return 1;
+    }
+
+    auto image_settings_input = default_input();
+    image_settings_input.pointer = ui::PointerFrame{
+        {
+            image_tab->layout->content.x +
+                image_tab->layout->content.width * 0.75,
+            image_tab->layout->content.y + 68.0,
+        },
+        true,
+        false,
+        true,
+        0.0,
+    };
+    const auto image_settings = compose_product_panel(
+        model,
+        image_tab->state,
+        image_settings_input,
+        english);
+    const auto* image_mutation =
+        image_settings && image_settings->action
+            ? std::get_if<UiMutateCurrentImageProject>(
+                  &image_settings->action->action)
+            : nullptr;
+    const auto* image_settings_mutation =
+        image_mutation
+            ? std::get_if<ReplaceImageProjectSettingsMutation>(
+                  &image_mutation->mutation)
+            : nullptr;
+    passed &= expect(
+        image_settings_mutation &&
+            image_settings_mutation->settings.body ==
+                core::BodyProfile::Cube &&
+            image_settings_mutation->settings.placement ==
+                model.image_paint.settings.placement &&
+            image_settings->action->expected_snapshot_revision ==
+                model.source_revision,
+        "Image Paint body control did not emit one revision-bound project mutation");
+
+    const auto invoke_image_control =
+        [&](std::size_t row,
+            double horizontal_fraction,
+            double vertical_in_row = 22.0)
+        -> std::optional<core::ImageProjectSettings>
+    {
+        constexpr auto RowHeight = 44.0;
+        constexpr auto ActionInset = 46.0;
+        constexpr auto RowCount = 16.0;
+        const auto viewport_height =
+            image_tab->layout->content.height - ActionInset;
+        const auto maximum_offset =
+            std::max(
+                0.0,
+                RowCount * RowHeight - viewport_height);
+        const auto offset = std::clamp(
+            static_cast<double>(row) * RowHeight -
+                viewport_height * 0.5,
+            0.0,
+            maximum_offset);
+        auto next_state = image_tab->state;
+        next_state.section_scroll[1U].offset_y = offset;
+
+        const auto control_x =
+            image_tab->layout->content.x +
+            image_tab->layout->content.width * 0.42 + 8.0;
+        const auto control_width =
+            image_tab->layout->content.width * 0.58 - 8.0;
+        auto next_input = default_input();
+        next_input.pointer = ui::PointerFrame{
+            {
+                control_x +
+                    control_width * horizontal_fraction,
+                image_tab->layout->content.y + ActionInset +
+                    static_cast<double>(row) * RowHeight -
+                    offset + vertical_in_row,
+            },
+            true,
+            false,
+            true,
+            0.0,
+        };
+        const auto output = compose_product_panel(
+            model,
+            next_state,
+            next_input,
+            english);
+        const auto* mutation =
+            output && output->action &&
+                    output->action->expected_snapshot_revision ==
+                        model.source_revision
+                ? std::get_if<UiMutateCurrentImageProject>(
+                      &output->action->action)
+                : nullptr;
+        const auto* settings =
+            mutation
+                ? std::get_if<ReplaceImageProjectSettingsMutation>(
+                      &mutation->mutation)
+                : nullptr;
+        return settings
+                   ? std::optional{settings->settings}
+                   : std::nullopt;
+    };
+    const auto image_changed_only =
+        [&](const std::optional<core::ImageProjectSettings>& settings,
+            auto&& changed,
+            auto&& restore) -> bool
+    {
+        if (!settings || !core::validate(*settings).empty() ||
+            !changed(*settings))
+        {
+            return false;
+        }
+        auto restored = *settings;
+        restore(restored, model.image_paint.settings);
+        return restored == model.image_paint.settings;
+    };
+
+    passed &= expect(
+        image_changed_only(
+            invoke_image_control(0U, 0.5),
+            [](const core::ImageProjectSettings& settings)
+            {
+                return settings.body == core::BodyProfile::Cube;
+            },
+            [](core::ImageProjectSettings& changed,
+               const core::ImageProjectSettings& original)
+            {
+                changed.body = original.body;
+            }) &&
+            image_changed_only(
+                invoke_image_control(1U, 0.5),
+                [](const core::ImageProjectSettings& settings)
+                {
+                    return settings.placement ==
+                           core::PlacementMode::Fill;
+                },
+                [](core::ImageProjectSettings& changed,
+                   const core::ImageProjectSettings& original)
+                {
+                    changed.placement = original.placement;
+                }) &&
+            image_changed_only(
+                invoke_image_control(2U, 0.5),
+                [](const core::ImageProjectSettings& settings)
+                {
+                    return settings.alpha ==
+                           core::AlphaMode::Background;
+                },
+                [](core::ImageProjectSettings& changed,
+                   const core::ImageProjectSettings& original)
+                {
+                    changed.alpha = original.alpha;
+                }),
+        "an Image Paint mapping control changed an invalid or unrelated field");
+
+    const auto front_face = invoke_image_control(3U, 0.5);
+    const auto right_face = invoke_image_control(4U, 0.5);
+    const auto back_face = invoke_image_control(5U, 0.5);
+    const auto left_face = invoke_image_control(6U, 0.5);
+    passed &= expect(
+        image_changed_only(
+            front_face,
+            [](const core::ImageProjectSettings& settings)
+            {
+                return settings.front ==
+                       core::FaceBaseMode::Fill;
+            },
+            [](core::ImageProjectSettings& changed,
+               const core::ImageProjectSettings& original)
+            {
+                changed.front = original.front;
+            }) &&
+            image_changed_only(
+                right_face,
+                [](const core::ImageProjectSettings& settings)
+                {
+                    return settings.right ==
+                           core::FaceBaseMode::Fill;
+                },
+                [](core::ImageProjectSettings& changed,
+                   const core::ImageProjectSettings& original)
+                {
+                    changed.right = original.right;
+                }) &&
+            image_changed_only(
+                back_face,
+                [](const core::ImageProjectSettings& settings)
+                {
+                    return settings.back ==
+                           core::FaceBaseMode::Fill;
+                },
+                [](core::ImageProjectSettings& changed,
+                   const core::ImageProjectSettings& original)
+                {
+                    changed.back = original.back;
+                }) &&
+            image_changed_only(
+                left_face,
+                [](const core::ImageProjectSettings& settings)
+                {
+                    return settings.left ==
+                           core::FaceBaseMode::Fill;
+                },
+                [](core::ImageProjectSettings& changed,
+                   const core::ImageProjectSettings& original)
+                {
+                    changed.left = original.left;
+                }),
+        "an Image Paint face control changed an invalid or unrelated field");
+
+    passed &= expect(
+        image_changed_only(
+            invoke_image_control(7U, 0.8),
+            [](const core::ImageProjectSettings& settings)
+            {
+                return settings.brush_size_texels > 5.0;
+            },
+            [](core::ImageProjectSettings& changed,
+               const core::ImageProjectSettings& original)
+            {
+                changed.brush_size_texels =
+                    original.brush_size_texels;
+            }) &&
+            image_changed_only(
+                invoke_image_control(8U, 0.8),
+                [](const core::ImageProjectSettings& settings)
+                {
+                    return settings
+                               .color_compression_tolerance_percent >
+                           0.0;
+                },
+                [](core::ImageProjectSettings& changed,
+                   const core::ImageProjectSettings& original)
+                {
+                    changed.color_compression_tolerance_percent =
+                        original
+                            .color_compression_tolerance_percent;
+                }),
+        "an Image Paint brush/compression control changed an invalid or unrelated field");
+
+    passed &= expect(
+        image_changed_only(
+            invoke_image_control(9U, 0.8),
+            [](const core::ImageProjectSettings& settings)
+            {
+                return settings.image_material.metallic > 0.0;
+            },
+            [](core::ImageProjectSettings& changed,
+               const core::ImageProjectSettings& original)
+            {
+                changed.image_material.metallic =
+                    original.image_material.metallic;
+            }) &&
+            image_changed_only(
+                invoke_image_control(10U, 0.2),
+                [](const core::ImageProjectSettings& settings)
+                {
+                    return settings.image_material.roughness < 1.0;
+                },
+                [](core::ImageProjectSettings& changed,
+                   const core::ImageProjectSettings& original)
+                {
+                    changed.image_material.roughness =
+                        original.image_material.roughness;
+                }) &&
+            image_changed_only(
+                invoke_image_control(11U, 0.8),
+                [](const core::ImageProjectSettings& settings)
+                {
+                    return settings.image_material.emissive > 0.0;
+                },
+                [](core::ImageProjectSettings& changed,
+                   const core::ImageProjectSettings& original)
+                {
+                    changed.image_material.emissive =
+                        original.image_material.emissive;
+                }),
+        "an Image Paint material control changed an invalid or unrelated field");
+
+    passed &= expect(
+        image_changed_only(
+            invoke_image_control(12U, 0.5, 8.0),
+            [](const core::ImageProjectSettings& settings)
+            {
+                return settings.fill_color.red < 255U;
+            },
+            [](core::ImageProjectSettings& changed,
+               const core::ImageProjectSettings& original)
+            {
+                changed.fill_color = original.fill_color;
+            }) &&
+            image_changed_only(
+                invoke_image_control(13U, 0.2),
+                [](const core::ImageProjectSettings& settings)
+                {
+                    return settings.fill_material.metallic < 1.0;
+                },
+                [](core::ImageProjectSettings& changed,
+                   const core::ImageProjectSettings& original)
+                {
+                    changed.fill_material.metallic =
+                        original.fill_material.metallic;
+                }) &&
+            image_changed_only(
+                invoke_image_control(14U, 0.8),
+                [](const core::ImageProjectSettings& settings)
+                {
+                    return settings.fill_material.roughness > 0.0;
+                },
+                [](core::ImageProjectSettings& changed,
+                   const core::ImageProjectSettings& original)
+                {
+                    changed.fill_material.roughness =
+                        original.fill_material.roughness;
+                }) &&
+            image_changed_only(
+                invoke_image_control(15U, 0.8),
+                [](const core::ImageProjectSettings& settings)
+                {
+                    return settings.fill_material.emissive > 0.0;
+                },
+                [](core::ImageProjectSettings& changed,
+                   const core::ImageProjectSettings& original)
+                {
+                    changed.fill_material.emissive =
+                        original.fill_material.emissive;
+                }),
+        "an Image Paint Fill control changed an invalid or unrelated field");
+
+    model.image_paint.project.edit = false;
+    const auto unavailable_image_settings = compose_product_panel(
+        model,
+        image_tab->state,
+        image_settings_input,
+        english);
+    passed &= expect(
+        unavailable_image_settings &&
+            !unavailable_image_settings->action,
+        "unavailable Image Paint settings emitted a mutation");
+    model.image_paint.project.edit = true;
 
     auto start_input = default_input();
     start_input.pointer = ui::PointerFrame{
@@ -897,6 +1250,26 @@ auto main(int argc, char** argv) -> int
             scrolled->state.section_scroll[3U].offset_y > 0.0,
         "compact Settings content did not retain section-local scrolling");
 
+    auto compact_image_state = compact->state;
+    compact_image_state.selected = ProductUiSection::ImagePaint;
+    compact_input.pointer = ui::PointerFrame{
+        center(compact->layout->content),
+        false,
+        false,
+        false,
+        -3.0,
+    };
+    const auto scrolled_image = compose_product_panel(
+        model,
+        compact_image_state,
+        compact_input,
+        english);
+    passed &= expect(
+        scrolled_image &&
+            scrolled_image->state.section_scroll[1U].offset_y >
+                0.0,
+        "compact Image Paint settings did not retain section-local scrolling");
+
     model.ui_open = false;
     const auto closed = compose_product_panel(
         model,
@@ -968,6 +1341,23 @@ auto main(int argc, char** argv) -> int
                 incoherent.error()) ==
                 ProductPanelValidationError::InvalidModel,
         "divergent presentation/config settings entered the panel");
+
+    auto incoherent_image_model = model;
+    incoherent_image_model.image_paint.settings.body =
+        core::BodyProfile::Cube;
+    const auto incoherent_image = compose_product_panel(
+        incoherent_image_model,
+        ProductPanelState{},
+        default_input(),
+        english);
+    passed &= expect(
+        !incoherent_image &&
+            std::holds_alternative<ProductPanelValidationError>(
+                incoherent_image.error()) &&
+            std::get<ProductPanelValidationError>(
+                incoherent_image.error()) ==
+                ProductPanelValidationError::InvalidModel,
+        "divergent Image Paint document settings entered the panel");
 
     if (passed)
     {

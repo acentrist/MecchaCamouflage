@@ -471,6 +471,10 @@ Evidence:
   - [x] Compose the complete portable ESP section for the master toggle, target
     scope, all five primitive toggles, both role colors, and bounded
     section-local scrolling.
+  - [x] Compose every persisted Image Paint project setting as a validated
+    revision-bound portable control, including body/placement/alpha/face
+    routing, brush/compression, Image/Fill materials, Fill color, and bounded
+    section-local scrolling.
   - [ ] Render and interact with every complete section through the production
     UCanvas adapter.
 - [ ] Bind UI only to typed commands and immutable snapshots.
@@ -488,6 +492,9 @@ Evidence:
     full-config validation and revision-bound action boundary.
   - [x] Route every portable ESP setting except the dedicated master toggle
     through exact full-config validation and revision-bound application.
+  - [x] Route every portable Image Paint setting through a project-owned
+    `ReplaceImageProjectSettingsMutation` copied from the exact immutable
+    document rather than changing application defaults or runtime objects.
   - [ ] Connect every production Canvas widget/editor activation to that
     product-action boundary and enqueue its typed result.
 - [ ] Complete all editor interactions and body-guide behavior.
@@ -513,7 +520,7 @@ Evidence:
     accent to the portable panel shell and compose its labels for every one of
     the 16 shipped catalogs.
   - [x] Retain bounded per-section scroll state and exclude clipped Settings,
-    Paint, and ESP controls from keyboard focus/action admission.
+    Paint, Image Paint, and ESP controls from keyboard focus/action admission.
 - [x] Ensure panel close preserves ESP and active jobs.
 - [ ] Pass UI action/state, gesture, hotkey, layout, and localization tests.
   - [x] Pass portable panel tests for all shipped locales, section switching,
@@ -524,6 +531,10 @@ Evidence:
     enum values.
   - [x] Prove every ESP scope/primitive/color control changes only its owned
     field, preserves the master enable state, and rejects invalid scope enums.
+  - [x] Prove all 16 Image Paint settings controls change only their owned
+    field, emit one snapshot-revision-bound project mutation, remain disabled
+    without edit ownership, retain compact scrolling, and reject divergent
+    document/presentation state.
 - [ ] DEFERRED — maintainer interaction required: complete the full in-game UI
   walkthrough across languages/resolutions/DPI.
 

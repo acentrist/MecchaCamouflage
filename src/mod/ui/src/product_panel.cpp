@@ -1,6 +1,7 @@
 #include <meccha/product_ui/product_panel.hpp>
 
 #include "product_panel_esp.hpp"
+#include "product_panel_image.hpp"
 #include "product_panel_paint.hpp"
 #include "product_panel_settings.hpp"
 
@@ -78,6 +79,21 @@ auto labels_valid(const ProductPanelLabels& labels) -> bool
                labels.region_mode_labels,
                valid_label) &&
            std::ranges::all_of(
+               labels.image_setting_labels,
+               valid_label) &&
+           std::ranges::all_of(
+               labels.body_profile_labels,
+               valid_label) &&
+           std::ranges::all_of(
+               labels.placement_mode_labels,
+               valid_label) &&
+           std::ranges::all_of(
+               labels.alpha_mode_labels,
+               valid_label) &&
+           std::ranges::all_of(
+               labels.face_mode_labels,
+               valid_label) &&
+           std::ranges::all_of(
                labels.esp_setting_labels,
                valid_label) &&
            std::ranges::all_of(
@@ -87,8 +103,27 @@ auto labels_valid(const ProductPanelLabels& labels) -> bool
 
 auto model_valid(const application::ProductUiModel& model) -> bool
 {
+    const auto image_settings_valid =
+        core::validate(model.image_paint.settings).empty();
+    const auto image_document_valid =
+        model.image_paint.document
+            ? core::valid_image_project_id(
+                  model.image_paint.document->project_id) &&
+                  model.image_paint.document->revision != 0U &&
+                  model.image_paint.document->settings ==
+                      model.image_paint.settings &&
+                  std::ranges::all_of(
+                      model.image_paint.document->layers,
+                      [](const core::ImageLayer& layer)
+                      {
+                          return core::validate(layer).empty();
+                      })
+            : model.image_paint.settings ==
+                  model.settings.config.image_paint;
     return model.sections == application::ProductUiSections &&
            core::validate(model.settings.config).empty() &&
+           image_settings_valid &&
+           image_document_valid &&
            model.paint.settings ==
                model.settings.config.paint &&
            model.esp.settings ==
@@ -325,6 +360,48 @@ auto build_product_panel_labels(
             std::string{catalog.text(locale, "mode.skip")},
         },
         {
+            std::string{catalog.text(locale, "image.body.type")},
+            std::string{catalog.text(locale, "image.action.fit")},
+            std::string{catalog.text(locale, "opacity")},
+            std::string{catalog.text(locale, "region.front")},
+            std::string{catalog.text(locale, "region.right")},
+            std::string{catalog.text(locale, "region.back")},
+            std::string{catalog.text(locale, "region.left")},
+            std::string{catalog.text(locale, "brush.size")},
+            std::string{
+                catalog.text(
+                    locale,
+                    "color.compression.tolerance")},
+            std::string{catalog.text(locale, "metallic")},
+            std::string{catalog.text(locale, "roughness")},
+            std::string{catalog.text(locale, "emissive")},
+            std::string{catalog.text(locale, "fill.material")} +
+                " " +
+                std::string{catalog.text(locale, "fill.color")},
+            std::string{catalog.text(locale, "fill.metallic")},
+            std::string{catalog.text(locale, "fill.roughness")},
+            std::string{catalog.text(locale, "fill.material")} +
+                " " +
+                std::string{catalog.text(locale, "emissive")},
+        },
+        {
+            std::string{catalog.text(locale, "body.round")},
+            std::string{catalog.text(locale, "body.cube")},
+            std::string{catalog.text(locale, "body.fukuyoka")},
+        },
+        {
+            std::string{catalog.text(locale, "image.action.fit")},
+            std::string{catalog.text(locale, "mode.fill")},
+        },
+        {
+            std::string{catalog.text(locale, "mode.skip")},
+            std::string{catalog.text(locale, "mode.fill")},
+        },
+        {
+            std::string{catalog.text(locale, "mode.fill")},
+            std::string{catalog.text(locale, "mode.skip")},
+        },
+        {
             "Targets",
             "Boxes",
             "Skeletons",
@@ -495,6 +572,20 @@ auto compose_product_panel(
         if (!result)
         {
             return std::unexpected(result.error());
+        }
+        const auto settings =
+            detail::compose_image_settings_section(
+                canvas,
+                widgets,
+                *layout,
+                model,
+                labels,
+                input,
+                previous,
+                action);
+        if (!settings)
+        {
+            return std::unexpected(settings.error());
         }
     }
     else if (
