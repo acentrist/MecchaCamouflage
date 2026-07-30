@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <expected>
 #include <span>
+#include <stop_token>
 #include <vector>
 
 namespace meccha::core
@@ -144,11 +145,21 @@ struct ReplayPlan
     std::size_t current_view_projection_fallback_candidates{};
 };
 
+enum class ReplayPlanError : std::uint8_t
+{
+    InvalidArgument,
+    InvalidCandidate,
+    ResourceLimit,
+    Cancelled,
+};
+
 [[nodiscard]] auto build_replay_plan(
     std::span<const ReplayCandidate> candidates,
     int texture_size,
     double brush_size_texels,
-    double fill_radius_texels) -> ReplayPlan;
+    double fill_radius_texels,
+    std::stop_token cancellation = {})
+    -> std::expected<ReplayPlan, ReplayPlanError>;
 
 inline constexpr std::size_t MaximumAdaptivePaintSamples = 600'000U;
 inline constexpr std::size_t MaximumAdaptiveReplayEntries = 600'000U;
@@ -192,6 +203,7 @@ enum class AdaptivePaintPlanError : std::uint8_t
     InvalidSample,
     InvalidReplayEntry,
     ResourceLimit,
+    Cancelled,
 };
 
 [[nodiscard]] auto build_adaptive_paint_plan(
@@ -199,7 +211,8 @@ enum class AdaptivePaintPlanError : std::uint8_t
     std::span<const AdaptivePaintSample> samples,
     double base_radius_uv,
     double tolerance_percent,
-    double edge_margin_uv = 0.0)
+    double edge_margin_uv = 0.0,
+    std::stop_token cancellation = {})
     -> std::expected<AdaptivePaintPlan, AdaptivePaintPlanError>;
 
 struct ReplicationPacingInput

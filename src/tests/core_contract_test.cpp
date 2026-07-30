@@ -107,8 +107,16 @@ auto main() -> int
             2U,
         },
     };
-    const auto replay =
+    const auto replay_result =
         build_replay_plan(replay_candidates, 1024, 5.0, 4.0);
+    passed &= expect(
+        replay_result.has_value(),
+        "valid replay candidates did not produce a plan");
+    if (!replay_result)
+    {
+        return 1;
+    }
+    const auto& replay = *replay_result;
     passed &= expect(
         replay.entries.size() == 4U && replay.fill_end == 3U &&
             replay.fill_count == 3U && replay.paint_count == 1U &&
@@ -212,6 +220,40 @@ auto main() -> int
             invalid_adaptive_result.error() ==
                 AdaptivePaintPlanError::InvalidSample,
         "non-finite adaptive input was accepted");
+
+    auto cancelled = std::stop_source{};
+    cancelled.request_stop();
+    passed &= expect(
+        build_replay_plan(
+            replay_candidates,
+            1024,
+            5.0,
+            4.0,
+            cancelled.get_token()) ==
+            std::unexpected(ReplayPlanError::Cancelled),
+        "cancelled replay planning still published a plan");
+    passed &= expect(
+        build_adaptive_paint_plan(
+            replay.entries,
+            adaptive_samples,
+            0.01,
+            5.0,
+            0.0,
+            cancelled.get_token()) ==
+            std::unexpected(AdaptivePaintPlanError::Cancelled),
+        "cancelled adaptive planning still published a plan");
+
+    auto excessive_candidates =
+        std::vector<ReplayCandidate>(
+            MaximumAdaptivePaintSamples + 1U);
+    passed &= expect(
+        build_replay_plan(
+            excessive_candidates,
+            1024,
+            5.0,
+            4.0) ==
+            std::unexpected(ReplayPlanError::ResourceLimit),
+        "an unbounded replay candidate set was accepted");
 
     const auto fallback_pacing = replication_pacing_plan({});
     passed &= expect(

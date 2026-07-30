@@ -167,7 +167,8 @@ private:
     const std::size_t capacity_{};
     mutable std::mutex drain_mutex_{};
     mutable std::mutex mutex_{};
-    std::deque<GameThreadOperation> queue_{};
+    std::deque<GameThreadOperation> control_queue_{};
+    std::deque<GameThreadOperation> frame_queue_{};
     bool accepting_{true};
 };
 } // namespace meccha::application

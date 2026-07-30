@@ -1,4 +1,5 @@
 #include <meccha/application/runtime_operation_executor.hpp>
+#include <meccha/core/paint_plan.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -141,6 +142,23 @@ auto main() -> int
             runtime.paint_calls.size() == 1U,
         "direct off-thread execution reached the runtime port");
     thread.game_thread = true;
+
+    auto fill = paint;
+    fill.brush_size_texels = core::PaintFillRadiusTexels;
+    passed &= expect(
+        executor.execute(fill).has_value() &&
+            runtime.paint_calls.size() == 2U,
+        "the fixed Fill radius was rejected as a settings value");
+    auto excessive_radius = paint;
+    excessive_radius.brush_size_texels = 1025.0;
+    const auto rejected_radius =
+        executor.execute(excessive_radius);
+    passed &= expect(
+        !rejected_radius &&
+            rejected_radius.error().code ==
+                RuntimeExecutionErrorCode::InvalidRequest &&
+            runtime.paint_calls.size() == 2U,
+        "an excessive effective Paint radius reached the runtime");
 
     const auto invalid_image = UpdateImagePreviewTexture{
         12U,

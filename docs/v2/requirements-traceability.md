@@ -83,14 +83,14 @@ inventory drift.
 | PAINT-004 | Front/back source maximum UV defaults `0.45`, range `[0.001,2.00]`. | `Models`, `Settings` | `core/paint` | T1 | C# model |
 | PAINT-005 | Manual Paint PBR defaults M=0/R=1/E=0 and validates each `[0,1]`. | `Models`, Bridge channel packing | `core/paint` | T1, T2, T4 | C#/Bridge packing |
 | PAINT-006 | Fill color defaults white; Fill PBR defaults M=1/R=0/E=0 and is independent of Paint PBR. | `Models`, payload tests | `core/paint` | T1, T2, T4 | C#/Bridge packing |
-| PAINT-007 | Auto Material defaults off and affects Paint only; Fill remains manual. | `Models`, runtime maintenance docs | `paint` planning/runtime | T1, T2, T4 | Appearance bridge path |
+| PAINT-007 | Auto Material defaults off and affects Paint only; Fill remains manual. | `Models`, runtime maintenance docs | `core/paint_plan` + runtime appearance resolver | T1, T2, T4 | Appearance bridge path |
 | PAINT-008 | Scene-lighting inclusion is an independent boolean, default off. | `Models.IncludeShadows`, payload tests | `core/paint` | T1, T2, T4 | Bridge capture flag |
 | PAINT-009 | Color compression tolerance defaults `5`, range `[0,10]`, and preserves appearance within the reviewed algorithm. | `Models`, `Native contracts` | `core/paint` | T1, T2 | Bridge adaptive plan |
 | PAINT-010 | Round, cube, and fukuyoka profile identity/dimensions are validated before planning. | profile JSON, Bridge profile catalog | profile repository/runtime adapter | T0, T1, T4 | Bridge profile parser |
-| PAINT-011 | Fill dispatch covers the base first; Paint overwrites only Paint regions; Skip receives no overwrite. | `Native contracts`, release checklist | Paint planner/dispatcher | T1, T2, T4 | Bridge replay routing |
+| PAINT-011 | Fill dispatch covers the base first; Paint overwrites only Paint regions; Skip receives no overwrite. | `Native contracts`, release checklist | `core/paint_plan` + dispatcher | T1, T2, T4 | Bridge replay routing |
 | PAINT-012 | Preview captures all changed channels and exact restore is guarded against wrong component/repeat use. | Bridge preview export/import | Preview lease/runtime adapter | T1, T2, T4 | Import/export bridge commands |
 | PAINT-013 | Normal production painting calls game-owned `PaintAtUVWithBrush` for every accepted stroke and no alternative sender. | `SDK`, Bridge direct route, maintenance docs | Runtime adapter/dispatcher | T0, T2, T4, T6 | Bridge direct RPC |
-| PAINT-014 | Planning and dispatch are cancellable and bounded per frame. | `Native contracts`, async Bridge job | Worker planner/scheduler | T1, T2, T4 | Bridge async globals |
+| PAINT-014 | Planning and dispatch are cancellable and bounded per frame. | `Native contracts`, async Bridge job | stop-token planner + application scheduler | T1, T2, T4 | Bridge async globals |
 | PAINT-015 | Progress distinguishes planning, pass, submitted, queued, drained, elapsed, ETA, cancel, and failure. | `UI contracts`, Session, Bridge progress | Application snapshots | T1, T2, T4 | Progress sidecars |
 | PAINT-016 | Terminal completion is impossible while the game-owned queue is nonzero. | Bridge queue drain, release checklist | Dispatcher/job arbiter | T1, T2, T4, T6 | Bridge completion heuristic |
 | PAINT-017 | A valid captured paint component survives controller-pawn/freecam changes and fails safely when invalidated. | Bridge captured-component tests | Runtime handle/job | T2, T4 | Bridge process context |

@@ -2,11 +2,12 @@
 
 ## Current status
 
-The first frozen domain contracts have moved from the v1 mixed runtime header
-and C# models into focused, dependency-free C++ modules. Typed application
-commands, immutable snapshots, and the job/preview state machines are also in
-place. Phase 6 remains open: properties, sanitizers, and the remainder of the
-retained algorithms are not yet complete.
+The frozen domain values and validation contracts have moved from the v1 mixed
+runtime header and C# models into focused, dependency-free C++ modules. Typed
+application commands, immutable snapshots, the job/preview state machines, and
+the first complete immutable Paint plan are also in place. Phase 6 remains
+open: properties, sanitizers, and the remainder of the retained algorithms are
+not yet complete.
 
 ## Implemented modules
 
@@ -21,6 +22,14 @@ retained algorithms are not yet complete.
 - Deterministic adaptive Paint compression with fixed radius candidates,
   region/UV-island/material isolation, color tolerance, edge margin, and hard
   sample/replay limits. Fill entries are never compressed.
+- Replay and adaptive planning validate all finite/range/enum/index inputs,
+  reject more than 600,000 samples or entries, and honor `std::stop_token`
+  before and during bounded loops.
+- `PaintPlan` validates the exact frozen raw round, cube, or fukuyoka profile,
+  removes unsafe captured samples, selects manual or adapter-resolved Auto
+  Material appearance, optionally selects captured scene color, routes a
+  fixed 100-texel Fill base, applies adaptive Paint radii, and publishes one
+  immutable Fill-first stroke vector.
 
 ### Image Paint
 
@@ -57,8 +66,8 @@ retained algorithms are not yet complete.
 
 ### Configuration boundary
 
-- The v2 configuration type contains only UI, hotkey, Paint, Image Paint, and
-  ESP settings.
+- The v2 configuration type contains only UI, hotkey, Paint, Image Paint, ESP,
+  and the small optional active-project/draft reference.
 - The exact 16-locale inventory and F1–F24 mapping are validated.
 - The nine UI/action keys must be unique.
 - UI scale and all Paint/Image material/range values are validated as one
@@ -81,10 +90,14 @@ retained algorithms are not yet complete.
   identity, and makes restore exactly-once.
 - Snapshots are immutable shared values with monotonic revisions. Diagnostic
   history has a hard capacity and stable sequence numbers.
+- The bounded game-thread scheduler keeps separate control and frame lanes.
+  Resolve/rebind/restore work is admitted within the same hard capacity but
+  drains before Paint/texture work, so teardown and rebinding cannot be
+  starved by a full Paint stream.
 
 ## Evidence
 
-`core_contract_test`, `mesh_profile_codec_test`, and
+`core_contract_test`, `paint_planner_test`, `mesh_profile_codec_test`, and
 `application_state_test` port representative cases from:
 
 - `src/tests/fixtures/v1/paint-domain.json`;
@@ -97,7 +110,11 @@ JSON, or UI header. Its test passes with both GCC and MSVC `/W4 /WX`.
 
 The adaptive-compression cases cover disabled exact preservation,
 same-material coalescing, material isolation, deterministic expansion, and
-non-finite input rejection.
+non-finite input rejection. Paint planning additionally covers Fill-first
+ordering, Skip/unsafe exclusion, independent Fill PBR, manual and resolved
+automatic appearance, scene-color selection, profile rejection, resource
+limits, and cancellation. `application_runtime_test` proves that control work
+preempts already-queued Paint work.
 
 ## Deliberate non-port
 

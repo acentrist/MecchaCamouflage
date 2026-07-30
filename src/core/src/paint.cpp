@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <set>
 #include <span>
+#include <stop_token>
 #include <tuple>
 #include <vector>
 
@@ -151,8 +152,56 @@ auto build_replay_plan(
     std::span<const ReplayCandidate> candidates,
     int texture_size,
     double brush_size_texels,
-    double fill_radius_texels) -> ReplayPlan
+    double fill_radius_texels,
+    std::stop_token cancellation)
+    -> std::expected<ReplayPlan, ReplayPlanError>
 {
+    if (cancellation.stop_requested())
+    {
+        return std::unexpected(ReplayPlanError::Cancelled);
+    }
+    if (candidates.size() > MaximumAdaptivePaintSamples)
+    {
+        return std::unexpected(ReplayPlanError::ResourceLimit);
+    }
+    if (texture_size <= 0 || texture_size > 4096 ||
+        !valid_range(brush_size_texels, 1.0, 10.0) ||
+        !valid_range(
+            fill_radius_texels,
+            0.001,
+            static_cast<double>(texture_size)))
+    {
+        return std::unexpected(ReplayPlanError::InvalidArgument);
+    }
+    const auto unit =
+        [](double value)
+        {
+            return std::isfinite(value) &&
+                   value >= 0.0 && value <= 1.0;
+        };
+    for (const auto& candidate : candidates)
+    {
+        if (cancellation.stop_requested())
+        {
+            return std::unexpected(ReplayPlanError::Cancelled);
+        }
+        if ((candidate.region != Region::Front &&
+             candidate.region != Region::Side &&
+             candidate.region != Region::Back) ||
+            (candidate.mode != RegionMode::Paint &&
+             candidate.mode != RegionMode::Fill &&
+             candidate.mode != RegionMode::Skip) ||
+            candidate.uv_island < 0 ||
+            !unit(candidate.u) || !unit(candidate.v) ||
+            (candidate.has_current_view_position &&
+             !std::isfinite(candidate.current_view_vertical)) ||
+            !std::isfinite(candidate.fallback_view_vertical) ||
+            !std::isfinite(candidate.horizontal))
+        {
+            return std::unexpected(ReplayPlanError::InvalidCandidate);
+        }
+    }
+
     ReplayPlan plan{};
     const auto texture_dimension =
         static_cast<double>(std::max(1, texture_size));
@@ -182,6 +231,10 @@ auto build_replay_plan(
         };
     for (const auto& candidate : candidates)
     {
+        if (cancellation.stop_requested())
+        {
+            return std::unexpected(ReplayPlanError::Cancelled);
+        }
         if (!fill_all_regions && candidate.mode == RegionMode::Skip)
         {
             continue;
@@ -225,6 +278,10 @@ auto build_replay_plan(
                     texture_dimension);
             for (const auto& candidate : candidates)
             {
+                if (cancellation.stop_requested())
+                {
+                    return false;
+                }
                 if (!include_all_regions &&
                     candidate.mode != required_mode)
                 {
@@ -288,22 +345,29 @@ auto build_replay_plan(
                 plan.entries.end(),
                 pending.begin(),
                 pending.end());
+            return true;
         };
 
-    append_pass(
-        ReplayPass::Fill,
-        RegionMode::Fill,
-        fill_cell_uv,
-        fill_radius_texels,
-        fill_all_regions);
+    if (!append_pass(
+            ReplayPass::Fill,
+            RegionMode::Fill,
+            fill_cell_uv,
+            fill_radius_texels,
+            fill_all_regions))
+    {
+        return std::unexpected(ReplayPlanError::Cancelled);
+    }
     plan.fill_end = plan.entries.size();
     plan.fill_count = plan.fill_end;
-    append_pass(
-        ReplayPass::Paint,
-        RegionMode::Paint,
-        0.0,
-        brush_size_texels,
-        false);
+    if (!append_pass(
+            ReplayPass::Paint,
+            RegionMode::Paint,
+            0.0,
+            brush_size_texels,
+            false))
+    {
+        return std::unexpected(ReplayPlanError::Cancelled);
+    }
     plan.paint_count = plan.entries.size() - plan.fill_end;
     return plan;
 }
@@ -313,9 +377,15 @@ auto build_adaptive_paint_plan(
     std::span<const AdaptivePaintSample> samples,
     double base_radius_uv,
     double tolerance_percent,
-    double edge_margin_uv)
+    double edge_margin_uv,
+    std::stop_token cancellation)
     -> std::expected<AdaptivePaintPlan, AdaptivePaintPlanError>
 {
+    if (cancellation.stop_requested())
+    {
+        return std::unexpected(
+            AdaptivePaintPlanError::Cancelled);
+    }
     if (!std::isfinite(base_radius_uv) ||
         !std::isfinite(tolerance_percent) ||
         !std::isfinite(edge_margin_uv) ||
@@ -340,6 +410,11 @@ auto build_adaptive_paint_plan(
         };
     for (const auto& sample : samples)
     {
+        if (cancellation.stop_requested())
+        {
+            return std::unexpected(
+                AdaptivePaintPlanError::Cancelled);
+        }
         if (!unit(sample.u) || !unit(sample.v) ||
             !unit(sample.red) || !unit(sample.green) ||
             !unit(sample.blue))
@@ -350,6 +425,11 @@ auto build_adaptive_paint_plan(
     }
     for (const auto& entry : replay_entries)
     {
+        if (cancellation.stop_requested())
+        {
+            return std::unexpected(
+                AdaptivePaintPlanError::Cancelled);
+        }
         if (entry.sample_index >= samples.size())
         {
             return std::unexpected(
@@ -368,6 +448,11 @@ auto build_adaptive_paint_plan(
     {
         for (const auto& entry : replay_entries)
         {
+            if (cancellation.stop_requested())
+            {
+                return std::unexpected(
+                    AdaptivePaintPlanError::Cancelled);
+            }
             plan.entries.push_back({entry, 1.0});
         }
         return plan;
@@ -396,6 +481,11 @@ auto build_adaptive_paint_plan(
         };
     for (auto index = std::size_t{}; index < samples.size(); ++index)
     {
+        if (cancellation.stop_requested())
+        {
+            return std::unexpected(
+                AdaptivePaintPlanError::Cancelled);
+        }
         const auto& sample = samples[index];
         const auto cell = static_cast<std::size_t>(
             cell_coordinate(sample.v) * grid_size +
@@ -483,6 +573,11 @@ auto build_adaptive_paint_plan(
          index < replay_entries.size();
          ++index)
     {
+        if (cancellation.stop_requested())
+        {
+            return std::unexpected(
+                AdaptivePaintPlanError::Cancelled);
+        }
         const auto& entry = replay_entries[index];
         if (entry.pass != ReplayPass::Paint)
         {
@@ -505,6 +600,11 @@ auto build_adaptive_paint_plan(
                 [&](std::size_t,
                     const AdaptivePaintSample& other)
                 {
+                    if (cancellation.stop_requested())
+                    {
+                        valid = false;
+                        return;
+                    }
                     if (!same_payload(center, other) ||
                         color_distance_squared(center, other) >
                             threshold_squared)
@@ -517,6 +617,11 @@ auto build_adaptive_paint_plan(
                 candidate_multipliers[index] = multiplier;
                 break;
             }
+            if (cancellation.stop_requested())
+            {
+                return std::unexpected(
+                    AdaptivePaintPlanError::Cancelled);
+            }
         }
     }
 
@@ -527,6 +632,11 @@ auto build_adaptive_paint_plan(
          index < replay_entries.size();
          ++index)
     {
+        if (cancellation.stop_requested())
+        {
+            return std::unexpected(
+                AdaptivePaintPlanError::Cancelled);
+        }
         const auto& entry = replay_entries[index];
         if (entry.pass != ReplayPass::Paint)
         {
@@ -563,6 +673,11 @@ auto build_adaptive_paint_plan(
                     covered[other_index] = true;
                 }
             });
+        if (cancellation.stop_requested())
+        {
+            return std::unexpected(
+                AdaptivePaintPlanError::Cancelled);
+        }
     }
     std::ranges::stable_sort(
         paint_entries,

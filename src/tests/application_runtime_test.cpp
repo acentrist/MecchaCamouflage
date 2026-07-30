@@ -192,6 +192,24 @@ auto main() -> int
                 GameThreadOperation{paint_call(42U)},
         "a retried Unreal operation was not executed");
 
+    GameThreadScheduler priority_scheduler{3U};
+    static_cast<void>(
+        priority_scheduler.schedule(paint_call(44U)));
+    static_cast<void>(
+        priority_scheduler.schedule(paint_call(45U)));
+    static_cast<void>(priority_scheduler.schedule(
+        RestoreTransientState{9U}));
+    RecordingExecutor priority_executor{true};
+    const auto priority_drain =
+        priority_scheduler.drain(priority_executor, 1U);
+    passed &= expect(
+        priority_drain && *priority_drain == 1U &&
+            priority_executor.operations ==
+                std::vector<GameThreadOperation>{
+                    RestoreTransientState{9U}} &&
+            priority_scheduler.snapshot().queued == 2U,
+        "control work was starved behind Paint frame work");
+
     scheduler.close();
     passed &= expect(
         scheduler.schedule(RestoreTransientState{1U}) ==

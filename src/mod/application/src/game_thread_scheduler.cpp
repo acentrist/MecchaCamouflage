@@ -2,10 +2,28 @@
 
 #include <algorithm>
 #include <mutex>
+#include <type_traits>
 #include <utility>
+#include <variant>
 
 namespace meccha::application
 {
+namespace
+{
+auto is_control_operation(const GameThreadOperation& operation) -> bool
+{
+    return std::visit(
+        [](const auto& request)
+        {
+            using Request = std::decay_t<decltype(request)>;
+            return std::is_same_v<Request, ResolveInitialContracts> ||
+                   std::is_same_v<Request, RebindHudFrame> ||
+                   std::is_same_v<Request, RestoreTransientState>;
+        },
+        operation);
+}
+} // namespace
+
 GameThreadScheduler::GameThreadScheduler(std::size_t capacity)
     : capacity_{capacity}
 {
@@ -19,11 +37,15 @@ auto GameThreadScheduler::schedule(GameThreadOperation operation)
     {
         return ScheduleResult::Closed;
     }
-    if (queue_.size() >= capacity_)
+    if (control_queue_.size() + frame_queue_.size() >= capacity_)
     {
         return ScheduleResult::Full;
     }
-    queue_.push_back(std::move(operation));
+    auto& queue =
+        is_control_operation(operation)
+            ? control_queue_
+            : frame_queue_;
+    queue.push_back(std::move(operation));
     return ScheduleResult::Accepted;
 }
 
@@ -45,13 +67,18 @@ auto GameThreadScheduler::drain(
     while (completed < maximum_operations)
     {
         auto operation = GameThreadOperation{ResolveInitialContracts{}};
+        auto control = false;
         {
             const auto lock = std::scoped_lock{mutex_};
-            if (queue_.empty())
+            if (control_queue_.empty() && frame_queue_.empty())
             {
                 break;
             }
-            operation = queue_.front();
+            control = !control_queue_.empty();
+            operation =
+                control
+                    ? control_queue_.front()
+                    : frame_queue_.front();
         }
 
         const auto executed = executor.execute(operation);
@@ -61,7 +88,9 @@ auto GameThreadScheduler::drain(
         }
         {
             const auto lock = std::scoped_lock{mutex_};
-            queue_.pop_front();
+            auto& queue =
+                control ? control_queue_ : frame_queue_;
+            queue.pop_front();
         }
         ++completed;
     }
@@ -78,8 +107,10 @@ auto GameThreadScheduler::discard() -> std::size_t
 {
     const auto drain_lock = std::scoped_lock{drain_mutex_};
     const auto lock = std::scoped_lock{mutex_};
-    const auto count = queue_.size();
-    queue_.clear();
+    const auto count =
+        control_queue_.size() + frame_queue_.size();
+    control_queue_.clear();
+    frame_queue_.clear();
     return count;
 }
 
@@ -87,7 +118,7 @@ auto GameThreadScheduler::snapshot() const -> QueueSnapshot
 {
     const auto lock = std::scoped_lock{mutex_};
     return QueueSnapshot{
-        queue_.size(),
+        control_queue_.size() + frame_queue_.size(),
         capacity_,
         accepting_,
     };

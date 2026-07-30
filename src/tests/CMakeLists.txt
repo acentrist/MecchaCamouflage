@@ -161,6 +161,15 @@ target_link_libraries(
 )
 add_test(NAME core_contract COMMAND meccha_core_contract_tests)
 
+add_executable(meccha_paint_planner_tests paint_planner_test.cpp)
+target_link_libraries(
+    meccha_paint_planner_tests
+    PRIVATE
+        MecchaCamouflage::Core
+        meccha_build_options
+)
+add_test(NAME paint_planner COMMAND meccha_paint_planner_tests)
+
 add_executable(meccha_launcher_tests launcher_manifest_test.cpp)
 target_link_libraries(
     meccha_launcher_tests

@@ -14,6 +14,7 @@ namespace
 {
 constexpr auto FailureMessage = "error.operation.failed";
 constexpr std::uint32_t MaximumTextureDimension = 4096U;
+constexpr double MaximumEffectiveBrushRadiusTexels = 1024.0;
 constexpr std::uint64_t MaximumTextureBytes =
     64U * 1024U * 1024U;
 
@@ -56,7 +57,8 @@ auto validate(const PaintAtUvWithBrush& request)
     if (!unit(request.u) || !unit(request.v) ||
         !std::isfinite(request.brush_size_texels) ||
         request.brush_size_texels < 1.0 ||
-        request.brush_size_texels > 10.0 ||
+        request.brush_size_texels >
+            MaximumEffectiveBrushRadiusTexels ||
         !unit(request.material.metallic) ||
         !unit(request.material.roughness) ||
         !unit(request.material.emissive))

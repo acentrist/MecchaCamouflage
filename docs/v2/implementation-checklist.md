@@ -142,7 +142,7 @@ Evidence:
 
 ## Phase 6 — Pure core and application state machines
 
-- [ ] Port retained value types and validation to focused C++ modules.
+- [x] Port retained value types and validation to focused C++ modules.
 - [ ] Port profile, region, color/PBR, atlas-mapping, pacing, compression, ESP,
   and timing algorithms.
 - [x] Implement typed commands and immutable revisioned snapshots.
@@ -180,8 +180,8 @@ Evidence:
 ## Phase 8 — Paint
 
 - [ ] Implement typed game-thread capture and exact runtime contracts.
-- [ ] Validate round, cube, and fukuyoka profiles.
-- [ ] Implement immutable planning for Paint/Fill/Skip, lighting, Auto Material,
+- [x] Validate round, cube, and fukuyoka profiles.
+- [x] Implement immutable planning for Paint/Fill/Skip, lighting, Auto Material,
   PBR, compression, and Fill-first ordering.
 - [ ] Implement exact preview capture/apply/restore ownership.
 - [ ] Dispatch only through game-owned `PaintAtUVWithBrush`.
