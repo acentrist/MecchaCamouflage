@@ -108,13 +108,16 @@ After approval, it must:
 
 1. recursively initialize the exact nested graph;
 2. configure `Game__Shipping__Win64` once;
-3. build `UE4SS`, `meccha_mod`, and the build-identity test together;
+3. build `UE4SS`, its `proxy`, `meccha_mod`, and every project contract
+   together without selecting unrelated UE4SS tools or bundled mods;
 4. run `tools/v2/verify-full-build.ps1`;
 5. prove x64 PE format, only `start_mod`/`uninstall_mod` exports, a direct
    `UE4SS.dll` import, matching proxy/mod/runtime dynamic MSVC runtime, clean
    gitlink, and the exact pinned commit;
-6. run all registered contracts;
-7. upload only the provenance report, not a distributable runtime.
+6. collect the closed production CMake target graph, exact git revisions and
+   tracked diffs, and target-filtered locked Cargo package/checksum/features;
+7. run all registered contracts;
+8. upload only provenance and dependency evidence, not a distributable runtime.
 
 ## Open exit evidence
 

@@ -63,6 +63,12 @@ Evidence:
 - [x] Pin `third_party/RE-UE4SS` to
   `6c26f038751b3d96059d4a9148f5d093012d55ad`.
 - [ ] Record the exact recursive source graph and licenses.
+  - [x] Collect the closed production CMake target graph through File API
+    codemodel v2, collapse its actual git roots with tracked-diff identities,
+    and add the target-filtered locked Cargo resolve closure with registry
+    checksum and feature identities.
+  - [ ] Run the collector on the protected recursive graph and approve every
+    corresponding license file.
 - [x] Add secret-free fork CI with `MECCHA_WITH_UE4SS=OFF`.
   - [x] Run the complete Linux graph under AddressSanitizer and
     UndefinedBehaviorSanitizer in addition to the Windows MSVC Release graph.
@@ -435,7 +441,9 @@ Evidence:
   - [x] Implement evidence-bound third-party notice assembly that requires an
     exact separately approved component/license/hash audit and refuses missing,
     extra, changed, empty, linked, or reparse-routed license inputs.
-  - [ ] Collect and approve the complete protected CMake/Cargo dependency
+  - [x] Wire deterministic CMake/git/Cargo evidence collection into the
+    protected full-build workflow.
+  - [ ] Run that protected collector and approve the complete dependency
     evidence and corresponding license-file hashes.
   - [ ] Bind the final trusted CAB, manifest, profiles, localization, fonts,
     icon, licenses, and notices into the release EXE.

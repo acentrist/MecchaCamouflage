@@ -201,6 +201,10 @@ publication after validation failure.
 deterministic notice/report output, required hashed license files, refusal of
 missing/extra/changed components, and direct/parent link or reparse rejection.
 
+`dependency_evidence_tool` proves closed CMake root-target traversal, actual
+git-root and tracked-diff binding, Cargo resolve/lock/package-checksum identity,
+canonical output, and missing-target/configuration/checksum refusal.
+
 ## Exact release artifact verifier
 
 `tools/v2/verify_release_artifact.py` is a dependency-free bounded parser for
@@ -247,11 +251,25 @@ the verified SHA-256 regardless of signing state.
 
 ## Evidence-bound dependency notices
 
-`tools/v2/build_dependency_notices.py` consumes two distinct protected inputs:
-canonical dependency evidence from the resolved build and a separately
-approved audit. The approved audit must repeat every evidence component
-exactly and bind each component's version, source identity, license expression,
-and one or more project/build/Cargo license paths by SHA-256.
+`tools/v2/collect_dependency_evidence.py` reads the official CMake File API
+codemodel-v2 reply and traverses the exact dependency closure of `meccha_mod`,
+`proxy`, and `UE4SS`. It records canonical target/source/dependency identities,
+collapses source directories to their real git roots, and binds each revision
+plus the SHA-256 of any tracked source diff, including the accepted upstream
+fmt patch.
+
+It also traverses the target-filtered `patternsleuth_bind` Cargo resolve graph.
+Path/git packages are bound to their source repositories and resolved feature
+sets. Registry packages must match both `Cargo.lock` and Cargo's
+`.cargo-checksum.json`; their resolved features are included as well. Missing
+targets/packages, an open dependency edge, root escape, malformed metadata, or
+linked/reparse-routed input fails collection.
+
+`tools/v2/build_dependency_notices.py` then consumes two distinct protected
+inputs: that canonical evidence and a separately approved audit. The approved
+audit must repeat every evidence component exactly and bind each component's
+version, source identity, license expression, and one or more
+project/build/Cargo license paths by SHA-256.
 
 Notice assembly fails before publication for missing or extra components,
 changed identities, absent license evidence, malformed or non-canonical paths,

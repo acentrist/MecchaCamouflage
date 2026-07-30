@@ -101,3 +101,10 @@ on targets that do not link UE4SS.
 future report. It requires the resolved evidence and a separate approved
 component/license/hash audit to match exactly; it does not treat this public
 dependency summary as approval or as a complete packaging inventory.
+
+`tools/v2/collect_dependency_evidence.py` produces the machine side of that
+boundary from the closed production-target CMake File API codemodel, actual git
+roots and tracked diffs, and the target-filtered Cargo resolve closure. Registry
+packages are bound to both `Cargo.lock` and Cargo's package checksum evidence;
+resolved feature sets are part of each source identity. The protected workflow
+uploads this evidence for separate license review.

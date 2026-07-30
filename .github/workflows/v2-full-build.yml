@@ -57,15 +57,50 @@ jobs:
           -BuildRoot .build\v2\full-windows
           -ReportPath .build\v2\full-windows\phase2-provenance.json
 
+      - name: Collect resolved dependency evidence
+        shell: powershell
+        run: |
+          $CargoRoot = if ($env:CARGO_HOME) {
+            $env:CARGO_HOME
+          } else {
+            Join-Path $env:USERPROFILE ".cargo"
+          }
+          $Metadata = ".build\v2\full-windows\patternsleuth-cargo-metadata.json"
+          cargo metadata `
+            --locked `
+            --offline `
+            --filter-platform x86_64-pc-windows-msvc `
+            --format-version 1 `
+            --manifest-path third_party\RE-UE4SS\deps\first\patternsleuth_bind\Cargo.toml |
+            Set-Content -LiteralPath $Metadata -Encoding utf8NoBOM
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools\v2\collect_dependency_evidence.py `
+            --project-root . `
+            --build-root .build\v2\full-windows `
+            --cargo-root $CargoRoot `
+            --reply-directory .build\v2\full-windows\.cmake\api\v1\reply `
+            --configuration Game__Shipping__Win64 `
+            --root-target meccha_mod `
+            --root-target proxy `
+            --root-target UE4SS `
+            --cargo-metadata $Metadata `
+            --cargo-lock third_party\RE-UE4SS\deps\first\patternsleuth_bind\Cargo.lock `
+            --cargo-root-package patternsleuth_bind `
+            --ue4ss-commit 6c26f038751b3d96059d4a9148f5d093012d55ad `
+            --output .build\v2\full-windows\dependency-evidence.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Test project contracts
         shell: powershell
         run: >
           ctest --test-dir .build/v2/full-windows
           --output-on-failure
 
-      - name: Upload provenance report
+      - name: Upload protected build evidence
         uses: actions/upload-artifact@v4
         with:
           name: v2-phase2-provenance
-          path: .build/v2/full-windows/phase2-provenance.json
+          path: |
+            .build/v2/full-windows/phase2-provenance.json
+            .build/v2/full-windows/dependency-evidence.json
           if-no-files-found: error

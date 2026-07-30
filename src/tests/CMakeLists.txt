@@ -923,8 +923,26 @@ add_test(
         "${PROJECT_SOURCE_DIR}/tools/v2/test_build_dependency_notices.py"
 )
 add_test(
+    NAME dependency_evidence_tool
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tools/v2/test_collect_dependency_evidence.py"
+)
+add_test(
     NAME payload_cab_tool
     COMMAND
         "${Python3_EXECUTABLE}"
         "${PROJECT_SOURCE_DIR}/tools/v2/test_build_payload_cab.py"
+)
+
+# The trusted full-build preset must build every project contract without
+# selecting UE4SS's unrelated research tools or bundled mods.
+get_property(
+    MECCHA_CONTRACT_TARGETS
+    DIRECTORY
+    PROPERTY BUILDSYSTEM_TARGETS
+)
+add_custom_target(
+    meccha_contract_tests
+    DEPENDS ${MECCHA_CONTRACT_TARGETS}
 )

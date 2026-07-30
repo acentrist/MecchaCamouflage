@@ -79,6 +79,17 @@ class DependencyNoticeTests(unittest.TestCase):
         evidence = {
             "schema_version": 1,
             "ue4ss_commit": UE4SS_COMMIT,
+            "configuration": "Game__Shipping__Win64",
+            "root_targets": ["release-root@project:src"],
+            "target_graph": [
+                {
+                    "key": "release-root@project:src",
+                    "name": "release-root",
+                    "type": "SHARED_LIBRARY",
+                    "source": "project:src",
+                    "dependencies": [],
+                }
+            ],
             "components": components,
         }
         evidence_bytes = canonical_json(evidence)

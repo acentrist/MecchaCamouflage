@@ -7,6 +7,11 @@ project(
     LANGUAGES CXX
 )
 
+# The protected dependency-evidence gate consumes the resolved target closure
+# from the official CMake File API. Requesting it here keeps all configure
+# presets on the same codemodel-v2 contract.
+cmake_file_api(QUERY API_VERSION 1 CODEMODEL 2)
+
 if(WIN32)
     enable_language(RC)
 endif()

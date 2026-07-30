@@ -59,8 +59,9 @@
       "configurePreset": "full-windows",
       "targets": [
         "UE4SS",
+        "proxy",
         "meccha_mod",
-        "meccha_build_identity_test"
+        "meccha_contract_tests"
       ]
     }
   ],

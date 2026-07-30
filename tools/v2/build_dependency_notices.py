@@ -232,22 +232,94 @@ def _validate_evidence(
     if list(evidence) != [
         "schema_version",
         "ue4ss_commit",
+        "configuration",
+        "root_targets",
+        "target_graph",
         "components",
     ]:
         raise DependencyNoticeError(
             "Dependency evidence keys or canonical order are invalid."
         )
     components = evidence.get("components")
+    root_targets = evidence.get("root_targets")
+    target_graph = evidence.get("target_graph")
     if (
         type(evidence.get("schema_version")) is not int
         or evidence["schema_version"] != 1
         or evidence.get("ue4ss_commit") != ue4ss_commit
+        or evidence.get("configuration") != "Game__Shipping__Win64"
+        or not isinstance(root_targets, list)
+        or not root_targets
+        or not isinstance(target_graph, list)
+        or not target_graph
+        or len(target_graph) > 4096
         or not isinstance(components, list)
         or not components
         or len(components) > _MAXIMUM_COMPONENTS
     ):
         raise DependencyNoticeError(
             "Dependency evidence schema or identity is invalid."
+        )
+    validated_target_keys: list[str] = []
+    target_key_set: set[str] = set()
+    for target in target_graph:
+        if (
+            not isinstance(target, dict)
+            or list(target)
+            != ["key", "name", "type", "source", "dependencies"]
+            or not isinstance(target.get("dependencies"), list)
+        ):
+            raise DependencyNoticeError(
+                "Dependency evidence target graph is invalid."
+            )
+        key = _bounded_ascii(
+            target["key"],
+            "target key",
+            maximum=1024,
+        )
+        _bounded_ascii(target["name"], "target name", maximum=256)
+        _bounded_ascii(target["type"], "target type", maximum=64)
+        _bounded_ascii(target["source"], "target source", maximum=1024)
+        dependencies = [
+            _bounded_ascii(
+                dependency,
+                "target dependency",
+                maximum=1024,
+            )
+            for dependency in target["dependencies"]
+        ]
+        if (
+            dependencies != sorted(set(dependencies), key=str.lower)
+            or key in target_key_set
+            or (
+                validated_target_keys
+                and key.lower() < validated_target_keys[-1].lower()
+            )
+        ):
+            raise DependencyNoticeError(
+                "Dependency evidence target graph is not canonical."
+            )
+        validated_target_keys.append(key)
+        target_key_set.add(key)
+    if any(
+        dependency not in target_key_set
+        for target in target_graph
+        for dependency in target["dependencies"]
+    ):
+        raise DependencyNoticeError(
+            "Dependency evidence target graph is not closed."
+        )
+    if (
+        root_targets
+        != sorted(set(root_targets), key=str.lower)
+        or any(
+            not isinstance(target, str)
+            or target not in target_key_set
+            for target in root_targets
+        )
+    ):
+        raise DependencyNoticeError(
+            "Dependency evidence root targets are invalid."
         )
     validated: list[dict[str, str]] = []
     seen: set[str] = set()
