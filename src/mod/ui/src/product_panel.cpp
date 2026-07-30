@@ -62,6 +62,42 @@ auto valid_label(std::string_view label) -> bool
            core::valid_utf8(label);
 }
 
+auto valid_project_name(
+    std::string_view name,
+    bool allow_empty = false) -> bool
+{
+    return (allow_empty || !name.empty()) &&
+           name.size() <=
+               application::MaximumProductUiProjectNameBytes &&
+           core::valid_utf8(name) &&
+           std::ranges::none_of(
+               name,
+               [](unsigned char character)
+               {
+                   return character < 0x20U ||
+                          character == 0x7FU;
+               });
+}
+
+auto valid_project_name_state(
+    const ui::TextEditState& state,
+    bool allow_idle_empty) -> bool
+{
+    const auto cursor_boundary =
+        state.cursor_byte <= state.value.size() &&
+        (state.cursor_byte == state.value.size() ||
+         (static_cast<unsigned char>(
+              state.value[state.cursor_byte]) &
+          0xC0U) != 0x80U);
+    return valid_project_name(
+               state.value,
+               state.editing || allow_idle_empty) &&
+           cursor_boundary &&
+           (state.editing
+                ? valid_project_name(state.original)
+                : state.original.empty());
+}
+
 auto labels_valid(const ProductPanelLabels& labels) -> bool
 {
     return std::ranges::all_of(
@@ -73,6 +109,7 @@ auto labels_valid(const ProductPanelLabels& labels) -> bool
            valid_label(labels.cancel) &&
            valid_label(labels.language) &&
            valid_label(labels.theme_color) &&
+           valid_label(labels.image_project_save) &&
            valid_label(labels.image_wrap) &&
            valid_label(labels.image_mirror) &&
            valid_label(labels.image_crop) &&
@@ -290,6 +327,9 @@ auto model_valid(const application::ProductUiModel& model) -> bool
         model.image_paint.document
             ? core::valid_image_project_id(
                   model.image_paint.document->project_id) &&
+                  valid_project_name(
+                      model.image_paint.document
+                          ->display_name) &&
                   model.image_paint.document->revision != 0U &&
                   model.image_paint.document->settings ==
                       model.image_paint.settings &&
@@ -328,6 +368,9 @@ auto state_valid(const ProductPanelState& state) -> bool
              state.image_editor.project_id) &&
          state.image_editor.project_revision != 0U);
     return section_valid && editor_identity_valid &&
+           valid_project_name_state(
+               state.image_editor.project_name,
+               state.image_editor.project_id.empty()) &&
            (!state.image_editor.draft ||
             core::validate(
                 state.image_editor.draft->layer)
@@ -561,6 +604,7 @@ auto build_product_panel_labels(
         std::string{catalog.text(locale, "button.stop")},
         std::string{catalog.text(locale, "language")},
         std::string{catalog.text(locale, "theme.color")},
+        std::string{catalog.text(locale, "button.save.preset")},
         std::string{catalog.text(locale, "image.action.wrap")},
         std::string{catalog.text(locale, "image.action.mirror")},
         std::string{catalog.text(locale, "image.action.crop")},

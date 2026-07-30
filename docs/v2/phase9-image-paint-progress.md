@@ -43,6 +43,15 @@ bytes. Session, action-router, and panel tests cover stale/wrong identity
 refusal, revision publication, orphan-source cleanup, and the non-empty
 project invariant.
 
+Current-project persistence controls now reach the same owner through a
+separate portable Canvas toolbar. The name field emits only a valid changed
+`UiRenameCurrentImageProject`; Save emits
+`UiSaveCurrentImageProject`; and Delete requires a second activation before
+emitting `UiDeleteCurrentImageProject`, with keyboard cancellation between
+them. The router, not the UI, binds project identity and revision from the
+immutable snapshot. Native picker-driven import/load remains outside this
+milestone.
+
 The portable renderer displays the ready canonical atlas as one texture,
 validates an optional guide against its overlay schema and the complete frozen
 round/cube/fukuyoka ImageReference identity, and submits that guide as a

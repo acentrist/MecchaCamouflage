@@ -415,7 +415,11 @@ Evidence:
     the application command variant and composition root.
   - [x] Connect persisted startup recovery to the root initialization boundary
     before UE4SS callback registration.
-  - [ ] Connect native picker/import and complete UCanvas project controls.
+  - [x] Connect current-project Save/Rename/Delete to the portable UCanvas
+    toolbar with typed actions, bounded name editing, and explicit delete
+    confirmation.
+  - [ ] Connect native picker/import/load and the remaining UCanvas project
+    controls.
 - [ ] Pass decoder, layer, guide, atlas, mapping, preset, fake-runtime, and
   resource-limit tests.
   - [x] Pass portable editor gesture/crop/order and guide overlay isolation/
@@ -485,6 +489,9 @@ Evidence:
     compatibility state, command/runtime queue pressure, omitted-entry counts,
     ordered severity-colored diagnostics, command IDs, and exact
     contract/failure identifiers.
+  - [x] Compose a separate Image Paint project toolbar with a bounded UTF-8
+    display-name editor, named-project Save, and two-step current-project
+    Delete with keyboard cancellation and exact availability gating.
   - [ ] Render and interact with every complete section through the production
     UCanvas adapter.
 - [ ] Bind UI only to typed commands and immutable snapshots.
@@ -505,6 +512,9 @@ Evidence:
   - [x] Route every portable Image Paint setting through a project-owned
     `ReplaceImageProjectSettingsMutation` copied from the exact immutable
     document rather than changing application defaults or runtime objects.
+  - [x] Route current-project Save, Rename, and confirmed Delete through their
+    existing snapshot-bound typed product actions without exposing project
+    identity or persistence objects to the Canvas layer.
   - [ ] Connect every production Canvas widget/editor activation to that
     product-action boundary and enqueue its typed result.
 - [ ] Complete all editor interactions and body-guide behavior.
@@ -583,6 +593,9 @@ Evidence:
   - [x] Prove selected-layer removal routing, project/revision/index/asset
     guards, orphan-source cleanup, revision publication, and final-layer
     refusal across the session, action router, and product panel.
+  - [x] Prove bounded current-project name editing, empty-name refusal,
+    snapshot-bound Save/Rename, two-step Delete, keyboard cancellation,
+    invalid snapshot-name refusal, and unavailable-control suppression.
 - [ ] DEFERRED — maintainer interaction required: complete the full in-game UI
   walkthrough across languages/resolutions/DPI.
 

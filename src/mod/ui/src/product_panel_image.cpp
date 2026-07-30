@@ -1,4 +1,5 @@
 #include "product_panel_image.hpp"
+#include "product_panel_image_project.hpp"
 
 #include <meccha/core/config.hpp>
 
@@ -476,6 +477,11 @@ auto compose_image_settings_section(
     const auto row_height = 44.0 * layout.effective_scale;
     const auto toolbar_gap = 8.0 * layout.effective_scale;
     const auto toolbar_height = 34.0 * layout.effective_scale;
+    const auto project_inset =
+        model.image_paint.document
+            ? image_project_toolbar_inset(
+                  layout.effective_scale)
+            : 0.0;
     const auto atlas_width = model.image_paint.document
                                  ? std::min(
                                        viewport.width,
@@ -484,7 +490,8 @@ auto compose_image_settings_section(
                                  : 0.0;
     const auto atlas_height = atlas_width * 0.5;
     const auto editor_inset = model.image_paint.document
-                                  ? atlas_height + toolbar_gap +
+                                  ? project_inset + atlas_height +
+                                        toolbar_gap +
                                         toolbar_height +
                                         toolbar_gap
                                   : 0.0;
@@ -513,7 +520,7 @@ auto compose_image_settings_section(
 
     const auto atlas_rect = ui::CanvasRect{
         viewport.x + (viewport.width - atlas_width) * 0.5,
-        scroll->content_origin_y,
+        scroll->content_origin_y + project_inset,
         atlas_width,
         atlas_height,
     };
@@ -527,10 +534,27 @@ auto compose_image_settings_section(
             state.image_editor.project_revision !=
                 document.revision)
         {
-            state.image_editor = ImageEditorPanelState{
-                document.project_id,
-                document.revision,
-            };
+            state.image_editor = {};
+            state.image_editor.project_id =
+                document.project_id;
+            state.image_editor.project_revision =
+                document.revision;
+            state.image_editor.project_name.value =
+                document.display_name;
+            state.image_editor.project_name.cursor_byte =
+                document.display_name.size();
+        }
+        else if (
+            !state.image_editor.project_name.editing &&
+            !state.image_editor.awaiting_revision &&
+            state.image_editor.project_name.value !=
+                document.display_name)
+        {
+            state.image_editor.project_name.value =
+                document.display_name;
+            state.image_editor.project_name.original.clear();
+            state.image_editor.project_name.cursor_byte =
+                document.display_name.size();
         }
         if (state.image_editor.draft)
         {
@@ -593,6 +617,22 @@ auto compose_image_settings_section(
             state.image_editor.crop_dragging = false;
             crop_source = nullptr;
             working_layers = document.layers;
+        }
+
+        const auto project_controls =
+            compose_image_project_toolbar(
+                widgets,
+                viewport,
+                scroll->content_origin_y,
+                layout.effective_scale,
+                model,
+                labels,
+                input,
+                state,
+                action);
+        if (!project_controls)
+        {
+            return project_controls;
         }
 
         if (input.image_editor &&

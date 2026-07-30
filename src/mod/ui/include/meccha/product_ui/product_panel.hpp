@@ -33,6 +33,7 @@ struct ProductPanelLabels
     std::string cancel{};
     std::string language{};
     std::string theme_color{};
+    std::string image_project_save{};
     std::string image_wrap{};
     std::string image_mirror{};
     std::string image_crop{};
@@ -66,6 +67,8 @@ struct ImageEditorPanelState
 {
     std::string project_id{};
     std::uint64_t project_revision{};
+    ui::TextEditState project_name{};
+    bool project_delete_armed{};
     ui::ImageEditorInteractionState interaction{};
     std::optional<ui::ImageLayerEdit> draft{};
     std::optional<ui::ImageCropSession> crop{};
@@ -114,6 +117,7 @@ struct ProductPanelInput
     ui::CanvasInsets safe_area{};
     ui::PointerFrame pointer{};
     ui::KeyboardNavigationFrame keyboard{};
+    std::vector<ui::TextEditEvent> text_edit_events{};
     std::optional<ImageEditorFrameAssets> image_editor{};
 
     auto operator==(const ProductPanelInput&) const -> bool = default;

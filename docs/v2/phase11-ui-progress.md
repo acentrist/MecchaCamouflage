@@ -288,6 +288,32 @@ drawing, the four-edge crop indicator, zoom, press/move/release, scroll
 exclusion, isolated Apply, both cancellation paths, missing-source refusal,
 and malformed-source rejection.
 
+## Portable Image Paint project controls
+
+The Image Paint editor now owns a separate project toolbar rather than mixing
+persistence controls into layer manipulation. Its single-line project-name
+field accepts bounded UTF-8 text events and publishes
+`UiRenameCurrentImageProject` only after a valid changed value is committed.
+Empty, control-character, malformed, or oversized names never cross the
+product-action boundary. The toolbar's localized Save control publishes
+`UiSaveCurrentImageProject`, while Delete requires two distinct activations;
+the first arms a visible selected state and the second publishes
+`UiDeleteCurrentImageProject`. Keyboard cancel disarms deletion without an
+action.
+
+All three operations are enabled solely from the immutable
+`ImageProjectActionAvailability` snapshot. The Canvas layer does not supply a
+project ID or revision: the application router binds those identities from the
+same snapshot used to compose the frame. Project/revision replacement and
+panel close discard the local name/delete state. The toolbar is implemented in
+its own composition unit so project persistence UX does not enlarge the layer
+gesture/crop owner.
+
+Portable tests cover UTF-8 name-field activation and commit, empty-name
+refusal, snapshot revision binding, Save, two-step Delete, keyboard
+cancellation, unavailable operations, invalid snapshot names, and the shifted
+atlas/settings scroll geometry.
+
 ## Complete portable Diagnostics section
 
 The Diagnostics tab now consumes only the bounded immutable
@@ -307,13 +333,13 @@ Portable tests cover localized messages, command IDs, Canvas/missing-function
 details, omitted counts, the empty state, compact scrolling, and incoherent
 queue refusal.
 
-This remains a partial product UI milestone. The Image Paint atlas interaction
-import and project file operations, direct hotkey capture UX, localized
-progress/ETA formatting, and the production UCanvas adapter remain open.
+This remains a partial product UI milestone. Native picker-driven Image Paint
+import/load, direct hotkey capture UX, localized progress/ETA formatting, and
+the production UCanvas adapter remain open.
 
 ## Remaining work
 
-- Compose Image Paint import/project operations.
+- Compose native picker-driven Image Paint import/load operations.
 - Connect the remaining Image Paint operations to the implemented typed
   product-action router without direct runtime mutation.
 - Enqueue the returned product action through the production callback boundary.

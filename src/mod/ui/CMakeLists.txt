@@ -34,6 +34,7 @@ add_library(
         src/product_panel_diagnostics.cpp
         src/product_panel_esp.cpp
         src/product_panel_image.cpp
+        src/product_panel_image_project.cpp
         src/product_panel_paint.cpp
         src/product_panel_settings.cpp
 )

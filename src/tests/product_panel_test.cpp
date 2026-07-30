@@ -9,6 +9,7 @@
 #include <string>
 #include <string_view>
 #include <variant>
+#include <vector>
 
 namespace
 {
@@ -100,7 +101,14 @@ auto ready_model() -> meccha::application::ProductUiModel
     };
     model.image_paint.settings =
         model.image_paint.document->settings;
-    model.image_paint.project.edit = true;
+    model.image_paint.project = {
+        true,
+        true,
+        true,
+        true,
+        true,
+        false,
+    };
     model.image_paint.pipeline = ImageEditorPipelineSnapshot{
         ImageEditorPipelinePhase::Ready,
         JobGeneration{3U},
@@ -242,6 +250,261 @@ auto main(int argc, char** argv) -> int
         return 1;
     }
 
+    constexpr auto ProjectToolbarHeight = 38.0;
+    constexpr auto ProjectToolbarGap = 6.0;
+    const auto project_toolbar = ui::CanvasRect{
+        image_tab->layout->content.x,
+        image_tab->layout->content.y + 46.0,
+        image_tab->layout->content.width,
+        ProjectToolbarHeight,
+    };
+    const auto project_name_width =
+        project_toolbar.width * 0.56;
+    const auto project_button_width =
+        (project_toolbar.width - project_name_width -
+         2.0 * ProjectToolbarGap) /
+        2.0;
+    const auto project_name_rect = ui::CanvasRect{
+        project_toolbar.x,
+        project_toolbar.y,
+        project_name_width,
+        project_toolbar.height,
+    };
+    const auto project_save_rect = ui::CanvasRect{
+        project_name_rect.x + project_name_rect.width +
+            ProjectToolbarGap,
+        project_toolbar.y,
+        project_button_width,
+        project_toolbar.height,
+    };
+    const auto project_remove_rect = ui::CanvasRect{
+        project_save_rect.x + project_save_rect.width +
+            ProjectToolbarGap,
+        project_toolbar.y,
+        project_button_width,
+        project_toolbar.height,
+    };
+
+    auto rename_begin_input = default_input();
+    rename_begin_input.pointer = ui::PointerFrame{
+        center(project_name_rect),
+        true,
+        false,
+        true,
+        0.0,
+    };
+    const auto rename_begin = compose_product_panel(
+        model,
+        image_tab->state,
+        rename_begin_input,
+        english);
+    passed &= expect(
+        rename_begin &&
+            rename_begin->state.image_editor.project_name
+                .editing &&
+            rename_begin->state.image_editor.project_name.value ==
+                "Current project" &&
+            !rename_begin->action,
+        "Image Paint project name did not enter local text editing");
+    if (!rename_begin)
+    {
+        return 1;
+    }
+
+    auto rename_input = default_input();
+    rename_input.text_edit_events.push_back(
+        ui::TextEditEvent{
+            ui::TextEditEventKind::MoveHome,
+            {},
+        });
+    for (auto index = std::size_t{}; index < 15U; ++index)
+    {
+        rename_input.text_edit_events.push_back(
+            ui::TextEditEvent{
+                ui::TextEditEventKind::DeleteForward,
+                {},
+            });
+    }
+    rename_input.text_edit_events.push_back(
+        ui::TextEditEvent{
+            ui::TextEditEventKind::Insert,
+            "Renamed project",
+        });
+    rename_input.text_edit_events.push_back(
+        ui::TextEditEvent{
+            ui::TextEditEventKind::Commit,
+            {},
+        });
+    const auto rename = compose_product_panel(
+        model,
+        rename_begin->state,
+        rename_input,
+        english);
+    const auto* rename_action =
+        rename && rename->action
+            ? std::get_if<UiRenameCurrentImageProject>(
+                  &rename->action->action)
+            : nullptr;
+    passed &= expect(
+        rename_action &&
+            rename_action->new_name == "Renamed project" &&
+            rename->action->expected_snapshot_revision == 42U &&
+            !rename->state.image_editor.project_name.editing,
+        "Image Paint project rename did not publish one revision-bound action");
+
+    auto blank_rename_input = default_input();
+    blank_rename_input.text_edit_events.push_back(
+        ui::TextEditEvent{
+            ui::TextEditEventKind::MoveHome,
+            {},
+        });
+    for (auto index = std::size_t{}; index < 15U; ++index)
+    {
+        blank_rename_input.text_edit_events.push_back(
+            ui::TextEditEvent{
+                ui::TextEditEventKind::DeleteForward,
+                {},
+            });
+    }
+    blank_rename_input.text_edit_events.push_back(
+        ui::TextEditEvent{
+            ui::TextEditEventKind::Commit,
+            {},
+        });
+    const auto blank_rename = compose_product_panel(
+        model,
+        rename_begin->state,
+        blank_rename_input,
+        english);
+    passed &= expect(
+        blank_rename && !blank_rename->action &&
+            !blank_rename->state.image_editor.project_name
+                 .editing &&
+            blank_rename->state.image_editor.project_name.value ==
+                "Current project",
+        "Image Paint project rename admitted an empty name");
+
+    auto save_input = default_input();
+    save_input.pointer = ui::PointerFrame{
+        center(project_save_rect),
+        true,
+        false,
+        true,
+        0.0,
+    };
+    const auto save = compose_product_panel(
+        model,
+        image_tab->state,
+        save_input,
+        english);
+    passed &= expect(
+        save && save->action &&
+            std::holds_alternative<UiSaveCurrentImageProject>(
+                save->action->action) &&
+            save->action->expected_snapshot_revision == 42U,
+        "Image Paint project Save did not publish one typed action");
+
+    auto remove_input = default_input();
+    remove_input.pointer = ui::PointerFrame{
+        center(project_remove_rect),
+        true,
+        false,
+        true,
+        0.0,
+    };
+    const auto remove_armed = compose_product_panel(
+        model,
+        image_tab->state,
+        remove_input,
+        english);
+    passed &= expect(
+        remove_armed &&
+            remove_armed->state.image_editor
+                .project_delete_armed &&
+            !remove_armed->action,
+        "Image Paint project removal did not require confirmation");
+    if (!remove_armed)
+    {
+        return 1;
+    }
+
+    auto remove_cancel_input = default_input();
+    remove_cancel_input.keyboard.cancel_pressed = true;
+    const auto remove_cancelled = compose_product_panel(
+        model,
+        remove_armed->state,
+        remove_cancel_input,
+        english);
+    passed &= expect(
+        remove_cancelled &&
+            !remove_cancelled->state.image_editor
+                 .project_delete_armed &&
+            !remove_cancelled->action,
+        "Image Paint project removal confirmation ignored cancel");
+
+    const auto remove_confirmed = compose_product_panel(
+        model,
+        remove_armed->state,
+        remove_input,
+        english);
+    passed &= expect(
+        remove_confirmed && remove_confirmed->action &&
+            std::holds_alternative<UiDeleteCurrentImageProject>(
+                remove_confirmed->action->action) &&
+            !remove_confirmed->state.image_editor
+                 .project_delete_armed &&
+            remove_confirmed->action
+                    ->expected_snapshot_revision ==
+                42U,
+        "Image Paint project removal did not publish one confirmed action");
+
+    auto unavailable_project = model;
+    unavailable_project.image_paint.project.save = false;
+    unavailable_project.image_paint.project.rename = false;
+    unavailable_project.image_paint.project.remove = false;
+    const auto unavailable_save = compose_product_panel(
+        unavailable_project,
+        image_tab->state,
+        save_input,
+        english);
+    const auto unavailable_remove = compose_product_panel(
+        unavailable_project,
+        image_tab->state,
+        remove_input,
+        english);
+    const auto unavailable_rename = compose_product_panel(
+        unavailable_project,
+        image_tab->state,
+        rename_begin_input,
+        english);
+    passed &= expect(
+        unavailable_save && !unavailable_save->action &&
+            unavailable_remove && !unavailable_remove->action &&
+            !unavailable_remove->state.image_editor
+                 .project_delete_armed &&
+            unavailable_rename && !unavailable_rename->action &&
+            !unavailable_rename->state.image_editor
+                 .project_name.editing,
+        "unavailable Image Paint project controls emitted an action");
+
+    auto invalid_project_name = model;
+    invalid_project_name.image_paint.document->display_name.clear();
+    const auto invalid_project_name_panel =
+        compose_product_panel(
+            invalid_project_name,
+            image_tab->state,
+            default_input(),
+            english);
+    passed &= expect(
+        !invalid_project_name_panel &&
+            std::holds_alternative<
+                ProductPanelValidationError>(
+                invalid_project_name_panel.error()) &&
+            std::get<ProductPanelValidationError>(
+                invalid_project_name_panel.error()) ==
+                ProductPanelValidationError::InvalidModel,
+        "an invalid project name entered the Canvas presentation");
+
     auto atlas_input = default_input();
     atlas_input.image_editor = ImageEditorFrameAssets{
         model.image_paint.document->project_id,
@@ -292,7 +555,7 @@ auto main(int argc, char** argv) -> int
         image_tab->layout->content.x +
             (image_tab->layout->content.width - atlas_width) *
                 0.5,
-        image_tab->layout->content.y + 46.0,
+        image_tab->layout->content.y + 92.0,
         atlas_width,
         atlas_width * 0.5,
     };
@@ -1034,7 +1297,7 @@ auto main(int argc, char** argv) -> int
             image_tab->layout->content.width,
             600.0 * image_tab->layout->effective_scale) *
             0.5 +
-        50.0 * image_tab->layout->effective_scale;
+        96.0 * image_tab->layout->effective_scale;
     image_settings_input.pointer = ui::PointerFrame{
         {
             image_tab->layout->content.x +
