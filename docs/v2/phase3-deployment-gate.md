@@ -151,6 +151,13 @@ payload, so Phase 3 remains open.
   current/installed ledger union. Unknown content aborts the whole operation;
   a successful removal then prunes only the now-empty Meccha-owned directory
   tree and leaves shared parent directories intact.
+- The portable execution coordinator rejects malformed or mixed-mode plans
+  before calling an effect. Managed preparation validates/publishes the
+  runtime before the normal or elevated loader operation; shared preparation
+  invokes only the shared-mod operation. Steam is always last and is omitted
+  for prepare-only. Managed removal deactivates the loader before deleting the
+  runtime cache, while shared removal cannot reach either managed operation.
+  Every effect failure terminates the sequence immediately.
 
 ## Automated evidence
 
@@ -190,6 +197,10 @@ junction fixture.
 The portable ledger suite additionally proves canonical ordering, strict
 round trips, duplicate rejection, per-file ownership retention, and old/new
 transition union semantics.
+The portable execution suite proves managed/shared isolation, prepare-only,
+minimal elevated-loader routing, effect ordering, plan rejection, idempotent
+empty removal, and the absence of later mutations or Steam launch after a
+failed effect.
 
 Covered Windows directory cases:
 
@@ -218,8 +229,8 @@ without adding a test-only branch to production coordination.
 - Connect active Steam-user `localconfig.vdf` lookup to launcher orchestration.
 - Connect the native folder-picker fallback to the validated explicit-directory
   path.
-- Connect the validated preparation/removal plans to native side-effect
-  orchestration.
+- Bind the validated portable execution coordinator to the concrete Win32
+  observations, runtime transaction, managed/shared adapters, and Steam launch.
 - Validate Unicode and ANSI-round-trip behavior of the pinned proxy's
   narrow-string `override.txt` reader. Use a verified short path when
   available and fail closed if the stable runtime path cannot be represented;

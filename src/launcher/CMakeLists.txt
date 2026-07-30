@@ -1,6 +1,7 @@
 add_library(
     meccha_launcher_core
     STATIC
+        src/execution.cpp
         src/game_discovery.cpp
         src/hash.cpp
         src/loader.cpp

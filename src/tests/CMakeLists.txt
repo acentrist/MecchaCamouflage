@@ -161,6 +161,21 @@ add_test(
     COMMAND meccha_shared_mod_ledger_tests
 )
 
+add_executable(
+    meccha_launcher_execution_tests
+    launcher_execution_test.cpp
+)
+target_link_libraries(
+    meccha_launcher_execution_tests
+    PRIVATE
+        MecchaCamouflage::LauncherCore
+        meccha_build_options
+)
+add_test(
+    NAME launcher_execution
+    COMMAND meccha_launcher_execution_tests
+)
+
 if(WIN32)
     add_executable(
         meccha_managed_loader_tests
