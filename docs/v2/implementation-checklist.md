@@ -452,7 +452,17 @@ Evidence:
 ## Phase 11 — Full product UI and integration
 
 - [ ] Complete Paint, Image Paint, ESP, Settings, and Diagnostics sections.
+  - [x] Define a bounded application-owned five-section presentation model
+    containing exact current settings, editor/project readiness, feature and
+    project action availability, ESP state, progress, queue utilization,
+    compatibility, and newest bounded diagnostics.
+  - [ ] Render and interact with every complete section through the production
+    UCanvas adapter.
 - [ ] Bind UI only to typed commands and immutable snapshots.
+  - [x] Build presentation state solely from a validated immutable
+    `ApplicationSnapshot`, without Unreal, graphics, or mutable runtime access.
+  - [ ] Route every Canvas interaction through the shared typed command
+    boundary.
 - [ ] Complete all editor interactions and body-guide behavior.
 - [ ] Complete F9 and configurable F1–F8 hotkey behavior.
   - [x] Implement a bounded application-owned F1–F24 command router with the
@@ -462,8 +472,12 @@ Evidence:
   - [ ] Register all supported keys once and connect the production UE4SS input
     callbacks to the router.
 - [ ] Complete progress, backpressure, compatibility, and diagnostics display.
+  - [x] Publish validated progress fractions, queue pressure/utilization,
+    compatibility state, and newest bounded ordered diagnostics as portable
+    presentation values.
+  - [ ] Draw and localize those values through the production Canvas panel.
 - [ ] Complete responsive themes, DPI, clipping, fonts, and all 16 languages.
-- [ ] Ensure panel close preserves ESP and active jobs.
+- [x] Ensure panel close preserves ESP and active jobs.
 - [ ] Pass UI action/state, gesture, hotkey, layout, and localization tests.
 - [ ] DEFERRED — maintainer interaction required: complete the full in-game UI
   walkthrough across languages/resolutions/DPI.

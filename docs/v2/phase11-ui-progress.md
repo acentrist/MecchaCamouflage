@@ -54,13 +54,41 @@ held-key behavior across snapshot publication, complete remapping, duplicate
 mapping refusal, invalid/event-limit refusal, exact command-ID exhaustion,
 input-loss release, and terminal shutdown.
 
-The complete Linux, Linux ASan/UBSan, and Windows MSVC Release graphs pass 66,
-66, and 83 tests respectively.
+The complete Linux, Linux ASan/UBSan, and Windows MSVC Release graphs pass 67,
+67, and 84 tests respectively.
+
+## Immutable product presentation
+
+`ProductUiModel` is the bounded application-owned read boundary for the five
+locked Paint, Image Paint, ESP, Settings, and Diagnostics sections. It is
+derived from one immutable `ApplicationSnapshot` and contains no Unreal,
+graphics, input, or mutable runtime reference.
+
+The model exposes:
+
+- Exact current Paint, Image Paint, ESP, and UI settings.
+- Feature Start, Preview, Restore, and Cancel availability derived from
+  runtime compatibility, queue admission, active job ownership, preview
+  ownership, and exact editor project readiness.
+- Separate Image Paint edit/load/save/rename/delete availability. Coalescible
+  edits remain available during composition, while ready-only persistence and
+  deletion operations fail closed.
+- ESP enabled/frame state even while the product panel is closed.
+- Exact job and preview identity, bounded progress fractions, elapsed time,
+  ETA, and queue pressure.
+- Command/runtime queue counts and utilization, compatibility status, and the
+  newest 64 ordered diagnostics.
+
+Invalid configuration, queue counts, progress arithmetic/pressure, unordered
+diagnostic sequences, oversized diagnostic keys, and invalid diagnostic UTF-8
+are rejected before a model is published. Closing the panel changes only the
+published `ui_open` value; it does not erase or pause ESP, preview, job, or
+queue state.
 
 ## Remaining work
 
 - Compose the five complete Paint, Image Paint, ESP, Settings, and Diagnostics
-  Canvas sections from immutable presentation values.
+  Canvas sections from the implemented immutable presentation values.
 - Convert Canvas interactions into typed commands without direct runtime
   mutation.
 - Connect the production UE4SS key callbacks and input lease.

@@ -65,6 +65,21 @@ add_test(
 )
 
 add_executable(
+    meccha_product_ui_model_tests
+    product_ui_model_test.cpp
+)
+target_link_libraries(
+    meccha_product_ui_model_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(
+    NAME product_ui_model
+    COMMAND meccha_product_ui_model_tests
+)
+
+add_executable(
     meccha_application_root_tests
     application_root_test.cpp
 )

@@ -29,6 +29,7 @@ add_library(
         src/paint_planning_worker.cpp
         src/paint_preview_build_worker.cpp
         src/paint_preview_controller.cpp
+        src/product_ui_model.cpp
         src/runtime_lifecycle.cpp
         src/runtime_operation_executor.cpp
 )
