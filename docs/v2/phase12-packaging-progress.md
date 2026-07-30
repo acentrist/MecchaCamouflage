@@ -197,6 +197,10 @@ release-only settings without upstream mutation, required notice inputs,
 linked-input refusal, pre-existing-output preservation, and no partial
 publication after validation failure.
 
+`dependency_notice_tool` proves exact evidence-to-audit component identity,
+deterministic notice/report output, required hashed license files, refusal of
+missing/extra/changed components, and direct/parent link or reparse rejection.
+
 ## Exact release artifact verifier
 
 `tools/v2/verify_release_artifact.py` is a dependency-free bounded parser for
@@ -240,6 +244,27 @@ certificate configuration, Authenticode chain verification, and verification
 of the exact post-signing bytes. It must not add Defender exclusions, suppress
 SmartScreen, weaken UAC, or rebuild after acceptance. GitHub Releases publish
 the verified SHA-256 regardless of signing state.
+
+## Evidence-bound dependency notices
+
+`tools/v2/build_dependency_notices.py` consumes two distinct protected inputs:
+canonical dependency evidence from the resolved build and a separately
+approved audit. The approved audit must repeat every evidence component
+exactly and bind each component's version, source identity, license expression,
+and one or more project/build/Cargo license paths by SHA-256.
+
+Notice assembly fails before publication for missing or extra components,
+changed identities, absent license evidence, malformed or non-canonical paths,
+hash changes, empty/non-UTF-8 text, and any direct or parent symlink, junction,
+or reparse point. It emits a deterministic notice bundle and JSON report bound
+to both input hashes. It does not infer a license expression or silently prune
+a dependency.
+
+The protected graph inventory and its human approval remain open. In
+particular, the restricted UEPseudo graph and the 113-package locked
+`patternsleuth_bind` Cargo graph cannot be declared audited by the public
+fixture tests. Until exact evidence is produced and reviewed, this tool
+deliberately prevents final runtime assembly.
 
 Portable target-validation coverage runs in the normal Linux graph and the
 Linux ASan/UBSan graph. The MakeCab determinism and round-trip case runs in the

@@ -917,6 +917,12 @@ add_test(
         "${PROJECT_SOURCE_DIR}/tools/v2/test_verify_release_artifact.py"
 )
 add_test(
+    NAME dependency_notice_tool
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tools/v2/test_build_dependency_notices.py"
+)
+add_test(
     NAME payload_cab_tool
     COMMAND
         "${Python3_EXECUTABLE}"

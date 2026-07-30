@@ -96,3 +96,8 @@ maintainer-approved credential with Epic organization access:
 Until that report exists, the checklist item for the complete recursive graph
 and the full-build ABI gate remains open. Secret-free work may continue only
 on targets that do not link UE4SS.
+
+`tools/v2/build_dependency_notices.py` is the fail-closed consumer for that
+future report. It requires the resolved evidence and a separate approved
+component/license/hash audit to match exactly; it does not treat this public
+dependency summary as approval or as a complete packaging inventory.

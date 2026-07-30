@@ -432,6 +432,11 @@ Evidence:
   - [x] Bind an exact manifest/CAB pair conditionally as `RCDATA` resources
     and build the native x64 Windows GUI EXE with an explicit `asInvoker`
     manifest; configuration refuses a partial resource pair.
+  - [x] Implement evidence-bound third-party notice assembly that requires an
+    exact separately approved component/license/hash audit and refuses missing,
+    extra, changed, empty, linked, or reparse-routed license inputs.
+  - [ ] Collect and approve the complete protected CMake/Cargo dependency
+    evidence and corresponding license-file hashes.
   - [ ] Bind the final trusted CAB, manifest, profiles, localization, fonts,
     icon, licenses, and notices into the release EXE.
 - [ ] Build runtime and mod from the same trusted graph.
