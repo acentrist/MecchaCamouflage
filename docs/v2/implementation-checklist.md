@@ -95,6 +95,8 @@ Evidence:
     planning, and ordered execution behind one portable typed workflow.
   - [x] Derive and observe managed proxy/override expectations before runtime
     publication without creating cache or ownership directories.
+  - [x] Classify a recovered runtime cache as missing, exact, owned previous,
+    or conflict through a read-only transaction boundary.
   - [ ] Bind the native original-user observation source and minimal elevated
     broker.
 - [x] Implement safe reuse, repair, update, cleanup, and `--remove`.

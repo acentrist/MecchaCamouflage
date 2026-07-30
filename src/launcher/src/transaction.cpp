@@ -428,6 +428,56 @@ auto recover_runtime(RuntimeStorage& storage)
         "Prepared runtime transaction state is inconsistent.");
 }
 
+auto observe_recovered_runtime_cache(
+    RuntimeStorage& storage,
+    const Sha256Digest& expected_manifest_sha256)
+    -> std::expected<RuntimeCacheIdentity, RuntimeTransactionError>
+{
+    const auto journal = storage.read_journal();
+    if (!journal)
+    {
+        return storage_error(journal.error());
+    }
+    if (*journal)
+    {
+        return RuntimeCacheIdentity::Conflict;
+    }
+    const auto names = staging_names(storage);
+    if (!names)
+    {
+        return std::unexpected(names.error());
+    }
+    if (!names->empty())
+    {
+        return RuntimeCacheIdentity::Conflict;
+    }
+    const auto rollback = identify(storage, RollbackName);
+    if (!rollback)
+    {
+        return std::unexpected(rollback.error());
+    }
+    if (rollback->state != GenerationState::Missing)
+    {
+        return RuntimeCacheIdentity::Conflict;
+    }
+    const auto active = identify(storage, ActiveName);
+    if (!active)
+    {
+        return std::unexpected(active.error());
+    }
+    if (active->state == GenerationState::Missing)
+    {
+        return RuntimeCacheIdentity::Missing;
+    }
+    if (active->state != GenerationState::OwnedExact)
+    {
+        return RuntimeCacheIdentity::Conflict;
+    }
+    return active->manifest_sha256 == expected_manifest_sha256
+               ? RuntimeCacheIdentity::Exact
+               : RuntimeCacheIdentity::OwnedPrevious;
+}
+
 auto validate_runtime_reuse(
     RuntimeStorage& storage,
     const Sha256Digest& expected_manifest_sha256)

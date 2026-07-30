@@ -170,6 +170,11 @@ embedded-resource binding remain open, so Phase 3 remains open.
   may exist. Runtime removal first completes the existing recovery state
   machine, then removes only the ownership-identified `active` generation; a
   missing cache is an idempotent no-op and conflicting content is untouched.
+- After the explicit startup-recovery boundary, runtime observation is also
+  strictly read-only and classifies only a clean missing cache, exact current
+  `active`, or exact owned previous `active` as actionable. Any remaining
+  journal, staging, rollback, partial, or unknown generation is a conflict and
+  cannot reach preparation/removal effects.
 - The Win32 execution backend binds that transaction contract to the existing
   managed-loader and shared-mod adapters. Elevated managed operations are
   handed only to the broker interface, with cache/mod actions stripped from a
@@ -235,6 +240,9 @@ prepare-only operation, managed UAC decisions, shared mod installation,
 running-game rejection, invalid payloads, inaccessible cache storage, every
 deployment conflict, ownership-safe managed/shared removal, and removal
 conflicts.
+The portable runtime-transaction suite additionally proves read-only
+post-recovery classification for missing, exact current, owned previous, and
+non-clean conflict states.
 
 The MSVC Release owned-file suite covers create, no-op reuse, owned update,
 idempotent removal, exact-unowned refusal, post-install tampering, payload

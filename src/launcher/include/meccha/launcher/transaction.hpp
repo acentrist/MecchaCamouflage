@@ -138,8 +138,21 @@ enum class RuntimeRemoveResult : std::uint8_t
     Removed,
 };
 
+enum class RuntimeCacheIdentity : std::uint8_t
+{
+    Missing,
+    Exact,
+    OwnedPrevious,
+    Conflict,
+};
+
 [[nodiscard]] auto recover_runtime(RuntimeStorage& storage)
     -> std::expected<RuntimeRecoveryResult, RuntimeTransactionError>;
+
+[[nodiscard]] auto observe_recovered_runtime_cache(
+    RuntimeStorage& storage,
+    const Sha256Digest& expected_manifest_sha256)
+    -> std::expected<RuntimeCacheIdentity, RuntimeTransactionError>;
 
 [[nodiscard]] auto validate_runtime_reuse(
     RuntimeStorage& storage,

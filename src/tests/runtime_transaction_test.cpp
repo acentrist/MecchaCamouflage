@@ -220,6 +220,44 @@ auto main() -> int
 
     bool passed = true;
 
+    FakeRuntimeStorage empty_observation{};
+    const auto empty_identity = observe_recovered_runtime_cache(
+        empty_observation,
+        new_manifest);
+    passed &= expect(
+        empty_identity &&
+            *empty_identity == RuntimeCacheIdentity::Missing &&
+            empty_observation.mutations.empty(),
+        "an empty recovered runtime was not observed read-only");
+
+    FakeRuntimeStorage previous_observation{};
+    previous_observation.generations["active"] =
+        exact(old_manifest);
+    const auto previous_identity =
+        observe_recovered_runtime_cache(
+            previous_observation,
+            new_manifest);
+    passed &= expect(
+        previous_identity &&
+            *previous_identity ==
+                RuntimeCacheIdentity::OwnedPrevious &&
+            previous_observation.mutations.empty(),
+        "an owned previous runtime was not classified for publication");
+
+    FakeRuntimeStorage dirty_observation{};
+    dirty_observation.generations["active"] =
+        exact(new_manifest);
+    dirty_observation.generations["rollback"] =
+        exact(old_manifest);
+    const auto dirty_identity = observe_recovered_runtime_cache(
+        dirty_observation,
+        new_manifest);
+    passed &= expect(
+        dirty_identity &&
+            *dirty_identity == RuntimeCacheIdentity::Conflict &&
+            dirty_observation.mutations.empty(),
+        "a non-clean runtime was accepted after the recovery boundary");
+
     FakeRuntimeStorage fresh{};
     const auto fresh_result = prepare_runtime(fresh, new_manifest, Nonce);
     passed &= expect(
@@ -229,6 +267,15 @@ auto main() -> int
             fresh.generations.at("active") == exact(new_manifest) &&
             !fresh.journal,
         "fresh publication did not leave one active generation");
+    const auto current_mutations = fresh.mutations.size();
+    const auto current_identity = observe_recovered_runtime_cache(
+        fresh,
+        new_manifest);
+    passed &= expect(
+        current_identity &&
+            *current_identity == RuntimeCacheIdentity::Exact &&
+            fresh.mutations.size() == current_mutations,
+        "the current recovered runtime was not observed without mutation");
 
     const auto mutations_before_reuse = fresh.mutations.size();
     const auto reused = prepare_runtime(fresh, new_manifest, Nonce);
