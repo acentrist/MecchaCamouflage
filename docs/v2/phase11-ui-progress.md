@@ -5,9 +5,9 @@ scroll, text-edit, Image Paint editor, input-lease, and typed editor-mutation
 boundaries are implemented. The current milestones add the application-owned
 hotkey and product-action boundaries plus a portable five-tab product-panel
 shell. Production UCanvas rendering, Unreal input registration, font/texture
-lifetime, Diagnostics/project-file/import controls, and live verification
-remain intentionally unimplemented until their owned adapters and the
-protected UE4SS graph expose the exact accepted interfaces.
+lifetime, project-file/import controls, and live verification remain
+intentionally unimplemented until their owned adapters and the protected
+UE4SS graph expose the exact accepted interfaces.
 
 ## Ownership and dependency direction
 
@@ -284,16 +284,32 @@ drawing, the four-edge crop indicator, zoom, press/move/release, scroll
 exclusion, isolated Apply, both cancellation paths, missing-source refusal,
 and malformed-source rejection.
 
+## Complete portable Diagnostics section
+
+The Diagnostics tab now consumes only the bounded immutable
+`DiagnosticsPanelModel`. It renders localized runtime and compatibility state,
+separate command/runtime queue counts and utilization, omitted-entry counts,
+and the newest ordered diagnostic entries. Generic operation failures,
+severity terms, state terms, and the empty state use the selected one of all 16
+catalogs. Command IDs plus stable runtime contract/failure identifiers remain
+visible so a compatibility failure is actionable without an unbounded log or
+external window.
+
+The section has retained local scrolling and emits no product action.
+Presentation validation rejects oversized/unordered diagnostics, invalid
+UTF-8 keys, inconsistent compatibility failures, invalid enum values, and
+non-finite or arithmetically inconsistent queue utilization before drawing.
+Portable tests cover localized messages, command IDs, Canvas/missing-function
+details, omitted counts, the empty state, compact scrolling, and incoherent
+queue refusal.
+
 This remains a partial product UI milestone. The Image Paint atlas interaction
 import/removal and project file operations, direct hotkey capture UX, localized
-progress/compatibility/diagnostics formatting, and the production UCanvas
-adapter remain open.
+progress/ETA formatting, and the production UCanvas adapter remain open.
 
 ## Remaining work
 
-- Compose Image Paint import/removal/project operations and the complete
-  Diagnostics Canvas section from the implemented shell and immutable
-  presentation values.
+- Compose Image Paint import/removal/project operations.
 - Connect the remaining Image Paint operations to the implemented typed
   product-action router without direct runtime mutation.
 - Enqueue the returned product action through the production callback boundary.

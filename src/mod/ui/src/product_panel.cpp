@@ -1,5 +1,6 @@
 #include <meccha/product_ui/product_panel.hpp>
 
+#include "product_panel_diagnostics.hpp"
 #include "product_panel_esp.hpp"
 #include "product_panel_image.hpp"
 #include "product_panel_paint.hpp"
@@ -10,6 +11,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <ranges>
 #include <string>
 #include <utility>
@@ -77,6 +79,18 @@ auto labels_valid(const ProductPanelLabels& labels) -> bool
            valid_label(labels.crop_zoom) &&
            valid_label(labels.crop_apply) &&
            valid_label(labels.crop_cancel) &&
+           valid_label(labels.diagnostics_runtime) &&
+           valid_label(labels.diagnostics_compatibility) &&
+           valid_label(labels.diagnostics_command_queue) &&
+           valid_label(labels.diagnostics_runtime_queue) &&
+           valid_label(labels.diagnostics_empty) &&
+           valid_label(labels.diagnostics_failure) &&
+           std::ranges::all_of(
+               labels.diagnostics_state_labels,
+               valid_label) &&
+           std::ranges::all_of(
+               labels.diagnostics_severity_labels,
+               valid_label) &&
            std::ranges::all_of(
                labels.hotkey_labels,
                valid_label) &&
@@ -109,6 +123,164 @@ auto labels_valid(const ProductPanelLabels& labels) -> bool
                valid_label);
 }
 
+auto runtime_phase_valid(
+    application::ApplicationRuntimePhase phase) -> bool
+{
+    switch (phase)
+    {
+    case application::ApplicationRuntimePhase::Cold:
+    case application::ApplicationRuntimePhase::Initializing:
+    case application::ApplicationRuntimePhase::Compatible:
+    case application::ApplicationRuntimePhase::Incompatible:
+    case application::ApplicationRuntimePhase::ShuttingDown:
+    case application::ApplicationRuntimePhase::Stopped:
+        return true;
+    }
+    return false;
+}
+
+auto compatibility_status_valid(
+    application::CompatibilityStatus status) -> bool
+{
+    switch (status)
+    {
+    case application::CompatibilityStatus::Unknown:
+    case application::CompatibilityStatus::Compatible:
+    case application::CompatibilityStatus::UnsupportedGame:
+    case application::CompatibilityStatus::RuntimeError:
+        return true;
+    }
+    return false;
+}
+
+auto compatibility_failure_valid(
+    const application::CompatibilityFailure& failure) -> bool
+{
+    const auto contract_valid = [&failure]
+    {
+        switch (failure.contract)
+        {
+        case application::RuntimeContractId::RuntimeInitialization:
+        case application::RuntimeContractId::HudCallback:
+        case application::RuntimeContractId::World:
+        case application::RuntimeContractId::PlayerController:
+        case application::RuntimeContractId::Hud:
+        case application::RuntimeContractId::Canvas:
+        case application::RuntimeContractId::PaintAtUvWithBrush:
+        case application::RuntimeContractId::ImagePaintTexture:
+        case application::RuntimeContractId::TextureMutation:
+        case application::RuntimeContractId::InputControl:
+            return true;
+        }
+        return false;
+    }();
+    const auto kind_valid = [&failure]
+    {
+        switch (failure.kind)
+        {
+        case application::ContractFailureKind::MissingObject:
+        case application::ContractFailureKind::WrongClass:
+        case application::ContractFailureKind::MissingProperty:
+        case application::ContractFailureKind::WrongPropertyKind:
+        case application::ContractFailureKind::MissingFunction:
+        case application::ContractFailureKind::ParameterSizeMismatch:
+        case application::ContractFailureKind::StaleObject:
+        case application::ContractFailureKind::InvalidValue:
+        case application::ContractFailureKind::CallbackFailure:
+        case application::ContractFailureKind::ExecutionFailure:
+        case application::ContractFailureKind::UnsupportedGameBuild:
+            return true;
+        }
+        return false;
+    }();
+    return contract_valid && kind_valid &&
+           !failure.message_key.empty() &&
+           failure.message_key.size() <=
+               application::MaximumProductUiDiagnosticKeyBytes &&
+           core::valid_utf8(failure.message_key);
+}
+
+auto queue_presentation_valid(
+    const application::QueuePresentation& queue) -> bool
+{
+    if (queue.queued > queue.capacity ||
+        !std::isfinite(queue.utilization) ||
+        queue.utilization < 0.0 ||
+        queue.utilization > 1.0)
+    {
+        return false;
+    }
+    const auto expected =
+        queue.capacity == 0U
+            ? 0.0
+            : static_cast<double>(queue.queued) /
+                  static_cast<double>(queue.capacity);
+    return std::abs(queue.utilization - expected) <= 1.0e-12;
+}
+
+auto diagnostics_model_valid(
+    const application::DiagnosticsPanelModel& diagnostics) -> bool
+{
+    if (!runtime_phase_valid(diagnostics.runtime_phase) ||
+        !compatibility_status_valid(
+            diagnostics.compatibility.status) ||
+        !queue_presentation_valid(
+            diagnostics.command_queue) ||
+        !queue_presentation_valid(
+            diagnostics.runtime_queue) ||
+        diagnostics.entries.size() >
+            application::MaximumProductUiDiagnostics)
+    {
+        return false;
+    }
+    const auto failure_expected =
+        diagnostics.compatibility.status ==
+            application::CompatibilityStatus::UnsupportedGame ||
+        diagnostics.compatibility.status ==
+            application::CompatibilityStatus::RuntimeError;
+    if (diagnostics.compatibility.failure.has_value() !=
+        failure_expected)
+    {
+        return false;
+    }
+    if (diagnostics.compatibility.failure &&
+        !compatibility_failure_valid(
+            *diagnostics.compatibility.failure))
+    {
+        return false;
+    }
+
+    auto previous_sequence = std::uint64_t{};
+    for (const auto& entry : diagnostics.entries)
+    {
+        const auto severity_valid = [&entry]
+        {
+            switch (entry.severity)
+            {
+            case application::DiagnosticSeverity::Information:
+            case application::DiagnosticSeverity::Warning:
+            case application::DiagnosticSeverity::Error:
+                return true;
+            }
+            return false;
+        }();
+        if (!severity_valid ||
+            entry.sequence <= previous_sequence ||
+            entry.message_key.empty() ||
+            entry.message_key.size() >
+                application::MaximumProductUiDiagnosticKeyBytes ||
+            !core::valid_utf8(entry.message_key) ||
+            (entry.compatibility_failure &&
+             !compatibility_failure_valid(
+                 *entry.compatibility_failure)))
+        {
+            return false;
+        }
+        previous_sequence = entry.sequence;
+    }
+    return true;
+}
+
 auto model_valid(const application::ProductUiModel& model) -> bool
 {
     const auto image_settings_valid =
@@ -137,7 +309,8 @@ auto model_valid(const application::ProductUiModel& model) -> bool
            model.esp.settings ==
                model.settings.config.esp &&
            model.esp.enabled ==
-               model.settings.config.esp.enabled;
+               model.settings.config.esp.enabled &&
+           diagnostics_model_valid(model.diagnostics);
 }
 
 auto state_valid(const ProductPanelState& state) -> bool
@@ -387,6 +560,26 @@ auto build_product_panel_labels(
         std::string{catalog.text(locale, "dialog.crop.zoom")},
         std::string{catalog.text(locale, "dialog.crop.apply")},
         std::string{catalog.text(locale, "button.cancel")},
+        std::string{catalog.text(locale, "status.service")},
+        std::string{catalog.text(locale, "footer.game")},
+        std::string{catalog.text(locale, "app.title")} + " " +
+            std::string{catalog.text(locale, "metric.queue")},
+        std::string{catalog.text(locale, "status.service")} + " " +
+            std::string{catalog.text(locale, "metric.queue")},
+        std::string{catalog.text(locale, "logs.empty")},
+        std::string{
+            catalog.text(locale, "error.operation.failed")},
+        {
+            std::string{catalog.text(locale, "state.waiting")},
+            std::string{catalog.text(locale, "state.ready")},
+            std::string{catalog.text(locale, "state.stopped")},
+            std::string{catalog.text(locale, "state.failed")},
+        },
+        {
+            std::string{catalog.text(locale, "log.info")},
+            std::string{catalog.text(locale, "log.warn")},
+            std::string{catalog.text(locale, "log.error")},
+        },
         {
             std::string{catalog.text(locale, "app.title")},
             std::string{catalog.text(locale, "start.hotkey")},
@@ -734,6 +927,23 @@ auto compose_product_panel(
             input,
             previous,
             action);
+        if (!result)
+        {
+            return std::unexpected(result.error());
+        }
+    }
+    else if (
+        previous.selected ==
+        application::ProductUiSection::Diagnostics)
+    {
+        const auto result =
+            detail::compose_diagnostics_section(
+                canvas,
+                *layout,
+                model,
+                labels,
+                input,
+                previous);
         if (!result)
         {
             return std::unexpected(result.error());

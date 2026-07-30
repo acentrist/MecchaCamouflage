@@ -478,6 +478,10 @@ Evidence:
     revision-bound portable control, including body/placement/alpha/face
     routing, brush/compression, Image/Fill materials, Fill color, and bounded
     section-local scrolling.
+  - [x] Compose a bounded localized Diagnostics section for runtime and
+    compatibility state, command/runtime queue pressure, omitted-entry counts,
+    ordered severity-colored diagnostics, command IDs, and exact
+    contract/failure identifiers.
   - [ ] Render and interact with every complete section through the production
     UCanvas adapter.
 - [ ] Bind UI only to typed commands and immutable snapshots.
@@ -534,7 +538,9 @@ Evidence:
     presentation values.
   - [x] Draw bounded completed/total and command-queue counts in the portable
     panel status strip.
-  - [ ] Draw and localize those values through the production Canvas panel.
+  - [x] Draw localized runtime/compatibility/queue summaries and bounded
+    actionable diagnostic entries through the portable Canvas panel.
+  - [ ] Bind those values through the production UCanvas adapter.
 - [ ] Complete responsive themes, DPI, clipping, fonts, and all 16 languages.
   - [x] Apply safe-area, viewport, DPI, configured scale, clipping, and theme
     accent to the portable panel shell and compose its labels for every one of
@@ -565,6 +571,9 @@ Evidence:
     local zoom/drag/release, scroll exclusion, Apply field isolation, button
     and keyboard cancellation, missing-source refusal, and invalid-source
     rejection.
+  - [x] Prove localized Diagnostics summaries, message translation, command and
+    compatibility details, omitted counts, empty state, compact scrolling, and
+    rejection of incoherent queue presentation.
 - [ ] DEFERRED — maintainer interaction required: complete the full in-game UI
   walkthrough across languages/resolutions/DPI.
 

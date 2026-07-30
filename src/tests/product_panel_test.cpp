@@ -39,6 +39,22 @@ auto center(const meccha::ui::CanvasRect& rect)
     };
 }
 
+auto frame_contains_text(
+    const meccha::ui::CanvasFrame& frame,
+    std::string_view needle) -> bool
+{
+    return std::ranges::any_of(
+        frame.primitives,
+        [needle](const meccha::ui::CanvasPrimitive& primitive)
+        {
+            const auto* text =
+                std::get_if<meccha::ui::CanvasTextPrimitive>(
+                    &primitive);
+            return text &&
+                   text->utf8.find(needle) != std::string::npos;
+        });
+}
+
 auto ready_model() -> meccha::application::ProductUiModel
 {
     using namespace meccha::application;
@@ -99,6 +115,31 @@ auto ready_model() -> meccha::application::ProductUiModel
     model.settings.can_apply = true;
     model.diagnostics.command_queue = {2U, 8U, 0.25, true};
     model.diagnostics.runtime_queue = {3U, 12U, 0.25, true};
+    model.diagnostics.runtime_phase =
+        ApplicationRuntimePhase::Compatible;
+    model.diagnostics.compatibility.status =
+        CompatibilityStatus::Compatible;
+    model.diagnostics.entries = {
+        DiagnosticEntry{
+            40U,
+            DiagnosticSeverity::Warning,
+            "error.operation.failed",
+            CommandId{17U},
+            std::nullopt,
+        },
+        DiagnosticEntry{
+            41U,
+            DiagnosticSeverity::Error,
+            "error.operation.failed",
+            std::nullopt,
+            CompatibilityFailure{
+                RuntimeContractId::Canvas,
+                ContractFailureKind::MissingFunction,
+                "error.operation.failed",
+            },
+        },
+    };
+    model.diagnostics.omitted = 3U;
     model.progress = {4U, 10U, 0.4, 0.5, 1'200U, 800U};
     return model;
 }
@@ -2053,6 +2094,112 @@ auto main(int argc, char** argv) -> int
                 0.0,
         "compact Image Paint settings did not retain section-local scrolling");
 
+    auto diagnostics_input = default_input();
+    diagnostics_input.pointer = ui::PointerFrame{
+        center(initial->layout->section_tabs[4U]),
+        true,
+        false,
+        true,
+        0.0,
+    };
+    const auto diagnostics = compose_product_panel(
+        model,
+        initial->state,
+        diagnostics_input,
+        english);
+    passed &= expect(
+        diagnostics &&
+            diagnostics->state.selected ==
+                ProductUiSection::Diagnostics &&
+            frame_contains_text(
+                diagnostics->frame,
+                "The operation failed") &&
+            frame_contains_text(diagnostics->frame, "17") &&
+            frame_contains_text(
+                diagnostics->frame,
+                "Canvas") &&
+            frame_contains_text(
+                diagnostics->frame,
+                "MissingFunction") &&
+            frame_contains_text(diagnostics->frame, "+3"),
+        "Diagnostics did not render localized bounded runtime evidence");
+
+    const auto japanese_diagnostics = compose_product_panel(
+        model,
+        ProductPanelState{ProductUiSection::Diagnostics},
+        default_input(),
+        japanese);
+    passed &= expect(
+        japanese_diagnostics &&
+            frame_contains_text(
+                japanese_diagnostics->frame,
+                japanese.diagnostics_failure),
+        "Diagnostics did not use the selected localization catalog");
+
+    auto empty_diagnostics_model = model;
+    empty_diagnostics_model.diagnostics.entries.clear();
+    empty_diagnostics_model.diagnostics.omitted = 0U;
+    const auto empty_diagnostics = compose_product_panel(
+        empty_diagnostics_model,
+        ProductPanelState{ProductUiSection::Diagnostics},
+        default_input(),
+        english);
+    passed &= expect(
+        empty_diagnostics &&
+            frame_contains_text(
+                empty_diagnostics->frame,
+                english.diagnostics_empty) &&
+            !empty_diagnostics->action,
+        "an empty Diagnostics section did not render its bounded empty state");
+
+    auto long_diagnostics_model = model;
+    long_diagnostics_model.diagnostics.entries.clear();
+    for (auto sequence = std::uint64_t{1U};
+         sequence <= MaximumProductUiDiagnostics;
+         ++sequence)
+    {
+        long_diagnostics_model.diagnostics.entries.push_back(
+            DiagnosticEntry{
+                sequence,
+                DiagnosticSeverity::Information,
+                "error.operation.failed",
+                std::nullopt,
+                std::nullopt,
+            });
+    }
+    auto compact_diagnostics_input = default_input();
+    compact_diagnostics_input.viewport = {
+        640.0,
+        360.0,
+        1.0,
+    };
+    const auto compact_diagnostics = compose_product_panel(
+        long_diagnostics_model,
+        ProductPanelState{ProductUiSection::Diagnostics},
+        compact_diagnostics_input,
+        english);
+    if (!compact_diagnostics || !compact_diagnostics->layout)
+    {
+        return 1;
+    }
+    compact_diagnostics_input.pointer = ui::PointerFrame{
+        center(compact_diagnostics->layout->content),
+        false,
+        false,
+        false,
+        -3.0,
+    };
+    const auto scrolled_diagnostics = compose_product_panel(
+        long_diagnostics_model,
+        compact_diagnostics->state,
+        compact_diagnostics_input,
+        english);
+    passed &= expect(
+        scrolled_diagnostics &&
+            scrolled_diagnostics->state.section_scroll[4U]
+                    .offset_y > 0.0,
+        "compact Diagnostics content did not retain bounded scrolling");
+
     model.ui_open = false;
     const auto closed = compose_product_panel(
         model,
@@ -2141,6 +2288,23 @@ auto main(int argc, char** argv) -> int
                 incoherent_image.error()) ==
                 ProductPanelValidationError::InvalidModel,
         "divergent Image Paint document settings entered the panel");
+
+    auto incoherent_diagnostics_model = model;
+    incoherent_diagnostics_model.diagnostics.command_queue
+        .utilization = 0.5;
+    const auto incoherent_diagnostics = compose_product_panel(
+        incoherent_diagnostics_model,
+        ProductPanelState{ProductUiSection::Diagnostics},
+        default_input(),
+        english);
+    passed &= expect(
+        !incoherent_diagnostics &&
+            std::holds_alternative<ProductPanelValidationError>(
+                incoherent_diagnostics.error()) &&
+            std::get<ProductPanelValidationError>(
+                incoherent_diagnostics.error()) ==
+                ProductPanelValidationError::InvalidModel,
+        "incoherent Diagnostics queue state entered the panel");
 
     if (passed)
     {

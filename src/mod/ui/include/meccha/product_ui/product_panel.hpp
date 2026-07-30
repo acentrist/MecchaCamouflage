@@ -39,6 +39,14 @@ struct ProductPanelLabels
     std::string crop_zoom{};
     std::string crop_apply{};
     std::string crop_cancel{};
+    std::string diagnostics_runtime{};
+    std::string diagnostics_compatibility{};
+    std::string diagnostics_command_queue{};
+    std::string diagnostics_runtime_queue{};
+    std::string diagnostics_empty{};
+    std::string diagnostics_failure{};
+    std::array<std::string, 4U> diagnostics_state_labels{};
+    std::array<std::string, 3U> diagnostics_severity_labels{};
     std::array<std::string, 9U> hotkey_labels{};
     std::array<std::string, 16U> paint_setting_labels{};
     std::array<std::string, 3U> region_mode_labels{};
