@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -85,6 +86,22 @@ struct UiSettings
     auto operator==(const UiSettings&) const -> bool = default;
 };
 
+enum class ImageProjectReferenceKind : std::uint8_t
+{
+    NamedProject,
+    ActiveDraft,
+};
+
+struct ActiveImageProjectReference
+{
+    ImageProjectReferenceKind kind{
+        ImageProjectReferenceKind::ActiveDraft};
+    std::string project_id{};
+
+    auto operator==(const ActiveImageProjectReference&) const
+        -> bool = default;
+};
+
 struct ApplicationConfig
 {
     std::uint32_t schema_version{ConfigurationSchemaVersion};
@@ -92,6 +109,8 @@ struct ApplicationConfig
     PaintSettings paint{};
     ImageProjectSettings image_paint{};
     EspSettings esp{};
+    std::optional<ActiveImageProjectReference>
+        active_image_project{};
 
     auto operator==(const ApplicationConfig&) const -> bool = default;
 };
@@ -109,6 +128,7 @@ enum class ConfigurationField : std::uint8_t
     ImageCompressionTolerance,
     ImageMaterial,
     ImageFillMaterial,
+    ActiveImageProjectReference,
 };
 
 [[nodiscard]] auto is_supported_locale(std::string_view locale) -> bool;

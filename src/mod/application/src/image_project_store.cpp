@@ -128,18 +128,18 @@ auto ImageProjectStore::save_named(
     {
         return std::unexpected(file_name.error());
     }
-    if (expected_revision ==
-        std::numeric_limits<std::uint64_t>::max())
+    if (project.revision <= expected_revision)
     {
+        const auto overflow =
+            expected_revision ==
+            std::numeric_limits<std::uint64_t>::max();
         return std::unexpected(project_error(
-            ImageProjectStoreErrorCode::RevisionOverflow,
-            "Image project revision cannot be advanced."));
-    }
-    if (project.revision != expected_revision + 1U)
-    {
-        return std::unexpected(project_error(
-            ImageProjectStoreErrorCode::RevisionConflict,
-            "Image project revision is not the expected successor."));
+            overflow
+                ? ImageProjectStoreErrorCode::RevisionOverflow
+                : ImageProjectStoreErrorCode::RevisionConflict,
+            overflow
+                ? "Image project revision cannot be advanced."
+                : "Image project revision did not advance."));
     }
 
     auto encoded = encode_image_project(project, hasher_);

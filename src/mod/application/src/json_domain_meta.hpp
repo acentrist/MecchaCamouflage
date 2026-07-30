@@ -94,3 +94,12 @@ struct glz::meta<meccha::core::EspScope>
     static constexpr auto value =
         glz::enumerate("all", All, "hider", Hider, "hunter", Hunter);
 };
+
+template <>
+struct glz::meta<meccha::core::ImageProjectReferenceKind>
+{
+    using enum meccha::core::ImageProjectReferenceKind;
+    static constexpr auto value = glz::enumerate(
+        "named", NamedProject,
+        "draft", ActiveDraft);
+};

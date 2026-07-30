@@ -238,23 +238,31 @@ auto main() -> int
     const auto skipped =
         store.save_named(skipped_revision, 2U);
     passed &= expect(
-        !skipped &&
-            skipped.error().code ==
+        skipped && storage.writes.size() == 3U,
+        "a monotonic non-consecutive editor revision was rejected");
+
+    auto regressed_revision = skipped_revision;
+    regressed_revision.revision = 3U;
+    const auto regressed =
+        store.save_named(regressed_revision, 4U);
+    passed &= expect(
+        !regressed &&
+            regressed.error().code ==
                 application::ImageProjectStoreErrorCode::RevisionConflict &&
-            storage.writes.size() == 2U,
-        "a non-consecutive project revision was accepted");
+            storage.writes.size() == 3U,
+        "a regressed project revision was accepted");
 
     const auto renamed =
         store.rename_named(project_id, "Renamed 日本語");
     passed &= expect(
         renamed && renamed->display_name == "Renamed 日本語" &&
-            renamed->revision == 3U,
+            renamed->revision == 5U,
         "rename did not atomically advance the project revision");
     const auto loaded_renamed = store.load_named(project_id);
     passed &= expect(
         loaded_renamed && *loaded_renamed &&
             (*loaded_renamed)->display_name == "Renamed 日本語" &&
-            (*loaded_renamed)->revision == 3U,
+            (*loaded_renamed)->revision == 5U,
         "renamed project was not persisted");
 
     const auto writes_before_invalid_name = storage.writes.size();

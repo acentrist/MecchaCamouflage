@@ -97,6 +97,10 @@ auto main() -> int
     config.image_paint.body = core::BodyProfile::Fukuyoka;
     config.image_paint.alpha = core::AlphaMode::Background;
     config.esp.scope = core::EspScope::Hunter;
+    config.active_image_project = core::ActiveImageProjectReference{
+        core::ImageProjectReferenceKind::NamedProject,
+        "0123456789abcdef0123456789abcdef",
+    };
 
     const auto encoded = application::encode_config(config);
     passed &= expect(encoded.has_value(), "valid config did not encode");
@@ -114,6 +118,9 @@ auto main() -> int
             encoded->find(R"("alpha":"background")") !=
                 std::string::npos &&
             encoded->find(R"("scope":"hunter")") !=
+                std::string::npos &&
+            encoded->find(
+                R"("active_image_project":{"kind":"named","project_id":"0123456789abcdef0123456789abcdef"})") !=
                 std::string::npos,
         "persisted enum spellings are not stable strings");
     passed &= expect(
@@ -251,6 +258,39 @@ auto main() -> int
             invalid_alpha_write.error().fields ==
                 std::vector{core::ConfigurationField::ImageSettings},
         "an invalid Image Paint alpha enum was serialized");
+
+    auto invalid_reference = config;
+    invalid_reference.active_image_project =
+        core::ActiveImageProjectReference{
+            core::ImageProjectReferenceKind::ActiveDraft,
+            "../v1",
+        };
+    const auto invalid_reference_write =
+        application::encode_config(invalid_reference);
+    passed &= expect(
+        !invalid_reference_write &&
+            invalid_reference_write.error().code ==
+                application::ConfigCodecErrorCode::InvalidValue &&
+            invalid_reference_write.error().fields ==
+                std::vector{
+                    core::ConfigurationField::
+                        ActiveImageProjectReference},
+        "an unsafe active Image Paint reference was serialized");
+
+    auto defaults = core::ApplicationConfig{};
+    const auto defaults_json = application::encode_config(defaults);
+    const auto defaults_round_trip =
+        defaults_json
+            ? application::decode_config(*defaults_json)
+            : std::expected<
+                  core::ApplicationConfig,
+                  application::ConfigCodecError>{
+                  std::unexpected(
+                      application::ConfigCodecError{})};
+    passed &= expect(
+        defaults_json && defaults_round_trip &&
+            !defaults_round_trip->active_image_project,
+        "the default config did not preserve an absent active project");
 
     passed &= expect(
         application::v2_data_root(

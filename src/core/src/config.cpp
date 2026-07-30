@@ -126,6 +126,17 @@ auto validate(const ApplicationConfig& config)
     {
         errors.push_back(ConfigurationField::ImageFillMaterial);
     }
+    if (config.active_image_project &&
+        (!valid_image_project_id(
+             config.active_image_project->project_id) ||
+         (config.active_image_project->kind !=
+              ImageProjectReferenceKind::NamedProject &&
+          config.active_image_project->kind !=
+              ImageProjectReferenceKind::ActiveDraft)))
+    {
+        errors.push_back(
+            ConfigurationField::ActiveImageProjectReference);
+    }
     return errors;
 }
 } // namespace meccha::core

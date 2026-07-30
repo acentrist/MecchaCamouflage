@@ -3,16 +3,17 @@
 Phase 7 is open. The strict configuration codec, atomic Windows `config.json`
 path, localization catalog boundary, immutable project model, and v2-only
 preset codec, project coordinator, and shared atomic Win32 file adapter are
-implemented. Runtime active-draft integration and final glyph coverage are not
-yet complete.
+implemented. The active-project recovery transaction and bounded off-thread
+active-draft debounce worker are also implemented. Final composition-root
+integration and glyph coverage are not yet complete.
 
 ## Configuration contract
 
 - The only top-level keys are `schema_version`, `ui`, `paint`, `image_paint`,
-  and `esp`.
+  `esp`, and optional `active_image_project`.
 - `schema_version` is exactly `1`; v1 and unknown schemas are rejected without
   migration or mutation.
-- Every field is required and unknown fields are rejected.
+- Every non-optional field is required and unknown fields are rejected.
 - Duplicate object keys are rejected before typed publication, including
   escaped spellings that decode to the same key.
 - JSON comments and trailing non-whitespace content are rejected.
@@ -24,6 +25,9 @@ yet complete.
 - Image sources, layer collections, canonical atlas bytes, draft state, window
   geometry, WebView, bridge, injector, and process fields have no
   representation in the configuration type.
+- `active_image_project` contains only a validated internal 32-character
+  lowercase hexadecimal project ID and a `named` or `draft` discriminator.
+  It never contains an editor revision, image byte, or layer.
 
 ## Store boundary
 
@@ -124,22 +128,48 @@ implemented.
 - `MCIPRST1` is recognized only to return the dedicated non-destructive legacy
   result. No v1 field or migration path is interpreted.
 - SHA-256 is shared through the narrow `meccha_common` boundary. Production
-Windows uses BCrypt; secret-free portable codec tests inject a deterministic
-test hasher without adding a selectable production fake.
+  Windows uses BCrypt; secret-free portable codec tests inject a deterministic
+  test hasher without adding a selectable production fake.
 
 `ImageProjectStore` coordinates named projects and the active recovery
 draft through a project-owned atomic-storage port. It keeps project IDs out of
 filesystem path parsing, preserves structured storage/codec failures, rejects
-embedded-ID/file-name mismatches, requires consecutive revisions for saves and
-renames, and makes delete/clear idempotent. The portable contract is verified
-with missing, stale, corrupt, legacy, mismatched, overflow, and injected I/O
-cases. `Win32AtomicProjectStorage` publishes those containers only inside the
-managed `image-projects` area through the shared atomic-file primitive.
+embedded-ID/file-name mismatches, requires strictly monotonic editor revisions
+for saves, increments revisions for renames, and makes delete/clear
+idempotent. Revision gaps are valid because multiple in-memory edits can occur
+between named saves. The portable contract is verified with missing, stale,
+corrupt, legacy, mismatched, overflow, and injected I/O cases.
+`Win32AtomicProjectStorage` publishes those containers only inside the managed
+`image-projects` area through the shared atomic-file primitive.
+
+`ImageProjectPersistenceCoordinator` implements the cross-file publication and
+startup recovery contract:
+
+- a named project or active draft is fully published before its small config
+  reference;
+- config publication failure never rolls back or deletes the valid project;
+- a matching newer active draft supersedes its named project on startup;
+- a missing or corrupt named project reports a bounded diagnostic and falls
+  back to the last valid active draft or a blank editor;
+- a corrupt draft never partially replaces editor state and is not rewritten
+  during recovery.
+
+`ActiveDraftPersistenceWorker` owns one immutable pending project, resets its
+deadline on edits, serializes only the latest generation on its dedicated
+thread, and exposes immutable pending/in-flight/completion/error state. It can
+flush or discard pending work during explicit shutdown, rejects work after
+shutdown, and cannot run container encoding in a Canvas callback.
+
+`image_project_persistence` verifies missing-reference recovery,
+newer-draft precedence, corrupt-draft isolation, the named-project-first
+partial-failure case, monotonic revision gaps, debounce coalescing,
+off-caller-thread publication, failure visibility, and shutdown rejection.
+The portable suite passes on Linux and Windows MSVC Release.
 
 ## Remaining gate
 
-- The application composition root must wire the project store and implement
-  active-draft lifecycle/debounce behavior.
+- The application composition root must wire the persistence coordinator and
+  debounce worker to the final Image Paint editor lifecycle.
 - The final v2-only UI key set and game/OFL fallback glyph coverage remain.
-- Reparse-point, power-loss, antivirus-lock, non-ASCII path, and native file
-  picker coverage must be completed before Phase 7 closes.
+- Complete per-step fault injection, power-loss/antivirus-lock simulation, and
+  native file-picker coverage before Phase 7 closes.

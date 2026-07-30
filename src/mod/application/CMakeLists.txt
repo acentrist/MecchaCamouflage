@@ -8,6 +8,7 @@ add_library(
         src/config_store.cpp
         src/game_thread_scheduler.cpp
         src/image_project_codec.cpp
+        src/image_project_persistence.cpp
         src/image_project_store.cpp
         src/job_state.cpp
         src/localization.cpp
