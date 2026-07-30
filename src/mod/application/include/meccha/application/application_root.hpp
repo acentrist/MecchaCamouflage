@@ -9,6 +9,7 @@
 #include <meccha/application/paint_preview_controller.hpp>
 #include <meccha/application/runtime_lifecycle.hpp>
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -83,7 +84,7 @@ private:
         std::optional<CommandId> command_id) -> void;
     auto record_preview_error(
         const PaintPreviewError& error,
-        CommandId command_id) -> void;
+        std::optional<CommandId> command_id) -> void;
     auto record_command_error(CommandId command_id) -> void;
     auto process_commands(std::uint64_t now_ms) noexcept -> void;
     auto process_command(
@@ -99,6 +100,7 @@ private:
         ApplicationCommand command) -> void;
     auto advance_paint(std::uint64_t now_ms) -> void;
     auto advance_paint_preview(std::uint64_t now_ms) -> void;
+    auto advance_shutdown() -> void;
     auto publish_locked(
         const RuntimeLifecycleSnapshot& runtime_snapshot) -> void;
     auto publish_locked() -> void;
@@ -129,6 +131,11 @@ private:
     std::optional<ApplicationCommand>
         deferred_paint_preview_command_{};
     JobGeneration paint_preview_generation_{};
+    std::atomic<JobGeneration>
+        active_paint_preview_generation_{};
+    std::optional<std::uint64_t>
+        pending_shutdown_generation_{};
+    bool lifecycle_shutdown_requested_{};
     bool ui_open_{};
     bool esp_enabled_{true};
 };

@@ -108,10 +108,17 @@ public:
         -> std::expected<void, RuntimeExecutionError> override
     {
         operations.push_back(operation);
+        if (events &&
+            std::holds_alternative<RestoreTransientState>(
+                operation))
+        {
+            events->push_back("transient_restore");
+        }
         return {};
     }
 
     std::vector<GameThreadOperation> operations{};
+    std::vector<std::string>* events{};
 };
 
 class FakeThreadContext final : public GameThreadContext
@@ -154,6 +161,22 @@ public:
     {
         ++restore_count;
         restored_components.push_back(snapshot.component);
+        if (restore_failures_remaining > 0U)
+        {
+            --restore_failures_remaining;
+            if (events)
+            {
+                events->push_back("preview_restore_failed");
+            }
+            return std::unexpected(RuntimeExecutionError{
+                RuntimeExecutionErrorCode::OperationFailure,
+                std::nullopt,
+            });
+        }
+        if (events)
+        {
+            events->push_back("preview_restore");
+        }
         return {};
     }
 
@@ -163,6 +186,8 @@ public:
     RuntimeObjectHandle applied_component{};
     PaintTextureImage applied_image{};
     std::vector<RuntimeObjectHandle> restored_components{};
+    std::vector<std::string>* events{};
+    std::size_t restore_failures_remaining{};
 };
 
 class FakePaintRuntime final : public PaintGameRuntimePort
@@ -243,6 +268,9 @@ auto main() -> int
     auto thread = FakeThreadContext{};
     auto preview_runtime = FakePreviewRuntime{};
     auto paint_runtime = FakePaintRuntime{};
+    auto shutdown_events = std::vector<std::string>{};
+    executor.events = &shutdown_events;
+    preview_runtime.events = &shutdown_events;
     auto root = ApplicationRoot{
         callbacks,
         executor,
@@ -396,6 +424,59 @@ auto main() -> int
             root.snapshot()->job.phase == JobPhase::Completed,
         "real Paint did not restore an active preview before capture and "
         "dispatch");
+
+    passed &= expect(
+        root.enqueue_command(PreviewPaint{
+            109U,
+            core::PaintSettings{},
+        }) == CommandEnqueueResult::Accepted,
+        "the shutdown preview fixture was rejected");
+    for (auto attempt = 0; attempt < 1000; ++attempt)
+    {
+        callbacks.invoke(Frame);
+        if (preview_runtime.apply_count == 3U)
+        {
+            break;
+        }
+        std::this_thread::sleep_for(1ms);
+    }
+    shutdown_events.clear();
+    preview_runtime.restore_failures_remaining = 1U;
+    passed &= expect(
+        root.request_shutdown(77U).has_value() &&
+            !root.finalize_shutdown() &&
+            root.snapshot()->runtime_phase ==
+                ApplicationRuntimePhase::ShuttingDown,
+        "shutdown did not wait for project-owned preview restoration");
+    callbacks.invoke(Frame);
+    passed &= expect(
+        shutdown_events ==
+                std::vector<std::string>{
+                    "preview_restore_failed"} &&
+            root.snapshot()->preview.feature == Feature::Paint &&
+            !root.finalize_shutdown(),
+        "failed project preview restoration did not retain ownership and "
+        "block lifecycle quiescing");
+    callbacks.invoke(Frame);
+    passed &= expect(
+        shutdown_events ==
+                std::vector<std::string>{
+                    "preview_restore_failed",
+                    "preview_restore"} &&
+            !root.snapshot()->preview.feature &&
+            !root.finalize_shutdown(),
+        "project-owned preview restoration did not precede lifecycle "
+        "quiescing");
+    callbacks.invoke(Frame);
+    passed &= expect(
+        shutdown_events ==
+                std::vector<std::string>{
+                    "preview_restore_failed",
+                    "preview_restore",
+                    "transient_restore"} &&
+            root.finalize_shutdown().has_value(),
+        "generic transient restoration or callback finalization bypassed the "
+        "project-owned preview barrier");
 
     if (passed)
     {

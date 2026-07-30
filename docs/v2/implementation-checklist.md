@@ -119,6 +119,8 @@ Evidence:
     completion through `ApplicationRoot` with a fake game-thread runtime.
   - [ ] Connect representative Image Paint and production UE4SS operations.
 - [x] Implement restore-before-unregister explicit unload ordering.
+  - [x] Stop and discard Paint preview builds, restore the exact project-owned
+    texture snapshot on the game thread, then enter lifecycle quiescing.
 - [ ] Pass fake-runtime, thread-affinity, lifecycle fault, and concurrent
   uninstall tests.
 - [ ] DEFERRED — maintainer interaction required: verify live load, travel,

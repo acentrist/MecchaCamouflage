@@ -60,8 +60,10 @@ open.
   executed through `PaintAtUvWithBrush`, and completed only after observed
   runtime drain.
 - Shutdown closes scheduling, deterministically discards pending feature work,
-  requires transient UI/preview/input restoration on the game thread, and
-  refuses callback unregistration until restoration succeeds.
+  first cancels and collects any root-owned Paint preview build, restores its
+  exact project-owned texture snapshot on the game thread, then requires
+  transient UI/input restoration on the next game-thread frame. It refuses
+  callback unregistration until both restoration layers succeed.
 - Finalization closes callback admission, unregisters the exact recorded
   callback ID, drains in-flight leases, and then reaches `Stopped`.
 
@@ -98,7 +100,8 @@ open.
 `application_root_paint_test` additionally covers bounded command
 backpressure, immutable snapshot queue pressure, typed Paint capture,
 off-thread planning, lifecycle-owned dispatch, runtime queue observation,
-terminal completion, and frame-owned UI/ESP toggles end to end.
+terminal completion, frame-owned UI/ESP toggles, and project-preview restore
+before lifecycle transient restore and callback finalization end to end.
 
 The test runs in both the Linux secret-free build and the Windows MSVC
 `/W4 /WX` build.
@@ -106,9 +109,8 @@ The test runs in both the Linux secret-free build and the Windows MSVC
 ## Remaining Phase 4 work
 
 - Add production reflected Paint preview import/export, Image Paint, ESP, full
-  UI, persistence
-  lifecycle, and the production `UnrealRuntimeAdapter` to the existing owned
-  root as those modules are implemented.
+  UI and persistence lifecycle, and the production `UnrealRuntimeAdapter` to
+  the existing owned root as those modules are implemented.
 - Implement the pinned UE4SS callback registration adapter and prove exact
   callback unregistration against its real APIs.
 - Bind the typed Paint/Image requests to validated reflected UFunction and

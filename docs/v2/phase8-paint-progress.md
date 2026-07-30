@@ -121,6 +121,10 @@ preview-build worker, and applies only the matching completed generation on a
 later game-thread frame. `RestorePaintPreview` cancels an in-flight build
 before exact restoration, and `StartPaint` defers until the same restoration
 has completed so preview pixels cannot contaminate real Paint capture.
+Shutdown uses the same cancellation boundary: it collects and discards any
+late worker result, restores the controller-owned original on a HUD frame, and
+only then lets `RuntimeLifecycle` enter its generic transient-state restore
+frame and callback-unregistration barrier.
 
 ## Preview ownership and recovery boundary
 
@@ -211,7 +215,5 @@ secret-free Linux suite currently passes all 34 registered tests.
   through validated reflected contracts on the game thread.
 - Implement the production UE4SS capture/queue-observer contracts and connect
   exact reflected preview export/import/verification.
-- Coordinate root-owned preview restoration with the lifecycle quiesce barrier
-  before callback unregistration.
 - Complete fake-runtime failures and the deferred single-/two-client live
   matrix before Phase 8 can close.

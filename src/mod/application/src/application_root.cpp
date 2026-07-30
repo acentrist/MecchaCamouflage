@@ -207,6 +207,7 @@ auto ApplicationRoot::request_shutdown(
     -> std::expected<void, ApplicationRootError>
 {
     auto initialized = false;
+    auto defer_for_preview = false;
     {
         const auto lock = std::scoped_lock{state_mutex_};
         if (phase_ != ApplicationRuntimePhase::Initializing &&
@@ -217,9 +218,10 @@ auto ApplicationRoot::request_shutdown(
                 ApplicationRootError::InvalidState);
         }
         initialized = runtime_initialized_;
+        defer_for_preview = paint_previews_ != nullptr;
     }
 
-    if (initialized)
+    if (initialized && !defer_for_preview)
     {
         const auto requested =
             lifecycle_.request_shutdown(shutdown_generation);
@@ -235,9 +237,21 @@ auto ApplicationRoot::request_shutdown(
         command_queue_->close();
         static_cast<void>(command_queue_->discard());
     }
+    const auto preview_generation =
+        active_paint_preview_generation_.load(
+            std::memory_order_acquire);
+    if (preview_generation != 0U)
+    {
+        static_cast<void>(
+            paint_preview_builder_.request_cancel(
+                preview_generation));
+    }
 
     const auto lock = std::scoped_lock{state_mutex_};
     phase_ = ApplicationRuntimePhase::ShuttingDown;
+    pending_shutdown_generation_ = shutdown_generation;
+    lifecycle_shutdown_requested_ =
+        initialized && !defer_for_preview;
     publish_locked();
     return {};
 }
@@ -254,6 +268,12 @@ auto ApplicationRoot::finalize_shutdown()
                 ApplicationRootError::InvalidState);
         }
         initialized = runtime_initialized_;
+        if (initialized && paint_previews_ &&
+            !lifecycle_shutdown_requested_)
+        {
+            return std::unexpected(
+                ApplicationRootError::PendingGameThreadRestore);
+        }
     }
 
     if (initialized)
@@ -292,6 +312,7 @@ auto ApplicationRoot::on_hud_frame_complete(
     try
     {
         auto advance = false;
+        auto advance_root_shutdown = false;
         if (!result)
         {
             const auto lock = std::scoped_lock{state_mutex_};
@@ -301,20 +322,33 @@ auto ApplicationRoot::on_hud_frame_complete(
                     : lifecycle_failure(result.error()));
         }
         else if (
-            runtime_snapshot.frame_identity &&
-            phase_ != ApplicationRuntimePhase::ShuttingDown &&
-            phase_ != ApplicationRuntimePhase::Stopped)
+            runtime_snapshot.frame_identity)
         {
             const auto lock = std::scoped_lock{state_mutex_};
-            compatibility_.mark_compatible();
-            phase_ = ApplicationRuntimePhase::Compatible;
-            advance =
-                paint_runtime_ != nullptr &&
-                command_queue_ != nullptr;
+            if (phase_ == ApplicationRuntimePhase::ShuttingDown)
+            {
+                advance_root_shutdown =
+                    runtime_snapshot.phase ==
+                        RuntimePhase::Running &&
+                    !lifecycle_shutdown_requested_;
+            }
+            else if (
+                phase_ != ApplicationRuntimePhase::Stopped)
+            {
+                compatibility_.mark_compatible();
+                phase_ = ApplicationRuntimePhase::Compatible;
+                advance =
+                    paint_runtime_ != nullptr &&
+                    command_queue_ != nullptr;
+            }
         }
         if (advance)
         {
             process_commands(monotonic_milliseconds());
+        }
+        if (advance_root_shutdown)
+        {
+            advance_shutdown();
         }
         const auto lock = std::scoped_lock{state_mutex_};
         publish_locked(runtime_snapshot);
@@ -342,7 +376,7 @@ auto ApplicationRoot::record_runtime_error(
 
 auto ApplicationRoot::record_preview_error(
     const PaintPreviewError& error,
-    CommandId command_id) -> void
+    std::optional<CommandId> command_id) -> void
 {
     auto recorded = false;
     if (error.runtime_error)
@@ -357,7 +391,11 @@ auto ApplicationRoot::record_preview_error(
     }
     if (!recorded)
     {
-        record_command_error(command_id);
+        const auto lock = std::scoped_lock{state_mutex_};
+        diagnostics_.push(
+            DiagnosticSeverity::Warning,
+            GenericFailureMessage,
+            command_id);
     }
 }
 
@@ -629,6 +667,9 @@ auto ApplicationRoot::begin_paint_preview(
         request.id,
         component,
     };
+    active_paint_preview_generation_.store(
+        generation,
+        std::memory_order_release);
 }
 
 auto ApplicationRoot::restore_paint_preview(
@@ -678,6 +719,9 @@ auto ApplicationRoot::defer_for_paint_preview(
             command_id(*deferred_paint_preview_command_);
         deferred_paint_preview_command_.reset();
         active_paint_preview_build_.reset();
+        active_paint_preview_generation_.store(
+            0U,
+            std::memory_order_release);
         const auto restored =
             paint_previews_->restore_active();
         if (!restored)
@@ -758,6 +802,9 @@ auto ApplicationRoot::advance_paint_preview(
                             ? active_paint_preview_build_->command_id
                             : CommandId{};
         active_paint_preview_build_.reset();
+        active_paint_preview_generation_.store(
+            0U,
+            std::memory_order_release);
         const auto restored =
             paint_previews_->restore_active();
         if (!restored && id != 0U)
@@ -770,6 +817,9 @@ auto ApplicationRoot::advance_paint_preview(
 
     const auto active = *active_paint_preview_build_;
     active_paint_preview_build_.reset();
+    active_paint_preview_generation_.store(
+        0U,
+        std::memory_order_release);
     if (deferred_paint_preview_command_)
     {
         auto deferred =
@@ -813,9 +863,64 @@ auto ApplicationRoot::advance_paint_preview(
     }
 }
 
+auto ApplicationRoot::advance_shutdown() -> void
+{
+    if (active_paint_preview_generation_.load(
+            std::memory_order_acquire) != 0U)
+    {
+        auto completed = paint_preview_builder_.poll();
+        if (!completed)
+        {
+            return;
+        }
+        active_paint_preview_build_.reset();
+        active_paint_preview_generation_.store(
+            0U,
+            std::memory_order_release);
+    }
+    deferred_paint_preview_command_.reset();
+
+    if (paint_previews_ && preview_.snapshot().feature)
+    {
+        const auto restored =
+            paint_previews_->restore_active();
+        if (!restored)
+        {
+            record_preview_error(
+                restored.error(),
+                std::nullopt);
+            return;
+        }
+    }
+
+    auto shutdown_generation = std::uint64_t{};
+    {
+        const auto lock = std::scoped_lock{state_mutex_};
+        if (!pending_shutdown_generation_ ||
+            lifecycle_shutdown_requested_)
+        {
+            return;
+        }
+        shutdown_generation = *pending_shutdown_generation_;
+    }
+    const auto requested =
+        lifecycle_.request_shutdown(shutdown_generation);
+    if (!requested)
+    {
+        const auto lock = std::scoped_lock{state_mutex_};
+        fail_locked(lifecycle_failure(requested.error()));
+        return;
+    }
+    const auto lock = std::scoped_lock{state_mutex_};
+    lifecycle_shutdown_requested_ = true;
+}
+
 auto ApplicationRoot::fail_locked(CompatibilityFailure failure) -> void
 {
-    phase_ = ApplicationRuntimePhase::Incompatible;
+    if (phase_ != ApplicationRuntimePhase::ShuttingDown)
+    {
+        phase_ = ApplicationRuntimePhase::Incompatible;
+    }
     compatibility_.fail(failure);
     diagnostics_.push(
         DiagnosticSeverity::Error,
