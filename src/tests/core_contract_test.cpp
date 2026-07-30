@@ -56,11 +56,17 @@ auto main() -> int
         std::numeric_limits<double>::quiet_NaN();
     invalid.paint_material.emissive = 1.01;
     invalid.color_compression_tolerance_percent = -0.01;
+    invalid.front_mode = static_cast<RegionMode>(255U);
+    invalid.side_mode = static_cast<RegionMode>(254U);
+    invalid.back_mode = static_cast<RegionMode>(253U);
     const auto invalid_fields = validate(invalid);
     passed &= expect(
         invalid_fields ==
             std::vector{
                 PaintSettingField::BrushSize,
+                PaintSettingField::FrontMode,
+                PaintSettingField::SideMode,
+                PaintSettingField::BackMode,
                 PaintSettingField::PaintEmissive,
                 PaintSettingField::CompressionTolerance,
             },

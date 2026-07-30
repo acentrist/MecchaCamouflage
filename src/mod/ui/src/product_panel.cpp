@@ -1,5 +1,6 @@
 #include <meccha/product_ui/product_panel.hpp>
 
+#include "product_panel_paint.hpp"
 #include "product_panel_settings.hpp"
 
 #include <meccha/core/utf8.hpp>
@@ -68,6 +69,12 @@ auto labels_valid(const ProductPanelLabels& labels) -> bool
            valid_label(labels.theme_color) &&
            std::ranges::all_of(
                labels.hotkey_labels,
+               valid_label) &&
+           std::ranges::all_of(
+               labels.paint_setting_labels,
+               valid_label) &&
+           std::ranges::all_of(
+               labels.region_mode_labels,
                valid_label);
 }
 
@@ -276,6 +283,40 @@ auto build_product_panel_labels(
             std::string{
                 catalog.text(locale, "hotkey.image.stop")},
         },
+        {
+            std::string{catalog.text(locale, "brush.size")},
+            std::string{catalog.text(locale, "region.sides")} +
+                " UV",
+            std::string{catalog.text(locale, "region.front")} +
+                "/" +
+                std::string{catalog.text(locale, "region.back")} +
+                " UV",
+            std::string{catalog.text(locale, "region.front")},
+            std::string{catalog.text(locale, "region.sides")},
+            std::string{catalog.text(locale, "region.back")},
+            std::string{catalog.text(locale, "auto.material")},
+            std::string{catalog.text(locale, "include.shadows")},
+            std::string{catalog.text(locale, "metallic")},
+            std::string{catalog.text(locale, "roughness")},
+            std::string{catalog.text(locale, "emissive")},
+            std::string{catalog.text(locale, "fill.material")} +
+                " " +
+                std::string{catalog.text(locale, "fill.color")},
+            std::string{catalog.text(locale, "fill.metallic")},
+            std::string{catalog.text(locale, "fill.roughness")},
+            std::string{catalog.text(locale, "fill.material")} +
+                " " +
+                std::string{catalog.text(locale, "emissive")},
+            std::string{
+                catalog.text(
+                    locale,
+                    "color.compression.tolerance")},
+        },
+        {
+            std::string{catalog.text(locale, "mode.paint")},
+            std::string{catalog.text(locale, "mode.fill")},
+            std::string{catalog.text(locale, "mode.skip")},
+        },
     };
 }
 
@@ -402,6 +443,20 @@ auto compose_product_panel(
         if (!result)
         {
             return std::unexpected(result.error());
+        }
+        const auto settings =
+            detail::compose_paint_settings_section(
+                canvas,
+                widgets,
+                *layout,
+                model,
+                labels,
+                input,
+                previous,
+                action);
+        if (!settings)
+        {
+            return std::unexpected(settings.error());
         }
     }
     else if (

@@ -465,6 +465,9 @@ Evidence:
   - [x] Compose the complete portable Settings section for language, UI scale,
     RGB theme color, and all nine F1–F24 mappings with section-local scrolling
     and duplicate-free remapping.
+  - [x] Compose the complete portable Paint settings editor for sampling
+    bounds, three region modes, appearance toggles, independent Paint/Fill
+    materials, Fill color, compression, and bounded section-local scrolling.
   - [ ] Render and interact with every complete section through the production
     UCanvas adapter.
 - [ ] Bind UI only to typed commands and immutable snapshots.
@@ -478,6 +481,8 @@ Evidence:
   - [x] Copy the exact immutable complete config for every Settings edit,
     mutate only the selected field, validate it, and emit one revision-bound
     `UiApplySettings` action without reconstructing omitted state.
+  - [x] Route every portable Paint settings edit through that same exact
+    full-config validation and revision-bound action boundary.
   - [ ] Connect every production Canvas widget/editor activation to that
     product-action boundary and enqueue its typed result.
 - [ ] Complete all editor interactions and body-guide behavior.
@@ -503,12 +508,15 @@ Evidence:
     accent to the portable panel shell and compose its labels for every one of
     the 16 shipped catalogs.
   - [x] Retain bounded per-section scroll state and exclude clipped Settings
-    controls from keyboard focus/action admission.
+    and Paint controls from keyboard focus/action admission.
 - [x] Ensure panel close preserves ESP and active jobs.
 - [ ] Pass UI action/state, gesture, hotkey, layout, and localization tests.
   - [x] Pass portable panel tests for all shipped locales, section switching,
     enabled/disabled typed actions, revision binding, panel-close input
     release, and invalid label/state refusal.
+  - [x] Prove every Paint setting control changes only its owned field in a
+    complete validated config, including strict rejection of invalid region
+    enum values.
 - [ ] DEFERRED — maintainer interaction required: complete the full in-game UI
   walkthrough across languages/resolutions/DPI.
 

@@ -1,9 +1,11 @@
 #include <meccha/product_ui/product_panel.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -190,6 +192,322 @@ auto main(int argc, char** argv) -> int
     passed &= expect(
         disabled_start && !disabled_start->action,
         "disabled Paint Start emitted an action");
+
+    auto paint_settings_input = default_input();
+    paint_settings_input.pointer = ui::PointerFrame{
+        {
+            initial->layout->content.x +
+                initial->layout->content.width * 0.8,
+            initial->layout->content.y + 68.0,
+        },
+        true,
+        false,
+        true,
+        0.0,
+    };
+    const auto paint_settings = compose_product_panel(
+        model,
+        initial->state,
+        paint_settings_input,
+        english);
+    const auto* paint_settings_action =
+        paint_settings && paint_settings->action
+            ? std::get_if<UiApplySettings>(
+                  &paint_settings->action->action)
+            : nullptr;
+    passed &= expect(
+        paint_settings_action &&
+            paint_settings_action->settings.paint.brush_size_texels !=
+                model.settings.config.paint.brush_size_texels &&
+            paint_settings_action->settings.image_paint ==
+                model.settings.config.image_paint &&
+            core::validate(paint_settings_action->settings).empty(),
+        "Paint brush control did not emit a validated complete config");
+
+    const auto invoke_paint_control =
+        [&](std::size_t row,
+            double horizontal_fraction,
+            double vertical_in_row = 22.0)
+        -> std::optional<core::ApplicationConfig>
+    {
+        constexpr auto RowHeight = 44.0;
+        constexpr auto ActionInset = 46.0;
+        constexpr auto RowCount = 16.0;
+        const auto viewport_height =
+            initial->layout->content.height - ActionInset;
+        const auto maximum_offset =
+            std::max(
+                0.0,
+                RowCount * RowHeight - viewport_height);
+        const auto offset = std::clamp(
+            static_cast<double>(row) * RowHeight -
+                viewport_height * 0.5,
+            0.0,
+            maximum_offset);
+        auto next_state = initial->state;
+        next_state.section_scroll[0U].offset_y = offset;
+
+        const auto control_x =
+            initial->layout->content.x +
+            initial->layout->content.width * 0.42 + 8.0;
+        const auto control_width =
+            initial->layout->content.width * 0.58 - 8.0;
+        auto next_input = default_input();
+        next_input.pointer = ui::PointerFrame{
+            {
+                control_x +
+                    control_width * horizontal_fraction,
+                initial->layout->content.y + ActionInset +
+                    static_cast<double>(row) * RowHeight -
+                    offset + vertical_in_row,
+            },
+            true,
+            false,
+            true,
+            0.0,
+        };
+        const auto output = compose_product_panel(
+            model,
+            next_state,
+            next_input,
+            english);
+        const auto* settings =
+            output && output->action
+                ? std::get_if<UiApplySettings>(
+                      &output->action->action)
+                : nullptr;
+        return settings
+                   ? std::optional{settings->settings}
+                   : std::nullopt;
+    };
+    const auto changed_only =
+        [&](const std::optional<core::ApplicationConfig>& config,
+            auto&& changed,
+            auto&& restore) -> bool
+    {
+        if (!config || !core::validate(*config).empty() ||
+            !changed(config->paint))
+        {
+            return false;
+        }
+        auto restored = *config;
+        restore(restored.paint, model.paint.settings);
+        return restored == model.settings.config;
+    };
+
+    passed &= expect(
+        changed_only(
+            invoke_paint_control(1U, 0.8),
+            [](const core::PaintSettings& settings)
+            {
+                return settings.side_source_max_uv != 0.08;
+            },
+            [](core::PaintSettings& changed,
+               const core::PaintSettings& original)
+            {
+                changed.side_source_max_uv =
+                    original.side_source_max_uv;
+            }) &&
+            changed_only(
+                invoke_paint_control(2U, 0.8),
+                [](const core::PaintSettings& settings)
+                {
+                    return settings.front_back_source_max_uv !=
+                           0.45;
+                },
+                [](core::PaintSettings& changed,
+                   const core::PaintSettings& original)
+                {
+                    changed.front_back_source_max_uv =
+                        original.front_back_source_max_uv;
+                }),
+        "Paint source-range controls changed an invalid or unrelated field");
+
+    const auto front = invoke_paint_control(3U, 0.5);
+    const auto side = invoke_paint_control(4U, 0.5);
+    const auto back = invoke_paint_control(5U, 0.5);
+    passed &= expect(
+        changed_only(
+            front,
+            [](const core::PaintSettings& settings)
+            {
+                return settings.front_mode ==
+                       core::RegionMode::Paint;
+            },
+            [](core::PaintSettings& changed,
+               const core::PaintSettings& original)
+            {
+                changed.front_mode = original.front_mode;
+            }) &&
+            changed_only(
+                side,
+                [](const core::PaintSettings& settings)
+                {
+                    return settings.side_mode ==
+                           core::RegionMode::Fill;
+                },
+                [](core::PaintSettings& changed,
+                   const core::PaintSettings& original)
+                {
+                    changed.side_mode = original.side_mode;
+                }) &&
+            changed_only(
+                back,
+                [](const core::PaintSettings& settings)
+                {
+                    return settings.back_mode ==
+                           core::RegionMode::Fill;
+                },
+                [](core::PaintSettings& changed,
+                   const core::PaintSettings& original)
+                {
+                    changed.back_mode = original.back_mode;
+                }),
+        "Paint region controls did not cycle one routing mode");
+
+    passed &= expect(
+        changed_only(
+            invoke_paint_control(6U, 0.5),
+            [](const core::PaintSettings& settings)
+            {
+                return settings.auto_material;
+            },
+            [](core::PaintSettings& changed,
+               const core::PaintSettings& original)
+            {
+                changed.auto_material = original.auto_material;
+            }) &&
+            changed_only(
+                invoke_paint_control(7U, 0.5),
+                [](const core::PaintSettings& settings)
+                {
+                    return settings.include_scene_lighting;
+                },
+                [](core::PaintSettings& changed,
+                   const core::PaintSettings& original)
+                {
+                    changed.include_scene_lighting =
+                        original.include_scene_lighting;
+                }),
+        "Paint appearance toggles changed an invalid or unrelated field");
+
+    const auto paint_metallic = invoke_paint_control(8U, 0.8);
+    const auto paint_roughness = invoke_paint_control(9U, 0.8);
+    const auto paint_emissive = invoke_paint_control(10U, 0.8);
+    passed &= expect(
+        changed_only(
+            paint_metallic,
+            [](const core::PaintSettings& settings)
+            {
+                return settings.paint_material.metallic > 0.0;
+            },
+            [](core::PaintSettings& changed,
+               const core::PaintSettings& original)
+            {
+                changed.paint_material.metallic =
+                    original.paint_material.metallic;
+            }) &&
+            changed_only(
+                paint_roughness,
+                [](const core::PaintSettings& settings)
+                {
+                    return settings.paint_material.roughness < 1.0;
+                },
+                [](core::PaintSettings& changed,
+                   const core::PaintSettings& original)
+                {
+                    changed.paint_material.roughness =
+                        original.paint_material.roughness;
+                }) &&
+            changed_only(
+                paint_emissive,
+                [](const core::PaintSettings& settings)
+                {
+                    return settings.paint_material.emissive > 0.0;
+                },
+                [](core::PaintSettings& changed,
+                   const core::PaintSettings& original)
+                {
+                    changed.paint_material.emissive =
+                        original.paint_material.emissive;
+                }),
+        "Paint material controls changed an invalid or unrelated field");
+
+    const auto fill_color = invoke_paint_control(
+        11U,
+        0.5,
+        8.0);
+    passed &= expect(
+        changed_only(
+            fill_color,
+            [](const core::PaintSettings& settings)
+            {
+                return settings.fill_color.red < 255U;
+            },
+            [](core::PaintSettings& changed,
+               const core::PaintSettings& original)
+            {
+                changed.fill_color = original.fill_color;
+            }),
+        "Paint Fill color control changed an invalid or unrelated field");
+
+    const auto fill_metallic = invoke_paint_control(12U, 0.8);
+    const auto fill_roughness = invoke_paint_control(13U, 0.8);
+    const auto fill_emissive = invoke_paint_control(14U, 0.8);
+    const auto compression = invoke_paint_control(15U, 0.8);
+    passed &= expect(
+        changed_only(
+            fill_metallic,
+            [](const core::PaintSettings& settings)
+            {
+                return settings.fill_material.metallic < 1.0;
+            },
+            [](core::PaintSettings& changed,
+               const core::PaintSettings& original)
+            {
+                changed.fill_material.metallic =
+                    original.fill_material.metallic;
+            }) &&
+            changed_only(
+                fill_roughness,
+                [](const core::PaintSettings& settings)
+                {
+                    return settings.fill_material.roughness > 0.0;
+                },
+                [](core::PaintSettings& changed,
+                   const core::PaintSettings& original)
+                {
+                    changed.fill_material.roughness =
+                        original.fill_material.roughness;
+                }) &&
+            changed_only(
+                fill_emissive,
+                [](const core::PaintSettings& settings)
+                {
+                    return settings.fill_material.emissive > 0.0;
+                },
+                [](core::PaintSettings& changed,
+                   const core::PaintSettings& original)
+                {
+                    changed.fill_material.emissive =
+                        original.fill_material.emissive;
+                }) &&
+            changed_only(
+                compression,
+                [](const core::PaintSettings& settings)
+                {
+                    return settings
+                               .color_compression_tolerance_percent >
+                           5.0;
+                },
+                [](core::PaintSettings& changed,
+                   const core::PaintSettings& original)
+                {
+                    changed.color_compression_tolerance_percent =
+                        original
+                            .color_compression_tolerance_percent;
+                }),
+        "Paint Fill material or compression control changed an invalid or unrelated field");
 
     auto esp_state = initial->state;
     esp_state.selected = ProductUiSection::Esp;

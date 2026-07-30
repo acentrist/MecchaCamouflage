@@ -135,11 +135,11 @@ bounded `CanvasFrame`, the responsive layout, the next local UI state, and at
 most one revision-bound product action.
 
 The shell currently renders all five localized section tabs, Paint and Image
-Paint Start/Preview/Restore/Cancel rows, an ESP toggle, the complete portable
-Settings controls, and a language-neutral completed/total and command-queue
-summary. It applies viewport/DPI/configured scale, safe-area fitting, clipping,
-and the configured theme accent. Disabled presentation actions cannot emit
-commands. Tab switching changes only local panel state.
+Paint Start/Preview/Restore/Cancel rows, the complete portable Paint and
+Settings controls, an ESP toggle, and a language-neutral completed/total and
+command-queue summary. It applies viewport/DPI/configured scale, safe-area
+fitting, clipping, and the configured theme accent. Disabled presentation
+actions cannot emit commands. Tab switching changes only local panel state.
 
 Closing the panel emits an empty frame, releases pointer capture and keyboard
 focus, preserves the selected section, and does not mutate the model's ESP,
@@ -171,15 +171,36 @@ cover exact config copying, language, scale bounds, isolated RGB edits,
 duplicate-free hotkeys, unavailable actions, compact scrolling, all catalogs,
 and divergent-model refusal.
 
-This remains a partial product UI milestone. Paint/ESP settings editors, the
-full Image Paint canvas integration, project file operations, direct hotkey
-capture UX, localized progress/compatibility/diagnostics formatting, and the
-production UCanvas adapter remain open.
+## Complete portable Paint settings section
+
+The Paint section retains its four job/preview actions and adds every current
+configuration field below them: brush size, side and front/back source bounds,
+independent Front/Side/Back Paint/Fill/Skip routing, Auto Material, scene
+lighting, Paint metallic/roughness/emissive, Fill color and independent
+metallic/roughness/emissive, and color-compression tolerance.
+
+Controls read the exact immutable Paint presentation and start edits from the
+exact complete `ApplicationConfig`. Each interaction changes only its owned
+field, validates the full result, and emits at most one revision-bound
+`UiApplySettings` action. The section has retained bounded scrolling, clipped
+control exclusion, localized labels and region-mode values, and finite
+validation ranges shared with the core contract. Core validation now also
+rejects unknown Front/Side/Back enum values instead of treating an invalid
+persisted routing value as valid.
+
+Portable tests exercise all three sampling/size values, all three region
+controls, both toggles, all six material values, Fill color, compression,
+field isolation, full-config validity, and the pre-existing action row.
+
+This remains a partial product UI milestone. ESP settings, the full Image
+Paint canvas integration, project file operations, direct hotkey capture UX,
+localized progress/compatibility/diagnostics formatting, and the production
+UCanvas adapter remain open.
 
 ## Remaining work
 
-- Compose the five complete Paint, Image Paint, ESP, Settings, and Diagnostics
-  Canvas sections from the implemented shell and immutable presentation values.
+- Compose the complete Image Paint, ESP, and Diagnostics Canvas sections from
+  the implemented shell and immutable presentation values.
 - Connect the Image Paint editor and project operations to the implemented
   typed product-action router without direct runtime mutation.
 - Enqueue the returned product action through the production callback boundary.

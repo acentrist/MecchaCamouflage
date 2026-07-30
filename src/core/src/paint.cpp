@@ -28,6 +28,13 @@ auto valid_range(double value, double minimum, double maximum) -> bool
     return std::isfinite(value) && value >= minimum && value <= maximum;
 }
 
+auto valid_region_mode(RegionMode mode) -> bool
+{
+    return mode == RegionMode::Paint ||
+           mode == RegionMode::Fill ||
+           mode == RegionMode::Skip;
+}
+
 auto ceil_div_positive(std::int64_t numerator, int denominator) -> int
 {
     return denominator > 0 && numerator > 0
@@ -103,6 +110,15 @@ auto validate(const PaintSettings& settings)
     check(
         valid_range(settings.front_back_source_max_uv, 0.001, 2.0),
         PaintSettingField::FrontBackSourceMaximum);
+    check(
+        valid_region_mode(settings.front_mode),
+        PaintSettingField::FrontMode);
+    check(
+        valid_region_mode(settings.side_mode),
+        PaintSettingField::SideMode);
+    check(
+        valid_region_mode(settings.back_mode),
+        PaintSettingField::BackMode);
     check(
         valid_range(settings.paint_material.metallic, 0.0, 1.0),
         PaintSettingField::PaintMetallic);
