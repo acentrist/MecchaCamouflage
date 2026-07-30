@@ -3,7 +3,14 @@
 #include <meccha/launcher/hash.hpp>
 #include <meccha/launcher/owned_file_storage.hpp>
 
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <objbase.h>
+
 #include <algorithm>
+#include <array>
+#include <cstddef>
 #include <filesystem>
 #include <optional>
 #include <span>
@@ -347,6 +354,38 @@ auto result_matches(
                mutates(request.override_file.action);
 }
 } // namespace
+
+auto Win32ElevatedBrokerNonceSource::next_nonce()
+    -> std::expected<
+        std::string,
+        LauncherEffectError>
+{
+    GUID guid{};
+    if (FAILED(CoCreateGuid(&guid)))
+    {
+        return std::unexpected(LauncherEffectError{
+            "Elevated loader broker: a private request nonce "
+            "could not be generated.",
+        });
+    }
+    constexpr std::array<char, 16> Hex{
+        '0', '1', '2', '3', '4', '5', '6', '7',
+        '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
+    };
+    static_assert(sizeof(GUID) == 16U);
+    const auto bytes =
+        std::as_bytes(std::span{&guid, 1U});
+    auto result = std::string{};
+    result.reserve(32U);
+    for (const auto value : bytes)
+    {
+        const auto byte =
+            std::to_integer<unsigned int>(value);
+        result.push_back(Hex[byte >> 4U]);
+        result.push_back(Hex[byte & 0x0FU]);
+    }
+    return result;
+}
 
 Win32OriginalUserElevatedLoaderBroker::
     Win32OriginalUserElevatedLoaderBroker(

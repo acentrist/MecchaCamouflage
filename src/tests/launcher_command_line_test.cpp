@@ -101,11 +101,23 @@ auto main() -> int
     };
     const auto unknown =
         parse_launcher_arguments(unknown_arguments);
+    constexpr std::array internal_arguments{
+        std::string_view{
+            "--meccha-internal-elevated-broker-v1"},
+        std::string_view{
+            "0123456789abcdef0123456789abcdef"},
+        std::string_view{"4242"},
+    };
+    const auto internal =
+        parse_launcher_arguments(internal_arguments);
     passed &= expect(
         !unknown &&
             unknown.error().code ==
+                LauncherArgumentErrorCode::UnknownArgument &&
+            !internal &&
+            internal.error().code ==
                 LauncherArgumentErrorCode::UnknownArgument,
-        "an unsupported launcher operation was accepted");
+        "an unsupported or internal launcher operation was accepted");
 
     constexpr char EmbeddedNull[]{"bad\0path"};
     const std::array invalid_value_arguments{

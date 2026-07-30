@@ -129,6 +129,11 @@ Evidence:
   - [x] Define a bounded canonical binary broker request/response protocol with
     nonce echo, strict framing, UTF-16 path validation, and no arbitrary target
     or ownership path.
+  - [x] Bind the broker protocol to one first-instance, local-only named pipe
+    with a protected user/Administrators/System DACL, exact launched/connected
+    PID checks, same-executable and same-session validation, elevated-child
+    token validation, parent SID capture, peer-exit/timeout handling, and an
+    internal nonce/PID-only `runas` child mode kept outside the public CLI.
   - [ ] Implement the minimal elevated two-file broker.
 - [x] Implement safe reuse, repair, update, cleanup, and `--remove`.
 - [ ] Pass temporary-tree, hostile-path, reparse, interrupted-transaction,

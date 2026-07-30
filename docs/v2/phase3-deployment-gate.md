@@ -244,6 +244,19 @@ open.
   exact mutation flags or one bounded UTF-8 typed error. Truncation, trailing
   bytes, unknown enums, invalid UTF-16/UTF-8, embedded NULs, and oversized
   content are rejected.
+- The broker transport creates exactly one local-only byte-mode named-pipe
+  instance derived from the private 128-bit request nonce. Its protected DACL
+  admits only the invoking user, Administrators, and LocalSystem; remote
+  clients and a second server instance are rejected. The original process
+  binds the connected client PID to the exact `ShellExecuteExW("runas")`
+  process, then validates the same executable, interactive session, and
+  elevated token before sending any request. The child independently binds the
+  pipe server to the supplied parent PID, same executable, and session and
+  retains the validated original-parent SID/session identity. Bounded
+  length-prefixed overlapped I/O observes both timeout and peer-process exit.
+  Only the nonce and parent PID cross the internal command line; the mutation
+  request, game path, measurements, and payload never do, and the internal
+  grammar is separate from the three public launcher switches.
 - Native writability observation walks only absolute normalized plain
   directory components, rejects reparses, opens the nearest existing directory
   with the exact create/delete-child access needed by publication, and treats
@@ -402,6 +415,13 @@ The broker-protocol suite proves Unicode request and typed success/error
 round trips, rejection at every truncated request length, strict trailing-data
 and unknown-action refusal, embedded-NUL path refusal, response truncation
 refusal, and bounded error detail.
+The broker-transport suite proves an end-to-end authenticated named-pipe
+exchange into the restricted two-file executor, original-parent SID/session
+capture, strict internal invocation grammar, canonical `runas` parameters,
+private GUID nonce generation, launched/connected PID mismatch refusal,
+response-nonce mismatch refusal, and native same-executable/session parent
+identity checks without displaying UAC. A successful real elevated-token and
+alternate-credential exchange remains a live gate.
 The command-line and Windows single-instance suites prove the exact public
 switch grammar, conflicting/hostile input rejection, concurrent-instance
 refusal, and deterministic guard release.

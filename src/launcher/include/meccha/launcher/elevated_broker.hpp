@@ -50,6 +50,16 @@ public:
             LauncherEffectError> = 0;
 };
 
+class Win32ElevatedBrokerNonceSource final
+    : public ElevatedBrokerNonceSource
+{
+public:
+    auto next_nonce()
+        -> std::expected<
+            std::string,
+            LauncherEffectError> override;
+};
+
 class Win32OriginalUserElevatedLoaderBroker final
     : public ElevatedLoaderBroker
 {
