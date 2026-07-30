@@ -549,4 +549,18 @@ auto Win32LauncherObservationSource::shared_runtime_directory() const
 {
     return shared_runtime_directory_;
 }
+
+auto Win32LauncherObservationSource::
+    selected_shared_runtime_directory() const
+    -> std::expected<fs::path, LauncherEffectError>
+{
+    if (!shared_runtime_directory_)
+    {
+        return std::unexpected(LauncherEffectError{
+            "No compatible shared runtime was selected by the "
+            "original-user observation.",
+        });
+    }
+    return *shared_runtime_directory_;
+}
 } // namespace meccha::launcher

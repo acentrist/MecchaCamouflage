@@ -1,5 +1,6 @@
 #pragma once
 
+#include <meccha/launcher/deployment_paths.hpp>
 #include <meccha/launcher/execution.hpp>
 #include <meccha/launcher/managed_loader.hpp>
 #include <meccha/launcher/shared_mod.hpp>
@@ -133,6 +134,18 @@ public:
         ElevatedLoaderBroker& elevated_loader_broker,
         SteamGameLauncher& steam_launcher);
 
+    Win32LauncherExecutionBackend(
+        RuntimeStorage& runtime_storage,
+        Sha256Digest manifest_sha256,
+        std::string runtime_nonce,
+        std::filesystem::path game_directory,
+        std::filesystem::path ownership_directory,
+        SharedRuntimeDirectorySource&
+            shared_runtime_directory_source,
+        LauncherMaterialProvider& material_provider,
+        ElevatedLoaderBroker& elevated_loader_broker,
+        SteamGameLauncher& steam_launcher);
+
     auto prepare_runtime_cache(RuntimeCacheAction action)
         -> std::expected<void, LauncherEffectError> override;
 
@@ -155,12 +168,19 @@ public:
         -> std::expected<void, LauncherEffectError> override;
 
 private:
+    auto selected_shared_runtime_directory() const
+        -> std::expected<
+            std::filesystem::path,
+            LauncherEffectError>;
+
     RuntimeStorage& runtime_storage_;
     Sha256Digest manifest_sha256_{};
     std::string runtime_nonce_{};
     std::filesystem::path game_directory_{};
     std::filesystem::path ownership_directory_{};
     std::filesystem::path shared_runtime_directory_{};
+    SharedRuntimeDirectorySource*
+        shared_runtime_directory_source_{};
     LauncherMaterialProvider& material_provider_;
     ElevatedLoaderBroker& elevated_loader_broker_;
     SteamGameLauncher& steam_launcher_;

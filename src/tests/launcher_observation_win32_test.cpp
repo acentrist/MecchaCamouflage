@@ -19,6 +19,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace
@@ -314,6 +315,52 @@ private:
     const ManagedLoaderMaterial& managed_;
     const SharedModMaterial& shared_;
 };
+
+class UnexpectedBroker final : public ElevatedLoaderBroker
+{
+public:
+    auto apply(
+        const ManagedLoaderPlan&,
+        const fs::path&,
+        const fs::path&,
+        const ManagedLoaderMaterial&)
+        -> std::expected<void, LauncherEffectError> override
+    {
+        called = true;
+        return std::unexpected(LauncherEffectError{
+            "shared execution reached the elevated broker",
+        });
+    }
+
+    auto remove(
+        const RemovalPlan&,
+        const fs::path&,
+        const fs::path&)
+        -> std::expected<void, LauncherEffectError> override
+    {
+        called = true;
+        return std::unexpected(LauncherEffectError{
+            "shared execution reached the elevated broker",
+        });
+    }
+
+    bool called{};
+};
+
+class UnexpectedSteamLauncher final : public SteamGameLauncher
+{
+public:
+    auto launch()
+        -> std::expected<void, LauncherEffectError> override
+    {
+        called = true;
+        return std::unexpected(LauncherEffectError{
+            "prepare-only reached Steam",
+        });
+    }
+
+    bool called{};
+};
 } // namespace
 
 auto main() -> int
@@ -417,6 +464,37 @@ auto main() -> int
         platform.game_checks == 3U &&
             platform.launch_option_reads == 3U,
         "the platform boundary was not called exactly once per observation");
+
+    UnexpectedBroker broker{};
+    UnexpectedSteamLauncher steam{};
+    Win32LauncherExecutionBackend shared_backend{
+        storage,
+        package.manifest_sha256,
+        "0123456789abcdef0123456789abcdef",
+        paths.game_directory,
+        paths.ownership_directory,
+        shared_source,
+        material_provider,
+        broker,
+        steam,
+    };
+    const auto shared_prepared = run_launcher_workflow(
+        LauncherInvocationMode::PrepareOnly,
+        shared_source,
+        shared_backend);
+    passed &= expect(
+        shared_prepared &&
+            std::holds_alternative<PreparationExecutionResult>(
+                *shared_prepared) &&
+            fs::exists(
+                tree.root / "shared" / "Mods" /
+                "MecchaCamouflage" / "dlls" / "main.dll") &&
+            fs::exists(
+                tree.root / "shared" / "Mods" /
+                "MecchaCamouflage" / "enabled.txt") &&
+            !fs::exists(paths.active_runtime_directory) &&
+            !broker.called && !steam.called,
+        "the observed shared root was not bound to prepare-only execution");
 
     Win32OriginalUserObservationPlatform native_platform{};
     const auto absent_probe =

@@ -109,8 +109,8 @@ Evidence:
   - [x] Bind the native original-user observation source to active Steam
     options, loader targets, managed ownership, recovered cache identity,
     shared runtime/config/mod state, and non-mutating access probes.
-  - [ ] Bind the observed shared runtime root into the execution composition
-    root.
+  - [x] Bind the observed shared runtime root into the execution backend
+    without re-reading loader configuration.
   - [ ] Implement the minimal elevated two-file broker.
 - [x] Implement safe reuse, repair, update, cleanup, and `--remove`.
 - [ ] Pass temporary-tree, hostile-path, reparse, interrupted-transaction,

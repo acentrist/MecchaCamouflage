@@ -1,5 +1,6 @@
 #pragma once
 
+#include <meccha/launcher/deployment_paths.hpp>
 #include <meccha/launcher/manifest.hpp>
 #include <meccha/launcher/observation_assembly.hpp>
 
@@ -78,7 +79,8 @@ public:
 };
 
 class Win32LauncherObservationSource final
-    : public LauncherObservationSource
+    : public LauncherObservationSource,
+      public SharedRuntimeDirectorySource
 {
 public:
     Win32LauncherObservationSource(
@@ -101,6 +103,11 @@ public:
 
     [[nodiscard]] auto shared_runtime_directory() const
         -> const std::optional<std::filesystem::path>&;
+
+    auto selected_shared_runtime_directory() const
+        -> std::expected<
+            std::filesystem::path,
+            LauncherEffectError> override;
 
 private:
     auto observe_evidence()

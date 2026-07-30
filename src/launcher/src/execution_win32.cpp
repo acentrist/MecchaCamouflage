@@ -132,6 +132,50 @@ Win32LauncherExecutionBackend::Win32LauncherExecutionBackend(
 {
 }
 
+Win32LauncherExecutionBackend::Win32LauncherExecutionBackend(
+    RuntimeStorage& runtime_storage,
+    Sha256Digest manifest_sha256,
+    std::string runtime_nonce,
+    std::filesystem::path game_directory,
+    std::filesystem::path ownership_directory,
+    SharedRuntimeDirectorySource&
+        shared_runtime_directory_source,
+    LauncherMaterialProvider& material_provider,
+    ElevatedLoaderBroker& elevated_loader_broker,
+    SteamGameLauncher& steam_launcher)
+    : runtime_storage_(runtime_storage),
+      manifest_sha256_(manifest_sha256),
+      runtime_nonce_(std::move(runtime_nonce)),
+      game_directory_(std::move(game_directory)),
+      ownership_directory_(std::move(ownership_directory)),
+      shared_runtime_directory_source_(
+          std::addressof(shared_runtime_directory_source)),
+      material_provider_(material_provider),
+      elevated_loader_broker_(elevated_loader_broker),
+      steam_launcher_(steam_launcher)
+{
+}
+
+auto Win32LauncherExecutionBackend::
+    selected_shared_runtime_directory() const
+    -> std::expected<
+        std::filesystem::path,
+        LauncherEffectError>
+{
+    if (shared_runtime_directory_source_ != nullptr)
+    {
+        return shared_runtime_directory_source_
+            ->selected_shared_runtime_directory();
+    }
+    if (shared_runtime_directory_.empty())
+    {
+        return effect_error(
+            "Shared runtime selection",
+            "no runtime directory is bound");
+    }
+    return shared_runtime_directory_;
+}
+
 auto Win32LauncherExecutionBackend::prepare_runtime_cache(
     RuntimeCacheAction action)
     -> std::expected<void, LauncherEffectError>
@@ -203,6 +247,12 @@ auto Win32LauncherExecutionBackend::apply_shared_mod(
     SharedModAction action)
     -> std::expected<void, LauncherEffectError>
 {
+    const auto shared_runtime =
+        selected_shared_runtime_directory();
+    if (!shared_runtime)
+    {
+        return std::unexpected(shared_runtime.error());
+    }
     const auto material = material_provider_.shared_mod();
     if (!material)
     {
@@ -210,7 +260,7 @@ auto Win32LauncherExecutionBackend::apply_shared_mod(
     }
     auto applied = apply_shared_mod_plan(
         action,
-        shared_runtime_directory_,
+        *shared_runtime,
         ownership_directory_,
         **material);
     if (!applied)
@@ -266,6 +316,12 @@ auto Win32LauncherExecutionBackend::remove_shared_mod(
     const RemovalPlan& plan)
     -> std::expected<void, LauncherEffectError>
 {
+    const auto shared_runtime =
+        selected_shared_runtime_directory();
+    if (!shared_runtime)
+    {
+        return std::unexpected(shared_runtime.error());
+    }
     const auto material = material_provider_.shared_mod();
     if (!material)
     {
@@ -273,7 +329,7 @@ auto Win32LauncherExecutionBackend::remove_shared_mod(
     }
     auto removed = apply_shared_mod_removal(
         plan,
-        shared_runtime_directory_,
+        *shared_runtime,
         ownership_directory_,
         **material);
     if (!removed)

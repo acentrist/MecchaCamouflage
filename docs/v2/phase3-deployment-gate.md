@@ -192,6 +192,10 @@ and final embedded-resource binding remain open, so Phase 3 remains open.
   cache identity, and shared runtime/config/mod classification into that
   assembler. It resolves the selected shared runtime root once for the
   execution composition root and never attaches to the game process.
+- Shared execution consumes that exact observed runtime root through a
+  composition-owned provider. The backend has no inferred or fallback shared
+  path, and both install and removal fail before material access when no
+  compatible root was selected.
 - Native writability observation walks only absolute normalized plain
   directory components, rejects reparses, opens the nearest existing directory
   with the exact create/delete-child access needed by publication, and treats
@@ -321,7 +325,10 @@ effects and retry-once/cache-after-success behavior across runtime publication.
 The Win32 observation-source suite proves read-only clean-managed and
 launch-option shared-runtime assembly, exact resolved-root retention,
 no ownership-directory creation, one platform read per observation, and a
-non-mutating current-user access probe for a not-yet-created cache path.
+non-mutating current-user access probe for a not-yet-created cache path. It
+also runs the observed shared root through the portable workflow and Win32
+backend to a complete prepare-only mod installation without touching the
+managed cache, elevated broker, or Steam.
 The command-line and Windows single-instance suites prove the exact public
 switch grammar, conflicting/hostile input rejection, concurrent-instance
 refusal, and deterministic guard release.
@@ -352,9 +359,8 @@ without adding a test-only branch to production coordination.
 ## Remaining Phase 3 work
 
 - Invoke the native folder-picker fallback from automatic discovery failures.
-- Bind the observation source's selected shared runtime root to the Win32
-  execution backend, then build the native material/execution composition root
-  and connect the concrete Steam URI launcher.
+- Build the native launcher composition root around the bound observation,
+  material, and execution adapters and connect the concrete Steam URI launcher.
 - Validate Unicode and ANSI-round-trip behavior of the pinned proxy's
   narrow-string `override.txt` reader. Use a verified short path when
   available and fail closed if the stable runtime path cannot be represented;
