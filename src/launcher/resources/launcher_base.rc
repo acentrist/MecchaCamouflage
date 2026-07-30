@@ -1,3 +1,4 @@
 #include <windows.h>
 
 1 RT_MANIFEST "launcher.exe.manifest"
+201 ICON "../../../resources/app-icons/icon.ico"

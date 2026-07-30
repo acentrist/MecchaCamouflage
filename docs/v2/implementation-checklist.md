@@ -414,6 +414,12 @@ Evidence:
 
 - [ ] Complete launcher switches and every managed/shared lifecycle.
 - [ ] Assemble the minimal release UE4SS configuration.
+  - [x] Implement an exact trusted-build runtime assembler that disables
+    UE4SS consoles/debug UI/hot reload/crash dumps, packages only the product
+    C++ mod and retained resources/licenses, and emits the canonical layout
+    input without modifying the pinned UE4SS source.
+  - [ ] Confirm the assembled runtime inventory and generated-path allowlist
+    through the trusted build and live architecture gate.
 - [x] Generate canonical manifest and deterministic CAB.
   - [x] Generate the manifest from an exact declared layout with canonical
     ordering, SHA-256/size binding, strict hostile-path rejection, exact tree

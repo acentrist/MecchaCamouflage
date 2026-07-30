@@ -905,6 +905,12 @@ add_test(
         "${PROJECT_SOURCE_DIR}/tools/v2/test_generate_payload_manifest.py"
 )
 add_test(
+    NAME runtime_assembly_tool
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tools/v2/test_assemble_runtime.py"
+)
+add_test(
     NAME payload_cab_tool
     COMMAND
         "${Python3_EXECUTABLE}"

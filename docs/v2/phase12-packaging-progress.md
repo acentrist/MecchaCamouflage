@@ -135,6 +135,36 @@ loader material through the command line. Development builds may omit the
 resource pair to compile and test the native shell, but such an executable
 fails closed at package loading and is not a release artifact.
 
+## Trusted runtime assembler
+
+`tools/v2/assemble_runtime.py` accepts only explicit trusted-build
+`UE4SS.dll`, `dwmapi.dll`, and `main.dll` paths plus the pinned UE4SS settings,
+member layout, UE4SS license, and a separately audited dependency-notice
+bundle. It copies no build directory by wildcard and does not run or modify
+the upstream UE4SS release script.
+
+The output inventory is limited to:
+
+- the pinned proxy and runtime DLL;
+- a project-owned C++ mod directory with `main.dll` and an empty
+  `enabled.txt`;
+- the upstream member-variable layout and a copied release settings file;
+- the exact six profile files, one 16-locale catalog, and eight D-DIN font
+  files; and
+- project, UE4SS, libwebp, D-DIN, and audited dependency notices.
+
+The settings copy keeps scanning and input support but disables UE4SS
+hot-reload paths, UObject-array caching, simple/debug consoles, debug UI, and
+crash-dump output. The source settings file is never edited. `UE4SS.log` and
+`cache` are the only current generated-path entries; the trusted/live gate
+must confirm that exact allowlist before it is frozen.
+
+Assembly refuses missing, empty, linked/reparse, unexpected-resource,
+changed-settings-schema, overlapping-output, and pre-existing-output inputs.
+It builds in a private sibling directory and publishes the payload and
+canonical layout only after complete validation. The release icon is a native
+Win32 resource and is not duplicated inside the runtime CAB.
+
 ## Automated evidence
 
 `payload_manifest_tool` covers:
@@ -162,6 +192,11 @@ CAB files including an empty UE4SS enable marker, workspace cleanup, and
 refusal of missing resources, wrong hashes, undeclared files, duplicate
 manifest paths, hostile lookups, and truncated CAB data.
 
+`runtime_assembly_tool` additionally proves exact resource/role inventory,
+release-only settings without upstream mutation, required notice inputs,
+linked-input refusal, pre-existing-output preservation, and no partial
+publication after validation failure.
+
 Portable target-validation coverage runs in the normal Linux graph and the
 Linux ASan/UBSan graph. The MakeCab determinism and round-trip case runs in the
 Windows MSVC Release graph.
@@ -169,6 +204,7 @@ Windows MSVC Release graph.
 ## Remaining packaging work
 
 - Assemble and freeze the minimal trusted UE4SS runtime layout.
+- Audit the complete linked dependency notice bundle in the protected build.
 - Embed CAB, manifest, layout identity, localization, profiles, fonts, icon,
   project/UE4SS/dependency licenses, and notices as Win32 resources.
 - Add final binary, provenance, import/export, license, forbidden-artifact, and
