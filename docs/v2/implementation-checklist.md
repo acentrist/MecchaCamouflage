@@ -368,6 +368,9 @@ Evidence:
     project-settings mutations through the application owner, retain the
     newest immutable draft while composition is active, and publish only
     bounded editor metadata to UI snapshots.
+  - [x] Connect source-identity-bound Crop controls to the portable product
+    panel with local zoom/center edits, exact cancellation, source-texture
+    rendering, and one guarded layer mutation only on Apply.
   - [ ] Connect those values to the complete in-game editor lifecycle.
 - [x] Implement deterministic cancellable 1024×512 RGBA composition.
   - [x] Run composition on one owned worker with copied immutable inputs,
@@ -509,8 +512,12 @@ Evidence:
     local draft on exact revision replacement or panel close.
   - [x] Connect selected-layer forward/back ordering, seam wrap, and front/back
     mirror controls through index/asset-guarded revision-bound mutations.
-  - [ ] Connect crop, import/removal, and body-guide generation/lifetime
-    through the product panel.
+  - [x] Connect Crop through an exact project/revision/source-bound local
+    session that renders the opaque source texture, freezes scrolling during
+    drag, supports localized zoom/Apply/Cancel controls, and emits one isolated
+    guarded layer replacement only on Apply.
+  - [ ] Connect import/removal and body-guide generation/lifetime through the
+    product panel.
 - [ ] Complete F9 and configurable F1–F8 hotkey behavior.
   - [x] Implement a bounded application-owned F1–F24 command router with the
     F9/F1–F8 defaults, validated remapping, physical-key repeat suppression
@@ -554,6 +561,10 @@ Evidence:
     suppression.
   - [x] Prove selected-layer forward/back ordering, seam wrap, and front/back
     mirror emit only their exact guarded mutation and enter revision wait.
+  - [x] Prove Crop source binding and dimensions, source-versus-atlas drawing,
+    local zoom/drag/release, scroll exclusion, Apply field isolation, button
+    and keyboard cancellation, missing-source refusal, and invalid-source
+    rejection.
 - [ ] DEFERRED — maintainer interaction required: complete the full in-game UI
   walkthrough across languages/resolutions/DPI.
 

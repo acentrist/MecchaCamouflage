@@ -23,6 +23,17 @@ are replacement layer values rather than direct
 project or runtime mutation, so a later binding can enqueue typed editor
 commands against an immutable application snapshot.
 
+The product-panel binding now completes the retained Crop interaction without
+moving decoded pixels or texture ownership into application state. Each frame
+may carry bounded opaque source-texture handles tagged by exact asset ID and
+decoded dimensions. Crop opens only for the selected layer's matching source,
+renders that original source instead of the composed atlas, and keeps zoom and
+center movement local until Apply emits one revision- and asset-guarded layer
+replacement. Button/keyboard cancellation, lost edit ownership, missing
+sources, and project/revision replacement discard the local session without a
+command. Invalid, duplicate, oversized, zero, or unrelated source bindings
+fail before Canvas composition.
+
 The portable renderer displays the ready canonical atlas as one texture,
 validates an optional guide against its overlay schema and the complete frozen
 round/cube/fukuyoka ImageReference identity, and submits that guide as a

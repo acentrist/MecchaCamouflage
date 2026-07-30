@@ -17,6 +17,7 @@
 #include <string>
 #include <string_view>
 #include <variant>
+#include <vector>
 
 namespace meccha::product_ui
 {
@@ -34,6 +35,10 @@ struct ProductPanelLabels
     std::string theme_color{};
     std::string image_wrap{};
     std::string image_mirror{};
+    std::string image_crop{};
+    std::string crop_zoom{};
+    std::string crop_apply{};
+    std::string crop_cancel{};
     std::array<std::string, 9U> hotkey_labels{};
     std::array<std::string, 16U> paint_setting_labels{};
     std::array<std::string, 3U> region_mode_labels{};
@@ -54,6 +59,8 @@ struct ImageEditorPanelState
     std::uint64_t project_revision{};
     ui::ImageEditorInteractionState interaction{};
     std::optional<ui::ImageLayerEdit> draft{};
+    std::optional<ui::ImageCropSession> crop{};
+    bool crop_dragging{};
     bool awaiting_revision{};
 
     auto operator==(const ImageEditorPanelState&) const -> bool = default;
@@ -71,12 +78,23 @@ struct ProductPanelState
     auto operator==(const ProductPanelState&) const -> bool = default;
 };
 
+struct ImageSourceFrameAsset
+{
+    std::string asset_id{};
+    std::uint32_t width{};
+    std::uint32_t height{};
+    ui::CanvasTextureHandle texture{};
+
+    auto operator==(const ImageSourceFrameAsset&) const -> bool = default;
+};
+
 struct ImageEditorFrameAssets
 {
     std::string project_id{};
     std::uint64_t project_revision{};
     ui::CanvasTextureHandle atlas_texture{};
     std::optional<ui::ImageGuideOverlay> guide{};
+    std::vector<ImageSourceFrameAsset> sources{};
 
     auto operator==(const ImageEditorFrameAssets&) const -> bool = default;
 };
@@ -116,6 +134,7 @@ using ProductPanelError = std::variant<
     ui::ScrollError,
     ui::WidgetError,
     ui::ImageEditorInteractionError,
+    ui::ImageCropError,
     ui::ImageEditorDrawError>;
 
 [[nodiscard]] auto build_product_panel_labels(

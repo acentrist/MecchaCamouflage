@@ -6,6 +6,7 @@
 #include <array>
 #include <expected>
 #include <iomanip>
+#include <ranges>
 #include <span>
 #include <sstream>
 #include <string>
@@ -47,9 +48,15 @@ constexpr auto LayerToolbarIds = std::array{
     ui::WidgetId{632U},
     ui::WidgetId{633U},
     ui::WidgetId{634U},
+    ui::WidgetId{635U},
 };
+constexpr auto CropZoomId = ui::WidgetId{641U};
+constexpr auto CropApplyId = ui::WidgetId{642U};
+constexpr auto CropCancelId = ui::WidgetId{643U};
 constexpr auto TextColor =
     ui::CanvasColor{220U, 224U, 232U, 255U};
+constexpr auto CropBorderColor =
+    ui::CanvasColor{255U, 255U, 255U, 255U};
 
 auto intersects(
     const ui::CanvasRect& left,
@@ -209,6 +216,147 @@ auto contains(
            point.y < rect.y + rect.height;
 }
 
+auto source_asset(
+    const ImageEditorFrameAssets& assets,
+    std::string_view asset_id)
+    -> const ImageSourceFrameAsset*
+{
+    const auto found = std::ranges::find_if(
+        assets.sources,
+        [asset_id](const ImageSourceFrameAsset& source)
+        {
+            return source.asset_id == asset_id;
+        });
+    return found == assets.sources.end()
+               ? nullptr
+               : &*found;
+}
+
+auto fitted_source_rect(
+    const ui::CanvasRect& bounds,
+    const ImageSourceFrameAsset& source) -> ui::CanvasRect
+{
+    const auto source_aspect =
+        static_cast<double>(source.width) /
+        static_cast<double>(source.height);
+    const auto bounds_aspect = bounds.width / bounds.height;
+    if (source_aspect >= bounds_aspect)
+    {
+        const auto height = bounds.width / source_aspect;
+        return {
+            bounds.x,
+            bounds.y + (bounds.height - height) * 0.5,
+            bounds.width,
+            height,
+        };
+    }
+    const auto width = bounds.height * source_aspect;
+    return {
+        bounds.x + (bounds.width - width) * 0.5,
+        bounds.y,
+        width,
+        bounds.height,
+    };
+}
+
+auto update_crop_center(
+    ui::ImageCropSession session,
+    const ui::CanvasRect& source_rect,
+    ui::CanvasPoint pointer)
+    -> std::expected<ui::ImageCropSession, ProductPanelError>
+{
+    const auto updated = ui::move_image_crop_center(
+        std::move(session),
+        (pointer.x - source_rect.x) / source_rect.width,
+        (pointer.y - source_rect.y) / source_rect.height);
+    if (!updated)
+    {
+        return std::unexpected(
+            ProductPanelError{updated.error()});
+    }
+    return *updated;
+}
+
+auto draw_crop_source(
+    ui::CanvasFrameBuilder& canvas,
+    const ui::CanvasRect& viewport,
+    const ui::CanvasRect& source_rect,
+    const ImageSourceFrameAsset& source,
+    const ui::ImageCropSession& crop)
+    -> std::expected<void, ProductPanelError>
+{
+    const auto pushed = canvas.push_clip(viewport);
+    if (!pushed)
+    {
+        return std::unexpected(
+            ProductPanelError{pushed.error()});
+    }
+    const auto texture = canvas.add_texture(
+        source.texture,
+        source_rect,
+        ui::CanvasUvRect{},
+        ui::CanvasColor{255U, 255U, 255U, 255U});
+    auto error = std::optional<ProductPanelError>{};
+    if (!texture)
+    {
+        error = ProductPanelError{texture.error()};
+    }
+
+    const auto selection = ui::CanvasRect{
+        source_rect.x + crop.draft.x * source_rect.width,
+        source_rect.y + crop.draft.y * source_rect.height,
+        crop.draft.width * source_rect.width,
+        crop.draft.height * source_rect.height,
+    };
+    const auto right = selection.x + selection.width;
+    const auto bottom = selection.y + selection.height;
+    const auto edges = std::array{
+        std::pair{
+            ui::CanvasPoint{selection.x, selection.y},
+            ui::CanvasPoint{right, selection.y},
+        },
+        std::pair{
+            ui::CanvasPoint{right, selection.y},
+            ui::CanvasPoint{right, bottom},
+        },
+        std::pair{
+            ui::CanvasPoint{right, bottom},
+            ui::CanvasPoint{selection.x, bottom},
+        },
+        std::pair{
+            ui::CanvasPoint{selection.x, bottom},
+            ui::CanvasPoint{selection.x, selection.y},
+        },
+    };
+    if (!error)
+    {
+        for (const auto& [start, end] : edges)
+        {
+            const auto line = canvas.add_line(
+                start,
+                end,
+                CropBorderColor,
+                3.0);
+            if (!line)
+            {
+                error = ProductPanelError{line.error()};
+                break;
+            }
+        }
+    }
+    const auto popped = canvas.pop_clip();
+    if (error)
+    {
+        return std::unexpected(*error);
+    }
+    if (!popped)
+    {
+        return std::unexpected(
+            ProductPanelError{popped.error()});
+    }
+    return {};
+}
+
 auto body_index(core::BodyProfile profile) -> std::size_t
 {
     switch (profile)
@@ -311,7 +459,8 @@ auto compose_image_settings_section(
                                         toolbar_gap
                                   : 0.0;
     auto scroll_pointer = input.pointer;
-    if (state.image_editor.interaction.gesture)
+    if (state.image_editor.interaction.gesture ||
+        state.image_editor.crop_dragging)
     {
         scroll_pointer.wheel_delta = 0.0;
     }
@@ -365,6 +514,39 @@ auto compose_image_settings_section(
             }
         }
 
+        const ImageSourceFrameAsset* crop_source = nullptr;
+        if (state.image_editor.crop)
+        {
+            const auto& crop = *state.image_editor.crop;
+            if (crop.layer_index >= document.layers.size() ||
+                crop.asset_id !=
+                    document.layers[crop.layer_index].asset_id)
+            {
+                return std::unexpected(ProductPanelError{
+                    ProductPanelValidationError::InvalidState});
+            }
+            const auto restored = ui::restore_image_crop(
+                crop,
+                document.layers[crop.layer_index]);
+            if (!restored)
+            {
+                return std::unexpected(
+                    ProductPanelError{restored.error()});
+            }
+            if (input.image_editor &&
+                model.image_paint.project.edit)
+            {
+                crop_source = source_asset(
+                    *input.image_editor,
+                    crop.asset_id);
+            }
+            if (!crop_source)
+            {
+                state.image_editor.crop.reset();
+                state.image_editor.crop_dragging = false;
+            }
+        }
+
         auto working_layers = document.layers;
         if (state.image_editor.draft)
         {
@@ -377,12 +559,16 @@ auto compose_image_settings_section(
         {
             state.image_editor.interaction.gesture.reset();
             state.image_editor.draft.reset();
+            state.image_editor.crop.reset();
+            state.image_editor.crop_dragging = false;
+            crop_source = nullptr;
             working_layers = document.layers;
         }
 
         if (input.image_editor &&
             model.image_paint.project.edit &&
-            !state.image_editor.awaiting_revision)
+            !state.image_editor.awaiting_revision &&
+            !state.image_editor.crop)
         {
             auto events =
                 std::array<ui::ImageEditorPointerEvent, 2U>{};
@@ -478,7 +664,83 @@ auto compose_image_settings_section(
             }
         }
 
-        if (input.image_editor)
+        auto crop_source_rect = ui::CanvasRect{};
+        if (state.image_editor.crop && crop_source)
+        {
+            crop_source_rect =
+                fitted_source_rect(atlas_rect, *crop_source);
+            if (input.keyboard.cancel_pressed)
+            {
+                state.image_editor.crop.reset();
+                state.image_editor.crop_dragging = false;
+                crop_source = nullptr;
+            }
+            else
+            {
+                const auto pointer_over_source =
+                    contains(viewport, input.pointer.position) &&
+                    contains(
+                        crop_source_rect,
+                        input.pointer.position);
+                if (input.pointer.primary_pressed &&
+                    pointer_over_source)
+                {
+                    state.image_editor.crop_dragging = true;
+                    const auto updated = update_crop_center(
+                        *state.image_editor.crop,
+                        crop_source_rect,
+                        input.pointer.position);
+                    if (!updated)
+                    {
+                        return std::unexpected(updated.error());
+                    }
+                    state.image_editor.crop = *updated;
+                }
+                else if (
+                    input.pointer.primary_down &&
+                    state.image_editor.crop_dragging)
+                {
+                    const auto updated = update_crop_center(
+                        *state.image_editor.crop,
+                        crop_source_rect,
+                        input.pointer.position);
+                    if (!updated)
+                    {
+                        return std::unexpected(updated.error());
+                    }
+                    state.image_editor.crop = *updated;
+                }
+                if (input.pointer.primary_released &&
+                    state.image_editor.crop_dragging)
+                {
+                    const auto updated = update_crop_center(
+                        *state.image_editor.crop,
+                        crop_source_rect,
+                        input.pointer.position);
+                    if (!updated)
+                    {
+                        return std::unexpected(updated.error());
+                    }
+                    state.image_editor.crop = *updated;
+                    state.image_editor.crop_dragging = false;
+                }
+            }
+        }
+
+        if (state.image_editor.crop && crop_source)
+        {
+            const auto drawn = draw_crop_source(
+                canvas,
+                viewport,
+                crop_source_rect,
+                *crop_source,
+                *state.image_editor.crop);
+            if (!drawn)
+            {
+                return drawn;
+            }
+        }
+        else if (input.image_editor)
         {
             const auto drawn = ui::draw_image_editor(
                 canvas,
@@ -506,8 +768,6 @@ auto compose_image_settings_section(
             toolbar_height,
         };
         const auto button_gap = 6.0 * layout.effective_scale;
-        const auto button_width =
-            (toolbar.width - 3.0 * button_gap) / 4.0;
         const auto selected =
             state.image_editor.interaction.selected_layer;
         const auto toolbar_visible =
@@ -519,142 +779,329 @@ auto compose_image_settings_section(
             selected &&
             *selected < document.layers.size() &&
             toolbar_visible;
-        const auto toolbar_button = [&](
-                                        std::size_t index,
-                                        std::string_view text,
-                                        bool enabled,
-                                        bool active)
-            -> std::expected<ui::WidgetResponse, ProductPanelError>
+        const ImageSourceFrameAsset* selected_source = nullptr;
+        if (input.image_editor && selected &&
+            *selected < document.layers.size())
         {
-            const auto response = widgets.button(
-                LayerToolbarIds[index],
+            selected_source = source_asset(
+                *input.image_editor,
+                document.layers[*selected].asset_id);
+        }
+
+        if (state.image_editor.crop && crop_source)
+        {
+            const auto unit_width =
+                (toolbar.width - 4.0 * button_gap) / 5.0;
+            const auto label_rect = ui::CanvasRect{
+                toolbar.x,
+                toolbar.y,
+                unit_width,
+                toolbar.height,
+            };
+            const auto label = labels.crop_zoom + "  " +
+                               number_text(
+                                   state.image_editor.crop->zoom,
+                                   2U);
+            const auto label_drawn = add_clipped_text(
+                canvas,
+                label_rect,
+                {
+                    label_rect.x,
+                    label_rect.y +
+                        10.0 * layout.effective_scale,
+                },
+                label,
+                0.78 * layout.effective_scale);
+            if (!label_drawn)
+            {
+                return label_drawn;
+            }
+
+            const auto crop_controls_enabled =
+                toolbar_visible &&
+                model.image_paint.project.edit &&
+                !state.image_editor.awaiting_revision;
+            const auto zoom = widgets.slider(
+                CropZoomId,
                 ui::CanvasRect{
-                    toolbar.x +
-                        static_cast<double>(index) *
-                            (button_width + button_gap),
+                    toolbar.x + unit_width + button_gap,
                     toolbar.y,
-                    button_width,
+                    2.0 * unit_width + button_gap,
                     toolbar.height,
                 },
                 viewport,
-                text,
-                enabled,
-                active);
-            if (!response)
+                state.image_editor.crop->zoom,
+                1.0,
+                4.0,
+                crop_controls_enabled);
+            if (!zoom)
             {
                 return std::unexpected(
-                    ProductPanelError{response.error()});
+                    ProductPanelError{zoom.error()});
             }
-            return *response;
-        };
-
-        const auto can_move_back =
-            toolbar_enabled && *selected > 0U;
-        const auto move_back = toolbar_button(
-            0U,
-            "↓",
-            can_move_back,
-            false);
-        if (!move_back)
-        {
-            return std::unexpected(move_back.error());
-        }
-        if (move_back->activated)
-        {
-            const auto published = publish_layer_reorder(
-                *selected,
-                *selected - 1U,
-                model,
-                action);
-            if (!published)
+            if (zoom->changed)
             {
-                return published;
+                const auto updated = ui::set_image_crop_zoom(
+                    *state.image_editor.crop,
+                    zoom->value);
+                if (!updated)
+                {
+                    return std::unexpected(
+                        ProductPanelError{updated.error()});
+                }
+                state.image_editor.crop = *updated;
             }
-            state.image_editor.awaiting_revision = true;
-        }
 
-        const auto can_move_forward =
-            toolbar_enabled &&
-            *selected + 1U < document.layers.size();
-        const auto move_forward = toolbar_button(
-            1U,
-            "↑",
-            can_move_forward,
-            false);
-        if (!move_forward)
-        {
-            return std::unexpected(move_forward.error());
-        }
-        if (move_forward->activated)
-        {
-            const auto published = publish_layer_reorder(
-                *selected,
-                *selected + 1U,
-                model,
-                action);
-            if (!published)
+            const auto apply_button = widgets.button(
+                CropApplyId,
+                ui::CanvasRect{
+                    toolbar.x +
+                        3.0 * (unit_width + button_gap),
+                    toolbar.y,
+                    unit_width,
+                    toolbar.height,
+                },
+                viewport,
+                labels.crop_apply,
+                crop_controls_enabled,
+                false);
+            if (!apply_button)
             {
-                return published;
+                return std::unexpected(
+                    ProductPanelError{apply_button.error()});
             }
-            state.image_editor.awaiting_revision = true;
-        }
+            if (apply_button->activated)
+            {
+                const auto layer_index =
+                    state.image_editor.crop->layer_index;
+                const auto edited = ui::apply_image_crop(
+                    *state.image_editor.crop,
+                    document.layers[layer_index]);
+                if (!edited)
+                {
+                    return std::unexpected(
+                        ProductPanelError{edited.error()});
+                }
+                if (*edited != document.layers[layer_index])
+                {
+                    const auto published = publish_layer_edit(
+                        ui::ImageLayerEdit{
+                            layer_index,
+                            *edited,
+                        },
+                        model,
+                        action);
+                    if (!published)
+                    {
+                        return published;
+                    }
+                    state.image_editor.awaiting_revision = true;
+                }
+                state.image_editor.crop.reset();
+                state.image_editor.crop_dragging = false;
+                crop_source = nullptr;
+            }
 
-        const auto selected_wrap =
-            selected
-                ? document.layers[*selected].wrap_atlas_seam
-                : false;
-        const auto wrap = toolbar_button(
-            2U,
-            labels.image_wrap,
-            toolbar_enabled,
-            selected_wrap);
-        if (!wrap)
-        {
-            return std::unexpected(wrap.error());
-        }
-        if (wrap->activated)
-        {
-            auto edited = document.layers[*selected];
-            edited.wrap_atlas_seam =
-                !edited.wrap_atlas_seam;
-            const auto published = publish_layer_edit(
-                ui::ImageLayerEdit{*selected, std::move(edited)},
-                model,
-                action);
-            if (!published)
+            const auto cancel_button = widgets.button(
+                CropCancelId,
+                ui::CanvasRect{
+                    toolbar.x +
+                        4.0 * (unit_width + button_gap),
+                    toolbar.y,
+                    unit_width,
+                    toolbar.height,
+                },
+                viewport,
+                labels.crop_cancel,
+                crop_controls_enabled,
+                false);
+            if (!cancel_button)
             {
-                return published;
+                return std::unexpected(
+                    ProductPanelError{cancel_button.error()});
             }
-            state.image_editor.awaiting_revision = true;
+            if (cancel_button->activated)
+            {
+                state.image_editor.crop.reset();
+                state.image_editor.crop_dragging = false;
+                crop_source = nullptr;
+            }
         }
+        else
+        {
+            const auto button_width =
+                (toolbar.width - 4.0 * button_gap) / 5.0;
+            const auto toolbar_button = [&](
+                                            std::size_t index,
+                                            std::string_view text,
+                                            bool enabled,
+                                            bool active)
+                -> std::expected<
+                    ui::WidgetResponse,
+                    ProductPanelError>
+            {
+                const auto response = widgets.button(
+                    LayerToolbarIds[index],
+                    ui::CanvasRect{
+                        toolbar.x +
+                            static_cast<double>(index) *
+                                (button_width + button_gap),
+                        toolbar.y,
+                        button_width,
+                        toolbar.height,
+                    },
+                    viewport,
+                    text,
+                    enabled,
+                    active);
+                if (!response)
+                {
+                    return std::unexpected(
+                        ProductPanelError{response.error()});
+                }
+                return *response;
+            };
 
-        const auto selected_mirror =
-            selected
-                ? document.layers[*selected].mirror_front_back
-                : false;
-        const auto mirror = toolbar_button(
-            3U,
-            labels.image_mirror,
-            toolbar_enabled,
-            selected_mirror);
-        if (!mirror)
-        {
-            return std::unexpected(mirror.error());
-        }
-        if (mirror->activated)
-        {
-            auto edited = document.layers[*selected];
-            edited.mirror_front_back =
-                !edited.mirror_front_back;
-            const auto published = publish_layer_edit(
-                ui::ImageLayerEdit{*selected, std::move(edited)},
-                model,
-                action);
-            if (!published)
+            const auto can_move_back =
+                toolbar_enabled && *selected > 0U;
+            const auto move_back = toolbar_button(
+                0U,
+                "↓",
+                can_move_back,
+                false);
+            if (!move_back)
             {
-                return published;
+                return std::unexpected(move_back.error());
             }
-            state.image_editor.awaiting_revision = true;
+            if (move_back->activated)
+            {
+                const auto published = publish_layer_reorder(
+                    *selected,
+                    *selected - 1U,
+                    model,
+                    action);
+                if (!published)
+                {
+                    return published;
+                }
+                state.image_editor.awaiting_revision = true;
+            }
+
+            const auto can_move_forward =
+                toolbar_enabled &&
+                *selected + 1U < document.layers.size();
+            const auto move_forward = toolbar_button(
+                1U,
+                "↑",
+                can_move_forward,
+                false);
+            if (!move_forward)
+            {
+                return std::unexpected(move_forward.error());
+            }
+            if (move_forward->activated)
+            {
+                const auto published = publish_layer_reorder(
+                    *selected,
+                    *selected + 1U,
+                    model,
+                    action);
+                if (!published)
+                {
+                    return published;
+                }
+                state.image_editor.awaiting_revision = true;
+            }
+
+            const auto selected_wrap =
+                selected
+                    ? document.layers[*selected].wrap_atlas_seam
+                    : false;
+            const auto wrap = toolbar_button(
+                2U,
+                labels.image_wrap,
+                toolbar_enabled,
+                selected_wrap);
+            if (!wrap)
+            {
+                return std::unexpected(wrap.error());
+            }
+            if (wrap->activated)
+            {
+                auto edited = document.layers[*selected];
+                edited.wrap_atlas_seam =
+                    !edited.wrap_atlas_seam;
+                const auto published = publish_layer_edit(
+                    ui::ImageLayerEdit{
+                        *selected,
+                        std::move(edited),
+                    },
+                    model,
+                    action);
+                if (!published)
+                {
+                    return published;
+                }
+                state.image_editor.awaiting_revision = true;
+            }
+
+            const auto selected_mirror =
+                selected
+                    ? document.layers[*selected]
+                          .mirror_front_back
+                    : false;
+            const auto mirror = toolbar_button(
+                3U,
+                labels.image_mirror,
+                toolbar_enabled,
+                selected_mirror);
+            if (!mirror)
+            {
+                return std::unexpected(mirror.error());
+            }
+            if (mirror->activated)
+            {
+                auto edited = document.layers[*selected];
+                edited.mirror_front_back =
+                    !edited.mirror_front_back;
+                const auto published = publish_layer_edit(
+                    ui::ImageLayerEdit{
+                        *selected,
+                        std::move(edited),
+                    },
+                    model,
+                    action);
+                if (!published)
+                {
+                    return published;
+                }
+                state.image_editor.awaiting_revision = true;
+            }
+
+            const auto crop = toolbar_button(
+                4U,
+                labels.image_crop,
+                toolbar_enabled && selected_source,
+                false);
+            if (!crop)
+            {
+                return std::unexpected(crop.error());
+            }
+            if (crop->activated)
+            {
+                const auto started = ui::begin_image_crop(
+                    *selected,
+                    document.layers[*selected],
+                    selected_source->width,
+                    selected_source->height);
+                if (!started)
+                {
+                    return std::unexpected(
+                        ProductPanelError{started.error()});
+                }
+                state.image_editor.crop = *started;
+                state.image_editor.crop_dragging = false;
+            }
         }
     }
     else

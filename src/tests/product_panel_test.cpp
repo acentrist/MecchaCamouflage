@@ -207,6 +207,20 @@ auto main(int argc, char** argv) -> int
         model.image_paint.document->revision,
         ui::CanvasTextureHandle{700U},
         std::nullopt,
+        {
+            ImageSourceFrameAsset{
+                "source-image",
+                400U,
+                300U,
+                ui::CanvasTextureHandle{701U},
+            },
+            ImageSourceFrameAsset{
+                "overlay-image",
+                320U,
+                240U,
+                ui::CanvasTextureHandle{702U},
+            },
+        },
     };
     const auto atlas_frame = compose_product_panel(
         model,
@@ -270,7 +284,7 @@ auto main(int argc, char** argv) -> int
     const auto layer_toolbar_y =
         atlas_rect.y + atlas_rect.height + 8.0;
     const auto layer_toolbar_width =
-        (atlas_rect.width - 3.0 * LayerToolbarGap) / 4.0;
+        (atlas_rect.width - 4.0 * LayerToolbarGap) / 5.0;
     auto wrap_input = atlas_input;
     wrap_input.pointer = ui::PointerFrame{
         {
@@ -415,6 +429,332 @@ auto main(int argc, char** argv) -> int
             back_mutation->expected_asset_id ==
                 "overlay-image",
         "Image Paint backward ordering did not emit one guarded reorder");
+
+    auto crop_input = wrap_input;
+    crop_input.pointer.position.x =
+        atlas_rect.x +
+        4.0 * (layer_toolbar_width + LayerToolbarGap) +
+        layer_toolbar_width * 0.5;
+    const auto crop_output = compose_product_panel(
+        model,
+        atlas_select->state,
+        crop_input,
+        english);
+    passed &= expect(
+        crop_output &&
+            crop_output->state.image_editor.crop &&
+            crop_output->state.image_editor.crop->layer_index ==
+                0U &&
+            crop_output->state.image_editor.crop->asset_id ==
+                "source-image" &&
+            !crop_output->action,
+        "Image Paint Crop did not open a source-bound local session");
+    if (!crop_output || !crop_output->state.image_editor.crop)
+    {
+        return 1;
+    }
+
+    const auto crop_frame = compose_product_panel(
+        model,
+        crop_output->state,
+        atlas_input,
+        english);
+    const auto crop_source_drawn =
+        crop_frame &&
+        std::ranges::any_of(
+            crop_frame->frame.primitives,
+            [](const ui::CanvasPrimitive& primitive)
+            {
+                const auto* texture =
+                    std::get_if<ui::CanvasTexturePrimitive>(
+                        &primitive);
+                return texture &&
+                       texture->texture.identity == 701U;
+            });
+    const auto crop_atlas_hidden =
+        crop_frame &&
+        std::ranges::none_of(
+            crop_frame->frame.primitives,
+            [](const ui::CanvasPrimitive& primitive)
+            {
+                const auto* texture =
+                    std::get_if<ui::CanvasTexturePrimitive>(
+                        &primitive);
+                return texture &&
+                       texture->texture.identity == 700U;
+            });
+    const auto crop_border_count =
+        crop_frame
+            ? std::ranges::count_if(
+                  crop_frame->frame.primitives,
+                  [](const ui::CanvasPrimitive& primitive)
+                  {
+                      const auto* line =
+                          std::get_if<ui::CanvasLinePrimitive>(
+                              &primitive);
+                      return line && line->thickness == 3.0 &&
+                             line->color ==
+                                 ui::CanvasColor{
+                                     255U,
+                                     255U,
+                                     255U,
+                                     255U,
+                                 };
+                  })
+            : 0;
+    passed &= expect(
+        crop_source_drawn && crop_atlas_hidden &&
+            crop_border_count == 4,
+        "Crop did not replace the atlas with its bounded source view");
+
+    const auto crop_unit_width = layer_toolbar_width;
+    const auto crop_slider = ui::CanvasRect{
+        atlas_rect.x + crop_unit_width + LayerToolbarGap,
+        layer_toolbar_y,
+        2.0 * crop_unit_width + LayerToolbarGap,
+        34.0,
+    };
+    auto crop_zoom_input = atlas_input;
+    crop_zoom_input.pointer = ui::PointerFrame{
+        {
+            crop_slider.x + crop_slider.width * 0.75,
+            crop_slider.y + crop_slider.height * 0.5,
+        },
+        true,
+        false,
+        true,
+        0.0,
+    };
+    const auto crop_zoom = compose_product_panel(
+        model,
+        crop_output->state,
+        crop_zoom_input,
+        english);
+    passed &= expect(
+        crop_zoom && crop_zoom->state.image_editor.crop &&
+            crop_zoom->state.image_editor.crop->zoom > 3.0 &&
+            !crop_zoom->action,
+        "Crop zoom did not remain a local source-bound edit");
+    if (!crop_zoom || !crop_zoom->state.image_editor.crop)
+    {
+        return 1;
+    }
+
+    const auto crop_source_height = atlas_rect.height;
+    const auto crop_source_width =
+        crop_source_height * 400.0 / 300.0;
+    const auto crop_source_rect = ui::CanvasRect{
+        atlas_rect.x +
+            (atlas_rect.width - crop_source_width) * 0.5,
+        atlas_rect.y,
+        crop_source_width,
+        crop_source_height,
+    };
+    auto crop_press_input = atlas_input;
+    crop_press_input.pointer = ui::PointerFrame{
+        {
+            crop_source_rect.x + crop_source_rect.width * 0.7,
+            crop_source_rect.y + crop_source_rect.height * 0.6,
+        },
+        true,
+        true,
+        false,
+        0.0,
+    };
+    const auto crop_press = compose_product_panel(
+        model,
+        crop_zoom->state,
+        crop_press_input,
+        english);
+    passed &= expect(
+        crop_press && crop_press->state.image_editor.crop &&
+            crop_press->state.image_editor.crop_dragging &&
+            crop_press->state.image_editor.crop->draft.x >
+                crop_zoom->state.image_editor.crop->draft.x &&
+            !crop_press->action,
+        "Crop source press did not retain a local draft");
+    if (!crop_press || !crop_press->state.image_editor.crop)
+    {
+        return 1;
+    }
+
+    auto crop_move_input = atlas_input;
+    crop_move_input.pointer = ui::PointerFrame{
+        {
+            crop_source_rect.x + crop_source_rect.width * 0.75,
+            crop_source_rect.y + crop_source_rect.height * 0.65,
+        },
+        false,
+        true,
+        false,
+        -3.0,
+    };
+    const auto crop_move = compose_product_panel(
+        model,
+        crop_press->state,
+        crop_move_input,
+        english);
+    passed &= expect(
+        crop_move && crop_move->state.image_editor.crop &&
+            crop_move->state.image_editor.crop_dragging &&
+            crop_move->state.image_editor.crop->draft.x >=
+                crop_press->state.image_editor.crop->draft.x &&
+            crop_move->state.section_scroll[1U].offset_y == 0.0 &&
+            !crop_move->action,
+        "Crop source drag did not remain local or froze scrolling");
+    if (!crop_move || !crop_move->state.image_editor.crop)
+    {
+        return 1;
+    }
+
+    auto crop_release_input = atlas_input;
+    crop_release_input.pointer = ui::PointerFrame{
+        {
+            crop_source_rect.x + crop_source_rect.width * 0.8,
+            crop_source_rect.y + crop_source_rect.height * 0.7,
+        },
+        false,
+        false,
+        true,
+        0.0,
+    };
+    const auto crop_release = compose_product_panel(
+        model,
+        crop_move->state,
+        crop_release_input,
+        english);
+    passed &= expect(
+        crop_release && crop_release->state.image_editor.crop &&
+            !crop_release->state.image_editor.crop_dragging &&
+            !crop_release->action,
+        "Crop source release did not retain the local draft");
+    if (!crop_release || !crop_release->state.image_editor.crop)
+    {
+        return 1;
+    }
+
+    const auto expected_crop =
+        crop_release->state.image_editor.crop->draft;
+    auto crop_apply_input = atlas_input;
+    crop_apply_input.pointer = ui::PointerFrame{
+        {
+            atlas_rect.x +
+                3.0 *
+                    (crop_unit_width + LayerToolbarGap) +
+                crop_unit_width * 0.5,
+            layer_toolbar_y + 17.0,
+        },
+        true,
+        false,
+        true,
+        0.0,
+    };
+    const auto crop_apply = compose_product_panel(
+        model,
+        crop_release->state,
+        crop_apply_input,
+        english);
+    const auto* crop_ui_mutation =
+        crop_apply && crop_apply->action
+            ? std::get_if<UiMutateCurrentImageProject>(
+                  &crop_apply->action->action)
+            : nullptr;
+    const auto* crop_mutation =
+        crop_ui_mutation
+            ? std::get_if<ReplaceImageLayerMutation>(
+                  &crop_ui_mutation->mutation)
+            : nullptr;
+    passed &= expect(
+        crop_mutation &&
+            crop_mutation->layer_index == 0U &&
+            crop_mutation->expected_asset_id ==
+                "source-image" &&
+            crop_mutation->layer.crop == expected_crop &&
+            crop_mutation->layer.center_x ==
+                model.image_paint.document->layers[0U].center_x &&
+            crop_apply->state.image_editor.awaiting_revision &&
+            !crop_apply->state.image_editor.crop,
+        "Crop Apply did not emit one isolated guarded layer mutation");
+
+    auto crop_cancel_input = atlas_input;
+    crop_cancel_input.pointer = ui::PointerFrame{
+        {
+            atlas_rect.x +
+                4.0 *
+                    (crop_unit_width + LayerToolbarGap) +
+                crop_unit_width * 0.5,
+            layer_toolbar_y + 17.0,
+        },
+        true,
+        false,
+        true,
+        0.0,
+    };
+    const auto crop_cancel_button = compose_product_panel(
+        model,
+        crop_output->state,
+        crop_cancel_input,
+        english);
+    passed &= expect(
+        crop_cancel_button &&
+            !crop_cancel_button->state.image_editor.crop &&
+            !crop_cancel_button->action,
+        "Crop Cancel button did not discard the local session");
+
+    auto crop_keyboard_input = atlas_input;
+    crop_keyboard_input.keyboard.cancel_pressed = true;
+    const auto crop_keyboard_cancel = compose_product_panel(
+        model,
+        crop_output->state,
+        crop_keyboard_input,
+        english);
+    passed &= expect(
+        crop_keyboard_cancel &&
+            !crop_keyboard_cancel->state.image_editor.crop &&
+            !crop_keyboard_cancel->action,
+        "Crop keyboard cancel did not discard the local session");
+
+    auto missing_crop_source_input = atlas_input;
+    missing_crop_source_input.image_editor->sources.erase(
+        missing_crop_source_input.image_editor->sources.begin());
+    const auto missing_crop_source = compose_product_panel(
+        model,
+        crop_output->state,
+        missing_crop_source_input,
+        english);
+    passed &= expect(
+        missing_crop_source &&
+            !missing_crop_source->state.image_editor.crop &&
+            !missing_crop_source->action,
+        "a missing Crop source did not fail closed to the atlas");
+    auto missing_crop_button_input = missing_crop_source_input;
+    missing_crop_button_input.pointer = crop_input.pointer;
+    const auto missing_crop_button = compose_product_panel(
+        model,
+        atlas_select->state,
+        missing_crop_button_input,
+        english);
+    passed &= expect(
+        missing_crop_button &&
+            !missing_crop_button->state.image_editor.crop &&
+            !missing_crop_button->action,
+        "Crop admitted a layer without a matching source texture");
+
+    auto invalid_crop_source_input = atlas_input;
+    invalid_crop_source_input.image_editor->sources[0U].width = 0U;
+    const auto invalid_crop_source = compose_product_panel(
+        model,
+        atlas_select->state,
+        invalid_crop_source_input,
+        english);
+    passed &= expect(
+        !invalid_crop_source &&
+            std::holds_alternative<ProductPanelValidationError>(
+                invalid_crop_source.error()) &&
+            std::get<ProductPanelValidationError>(
+                invalid_crop_source.error()) ==
+                ProductPanelValidationError::InvalidImageAssets,
+        "an invalid Crop source entered the Canvas frame");
 
     auto atlas_press_input = atlas_input;
     atlas_press_input.pointer = ui::PointerFrame{

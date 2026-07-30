@@ -5,9 +5,9 @@ scroll, text-edit, Image Paint editor, input-lease, and typed editor-mutation
 boundaries are implemented. The current milestones add the application-owned
 hotkey and product-action boundaries plus a portable five-tab product-panel
 shell. Production UCanvas rendering, Unreal input registration, font/texture
-lifetime, complete section composition, and live verification remain
-intentionally unimplemented until the protected UE4SS graph exposes the exact
-accepted interfaces.
+lifetime, Diagnostics/project-file/import controls, and live verification
+remain intentionally unimplemented until their owned adapters and the
+protected UE4SS graph expose the exact accepted interfaces.
 
 ## Ownership and dependency direction
 
@@ -265,15 +265,33 @@ disabled without an exact ready atlas, edit ownership, valid selection, or
 available destination. Tests cover both order directions and isolated wrap/
 mirror fields across two layers.
 
+Crop is a separate source-bound local session rather than an atlas mutation
+gesture. The frame binding carries bounded opaque source textures with exact
+asset IDs and decoded dimensions; duplicate, zero, oversized, unrelated, or
+invalid source bindings fail before Canvas composition. Entering Crop preserves
+the selected layer index and asset identity, fits the original source into the
+atlas viewport, and replaces the composed-atlas view with that source plus a
+clipped selection border. Zoom and center dragging update only the local
+session, and wheel scrolling remains frozen during a source drag.
+
+Localized Zoom, Apply, and Cancel controls share the selected-layer toolbar.
+Apply copies the immutable layer, changes only its normalized crop, and emits
+one index/asset-guarded `ReplaceImageLayerMutation`; Cancel or the keyboard
+cancel action discards the session without a command. Missing source bindings,
+lost edit ownership, project/revision replacement, and panel close all fail
+closed without persisting a draft. Portable tests cover source-versus-atlas
+drawing, the four-edge crop indicator, zoom, press/move/release, scroll
+exclusion, isolated Apply, both cancellation paths, missing-source refusal,
+and malformed-source rejection.
+
 This remains a partial product UI milestone. The Image Paint atlas interaction
-crop/import/removal and project file operations, direct hotkey capture UX,
-localized
+import/removal and project file operations, direct hotkey capture UX, localized
 progress/compatibility/diagnostics formatting, and the production UCanvas
 adapter remain open.
 
 ## Remaining work
 
-- Compose Image Paint crop/import/removal/project operations and the complete
+- Compose Image Paint import/removal/project operations and the complete
   Diagnostics Canvas section from the implemented shell and immutable
   presentation values.
 - Connect the remaining Image Paint operations to the implemented typed

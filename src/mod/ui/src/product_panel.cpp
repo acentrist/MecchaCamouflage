@@ -5,6 +5,7 @@
 #include "product_panel_paint.hpp"
 #include "product_panel_settings.hpp"
 
+#include <meccha/core/image_compositor.hpp>
 #include <meccha/core/utf8.hpp>
 
 #include <algorithm>
@@ -12,6 +13,7 @@
 #include <ranges>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace meccha::product_ui
 {
@@ -71,6 +73,10 @@ auto labels_valid(const ProductPanelLabels& labels) -> bool
            valid_label(labels.theme_color) &&
            valid_label(labels.image_wrap) &&
            valid_label(labels.image_mirror) &&
+           valid_label(labels.image_crop) &&
+           valid_label(labels.crop_zoom) &&
+           valid_label(labels.crop_apply) &&
+           valid_label(labels.crop_cancel) &&
            std::ranges::all_of(
                labels.hotkey_labels,
                valid_label) &&
@@ -169,14 +175,43 @@ auto image_assets_valid(
     const auto& assets = *input.image_editor;
     const auto& document = *model.image_paint.document;
     const auto& pipeline = model.image_paint.pipeline;
-    return assets.atlas_texture.identity != 0U &&
-           assets.project_id == document.project_id &&
-           assets.project_revision == document.revision &&
-           pipeline.phase ==
-               application::ImageEditorPipelinePhase::Ready &&
-           pipeline.project_id == document.project_id &&
-           pipeline.project_revision == document.revision &&
-           !pipeline.pending && !pipeline.failure;
+    if (assets.atlas_texture.identity == 0U ||
+        assets.project_id != document.project_id ||
+        assets.project_revision != document.revision ||
+        pipeline.phase !=
+            application::ImageEditorPipelinePhase::Ready ||
+        pipeline.project_id != document.project_id ||
+        pipeline.project_revision != document.revision ||
+        pipeline.pending || pipeline.failure ||
+        assets.sources.size() > core::MaximumImageSources)
+    {
+        return false;
+    }
+    auto source_ids = std::vector<std::string_view>{};
+    source_ids.reserve(assets.sources.size());
+    for (const auto& source : assets.sources)
+    {
+        if (source.asset_id.empty() ||
+            source.asset_id.size() >
+                application::MaximumProductUiAssetIdBytes ||
+            source.width == 0U || source.height == 0U ||
+            source.width > core::MaximumDecodedImageDimension ||
+            source.height > core::MaximumDecodedImageDimension ||
+            source.texture.identity == 0U ||
+            std::ranges::find(source_ids, source.asset_id) !=
+                source_ids.end() ||
+            std::ranges::none_of(
+                document.layers,
+                [&source](const core::ImageLayer& layer)
+                {
+                    return layer.asset_id == source.asset_id;
+                }))
+        {
+            return false;
+        }
+        source_ids.push_back(source.asset_id);
+    }
+    return true;
 }
 
 auto accent(const core::Rgb8& color) -> ui::CanvasColor
@@ -348,6 +383,10 @@ auto build_product_panel_labels(
         std::string{catalog.text(locale, "theme.color")},
         std::string{catalog.text(locale, "image.action.wrap")},
         std::string{catalog.text(locale, "image.action.mirror")},
+        std::string{catalog.text(locale, "image.action.crop")},
+        std::string{catalog.text(locale, "dialog.crop.zoom")},
+        std::string{catalog.text(locale, "dialog.crop.apply")},
+        std::string{catalog.text(locale, "button.cancel")},
         {
             std::string{catalog.text(locale, "app.title")},
             std::string{catalog.text(locale, "start.hotkey")},
