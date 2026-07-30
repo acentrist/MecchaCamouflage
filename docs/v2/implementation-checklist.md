@@ -103,6 +103,9 @@ Evidence:
   - [x] Assemble loader, managed-file, runtime-cache, runtime-settings, and
     shared-mod evidence into one deterministic preparation/removal observation
     without platform effects.
+  - [x] Retain the exact resolved command/override target from the loader
+    observation and classify pinned shared runtime/config compatibility without
+    mutation.
   - [ ] Bind the native original-user observation source and minimal elevated
     broker.
 - [x] Implement safe reuse, repair, update, cleanup, and `--remove`.

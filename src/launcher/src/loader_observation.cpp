@@ -227,8 +227,11 @@ auto parse_override_target(
            "UE4SS.dll";
 }
 
-auto observe_loader_filesystem(const LoaderFilesystemRequest& request)
-    -> std::expected<LoaderChainObservation, LoaderObservationError>
+auto observe_loader_filesystem_details(
+    const LoaderFilesystemRequest& request)
+    -> std::expected<
+        LoaderFilesystemObservation,
+        LoaderObservationError>
 {
     std::error_code directory_error{};
     if (!fs::is_directory(request.game_directory, directory_error) ||
@@ -239,7 +242,8 @@ auto observe_loader_filesystem(const LoaderFilesystemRequest& request)
             "the game executable directory is unavailable");
     }
 
-    auto observation = LoaderChainObservation{};
+    auto result = LoaderFilesystemObservation{};
+    auto& observation = result.chain;
     observation.command_line = request.command_line;
     if (request.command_line == DirectiveState::Absent)
     {
@@ -251,6 +255,8 @@ auto observe_loader_filesystem(const LoaderFilesystemRequest& request)
     else if (request.command_line == DirectiveState::Unowned &&
              request.command_line_target)
     {
+        result.command_line_target =
+            request.command_line_target;
         observation.command_target = candidate_identity(
             *request.command_line_target,
             request.pinned_runtime_sha256);
@@ -295,6 +301,7 @@ auto observe_loader_filesystem(const LoaderFilesystemRequest& request)
             }
             else
             {
+                result.override_target = *target;
                 observation.override_target = candidate_identity(
                     *target,
                     request.pinned_runtime_sha256);
@@ -312,6 +319,18 @@ auto observe_loader_filesystem(const LoaderFilesystemRequest& request)
     observation.conventional_root = candidate_identity(
         request.game_directory / "UE4SS.dll",
         request.pinned_runtime_sha256);
-    return observation;
+    return result;
+}
+
+auto observe_loader_filesystem(const LoaderFilesystemRequest& request)
+    -> std::expected<LoaderChainObservation, LoaderObservationError>
+{
+    const auto result =
+        observe_loader_filesystem_details(request);
+    if (!result)
+    {
+        return std::unexpected(result.error());
+    }
+    return result->chain;
 }
 } // namespace meccha::launcher

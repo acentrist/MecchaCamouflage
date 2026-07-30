@@ -330,13 +330,27 @@ auto read_verified_payload(
     return std::move(*bytes);
 }
 
-auto validate_compatibility_files(
+auto compatibility_state(
     const fs::path& shared_runtime_directory,
     const SharedModMaterial& material)
-    -> std::expected<void, SharedModError>
+    -> std::expected<SettingsState, SharedModError>
 {
+    auto has_runtime = false;
     for (const auto& expected : material.compatibility_files)
     {
+        if ((expected.role != FileRole::Runtime &&
+             expected.role != FileRole::Config) ||
+            !is_canonical_payload_path(expected.path))
+        {
+            return error(
+                SharedModErrorCode::Manifest,
+                "Shared runtime compatibility material is invalid.");
+        }
+        if (expected.role == FileRole::Runtime &&
+            expected.path == "UE4SS.dll")
+        {
+            has_runtime = true;
+        }
         auto current = detail::measure_plain_file(
             target_path(
                 shared_runtime_directory,
@@ -350,12 +364,36 @@ auto validate_compatibility_files(
         if (!*current || (**current).size != expected.size ||
             (**current).sha256 != expected.sha256)
         {
-            return error(
-                SharedModErrorCode::Plan,
-                "The compatible shared runtime changed after "
-                "planning: " +
-                    expected.path);
+            return SettingsState::Incompatible;
         }
+    }
+    if (!has_runtime)
+    {
+        return error(
+            SharedModErrorCode::Manifest,
+            "Shared runtime compatibility material has no "
+            "canonical UE4SS.dll.");
+    }
+    return SettingsState::Compatible;
+}
+
+auto validate_compatibility_files(
+    const fs::path& shared_runtime_directory,
+    const SharedModMaterial& material)
+    -> std::expected<void, SharedModError>
+{
+    const auto state = compatibility_state(
+        shared_runtime_directory,
+        material);
+    if (!state)
+    {
+        return std::unexpected(state.error());
+    }
+    if (*state != SettingsState::Compatible)
+    {
+        return error(
+            SharedModErrorCode::Plan,
+            "The compatible shared runtime changed after planning.");
     }
     return {};
 }
@@ -662,6 +700,34 @@ auto build_shared_mod_material(
             "dlls/main.dll, and empty enabled.txt entries.");
     }
     return material;
+}
+
+auto observe_shared_runtime_settings(
+    const fs::path& shared_runtime_directory,
+    const SharedModMaterial& material)
+    -> std::expected<SettingsState, SharedModError>
+{
+    if (!shared_runtime_directory.is_absolute() ||
+        shared_runtime_directory.lexically_normal() !=
+            shared_runtime_directory ||
+        shared_runtime_directory.filename().empty())
+    {
+        return error(
+            SharedModErrorCode::Path,
+            "Shared runtime root must be an absolute normalized "
+            "directory path.");
+    }
+    const auto tree = detail::require_plain_directory_tree(
+        shared_runtime_directory);
+    if (!tree)
+    {
+        return error(
+            SharedModErrorCode::Path,
+            "Shared runtime root: " + tree.error().detail);
+    }
+    return compatibility_state(
+        shared_runtime_directory,
+        material);
 }
 
 auto observe_shared_mod(

@@ -43,6 +43,16 @@ struct LoaderFilesystemRequest
     Sha256Digest pinned_runtime_sha256{};
 };
 
+struct LoaderFilesystemObservation
+{
+    LoaderChainObservation chain{};
+    std::optional<std::filesystem::path> command_line_target{};
+    std::optional<std::filesystem::path> override_target{};
+
+    auto operator==(const LoaderFilesystemObservation&) const
+        -> bool = default;
+};
+
 [[nodiscard]] auto analyze_ue4ss_arguments(
     std::span<const std::string_view> arguments)
     -> std::expected<std::optional<Ue4ssLaunchArgument>,
@@ -61,6 +71,12 @@ struct LoaderFilesystemRequest
 [[nodiscard]] auto observe_loader_filesystem(
     const LoaderFilesystemRequest& request)
     -> std::expected<LoaderChainObservation, LoaderObservationError>;
+
+[[nodiscard]] auto observe_loader_filesystem_details(
+    const LoaderFilesystemRequest& request)
+    -> std::expected<
+        LoaderFilesystemObservation,
+        LoaderObservationError>;
 
 #ifdef _WIN32
 [[nodiscard]] auto analyze_windows_launch_options(

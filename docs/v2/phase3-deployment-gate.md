@@ -58,6 +58,10 @@ open, so Phase 3 remains open.
   `ue4ss/UE4SS.dll`, and root `UE4SS.dll` candidates. A configured missing
   target or any incompatible fallback remains a conflict instead of silently
   falling through.
+- The same immutable loader observation retains the exact successfully parsed
+  command-line and override targets, so later composition selects the runtime
+  root from the bytes that were actually classified instead of re-reading
+  `override.txt`.
 - Preparation observations are converted into a minimal, side-effect-free
   mutation plan before any file is changed. Invalid payloads, a running game,
   deployment conflicts, managed-cache conflicts, and inaccessible original-user
@@ -149,6 +153,10 @@ open, so Phase 3 remains open.
   ledger without transaction recovery or ownership-directory creation.
   Malformed ledgers, mixed ownership, changed current files, and changed stale
   ledger-only files are conflicts.
+- Runtime/config compatibility has an independent read-only classifier over
+  the material's canonical `runtime` and `config` entries. Missing or
+  hash-mismatched bytes are incompatible; malformed material, reparse paths,
+  and I/O failures remain typed errors.
 - Shared removal preflights every current manifest file and deletes only
   receipt-backed, hash-matched MecchaCamouflage files. `UE4SS.dll`,
   `Mods/mods.txt`, loader files, settings, unrelated mods, and exact unowned

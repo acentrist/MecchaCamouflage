@@ -290,6 +290,22 @@ auto main() -> int
         "shared mod material did not include the complete mod");
 
     TemporaryTree lifecycle{};
+    const auto compatible_settings = material
+                                         ? observe_shared_runtime_settings(
+                                               lifecycle.root / "shared",
+                                               *material)
+                                         : std::expected<
+                                               SettingsState,
+                                               SharedModError>{
+                                               std::unexpected(SharedModError{
+                                                   SharedModErrorCode::Payload,
+                                                   "missing material",
+                                               })};
+    passed &= expect(
+        compatible_settings &&
+            *compatible_settings == SettingsState::Compatible,
+        "the exact shared runtime settings were not recognized");
+
     const auto missing = material
                              ? observe_shared_mod(
                                    lifecycle.root / "shared",
@@ -446,13 +462,20 @@ auto main() -> int
     TemporaryTree::write_text(
         stale_runtime.root / "shared" / "UE4SS.dll",
         "changed-runtime");
+    const auto incompatible_settings =
+        observe_shared_runtime_settings(
+            stale_runtime.root / "shared",
+            *material);
     const auto refused_stale_runtime = apply_shared_mod_plan(
         SharedModAction::Install,
         stale_runtime.root / "shared",
         stale_runtime.root / "ownership",
         *material);
     passed &= expect(
-        !refused_stale_runtime &&
+        incompatible_settings &&
+            *incompatible_settings ==
+                SettingsState::Incompatible &&
+            !refused_stale_runtime &&
             refused_stale_runtime.error().code ==
                 SharedModErrorCode::Plan &&
             !fs::exists(

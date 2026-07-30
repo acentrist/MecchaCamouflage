@@ -177,6 +177,8 @@ auto main() -> int
             runtime_hash->sha256,
         };
         const auto observation = observe_loader_filesystem(request);
+        const auto detailed =
+            observe_loader_filesystem_details(request);
         passed &= expect(
             observation &&
                 observation->override_target ==
@@ -186,6 +188,15 @@ auto main() -> int
                 observation->conventional_root ==
                     CandidateIdentity::Missing,
             "the exact override target was not observed");
+        passed &= expect(
+            detailed &&
+                detailed->chain == *observation &&
+                !detailed->command_line_target &&
+                detailed->override_target ==
+                    std::optional<fs::path>{
+                        (game / ".." / "runtime" / "UE4SS.dll")
+                            .lexically_normal()},
+            "the loader observation did not retain its resolved target");
 
         write_text(game / "ue4ss" / "UE4SS.dll", "other-runtime");
         const auto conflicting = observe_loader_filesystem(request);
