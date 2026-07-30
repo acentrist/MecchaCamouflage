@@ -106,9 +106,14 @@ auto header_matches(
 
 auto decode_webp(
     std::string_view asset_id,
-    std::span<const std::byte> encoded)
+    std::span<const std::byte> encoded,
+    std::stop_token cancellation)
     -> std::expected<core::DecodedImageSource, ImageDecodeError>
 {
+    if (cancellation.stop_requested())
+    {
+        return std::unexpected(ImageDecodeError::Cancelled);
+    }
     auto configuration = WebPDecoderConfig{};
     if (WebPInitDecoderConfig(&configuration) == 0)
     {
@@ -137,6 +142,10 @@ auto decode_webp(
     {
         return std::unexpected(ImageDecodeError::DimensionLimit);
     }
+    if (cancellation.stop_requested())
+    {
+        return std::unexpected(ImageDecodeError::Cancelled);
+    }
 
     auto rgba = std::make_shared<std::vector<std::byte>>(*bytes);
     const auto stride =
@@ -151,6 +160,10 @@ auto decode_webp(
     if (decoded == nullptr)
     {
         return std::unexpected(ImageDecodeError::MalformedImage);
+    }
+    if (cancellation.stop_requested())
+    {
+        return std::unexpected(ImageDecodeError::Cancelled);
     }
     return core::DecodedImageSource{
         std::string{asset_id},
@@ -198,12 +211,17 @@ auto checked_decoded_rgba_bytes(
 auto NativeImageSourceDecoder::decode(
     std::string_view asset_id,
     core::ImageMime mime,
-    std::span<const std::byte> encoded)
+    std::span<const std::byte> encoded,
+    std::stop_token cancellation)
     -> std::expected<core::DecodedImageSource, ImageDecodeError>
 {
     if (!lowercase_hex(asset_id, 64U))
     {
         return std::unexpected(ImageDecodeError::InvalidAssetId);
+    }
+    if (cancellation.stop_requested())
+    {
+        return std::unexpected(ImageDecodeError::Cancelled);
     }
     if (mime != core::ImageMime::Png &&
         mime != core::ImageMime::Jpeg &&
@@ -225,10 +243,14 @@ auto NativeImageSourceDecoder::decode(
     {
         if (mime == core::ImageMime::WebP)
         {
-            return decode_webp(asset_id, encoded);
+            return decode_webp(asset_id, encoded, cancellation);
         }
 #ifdef _WIN32
-        return decode_wic_image(asset_id, mime, encoded);
+        return decode_wic_image(
+            asset_id,
+            mime,
+            encoded,
+            cancellation);
 #else
         return std::unexpected(
             ImageDecodeError::PlatformUnavailable);

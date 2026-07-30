@@ -9,6 +9,7 @@ add_library(
         src/config_store.cpp
         src/game_thread_scheduler.cpp
         src/image_composition_worker.cpp
+        src/image_decode_worker.cpp
         src/image_decoder.cpp
         src/image_paint_job_coordinator.cpp
         src/image_paint_planning_worker.cpp
@@ -32,6 +33,9 @@ target_include_directories(
     meccha_application
     PUBLIC
         "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+)
+target_include_directories(
+    meccha_application
     SYSTEM PRIVATE
         "$<BUILD_INTERFACE:${libwebp_SOURCE_DIR}/src>"
 )

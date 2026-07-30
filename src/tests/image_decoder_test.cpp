@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <iostream>
 #include <span>
+#include <stop_token>
 #include <string_view>
 #include <vector>
 
@@ -222,6 +223,18 @@ auto main() -> int
             invalid_asset.error() ==
                 ImageDecodeError::InvalidAssetId,
         "a decoded source accepted an invalid content identity");
+
+    auto cancelled_source = std::stop_source{};
+    cancelled_source.request_stop();
+    const auto cancelled = decoder.decode(
+        AssetId,
+        core::ImageMime::WebP,
+        as_bytes(RedWebP),
+        cancelled_source.get_token());
+    passed &= expect(
+        !cancelled &&
+            cancelled.error() == ImageDecodeError::Cancelled,
+        "pre-cancelled decode entered the native codec");
 
 #ifdef _WIN32
     const auto png = decoder.decode(

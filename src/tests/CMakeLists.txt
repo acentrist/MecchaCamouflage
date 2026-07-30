@@ -234,6 +234,21 @@ add_test(
 )
 
 add_executable(
+    meccha_image_decode_worker_tests
+    image_decode_worker_test.cpp
+)
+target_link_libraries(
+    meccha_image_decode_worker_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(
+    NAME image_decode_worker
+    COMMAND meccha_image_decode_worker_tests
+)
+
+add_executable(
     meccha_image_paint_planner_tests
     image_paint_planner_test.cpp
 )

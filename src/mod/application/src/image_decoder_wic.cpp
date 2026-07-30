@@ -9,6 +9,7 @@
 #include <expected>
 #include <memory>
 #include <span>
+#include <stop_token>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -68,9 +69,14 @@ auto expected_container(core::ImageMime mime) -> const GUID*
 auto decode_wic_image(
     std::string_view asset_id,
     core::ImageMime mime,
-    std::span<const std::byte> encoded)
+    std::span<const std::byte> encoded,
+    std::stop_token cancellation)
     -> std::expected<core::DecodedImageSource, ImageDecodeError>
 {
+    if (cancellation.stop_requested())
+    {
+        return std::unexpected(ImageDecodeError::Cancelled);
+    }
     const auto expected = expected_container(mime);
     if (expected == nullptr)
     {
@@ -150,6 +156,10 @@ auto decode_wic_image(
     {
         return std::unexpected(ImageDecodeError::DimensionLimit);
     }
+    if (cancellation.stop_requested())
+    {
+        return std::unexpected(ImageDecodeError::Cancelled);
+    }
 
     auto converter = ComPtr<IWICFormatConverter>{};
     result = factory->CreateFormatConverter(
@@ -163,6 +173,10 @@ auto decode_wic_image(
     if (FAILED(result))
     {
         return std::unexpected(ImageDecodeError::MalformedImage);
+    }
+    if (cancellation.stop_requested())
+    {
+        return std::unexpected(ImageDecodeError::Cancelled);
     }
     auto can_convert = BOOL{};
     result = converter->CanConvert(

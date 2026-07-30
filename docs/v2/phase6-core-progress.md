@@ -42,6 +42,10 @@ not yet complete.
   publishes immutable atlases tagged with job generation, project identity,
   and project revision; and contains cancellation, typed compositor failures,
   exceptions, reuse, and terminal shutdown.
+- The project decode worker owns copied encoded-source descriptors, invokes
+  only the bounded native decoder, preserves source order, validates every
+  returned identity/dimension/buffer, and enforces the aggregate decoded
+  project limit before publishing an immutable collection.
 - The Image Paint planning worker applies the same ownership rules to copied
   triangle captures, canonical profile/atlas values, and project identity. It
   publishes the immutable Image Paint plan only with job generation and
@@ -168,7 +172,7 @@ copied inputs, bounded concurrency, generation-checked cancellation,
 planner/composer errors, immutable publication, worker reuse, exception
 containment, and terminal shutdown. `application_command_queue_test` covers
 hard capacity, invalid IDs, FIFO bounded drains, concurrent publication, and
-terminal close/discard. The secret-free Linux suite currently passes all 41
+terminal close/discard. The secret-free Linux suite currently passes all 42
 registered tests.
 
 ## Deliberate non-port

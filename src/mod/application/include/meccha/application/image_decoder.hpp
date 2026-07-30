@@ -7,6 +7,7 @@
 #include <expected>
 #include <optional>
 #include <span>
+#include <stop_token>
 #include <string_view>
 
 namespace meccha::application
@@ -23,6 +24,7 @@ enum class ImageDecodeError : std::uint8_t
     AllocationFailure,
     PlatformUnavailable,
     PlatformFailure,
+    Cancelled,
 };
 
 [[nodiscard]] auto checked_decoded_rgba_bytes(
@@ -41,7 +43,8 @@ public:
     [[nodiscard]] virtual auto decode(
         std::string_view asset_id,
         core::ImageMime mime,
-        std::span<const std::byte> encoded)
+        std::span<const std::byte> encoded,
+        std::stop_token cancellation = {})
         -> std::expected<
             core::DecodedImageSource,
             ImageDecodeError> = 0;
@@ -53,7 +56,8 @@ public:
     [[nodiscard]] auto decode(
         std::string_view asset_id,
         core::ImageMime mime,
-        std::span<const std::byte> encoded)
+        std::span<const std::byte> encoded,
+        std::stop_token cancellation = {})
         -> std::expected<
             core::DecodedImageSource,
             ImageDecodeError> override;

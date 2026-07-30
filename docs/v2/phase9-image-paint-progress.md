@@ -35,6 +35,20 @@ decode on Linux and Windows. The Windows run additionally decodes real PNG and
 baseline JPEG fixtures through WIC. The upstream license is preserved at
 `resources/licenses/libwebp-COPYING.txt`.
 
+`ImageProjectDecodeWorker` keeps all codec work off the frame callback. One
+request owns copied immutable encoded-source descriptors and is tagged with
+generation, project ID, and project revision. Sources decode in deterministic
+project order. Every adapter result is revalidated for identity, dimensions,
+exact RGBA size, and the `256 MiB` aggregate decoded-project limit before an
+immutable collection is published. Stop requests are checked before and
+between codecs and passed through the decoder boundary; failures and escaping
+exceptions become typed terminal results.
+
+`image_decode_worker_test` covers synchronous input rejection, copied source
+ownership, one-generation admission, stale cancellation, ordered immutable
+success, malformed adapter output, aggregate decoded-memory rejection,
+exception containment, worker reuse, and terminal shutdown.
+
 ## Canonical composition contract
 
 `core/image_compositor` produces exactly one 1024×512 RGBA atlas and owns no
