@@ -58,6 +58,19 @@ int main()
     {
         return 31;
     }
+    if (!runtime_contract::runtime_triangle_dynamic_fallback_allowed(
+            false, true, false, 2784, 2784) ||
+        runtime_contract::runtime_triangle_dynamic_fallback_allowed(
+            true, true, false, 2784, 2784) ||
+        runtime_contract::runtime_triangle_dynamic_fallback_allowed(
+            false, true, true, 2784, 2784) ||
+        runtime_contract::runtime_triangle_dynamic_fallback_allowed(
+            false, false, false, 2784, 2784) ||
+        runtime_contract::runtime_triangle_dynamic_fallback_allowed(
+            false, true, false, 2784, 2783))
+    {
+        return 43;
+    }
 
     if (json_string_field(R"({"image_paint_rgba_base64":"AA\u002BAA=="})", "image_paint_rgba_base64") != "AA+AA==" ||
         json_string_field(R"({"label":"\u3042\uD83D\uDE00"})", "label") !=

@@ -3349,6 +3349,20 @@ namespace runtime_contract
         return true;
     }
 
+    constexpr bool runtime_triangle_dynamic_fallback_allowed(
+        bool profile_cache_ok,
+        bool dynamic_cache_ok,
+        bool image_paint_enabled,
+        int expected_triangle_count,
+        int dynamic_triangle_count)
+    {
+        return !profile_cache_ok &&
+               dynamic_cache_ok &&
+               !image_paint_enabled &&
+               expected_triangle_count > 0 &&
+               dynamic_triangle_count == expected_triangle_count;
+    }
+
     constexpr bool event_watch_generation_active(bool enabled,
                                                  std::uint64_t current_generation,
                                                  std::uint64_t captured_generation)

@@ -10978,10 +10978,13 @@ namespace
         return out;
     }
 
-    auto mesh_first_resolve_runtime_triangle_cache_dynamic(std::uintptr_t component) -> MeshFirstRuntimeTriangleCache
+    auto mesh_first_resolve_runtime_triangle_cache_dynamic(
+        std::uintptr_t component,
+        int expected_triangle_count) -> MeshFirstRuntimeTriangleCache
     {
         MeshFirstRuntimeTriangleCache out{};
-        if (!component)
+        out.expected_triangle_count = expected_triangle_count;
+        if (!component || expected_triangle_count <= 0)
         {
             out.failure = "runtime_triangle_cache_invalid_component";
             return out;
@@ -11001,6 +11004,26 @@ namespace
             const auto max = safe_read<int>(component + static_cast<std::uintptr_t>(offset + 12), 0);
             if (!data || num <= 0 || num > 200000 || max < num || max > num + std::max(1024, num / 2))
             {
+                continue;
+            }
+            ++out.array_headers_seen;
+            if (out.closest_triangle_count <= 0 ||
+                std::abs(num - expected_triangle_count) <
+                    std::abs(
+                        out.closest_triangle_count -
+                        expected_triangle_count))
+            {
+                out.closest_triangle_count = num;
+            }
+            if (num != expected_triangle_count)
+            {
+                continue;
+            }
+            ++out.matching_count_arrays_seen;
+            if (max >
+                num + std::max(32, num / 2))
+            {
+                ++out.capacity_rejections;
                 continue;
             }
 
@@ -11036,6 +11059,7 @@ namespace
             }
             if (!valid)
             {
+                ++out.read_rejections;
                 continue;
             }
 
@@ -11059,6 +11083,7 @@ namespace
             }
             if (!valid)
             {
+                ++out.read_rejections;
                 continue;
             }
 
@@ -18093,7 +18118,25 @@ namespace
             if (!cache.ok)
             {
                 profile_cache_failure = cache.failure;
-                mode = "profile_verified_failed";
+                auto dynamic_cache =
+                    mesh_first_resolve_runtime_triangle_cache_dynamic(
+                        ctx.component,
+                        cache.expected_triangle_count);
+                if (runtime_contract::
+                        runtime_triangle_dynamic_fallback_allowed(
+                            cache.ok,
+                            dynamic_cache.ok,
+                            image_paint_enabled,
+                            cache.expected_triangle_count,
+                            dynamic_cache.triangle_count))
+                {
+                    cache = std::move(dynamic_cache);
+                    mode = "dynamic_uv_only";
+                }
+                else
+                {
+                    mode = "profile_verified_failed";
+                }
             }
             return std::make_tuple(std::move(cache), std::move(mode), std::move(profile_cache_failure));
         };
@@ -18185,8 +18228,12 @@ namespace
                     json_escape(runtime_triangle_cache.profile_uv_mapping_mode) + "\"";
         metadata += ",\"runtime_triangle_cache_profile_uv_avg_error\":" + std::to_string(runtime_triangle_cache.profile_uv_avg_error);
         metadata += ",\"runtime_triangle_cache_failure\":\"" + json_escape(runtime_triangle_cache.failure) + "\"";
-        const bool runtime_uses_profile_component_world =
+        const bool runtime_uses_profile_topology =
             profile_available && runtime_triangle_cache_mode == "profile_verified";
+        const bool runtime_uses_profile_component_world =
+            runtime_uses_profile_topology;
+        const auto* runtime_planning_profile =
+            runtime_uses_profile_topology ? &profile : nullptr;
         metadata += ",\"planner_position_source\":\"" +
                     std::string(runtime_uses_profile_component_world
                                     ? "runtime_paintable_cached_local_component_world"
@@ -18240,11 +18287,24 @@ namespace
         }
         metadata += ",\"component_world_transform_effective_source\":\"" + json_escape(component_transform_source) + "\"";
         const int active_texture_size = profile_available ? profile.texture_size : 1024;
-        const char region_axis = profile_available ? mesh_first_region_axis(profile)
-                                                   : mesh_first_region_axis_from_runtime_triangles(runtime_triangle_cache.triangles);
+        const char region_axis =
+            runtime_planning_profile
+                ? mesh_first_region_axis(*runtime_planning_profile)
+                : mesh_first_region_axis_from_runtime_triangles(
+                      runtime_triangle_cache.triangles);
         metadata += ",\"mesh_region_axis\":\"" + std::string(mesh_first_region_axis_label(region_axis)) + "\"";
-        metadata += ",\"mesh_region_axis_selection\":\"" + std::string(profile_available ? "profile_min_horizontal_extent" : "runtime_triangle_min_horizontal_extent") + "\"";
-        metadata += ",\"mesh_region_normal_source\":\"" + std::string(profile_available ? "profile_v2_triangle_local_normal" : "runtime_triangle_local_normal") + "\"";
+        metadata += ",\"mesh_region_axis_selection\":\"" +
+                    std::string(
+                        runtime_planning_profile
+                            ? "profile_min_horizontal_extent"
+                            : "runtime_triangle_min_horizontal_extent") +
+                    "\"";
+        metadata += ",\"mesh_region_normal_source\":\"" +
+                    std::string(
+                        runtime_planning_profile
+                            ? "profile_v2_triangle_local_normal"
+                            : "runtime_triangle_local_normal") +
+                    "\"";
         metadata += ",\"texture_size\":" + std::to_string(active_texture_size);
 
         const auto viewport = sdk_get_viewport_info(ref, ctx);
@@ -18366,7 +18426,7 @@ namespace
         metadata += ",\"mesh_region_threshold\":0.350000";
         metadata += ",\"mesh_region_threshold_source\":\"fixed_mesh_local_normal\"";
         const auto sample_start = std::chrono::high_resolution_clock::now();
-        const bool sample_gen_ok = mesh_first_generate_plan_samples_from_runtime_cache(profile_available ? &profile : nullptr,
+        const bool sample_gen_ok = mesh_first_generate_plan_samples_from_runtime_cache(runtime_planning_profile,
                                                                  runtime_triangle_cache.triangles,
                                                                  active_texture_size,
                                                                  center_ray.location,
@@ -19097,7 +19157,7 @@ namespace
 
             const auto source_assignment_started =
                 std::chrono::steady_clock::now();
-            mesh_first_assign_colors(profile_available ? &profile : nullptr,
+            mesh_first_assign_colors(runtime_planning_profile,
                                      plan_samples,
                                      capture,
                                      enable_front,
