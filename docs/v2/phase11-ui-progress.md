@@ -256,16 +256,26 @@ mutating the project. Portable tests cover exact drawing, move/release/cancel,
 scroll exclusion, stale-asset refusal, edit refusal, duplicate suppression,
 and revision acknowledgement.
 
+The selected-layer toolbar additionally exposes universal backward/forward
+order controls plus localized seam-wrap and front/back-mirror toggles. Ordering
+emits one `ReorderImageLayerMutation`; wrap and mirror copy the immutable layer
+and emit one `ReplaceImageLayerMutation`. Every operation retains the selected
+index and expected asset identity, enters the same revision-wait state, and is
+disabled without an exact ready atlas, edit ownership, valid selection, or
+available destination. Tests cover both order directions and isolated wrap/
+mirror fields across two layers.
+
 This remains a partial product UI milestone. The Image Paint atlas interaction
-toolbar and project file operations, direct hotkey capture UX, localized
+crop/import/removal and project file operations, direct hotkey capture UX,
+localized
 progress/compatibility/diagnostics formatting, and the production UCanvas
 adapter remain open.
 
 ## Remaining work
 
-- Compose Image Paint ordering/crop/wrap/mirror/import/removal/project
-  operations and the complete Diagnostics Canvas section from the implemented
-  shell and immutable presentation values.
+- Compose Image Paint crop/import/removal/project operations and the complete
+  Diagnostics Canvas section from the implemented shell and immutable
+  presentation values.
 - Connect the remaining Image Paint operations to the implemented typed
   product-action router without direct runtime mutation.
 - Enqueue the returned product action through the production callback boundary.

@@ -67,6 +67,19 @@ auto ready_model() -> meccha::application::ProductUiModel
                 false,
                 false,
             },
+            meccha::core::ImageLayer{
+                "overlay-image",
+                "overlay.png",
+                meccha::core::ImageMime::Png,
+                64U,
+                0.85,
+                0.5,
+                0.2,
+                0.2,
+                {},
+                false,
+                false,
+            },
         },
     };
     model.image_paint.settings =
@@ -228,6 +241,181 @@ auto main(int argc, char** argv) -> int
         atlas_width,
         atlas_width * 0.5,
     };
+    auto atlas_select_input = atlas_input;
+    atlas_select_input.pointer = ui::PointerFrame{
+        center(atlas_rect),
+        true,
+        false,
+        true,
+        0.0,
+    };
+    const auto atlas_select = compose_product_panel(
+        model,
+        image_tab->state,
+        atlas_select_input,
+        english);
+    passed &= expect(
+        atlas_select &&
+            atlas_select->state.image_editor.interaction
+                    .selected_layer ==
+                0U &&
+            !atlas_select->action,
+        "Image Paint atlas click did not select one layer");
+    if (!atlas_select)
+    {
+        return 1;
+    }
+
+    constexpr auto LayerToolbarGap = 6.0;
+    const auto layer_toolbar_y =
+        atlas_rect.y + atlas_rect.height + 8.0;
+    const auto layer_toolbar_width =
+        (atlas_rect.width - 3.0 * LayerToolbarGap) / 4.0;
+    auto wrap_input = atlas_input;
+    wrap_input.pointer = ui::PointerFrame{
+        {
+            atlas_rect.x +
+                2.0 *
+                    (layer_toolbar_width + LayerToolbarGap) +
+                layer_toolbar_width * 0.5,
+            layer_toolbar_y + 17.0,
+        },
+        true,
+        false,
+        true,
+        0.0,
+    };
+    const auto wrap_output = compose_product_panel(
+        model,
+        atlas_select->state,
+        wrap_input,
+        english);
+    const auto* wrap_ui_mutation =
+        wrap_output && wrap_output->action
+            ? std::get_if<UiMutateCurrentImageProject>(
+                  &wrap_output->action->action)
+            : nullptr;
+    const auto* wrap_mutation =
+        wrap_ui_mutation
+            ? std::get_if<ReplaceImageLayerMutation>(
+                  &wrap_ui_mutation->mutation)
+            : nullptr;
+    passed &= expect(
+        wrap_mutation &&
+            wrap_mutation->layer_index == 0U &&
+            wrap_mutation->expected_asset_id ==
+                "source-image" &&
+            wrap_mutation->layer.wrap_atlas_seam &&
+            !wrap_mutation->layer.mirror_front_back &&
+            wrap_output->state.image_editor.awaiting_revision,
+        "Image Paint Wrap did not emit one guarded layer mutation");
+
+    auto mirror_input = wrap_input;
+    mirror_input.pointer.position.x =
+        atlas_rect.x +
+        3.0 * (layer_toolbar_width + LayerToolbarGap) +
+        layer_toolbar_width * 0.5;
+    const auto mirror_output = compose_product_panel(
+        model,
+        atlas_select->state,
+        mirror_input,
+        english);
+    const auto* mirror_ui_mutation =
+        mirror_output && mirror_output->action
+            ? std::get_if<UiMutateCurrentImageProject>(
+                  &mirror_output->action->action)
+            : nullptr;
+    const auto* mirror_mutation =
+        mirror_ui_mutation
+            ? std::get_if<ReplaceImageLayerMutation>(
+                  &mirror_ui_mutation->mutation)
+            : nullptr;
+    passed &= expect(
+        mirror_mutation &&
+            mirror_mutation->layer_index == 0U &&
+            mirror_mutation->expected_asset_id ==
+                "source-image" &&
+            !mirror_mutation->layer.wrap_atlas_seam &&
+            mirror_mutation->layer.mirror_front_back,
+        "Image Paint Mirror did not isolate one guarded layer field");
+
+    auto forward_input = wrap_input;
+    forward_input.pointer.position.x =
+        atlas_rect.x +
+        layer_toolbar_width + LayerToolbarGap +
+        layer_toolbar_width * 0.5;
+    const auto forward_output = compose_product_panel(
+        model,
+        atlas_select->state,
+        forward_input,
+        english);
+    const auto* forward_ui_mutation =
+        forward_output && forward_output->action
+            ? std::get_if<UiMutateCurrentImageProject>(
+                  &forward_output->action->action)
+            : nullptr;
+    const auto* forward_mutation =
+        forward_ui_mutation
+            ? std::get_if<ReorderImageLayerMutation>(
+                  &forward_ui_mutation->mutation)
+            : nullptr;
+    passed &= expect(
+        forward_mutation &&
+            forward_mutation->layer_index == 0U &&
+            forward_mutation->destination_index == 1U &&
+            forward_mutation->expected_asset_id ==
+                "source-image",
+        "Image Paint forward ordering did not emit one guarded reorder");
+
+    auto overlay_select_input = atlas_input;
+    overlay_select_input.pointer = ui::PointerFrame{
+        {
+            atlas_rect.x + atlas_rect.width * 0.85,
+            atlas_rect.y + atlas_rect.height * 0.5,
+        },
+        true,
+        false,
+        true,
+        0.0,
+    };
+    const auto overlay_select = compose_product_panel(
+        model,
+        image_tab->state,
+        overlay_select_input,
+        english);
+    if (!overlay_select)
+    {
+        return 1;
+    }
+    auto back_input = wrap_input;
+    back_input.pointer.position.x =
+        atlas_rect.x + layer_toolbar_width * 0.5;
+    const auto back_output = compose_product_panel(
+        model,
+        overlay_select->state,
+        back_input,
+        english);
+    const auto* back_ui_mutation =
+        back_output && back_output->action
+            ? std::get_if<UiMutateCurrentImageProject>(
+                  &back_output->action->action)
+            : nullptr;
+    const auto* back_mutation =
+        back_ui_mutation
+            ? std::get_if<ReorderImageLayerMutation>(
+                  &back_ui_mutation->mutation)
+            : nullptr;
+    passed &= expect(
+        overlay_select->state.image_editor.interaction
+                    .selected_layer ==
+                1U &&
+            back_mutation &&
+            back_mutation->layer_index == 1U &&
+            back_mutation->destination_index == 0U &&
+            back_mutation->expected_asset_id ==
+                "overlay-image",
+        "Image Paint backward ordering did not emit one guarded reorder");
+
     auto atlas_press_input = atlas_input;
     atlas_press_input.pointer = ui::PointerFrame{
         center(atlas_rect),
@@ -407,7 +595,7 @@ auto main(int argc, char** argv) -> int
             image_tab->layout->content.width,
             600.0 * image_tab->layout->effective_scale) *
             0.5 +
-        12.0 * image_tab->layout->effective_scale;
+        50.0 * image_tab->layout->effective_scale;
     image_settings_input.pointer = ui::PointerFrame{
         {
             image_tab->layout->content.x +

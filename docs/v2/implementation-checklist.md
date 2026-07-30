@@ -507,8 +507,10 @@ Evidence:
   - [x] Reject stale texture bindings, unavailable edit ownership, duplicate
     gestures while awaiting the published project revision, and reset the
     local draft on exact revision replacement or panel close.
-  - [ ] Connect ordering, crop, seam wrap, front/back mirror, import/removal,
-    and body-guide generation/lifetime through the product panel.
+  - [x] Connect selected-layer forward/back ordering, seam wrap, and front/back
+    mirror controls through index/asset-guarded revision-bound mutations.
+  - [ ] Connect crop, import/removal, and body-guide generation/lifetime
+    through the product panel.
 - [ ] Complete F9 and configurable F1–F8 hotkey behavior.
   - [x] Implement a bounded application-owned F1–F24 command router with the
     F9/F1–F8 defaults, validated remapping, physical-key repeat suppression
@@ -550,6 +552,8 @@ Evidence:
     gesture-time scroll exclusion, asset-guarded mutation, stale-asset refusal,
     edit-availability refusal, revision acknowledgement, and duplicate-action
     suppression.
+  - [x] Prove selected-layer forward/back ordering, seam wrap, and front/back
+    mirror emit only their exact guarded mutation and enter revision wait.
 - [ ] DEFERRED — maintainer interaction required: complete the full in-game UI
   walkthrough across languages/resolutions/DPI.
 

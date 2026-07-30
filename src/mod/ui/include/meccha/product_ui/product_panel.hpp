@@ -32,6 +32,8 @@ struct ProductPanelLabels
     std::string cancel{};
     std::string language{};
     std::string theme_color{};
+    std::string image_wrap{};
+    std::string image_mirror{};
     std::array<std::string, 9U> hotkey_labels{};
     std::array<std::string, 16U> paint_setting_labels{};
     std::array<std::string, 3U> region_mode_labels{};

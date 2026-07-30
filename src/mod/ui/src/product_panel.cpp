@@ -69,6 +69,8 @@ auto labels_valid(const ProductPanelLabels& labels) -> bool
            valid_label(labels.cancel) &&
            valid_label(labels.language) &&
            valid_label(labels.theme_color) &&
+           valid_label(labels.image_wrap) &&
+           valid_label(labels.image_mirror) &&
            std::ranges::all_of(
                labels.hotkey_labels,
                valid_label) &&
@@ -344,6 +346,8 @@ auto build_product_panel_labels(
         std::string{catalog.text(locale, "button.stop")},
         std::string{catalog.text(locale, "language")},
         std::string{catalog.text(locale, "theme.color")},
+        std::string{catalog.text(locale, "image.action.wrap")},
+        std::string{catalog.text(locale, "image.action.mirror")},
         {
             std::string{catalog.text(locale, "app.title")},
             std::string{catalog.text(locale, "start.hotkey")},
