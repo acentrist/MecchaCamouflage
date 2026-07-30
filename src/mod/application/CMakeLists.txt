@@ -16,6 +16,7 @@ add_library(
         src/paint_dispatch.cpp
         src/paint_job_coordinator.cpp
         src/paint_planning_worker.cpp
+        src/paint_preview_controller.cpp
         src/runtime_lifecycle.cpp
         src/runtime_operation_executor.cpp
 )

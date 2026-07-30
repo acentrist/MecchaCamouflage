@@ -108,6 +108,33 @@ confirmation window; they do not permit immediate completion or cancellation.
 The captured component handle belongs to the job and does not change when a
 controller/freecam pawn changes.
 
+## Preview ownership and recovery boundary
+
+`PaintPreviewController` owns the only project-side original preview snapshot.
+The snapshot is bounded to a validated square texture no larger than 4096 and
+stores immutable albedo RGBA plus the packed metallic/roughness/emissive RGBA
+channel required for exact restoration.
+
+The controller runs only on the game thread and:
+
+- captures the original channels once per feature/component lease;
+- reuses that original for repeated preview updates;
+- restores the old component before another feature or component can acquire
+  preview ownership;
+- rejects wrong-feature, wrong-component, malformed, oversized, or
+  dimension-changing preview updates before calling the runtime;
+- attempts immediate exact restore when preview application fails;
+- releases the lease only after verified runtime restoration;
+- retains the original snapshot when recovery fails so a later explicit or
+  shutdown restore can retry;
+- guards repeated and wrong-component restores; and
+- explicitly expires a snapshot only after its captured runtime handle has
+  been invalidated.
+
+`PaintPreviewRuntimePort` is the narrow production boundary for reflected
+channel export, import, and post-import verification. Its UE4SS implementation
+is still required, so the parent exact-runtime preview gate remains open.
+
 ## Automated evidence
 
 `paint_planner` passes on GCC and MSVC Release and covers:
@@ -133,8 +160,11 @@ ownership, bounded concurrency, cancellation, generation tagging, worker
 reuse, exception containment, and terminal shutdown. `paint_job_coordinator`
 covers planning-to-dispatch transition, planning cancellation, typed failure,
 confirmed terminal completion, and replacement-job isolation. All related
-tests pass on GCC and MSVC Release. The secret-free Linux suite currently
-passes all 29 registered tests.
+tests pass on GCC and MSVC Release. `paint_preview_controller` covers
+game-thread enforcement, capture reuse, replacement ordering, strict image
+bounds, wrong-component and repeat guards, apply recovery, retained recovery
+failure, shutdown restoration, malformed capture, and invalid-handle expiry.
+The secret-free Linux suite currently passes all 30 registered tests.
 
 ## Remaining gate
 

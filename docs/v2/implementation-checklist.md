@@ -187,6 +187,8 @@ Evidence:
   generation-tagged results, and an exception boundary.
 - [x] Coordinate planning, dispatch, drain, planning cancellation, typed
   failure, and stale-result rejection through the shared job generation.
+- [x] Implement the bounded typed albedo/packed-PBR preview snapshot controller,
+  ownership guards, apply recovery, replacement restore, and shutdown restore.
 - [ ] Implement exact preview capture/apply/restore ownership.
 - [ ] Dispatch only through game-owned `PaintAtUVWithBrush`.
 - [x] Implement bounded per-frame pacing, progress, cancellation, and terminal
