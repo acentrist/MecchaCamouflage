@@ -2,10 +2,11 @@
 
 ## Current status
 
-The manifest, ownership, loader-policy, recoverable transaction, and native
-Windows managed-runtime storage foundations are implemented. The managed
-runtime is not yet connected to Steam discovery, the game-directory loader
-files, elevation, or the final embedded payload, so Phase 3 remains open.
+The manifest, ownership, loader-policy, recoverable transaction, native
+Windows managed-runtime storage, and side-effect-free preparation/removal
+planning foundations are implemented. The managed runtime is not yet connected
+to game-directory mutation, elevation, Steam launch, or the final embedded
+payload, so Phase 3 remains open.
 
 ## Implemented contracts
 
@@ -55,12 +56,34 @@ files, elevation, or the final embedded payload, so Phase 3 remains open.
   `ue4ss/UE4SS.dll`, and root `UE4SS.dll` candidates. A configured missing
   target or any incompatible fallback remains a conflict instead of silently
   falling through.
+- Preparation observations are converted into a minimal, side-effect-free
+  mutation plan before any file is changed. Invalid payloads, a running game,
+  deployment conflicts, managed-cache conflicts, and inaccessible original-user
+  cache storage all fail closed.
+- Managed preparation publishes or reuses the LocalAppData runtime and changes
+  only loader files classified as create or owned replacement. Elevation is
+  requested only when one of those loader changes is necessary and the game
+  directory is not writable.
+- LocalAppData runtime publication is never delegated to an elevated process.
+  Exact shared-runtime mode never changes the managed cache or loader files and
+  never elevates a mod-directory write.
+- Removal planning is ownership-aware. Managed removal deletes only the owned
+  cache, proxy, and override; exact shared-runtime removal deletes only the
+  owned MecchaCamouflage mod. Exact unowned files remain untouched, and
+  conflicting observations abort the entire plan.
 
 ## Automated evidence
 
 Linux secret-free tests exercise the portable parser, policy, loader, and
 transaction state machine. Windows tests additionally exercise CNG and real
 temporary directory trees.
+
+The preparation/removal planner is exercised on Linux and MSVC Release. Its
+tests cover clean managed preparation, exact reuse, minimal owned update,
+prepare-only operation, managed UAC decisions, shared mod installation,
+running-game rejection, invalid payloads, inaccessible cache storage, every
+deployment conflict, ownership-safe managed/shared removal, and removal
+conflicts.
 
 Covered Windows directory cases:
 
@@ -89,7 +112,8 @@ without adding a test-only branch to production coordination.
 - Connect active Steam-user `localconfig.vdf` lookup to launcher orchestration.
 - Connect the native folder-picker fallback to the validated explicit-directory
   path.
-- Connect running-game rejection to prepare and remove orchestration.
+- Connect the validated preparation/removal plans to native side-effect
+  orchestration.
 - Implement compatible shared-tree observation and mod-only installation.
 - Implement the managed `dwmapi.dll` and `override.txt` mutation set,
   ownership persistence, exact-match reuse, and removal.
