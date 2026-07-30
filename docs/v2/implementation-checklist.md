@@ -194,6 +194,8 @@ Evidence:
   failure, and stale-result rejection through the shared job generation.
 - [x] Implement the bounded typed albedo/packed-PBR preview snapshot controller,
   ownership guards, apply recovery, replacement restore, and shutdown restore.
+- [x] Implement cancellable bounded Paint-plan composition over immutable
+  original albedo/packed-PBR channels without mutating the restore snapshot.
 - [x] Connect typed Start/Cancel Paint, capture, planning, dispatch, queue
   observation, progress, and terminal completion through `ApplicationRoot`.
 - [ ] Implement exact preview capture/apply/restore ownership.

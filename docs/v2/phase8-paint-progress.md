@@ -144,6 +144,14 @@ The controller runs only on the game thread and:
 channel export, import, and post-import verification. Its UE4SS implementation
 is still required, so the parent exact-runtime preview gate remains open.
 
+`compose_paint_preview` is the dependency-free worker algorithm between capture
+and that port. It copies the immutable original channels, applies every
+Fill-first stroke as a clipped circular write, quantizes metallic, roughness,
+and emissive into the packed RGBA channel, and never mutates the restoration
+snapshot. It validates plan structure and channel dimensions before copying,
+uses checked arithmetic, stops above the hard stroke/pixel-operation budgets,
+and honors cancellation before and during scanline composition.
+
 ## Automated evidence
 
 `paint_planner` passes on GCC and MSVC Release and covers:
@@ -175,8 +183,10 @@ bounds, wrong-component and repeat guards, apply recovery, retained recovery
 failure, shutdown restoration, malformed capture, and invalid-handle expiry.
 `application_root_paint` covers the end-to-end command, capture, worker,
 dispatch, execution, observation, completion, command backpressure, and
-frame-owned UI/ESP path. The secret-free Linux suite currently passes all 32
-registered tests.
+frame-owned UI/ESP path. `paint_preview_composer` adds Fill/Paint overwrite
+ordering, packed-PBR quantization, edge clipping, original immutability,
+invalid plan/buffer rejection, cancellation, and resource-limit evidence. The
+secret-free Linux suite currently passes all 33 registered tests.
 
 ## Remaining gate
 

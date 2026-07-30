@@ -8,6 +8,7 @@ add_library(
         src/mesh_profile.cpp
         src/paint.cpp
         src/paint_plan.cpp
+        src/paint_preview.cpp
         src/utf8.cpp
 )
 add_library(MecchaCamouflage::Core ALIAS meccha_core)

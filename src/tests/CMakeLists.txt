@@ -200,6 +200,21 @@ target_link_libraries(
 )
 add_test(NAME paint_planner COMMAND meccha_paint_planner_tests)
 
+add_executable(
+    meccha_paint_preview_composer_tests
+    paint_preview_composer_test.cpp
+)
+target_link_libraries(
+    meccha_paint_preview_composer_tests
+    PRIVATE
+        MecchaCamouflage::Core
+        meccha_build_options
+)
+add_test(
+    NAME paint_preview_composer
+    COMMAND meccha_paint_preview_composer_tests
+)
+
 add_executable(meccha_paint_dispatch_tests paint_dispatch_test.cpp)
 target_link_libraries(
     meccha_paint_dispatch_tests

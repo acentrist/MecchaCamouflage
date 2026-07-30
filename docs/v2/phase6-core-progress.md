@@ -30,6 +30,10 @@ not yet complete.
   Material appearance, optionally selects captured scene color, routes a
   fixed 100-texel Fill base, applies adaptive Paint radii, and publishes one
   immutable Fill-first stroke vector.
+- The pure Paint preview compositor copies validated original albedo and
+  packed-PBR channels, applies the immutable Fill-first plan in order, and
+  enforces checked texture sizes, a 600,000-stroke bound, a 200,000,000 pixel
+  candidate budget, and row-level cancellation.
 
 ### Image Paint
 
