@@ -42,6 +42,12 @@ struct RemoveImageLayerMutation
     std::string expected_asset_id{};
 };
 
+struct AddImageLayersMutation
+{
+    std::vector<core::ImageLayer> layers{};
+    std::vector<core::ImageSourceAsset> sources{};
+};
+
 struct ReplaceImageProjectSettingsMutation
 {
     core::ImageProjectSettings settings{};
@@ -51,6 +57,7 @@ using ImageEditorMutation = std::variant<
     ReplaceImageLayerMutation,
     ReorderImageLayerMutation,
     RemoveImageLayerMutation,
+    AddImageLayersMutation,
     ReplaceImageProjectSettingsMutation>;
 
 enum class ImageEditorMutationError : std::uint8_t

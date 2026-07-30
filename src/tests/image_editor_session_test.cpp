@@ -407,6 +407,122 @@ auto main() -> int
             "layer removal retained orphan source bytes or removed the final layer");
         removal_session.shutdown(false);
     }
+    {
+        auto import_session = ImageEditorSession{
+            decoder,
+            composer,
+            projects,
+            persistence,
+            1ms,
+        };
+        auto importable = project(hasher, 30U);
+        const auto reused_asset_id =
+            importable.layers.back().asset_id;
+        auto imported_bytes =
+            std::make_shared<const std::vector<std::byte>>(
+                std::initializer_list<std::byte>{
+                    std::byte{0x33},
+                });
+        const auto imported_asset_id = common::sha256_hex(
+            hasher.hash(*imported_bytes).value());
+        const auto imported_layer = core::ImageLayer{
+            imported_asset_id,
+            "third.webp",
+            core::ImageMime::WebP,
+            imported_bytes->size(),
+            0.75,
+            0.5,
+            0.25,
+            0.25,
+        };
+        passed &= expect(
+            import_session
+                    .submit_edit(std::move(importable))
+                    .has_value(),
+            "the image-import fixture did not enter the editor");
+        const auto imported = import_session.mutate(
+            ProjectId,
+            30U,
+            AddImageLayersMutation{
+                {imported_layer},
+                {core::ImageSourceAsset{
+                    imported_asset_id,
+                    core::ImageMime::WebP,
+                    imported_bytes,
+                }},
+            });
+        const auto after_import =
+            import_session.session_snapshot().document;
+        passed &= expect(
+            imported && after_import &&
+                after_import->revision == 31U &&
+                after_import->layers.size() == 3U &&
+                after_import->layers.back() == imported_layer &&
+                wait_until_ready(import_session, 31U),
+            "image import did not publish one added layer revision");
+
+        const auto duplicate_source = import_session.mutate(
+            ProjectId,
+            31U,
+            AddImageLayersMutation{
+                {imported_layer},
+                {core::ImageSourceAsset{
+                    imported_asset_id,
+                    core::ImageMime::WebP,
+                    imported_bytes,
+                }},
+            });
+        passed &= expect(
+            duplicate_source ==
+                std::unexpected(
+                    ImageEditorMutationError::InvalidLayer),
+            "image import accepted a duplicated source payload");
+
+        const auto reused_layer = core::ImageLayer{
+            reused_asset_id,
+            "second-again.png",
+            core::ImageMime::Png,
+            1U,
+            0.25,
+            0.5,
+            0.25,
+            0.25,
+        };
+        const auto reused = import_session.mutate(
+            ProjectId,
+            31U,
+            AddImageLayersMutation{
+                {reused_layer},
+                {},
+            });
+        passed &= expect(
+            reused && wait_until_ready(import_session, 32U),
+            "image import did not reuse an existing source");
+        const auto import_draft =
+            projects.load_active_draft();
+        passed &= expect(
+            import_draft && *import_draft &&
+                (*import_draft)->revision == 32U &&
+                (*import_draft)->layers.size() == 4U &&
+                (*import_draft)->sources.size() == 3U &&
+                (*import_draft)->layers.back() == reused_layer,
+            "image import lost source ownership in the active draft");
+
+        auto missing_source_layer = imported_layer;
+        missing_source_layer.asset_id.assign(64U, 'f');
+        passed &= expect(
+            import_session.mutate(
+                ProjectId,
+                32U,
+                AddImageLayersMutation{
+                    {missing_source_layer},
+                    {},
+                }) ==
+                std::unexpected(
+                    ImageEditorMutationError::InvalidProject),
+            "image import accepted a layer without an owned source");
+        import_session.shutdown(false);
+    }
 
     auto session = ImageEditorSession{
         decoder,

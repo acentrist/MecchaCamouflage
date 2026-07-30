@@ -80,6 +80,21 @@ add_test(
 )
 
 add_executable(
+    meccha_image_file_import_tests
+    image_file_import_test.cpp
+)
+target_link_libraries(
+    meccha_image_file_import_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(
+    NAME image_file_import
+    COMMAND meccha_image_file_import_tests
+)
+
+add_executable(
     meccha_product_ui_model_tests
     product_ui_model_test.cpp
 )

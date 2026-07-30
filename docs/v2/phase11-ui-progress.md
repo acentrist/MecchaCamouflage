@@ -64,8 +64,8 @@ held-key behavior across snapshot publication, complete remapping, duplicate
 mapping refusal, invalid/event-limit refusal, exact command-ID exhaustion,
 input-loss release, and terminal shutdown.
 
-The complete Linux, Linux ASan/UBSan, and Windows MSVC Release graphs pass 69,
-69, and 86 tests respectively.
+The complete Linux, Linux ASan/UBSan, and Windows MSVC Release graphs pass 70,
+70, and 87 tests respectively.
 
 ## Immutable product presentation
 
@@ -326,6 +326,45 @@ refusal, snapshot revision binding, Save, two-step Delete, keyboard
 cancellation, unavailable operations, invalid snapshot names, and the shifted
 atlas/settings scroll geometry.
 
+## Native picker and image-import boundary
+
+The project toolbar now has a separate first row for localized Load-project and
+Add-images controls. These controls emit at most one
+`ProductUiEffectEnvelope`; they do not pretend a modal operating-system dialog
+is an `ApplicationCommand` and do not perform file I/O during deterministic
+Canvas composition. Load remains available when no project is active.
+Add-images is available only with current edit ownership and captures the exact
+project ID and revision rendered by the frame. An effect also carries the
+application snapshot revision, and a picker effect wins over any coincident
+state-changing action so a frame cannot publish both.
+
+The Windows picker adapter uses `IFileOpenDialog`. Image selection is restricted
+to PNG, JPEG, and WebP and permits multiple files; project selection accepts
+one `.mcpreset`. Cancellation is represented as an empty successful selection.
+Selected filesystem paths remain inside the Windows adapter. It opens each file
+without following its final reparse point, refuses directories and reparse
+points, enforces per-file and aggregate bounds, performs exact complete reads,
+converts only the base file name to strict UTF-8, and returns immutable shared
+bytes to the portable application boundary.
+
+Portable import preparation derives every source identity from the selected
+bytes, reuses matching source metadata already in the active document,
+deduplicates repeated new sources, and creates one default full-atlas layer per
+selected file. It refuses invalid documents/files, layer/source/aggregate-byte
+overflow, unavailable or failed hashing, and identity collisions. The
+product-action router validates the complete immutable add mutation, and the
+editor session appends its sources and layers transactionally, validates the
+resulting complete project, advances exactly one revision, and submits the
+normal decode/composition pipeline while retaining active-draft persistence
+ownership.
+
+Portable tests cover picker-effect isolation, exact snapshot/project/revision
+capture, no-document Load, unavailable controls, source reuse and
+deduplication, limits, hash failure/collision, immutable source bytes, router
+admission, transaction failure, draft ownership, and revision publication. The
+native picker is compiled in the Windows MSVC Release graph; opening and
+cancelling the real dialog remains a live/manual check.
+
 ## Localized status strip
 
 The status strip is now composed by a dedicated portable owner. It renders the
@@ -360,13 +399,17 @@ Portable tests cover localized messages, command IDs, Canvas/missing-function
 details, omitted counts, the empty state, compact scrolling, and incoherent
 queue refusal.
 
-This remains a partial product UI milestone. Native picker-driven Image Paint
-import/load and the production UCanvas adapter remain open.
+This remains a partial product UI milestone. Picker-effect execution,
+`.mcpreset` import/activation, body-guide lifetime, and the production UCanvas
+adapter remain open.
 
 ## Remaining work
 
-- Compose native picker-driven Image Paint import/load operations.
-- Connect the remaining Image Paint operations to the implemented typed
+- Execute native picker effects outside Canvas composition and revalidate the
+  latest immutable snapshot after the modal dialog.
+- Import and activate the selected v2 `.mcpreset` transactionally without
+  overwriting a conflicting stored project.
+- Enqueue the prepared Add-images mutation through the implemented typed
   product-action router without direct runtime mutation.
 - Enqueue the returned product action through the production callback boundary.
 - Connect the production UE4SS key callbacks and input lease.

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -257,6 +258,53 @@ auto main() -> int
             remove_mutation->layer_index == 1U &&
             remove_mutation->expected_asset_id == "asset-2",
         "layer removal did not bind current project identity");
+
+    auto import_bytes =
+        std::make_shared<const std::vector<std::byte>>(
+            std::initializer_list<std::byte>{
+                std::byte{0x44},
+            });
+    const auto import_asset_id = std::string(64U, 'a');
+    auto import_router = InputCommandRouter{600U};
+    const auto layer_import = import_router.route_ui_actions(
+        removal_snapshot,
+        std::array{
+            envelope(UiMutateCurrentImageProject{
+                AddImageLayersMutation{
+                    {core::ImageLayer{
+                        import_asset_id,
+                        "picked.png",
+                        core::ImageMime::Png,
+                        import_bytes->size(),
+                    }},
+                    {core::ImageSourceAsset{
+                        import_asset_id,
+                        core::ImageMime::Png,
+                        import_bytes,
+                    }},
+                },
+            }),
+        });
+    const auto* import_command =
+        layer_import && layer_import->commands.size() == 1U
+            ? std::get_if<MutateImageProject>(
+                  &layer_import->commands.front())
+            : nullptr;
+    const auto* import_mutation =
+        import_command
+            ? std::get_if<AddImageLayersMutation>(
+                  &import_command->mutation)
+            : nullptr;
+    passed &= expect(
+        import_mutation &&
+            import_command->id == 600U &&
+            import_command->project_id == ProjectId &&
+            import_command->expected_revision == 9U &&
+            import_mutation->layers.size() == 1U &&
+            import_mutation->sources.size() == 1U &&
+            import_mutation->sources.front().bytes ==
+                import_bytes,
+        "image import did not retain immutable bytes and project guards");
 
     const auto toggle = router.route_ui_actions(
         snapshot,

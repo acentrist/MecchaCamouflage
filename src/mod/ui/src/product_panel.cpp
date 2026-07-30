@@ -108,6 +108,8 @@ auto labels_valid(const ProductPanelLabels& labels) -> bool
            valid_label(labels.theme_color) &&
            valid_label(labels.hotkey_capture_prompt) &&
            valid_label(labels.hotkey_duplicate_suffix) &&
+           valid_label(labels.image_project_load) &&
+           valid_label(labels.image_import) &&
            valid_label(labels.image_project_save) &&
            valid_label(labels.image_wrap) &&
            valid_label(labels.image_mirror) &&
@@ -621,6 +623,8 @@ auto build_product_panel_labels(
                 std::array<std::string_view, 1U>{""});
             return formatted ? *formatted : std::string{};
         }(),
+        std::string{catalog.text(locale, "button.load.preset")},
+        std::string{catalog.text(locale, "button.upload")},
         std::string{catalog.text(locale, "button.save.preset")},
         std::string{catalog.text(locale, "image.action.wrap")},
         std::string{catalog.text(locale, "image.action.mirror")},
@@ -833,6 +837,7 @@ auto compose_product_panel(
             std::nullopt,
             std::move(previous),
             std::nullopt,
+            std::nullopt,
         };
     }
 
@@ -890,6 +895,8 @@ auto compose_product_panel(
 
     auto action =
         std::optional<application::ProductUiActionEnvelope>{};
+    auto effect =
+        std::optional<application::ProductUiEffectEnvelope>{};
     if (previous.selected ==
         application::ProductUiSection::Paint)
     {
@@ -943,7 +950,8 @@ auto compose_product_panel(
                 labels,
                 input,
                 previous,
-                action);
+                action,
+                effect);
         if (!settings)
         {
             return std::unexpected(settings.error());
@@ -1037,6 +1045,12 @@ auto compose_product_panel(
         action->expected_snapshot_revision =
             model.source_revision;
     }
+    if (effect)
+    {
+        effect->expected_snapshot_revision =
+            model.source_revision;
+        action.reset();
+    }
 
     if (const auto status = detail::compose_status_strip(
             canvas,
@@ -1067,6 +1081,7 @@ auto compose_product_panel(
         *layout,
         std::move(previous),
         std::move(action),
+        std::move(effect),
     };
 }
 } // namespace meccha::product_ui

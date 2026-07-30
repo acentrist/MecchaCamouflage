@@ -35,6 +35,8 @@ struct ProductPanelLabels
     std::string theme_color{};
     std::string hotkey_capture_prompt{};
     std::string hotkey_duplicate_suffix{};
+    std::string image_project_load{};
+    std::string image_import{};
     std::string image_project_save{};
     std::string image_wrap{};
     std::string image_mirror{};
@@ -146,6 +148,7 @@ struct ProductPanelOutput
     std::optional<ui::PanelLayout> layout{};
     ProductPanelState state{};
     std::optional<application::ProductUiActionEnvelope> action{};
+    std::optional<application::ProductUiEffectEnvelope> effect{};
 };
 
 enum class ProductPanelValidationError : std::uint8_t

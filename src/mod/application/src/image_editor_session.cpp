@@ -1,6 +1,7 @@
 #include <meccha/application/image_editor_session.hpp>
 
 #include <algorithm>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <type_traits>
@@ -208,6 +209,69 @@ auto ImageEditorSession::mutate(
         {
             using Request = std::decay_t<decltype(request)>;
             if constexpr (
+                std::is_same_v<Request, AddImageLayersMutation>)
+            {
+                if (request.layers.empty() ||
+                    request.layers.size() >
+                        core::MaximumImageLayers -
+                            edited.layers.size() ||
+                    request.sources.size() >
+                        core::MaximumImageSources -
+                            edited.sources.size())
+                {
+                    return std::unexpected(
+                        ImageEditorMutationError::InvalidLayer);
+                }
+                for (const auto& source : request.sources)
+                {
+                    if (!source.bytes ||
+                        source.bytes->empty() ||
+                        source.bytes->size() >
+                            core::MaximumImageSourceBytes ||
+                        std::ranges::any_of(
+                            edited.sources,
+                            [&source](
+                                const core::ImageSourceAsset&
+                                    existing)
+                            {
+                                return existing.asset_id ==
+                                       source.asset_id;
+                            }) ||
+                        std::ranges::count_if(
+                            request.sources,
+                            [&source](
+                                const core::ImageSourceAsset&
+                                    candidate)
+                            {
+                                return candidate.asset_id ==
+                                       source.asset_id;
+                            }) != 1)
+                    {
+                        return std::unexpected(
+                            ImageEditorMutationError::InvalidLayer);
+                    }
+                }
+
+                edited.sources.insert(
+                    edited.sources.end(),
+                    std::make_move_iterator(
+                        request.sources.begin()),
+                    std::make_move_iterator(
+                        request.sources.end()));
+                edited.layers.insert(
+                    edited.layers.end(),
+                    std::make_move_iterator(
+                        request.layers.begin()),
+                    std::make_move_iterator(
+                        request.layers.end()));
+                if (!core::validate(edited).empty())
+                {
+                    return std::unexpected(
+                        ImageEditorMutationError::InvalidProject);
+                }
+                return true;
+            }
+            else if constexpr (
                 std::is_same_v<Request, ReplaceImageLayerMutation>)
             {
                 if (request.layer_index >= edited.layers.size() ||

@@ -12,6 +12,7 @@ namespace meccha::product_ui::detail
     const ProductPanelLabels& labels,
     const ProductPanelInput& input,
     ProductPanelState& state,
-    std::optional<application::ProductUiActionEnvelope>& action)
+    std::optional<application::ProductUiActionEnvelope>& action,
+    std::optional<application::ProductUiEffectEnvelope>& effect)
     -> std::expected<void, ProductPanelError>;
 } // namespace meccha::product_ui::detail

@@ -462,7 +462,8 @@ auto compose_image_settings_section(
     const ProductPanelLabels& labels,
     const ProductPanelInput& input,
     ProductPanelState& state,
-    std::optional<application::ProductUiActionEnvelope>& action)
+    std::optional<application::ProductUiActionEnvelope>& action,
+    std::optional<application::ProductUiEffectEnvelope>& effect)
     -> std::expected<void, ProductPanelError>
 {
     const auto action_height =
@@ -477,11 +478,8 @@ auto compose_image_settings_section(
     const auto row_height = 44.0 * layout.effective_scale;
     const auto toolbar_gap = 8.0 * layout.effective_scale;
     const auto toolbar_height = 34.0 * layout.effective_scale;
-    const auto project_inset =
-        model.image_paint.document
-            ? image_project_toolbar_inset(
-                  layout.effective_scale)
-            : 0.0;
+    const auto project_inset = image_project_toolbar_inset(
+        layout.effective_scale);
     const auto atlas_width = model.image_paint.document
                                  ? std::min(
                                        viewport.width,
@@ -494,7 +492,7 @@ auto compose_image_settings_section(
                                         toolbar_gap +
                                         toolbar_height +
                                         toolbar_gap
-                                  : 0.0;
+                                  : project_inset;
     auto scroll_pointer = input.pointer;
     if (state.image_editor.interaction.gesture ||
         state.image_editor.crop_dragging)
@@ -629,7 +627,8 @@ auto compose_image_settings_section(
                 labels,
                 input,
                 state,
-                action);
+                action,
+                effect);
         if (!project_controls)
         {
             return project_controls;
@@ -1201,6 +1200,22 @@ auto compose_image_settings_section(
     else
     {
         state.image_editor = {};
+        const auto project_controls =
+            compose_image_project_toolbar(
+                widgets,
+                viewport,
+                scroll->content_origin_y,
+                layout.effective_scale,
+                model,
+                labels,
+                input,
+                state,
+                action,
+                effect);
+        if (!project_controls)
+        {
+            return project_controls;
+        }
     }
 
     const auto label_width = viewport.width * 0.42;

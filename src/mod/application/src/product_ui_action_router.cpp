@@ -1,5 +1,6 @@
 #include <meccha/application/input_command_router.hpp>
 #include <meccha/application/product_ui_model.hpp>
+#include <meccha/common/hash.hpp>
 #include <meccha/core/utf8.hpp>
 
 #include <algorithm>
@@ -40,6 +41,102 @@ auto bounded_asset_id(std::string_view asset_id) -> bool
            asset_id.size() <= MaximumProductUiAssetIdBytes;
 }
 
+auto valid_added_layers(
+    const AddImageLayersMutation& request,
+    const std::optional<ImageEditorDocumentSnapshot>& document)
+    -> bool
+{
+    if (request.layers.empty() ||
+        request.layers.size() > core::MaximumImageLayers ||
+        request.sources.size() > core::MaximumImageSources ||
+        (document &&
+         (document->layers.size() >
+              core::MaximumImageLayers ||
+          request.layers.size() >
+              core::MaximumImageLayers -
+                  document->layers.size())) ||
+        std::ranges::any_of(
+            request.layers,
+            [](const core::ImageLayer& layer)
+            {
+                return !core::validate(layer).empty();
+            }))
+    {
+        return false;
+    }
+
+    for (const auto& source : request.sources)
+    {
+        if (!common::parse_sha256_hex(source.asset_id) ||
+            !source.bytes || source.bytes->empty() ||
+            source.bytes->size() >
+                core::MaximumImageSourceBytes ||
+            std::ranges::count_if(
+                request.sources,
+                [&source](
+                    const core::ImageSourceAsset& candidate)
+                {
+                    return candidate.asset_id ==
+                           source.asset_id;
+                }) != 1 ||
+            (document &&
+             std::ranges::any_of(
+                 document->layers,
+                 [&source](const core::ImageLayer& layer)
+                 {
+                     return layer.asset_id ==
+                            source.asset_id;
+                 })))
+        {
+            return false;
+        }
+        const auto referenced = std::ranges::any_of(
+            request.layers,
+            [&source](const core::ImageLayer& layer)
+            {
+                return layer.asset_id == source.asset_id &&
+                       layer.mime == source.mime &&
+                       layer.source_bytes ==
+                           source.bytes->size();
+            });
+        if (!referenced)
+        {
+            return false;
+        }
+    }
+
+    return std::ranges::all_of(
+        request.layers,
+        [&request, &document](const core::ImageLayer& layer)
+        {
+            const auto added = std::ranges::any_of(
+                request.sources,
+                [&layer](
+                    const core::ImageSourceAsset& source)
+                {
+                    return source.asset_id == layer.asset_id &&
+                           source.mime == layer.mime &&
+                           source.bytes &&
+                           source.bytes->size() ==
+                               layer.source_bytes;
+                });
+            const auto existing =
+                document &&
+                std::ranges::any_of(
+                    document->layers,
+                    [&layer](
+                        const core::ImageLayer& candidate)
+                    {
+                        return candidate.asset_id ==
+                                   layer.asset_id &&
+                               candidate.mime == layer.mime &&
+                               candidate.source_bytes ==
+                                   layer.source_bytes;
+                    });
+            return added || existing;
+        });
+}
+
 auto valid_mutation(
     const ImageEditorMutation& mutation,
     const std::optional<ImageEditorDocumentSnapshot>& document)
@@ -50,6 +147,11 @@ auto valid_mutation(
         {
             using Request = std::decay_t<decltype(request)>;
             if constexpr (
+                std::is_same_v<Request, AddImageLayersMutation>)
+            {
+                return valid_added_layers(request, document);
+            }
+            else if constexpr (
                 std::is_same_v<Request, ReplaceImageLayerMutation>)
             {
                 if (!bounded_asset_id(

@@ -14,6 +14,7 @@ add_library(
         src/image_decoder.cpp
         src/image_editor_pipeline.cpp
         src/image_editor_session.cpp
+        src/image_file_import.cpp
         src/input_command_router.cpp
         src/image_paint_job_coordinator.cpp
         src/image_paint_planning_worker.cpp
@@ -64,6 +65,7 @@ if(WIN32)
             src/atomic_file_win32.cpp
             src/config_storage_win32.cpp
             src/image_decoder_wic.cpp
+            src/image_file_picker_win32.cpp
             src/image_project_storage_win32.cpp
     )
     target_link_libraries(

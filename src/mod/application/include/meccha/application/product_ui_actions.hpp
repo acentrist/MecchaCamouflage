@@ -11,6 +11,7 @@
 namespace meccha::application
 {
 inline constexpr std::size_t MaximumProductUiActionsPerFrame = 1U;
+inline constexpr std::size_t MaximumProductUiEffectsPerFrame = 1U;
 inline constexpr std::size_t MaximumProductUiAssetIdBytes = 128U;
 inline constexpr std::size_t MaximumProductUiProjectNameBytes = 256U;
 
@@ -84,6 +85,26 @@ struct ProductUiActionEnvelope
 {
     std::uint64_t expected_snapshot_revision{};
     ProductUiAction action{};
+};
+
+struct UiPickImageFiles
+{
+    std::string project_id{};
+    std::uint64_t expected_project_revision{};
+};
+
+struct UiPickImageProject
+{
+};
+
+using ProductUiEffectRequest = std::variant<
+    UiPickImageFiles,
+    UiPickImageProject>;
+
+struct ProductUiEffectEnvelope
+{
+    std::uint64_t expected_snapshot_revision{};
+    ProductUiEffectRequest request{};
 };
 
 enum class ProductUiActionRejectionReason : std::uint8_t

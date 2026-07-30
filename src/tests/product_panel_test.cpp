@@ -191,8 +191,12 @@ auto main(int argc, char** argv) -> int
         english.section_labels[0] == "Paint" &&
             english.section_labels[1] == "Image Paint" &&
             english.section_labels[2] == "ESP" &&
+            english.image_project_load == "Load" &&
+            english.image_import == "Upload" &&
             japanese.section_labels[0] == "ペイント" &&
-            japanese.start == "開始",
+            japanese.start == "開始" &&
+            japanese.image_project_load == "読み込む" &&
+            japanese.image_import == "アップロード",
         "panel labels did not use the selected localization catalog");
 
     auto model = ready_model();
@@ -315,19 +319,42 @@ auto main(int argc, char** argv) -> int
         return 1;
     }
 
-    constexpr auto ProjectToolbarHeight = 38.0;
-    constexpr auto ProjectToolbarGap = 6.0;
-    const auto project_toolbar = ui::CanvasRect{
+    constexpr auto ProjectToolbarRowHeight = 38.0;
+    constexpr auto ProjectControlGap = 6.0;
+    const auto project_picker_toolbar = ui::CanvasRect{
         image_tab->layout->content.x,
         image_tab->layout->content.y + 46.0,
         image_tab->layout->content.width,
-        ProjectToolbarHeight,
+        ProjectToolbarRowHeight,
+    };
+    const auto project_picker_button_width =
+        (project_picker_toolbar.width - ProjectControlGap) /
+        2.0;
+    const auto project_load_rect = ui::CanvasRect{
+        project_picker_toolbar.x,
+        project_picker_toolbar.y,
+        project_picker_button_width,
+        project_picker_toolbar.height,
+    };
+    const auto project_import_rect = ui::CanvasRect{
+        project_load_rect.x + project_load_rect.width +
+            ProjectControlGap,
+        project_picker_toolbar.y,
+        project_picker_button_width,
+        project_picker_toolbar.height,
+    };
+    const auto project_toolbar = ui::CanvasRect{
+        project_picker_toolbar.x,
+        project_picker_toolbar.y + ProjectToolbarRowHeight +
+            ProjectControlGap,
+        project_picker_toolbar.width,
+        ProjectToolbarRowHeight,
     };
     const auto project_name_width =
         project_toolbar.width * 0.56;
     const auto project_button_width =
         (project_toolbar.width - project_name_width -
-         2.0 * ProjectToolbarGap) /
+         2.0 * ProjectControlGap) /
         2.0;
     const auto project_name_rect = ui::CanvasRect{
         project_toolbar.x,
@@ -337,18 +364,123 @@ auto main(int argc, char** argv) -> int
     };
     const auto project_save_rect = ui::CanvasRect{
         project_name_rect.x + project_name_rect.width +
-            ProjectToolbarGap,
+            ProjectControlGap,
         project_toolbar.y,
         project_button_width,
         project_toolbar.height,
     };
     const auto project_remove_rect = ui::CanvasRect{
         project_save_rect.x + project_save_rect.width +
-            ProjectToolbarGap,
+            ProjectControlGap,
         project_toolbar.y,
         project_button_width,
         project_toolbar.height,
     };
+
+    auto load_picker_input = default_input();
+    load_picker_input.pointer = ui::PointerFrame{
+        center(project_load_rect),
+        true,
+        false,
+        true,
+        0.0,
+    };
+    const auto load_picker = compose_product_panel(
+        model,
+        image_tab->state,
+        load_picker_input,
+        english);
+    const auto* load_effect =
+        load_picker && load_picker->effect
+            ? std::get_if<UiPickImageProject>(
+                  &load_picker->effect->request)
+            : nullptr;
+    passed &= expect(
+        load_effect && !load_picker->action &&
+            load_picker->effect->expected_snapshot_revision ==
+                model.source_revision,
+        "Image Paint Load did not emit one revision-bound picker effect");
+
+    auto import_picker_input = default_input();
+    import_picker_input.pointer = ui::PointerFrame{
+        center(project_import_rect),
+        true,
+        false,
+        true,
+        0.0,
+    };
+    const auto import_picker = compose_product_panel(
+        model,
+        image_tab->state,
+        import_picker_input,
+        english);
+    const auto* import_effect =
+        import_picker && import_picker->effect
+            ? std::get_if<UiPickImageFiles>(
+                  &import_picker->effect->request)
+            : nullptr;
+    passed &= expect(
+        import_effect && !import_picker->action &&
+            import_effect->project_id ==
+                model.image_paint.document->project_id &&
+            import_effect->expected_project_revision ==
+                model.image_paint.document->revision &&
+            import_picker->effect->expected_snapshot_revision ==
+                model.source_revision,
+        "Image Paint Upload did not capture the active project identity");
+
+    auto unavailable_picker_model = model;
+    unavailable_picker_model.image_paint.project.load = false;
+    unavailable_picker_model.image_paint.project.edit = false;
+    const auto unavailable_load = compose_product_panel(
+        unavailable_picker_model,
+        image_tab->state,
+        load_picker_input,
+        english);
+    const auto unavailable_import = compose_product_panel(
+        unavailable_picker_model,
+        image_tab->state,
+        import_picker_input,
+        english);
+    passed &= expect(
+        unavailable_load && !unavailable_load->effect &&
+            unavailable_import && !unavailable_import->effect,
+        "unavailable Image Paint picker controls emitted effects");
+
+    auto no_project_model = model;
+    no_project_model.image_paint.document.reset();
+    no_project_model.image_paint.pipeline = {};
+    no_project_model.image_paint.settings =
+        no_project_model.settings.config.image_paint;
+    no_project_model.image_paint.project = {
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+    };
+    const auto no_project_load = compose_product_panel(
+        no_project_model,
+        image_tab->state,
+        load_picker_input,
+        english);
+    const auto* no_project_load_effect =
+        no_project_load && no_project_load->effect
+            ? std::get_if<UiPickImageProject>(
+                  &no_project_load->effect->request)
+            : nullptr;
+    const auto no_project_import = compose_product_panel(
+        no_project_model,
+        image_tab->state,
+        import_picker_input,
+        english);
+    passed &= expect(
+        no_project_load_effect && !no_project_load->action &&
+            no_project_load->state.image_editor ==
+                ImageEditorPanelState{} &&
+            no_project_import && !no_project_import->effect,
+        "Image Paint did not preserve Load while disabling Upload without a project");
 
     auto rename_begin_input = default_input();
     rename_begin_input.pointer = ui::PointerFrame{
@@ -620,7 +752,7 @@ auto main(int argc, char** argv) -> int
         image_tab->layout->content.x +
             (image_tab->layout->content.width - atlas_width) *
                 0.5,
-        image_tab->layout->content.y + 92.0,
+        image_tab->layout->content.y + 136.0,
         atlas_width,
         atlas_width * 0.5,
     };
@@ -1362,7 +1494,7 @@ auto main(int argc, char** argv) -> int
             image_tab->layout->content.width,
             600.0 * image_tab->layout->effective_scale) *
             0.5 +
-        96.0 * image_tab->layout->effective_scale;
+        140.0 * image_tab->layout->effective_scale;
     image_settings_input.pointer = ui::PointerFrame{
         {
             image_tab->layout->content.x +

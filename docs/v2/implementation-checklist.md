@@ -538,6 +538,19 @@ Evidence:
     mutation.
   - [ ] Connect import and body-guide generation/lifetime through the product
     panel.
+    - [x] Add separate revision-bound Load-project and Add-images picker
+      effects, keep Load available without an active document, and capture the
+      exact project ID/revision for Add-images.
+    - [x] Implement the native Windows `IFileOpenDialog` boundary for
+      PNG/JPEG/WebP multi-selection and one `.mcpreset`, returning only bounded
+      validated bytes and file names to the application layer.
+    - [x] Implement hash-derived source identity, existing/new source
+      deduplication, layer/source/byte-limit refusal, and one atomic
+      `AddImageLayersMutation` through the router/session/pipeline boundary.
+    - [ ] Execute picker effects outside frame composition, revalidate the
+      latest immutable snapshot after the modal dialog, and enqueue the
+      resulting typed image/preset operation.
+    - [ ] Implement body-guide generation and production texture lifetime.
 - [ ] Complete F9 and configurable F1–F8 hotkey behavior.
   - [x] Implement a bounded application-owned F1–F24 command router with the
     F9/F1–F8 defaults, validated remapping, physical-key repeat suppression
@@ -608,6 +621,10 @@ Evidence:
   - [x] Prove direct F1–F24 Settings capture, exact isolated remapping,
     localized duplicate refusal, Esc cancellation, input-loss reset,
     unavailable-state reset, tab/panel-close reset, and out-of-range refusal.
+  - [x] Prove Load/Add-images picker-effect isolation, no-document Load,
+    unavailable-control suppression, exact project/revision capture, source
+    deduplication, source-byte/layer limits, hash/collision failure, immutable
+    mutation bytes, and atomic editor revision publication.
 - [ ] DEFERRED — maintainer interaction required: complete the full in-game UI
   walkthrough across languages/resolutions/DPI.
 

@@ -15,7 +15,9 @@ namespace
 constexpr auto ProjectNameId = ui::WidgetId{651U};
 constexpr auto ProjectSaveId = ui::WidgetId{652U};
 constexpr auto ProjectRemoveId = ui::WidgetId{653U};
-constexpr auto ProjectToolbarHeight = 38.0;
+constexpr auto ProjectLoadId = ui::WidgetId{654U};
+constexpr auto ProjectImportId = ui::WidgetId{655U};
+constexpr auto ProjectToolbarRowHeight = 38.0;
 constexpr auto ProjectToolbarGap = 8.0;
 constexpr auto ProjectControlGap = 6.0;
 constexpr auto ProjectNameWidthFraction = 0.56;
@@ -49,7 +51,8 @@ auto valid_project_name(std::string_view name) -> bool
 auto image_project_toolbar_inset(
     double effective_scale) -> double
 {
-    return (ProjectToolbarHeight + ProjectToolbarGap) *
+    return (2.0 * ProjectToolbarRowHeight +
+            ProjectControlGap + ProjectToolbarGap) *
            effective_scale;
 }
 
@@ -62,23 +65,99 @@ auto compose_image_project_toolbar(
     const ProductPanelLabels& labels,
     const ProductPanelInput& input,
     ProductPanelState& state,
-    std::optional<application::ProductUiActionEnvelope>& action)
+    std::optional<application::ProductUiActionEnvelope>& action,
+    std::optional<application::ProductUiEffectEnvelope>& effect)
     -> std::expected<void, ProductPanelError>
 {
-    if (!model.image_paint.document)
-    {
-        return std::unexpected(ProductPanelError{
-            ProductPanelValidationError::InvalidModel});
-    }
-    const auto& document = *model.image_paint.document;
-    const auto project_toolbar = ui::CanvasRect{
+    const auto picker_toolbar = ui::CanvasRect{
         viewport.x,
         content_origin_y,
         viewport.width,
-        ProjectToolbarHeight * effective_scale,
+        ProjectToolbarRowHeight * effective_scale,
     };
     const auto project_control_gap =
         ProjectControlGap * effective_scale;
+    const auto picker_button_width =
+        (picker_toolbar.width - project_control_gap) / 2.0;
+    const auto load_rect = ui::CanvasRect{
+        picker_toolbar.x,
+        picker_toolbar.y,
+        picker_button_width,
+        picker_toolbar.height,
+    };
+    const auto import_rect = ui::CanvasRect{
+        load_rect.x + load_rect.width + project_control_gap,
+        picker_toolbar.y,
+        picker_button_width,
+        picker_toolbar.height,
+    };
+    const auto picker_toolbar_visible =
+        intersects(picker_toolbar, viewport);
+    const auto load = widgets.button(
+        ProjectLoadId,
+        load_rect,
+        viewport,
+        labels.image_project_load,
+        picker_toolbar_visible &&
+            model.image_paint.project.load,
+        false);
+    if (!load)
+    {
+        return std::unexpected(
+            ProductPanelError{load.error()});
+    }
+    if (load->activated && !action && !effect)
+    {
+        effect = application::ProductUiEffectEnvelope{
+            model.source_revision,
+            application::UiPickImageProject{},
+        };
+    }
+
+    const auto can_import =
+        picker_toolbar_visible &&
+        model.image_paint.project.edit &&
+        model.image_paint.document &&
+        !state.image_editor.awaiting_revision;
+    const auto import_images = widgets.button(
+        ProjectImportId,
+        import_rect,
+        viewport,
+        labels.image_import,
+        can_import,
+        false);
+    if (!import_images)
+    {
+        return std::unexpected(
+            ProductPanelError{import_images.error()});
+    }
+    if (import_images->activated && !action && !effect)
+    {
+        const auto& document = *model.image_paint.document;
+        effect = application::ProductUiEffectEnvelope{
+            model.source_revision,
+            application::UiPickImageFiles{
+                document.project_id,
+                document.revision,
+            },
+        };
+    }
+
+    if (!model.image_paint.document)
+    {
+        state.image_editor.project_delete_armed = false;
+        return {};
+    }
+
+    const auto& document = *model.image_paint.document;
+    const auto project_toolbar = ui::CanvasRect{
+        viewport.x,
+        content_origin_y + ProjectToolbarRowHeight *
+                               effective_scale +
+            project_control_gap,
+        viewport.width,
+        ProjectToolbarRowHeight * effective_scale,
+    };
     const auto project_name_width =
         project_toolbar.width * ProjectNameWidthFraction;
     const auto project_button_width =
