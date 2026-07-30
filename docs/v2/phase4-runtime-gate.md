@@ -11,6 +11,15 @@ open.
 
 - `meccha_application` is built independently from UE4SS and depends only on
   project-owned core interfaces.
+- `ApplicationRoot` owns the runtime lifecycle, loaded configuration, job and
+  preview state machines, compatibility state, bounded diagnostics, and
+  immutable snapshot publisher. Platform adapters remain injected ports.
+- The root runtime state is explicit:
+  `Cold -> Initializing -> Compatible | Incompatible -> ShuttingDown ->
+  Stopped`.
+- Configuration failures stop before callback registration. Callback failures
+  publish a structured incompatibility, and a later valid frame can recover a
+  transient frame-identity failure without deleting its diagnostic history.
 - `CallbackBarrier` stops admission atomically, tracks RAII callback leases,
   and waits until all admitted callbacks have returned.
 - `GameThreadScheduler` is bounded, FIFO, serialized for drain/discard, and
@@ -51,6 +60,8 @@ open.
   rebinding, and stable-frame dispatch;
 - compatibility classification, stale-failure clearing, and bounded structured
   diagnostic eviction;
+- composition-root initialization, configuration/callback fault paths,
+  snapshot publication, recovery, and restore-before-finalize shutdown;
 - cancellation of queued work during shutdown;
 - restore-before-unregister ordering.
 
@@ -59,8 +70,9 @@ The test runs in both the Linux secret-free build and the Windows MSVC
 
 ## Remaining Phase 4 work
 
-- Compose application, Paint, Image Paint, ESP, UI, diagnostics, persistence,
-  and the production `UnrealRuntimeAdapter` in one owned root.
+- Add Paint, Image Paint, ESP, UI, and the production
+  `UnrealRuntimeAdapter` to the existing owned root as those modules are
+  implemented.
 - Replace representative operation markers with the final typed runtime
   request/result contracts.
 - Implement the pinned UE4SS callback registration adapter and prove exact

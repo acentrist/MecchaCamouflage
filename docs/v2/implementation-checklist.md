@@ -105,7 +105,7 @@ Evidence:
 
 ## Phase 4 — Runtime lifecycle and teardown gate
 
-- [ ] Implement the composition root and runtime state machine.
+- [x] Implement the composition root and runtime state machine.
 - [x] Implement callback registration, in-flight barrier, and exact
   unregistration.
 - [x] Implement the bounded game-thread scheduler.

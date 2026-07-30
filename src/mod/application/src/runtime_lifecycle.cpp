@@ -19,10 +19,12 @@ auto map_drain_error(DrainError error) -> RuntimeLifecycleError
 RuntimeLifecycle::RuntimeLifecycle(
     RuntimeCallbackPort& callbacks,
     GameThreadExecutor& executor,
-    std::size_t queue_capacity)
+    std::size_t queue_capacity,
+    RuntimeLifecycleObserver* observer)
     : callbacks_{callbacks},
       executor_{executor},
-      scheduler_{queue_capacity}
+      scheduler_{queue_capacity},
+      observer_{observer}
 {
 }
 
@@ -268,14 +270,42 @@ auto RuntimeLifecycle::snapshot() const -> RuntimeLifecycleSnapshot
 
 auto RuntimeLifecycle::hud_trampoline(
     void* context,
-    const HudFrameIdentity& identity) -> void
+    const HudFrameIdentity& identity) noexcept -> void
 {
     if (context == nullptr)
     {
         return;
     }
     auto& lifecycle = *static_cast<RuntimeLifecycle*>(context);
-    static_cast<void>(lifecycle.on_hud_frame(identity, 64U));
+    try
+    {
+        const auto result =
+            lifecycle.on_hud_frame(identity, 64U);
+        if (lifecycle.observer_ != nullptr)
+        {
+            lifecycle.observer_->on_hud_frame_complete(
+                result,
+                lifecycle.snapshot());
+        }
+    }
+    catch (...)
+    {
+        lifecycle.remember_error(
+            RuntimeLifecycleError::ExecutionFailed);
+        if (lifecycle.observer_ != nullptr)
+        {
+            try
+            {
+                lifecycle.observer_->on_hud_frame_complete(
+                    std::unexpected(
+                        RuntimeLifecycleError::ExecutionFailed),
+                    lifecycle.snapshot());
+            }
+            catch (...)
+            {
+            }
+        }
+    }
 }
 
 auto RuntimeLifecycle::remember_error(RuntimeLifecycleError error) -> void

@@ -15,7 +15,7 @@ namespace meccha::application
 using CallbackId = std::uint64_t;
 using HudCallback = void (*)(
     void* context,
-    const HudFrameIdentity& identity);
+    const HudFrameIdentity& identity) noexcept;
 
 enum class CallbackPortError : std::uint8_t
 {
@@ -74,13 +74,31 @@ struct RuntimeLifecycleSnapshot
     auto operator==(const RuntimeLifecycleSnapshot&) const -> bool = default;
 };
 
+class RuntimeLifecycleObserver
+{
+public:
+    RuntimeLifecycleObserver() = default;
+    RuntimeLifecycleObserver(const RuntimeLifecycleObserver&) = delete;
+    auto operator=(const RuntimeLifecycleObserver&)
+        -> RuntimeLifecycleObserver& = delete;
+    RuntimeLifecycleObserver(RuntimeLifecycleObserver&&) = default;
+    auto operator=(RuntimeLifecycleObserver&&)
+        -> RuntimeLifecycleObserver& = default;
+    virtual ~RuntimeLifecycleObserver() = default;
+
+    virtual auto on_hud_frame_complete(
+        const std::expected<std::size_t, RuntimeLifecycleError>& result,
+        const RuntimeLifecycleSnapshot& snapshot) noexcept -> void = 0;
+};
+
 class RuntimeLifecycle
 {
 public:
     RuntimeLifecycle(
         RuntimeCallbackPort& callbacks,
         GameThreadExecutor& executor,
-        std::size_t queue_capacity);
+        std::size_t queue_capacity,
+        RuntimeLifecycleObserver* observer = nullptr);
     RuntimeLifecycle(const RuntimeLifecycle&) = delete;
     auto operator=(const RuntimeLifecycle&) -> RuntimeLifecycle& = delete;
     ~RuntimeLifecycle();
@@ -109,7 +127,7 @@ public:
 private:
     static auto hud_trampoline(
         void* context,
-        const HudFrameIdentity& identity) -> void;
+        const HudFrameIdentity& identity) noexcept -> void;
 
     auto remember_error(RuntimeLifecycleError error) -> void;
 
@@ -126,5 +144,6 @@ private:
     bool initial_contracts_resolved_{};
     bool transient_state_restored_{};
     std::atomic<std::uint64_t> update_ticks_{};
+    RuntimeLifecycleObserver* observer_{};
 };
 } // namespace meccha::application

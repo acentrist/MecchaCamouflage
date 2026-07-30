@@ -2,6 +2,7 @@
 
 #include <meccha/application/game_thread_scheduler.hpp>
 #include <meccha/application/job_state.hpp>
+#include <meccha/core/config.hpp>
 
 #include <atomic>
 #include <cstddef>
@@ -14,6 +15,16 @@
 
 namespace meccha::application
 {
+enum class ApplicationRuntimePhase : std::uint8_t
+{
+    Cold,
+    Initializing,
+    Compatible,
+    Incompatible,
+    ShuttingDown,
+    Stopped,
+};
+
 enum class CompatibilityStatus : std::uint8_t
 {
     Unknown,
@@ -120,11 +131,15 @@ private:
 struct ApplicationSnapshot
 {
     std::uint64_t revision{};
+    ApplicationRuntimePhase runtime_phase{
+        ApplicationRuntimePhase::Cold};
     bool ui_open{};
     bool esp_enabled{true};
+    core::ApplicationConfig settings{};
     JobSnapshot job{};
     PreviewLeaseSnapshot preview{};
     QueueSnapshot runtime_queue{};
+    std::optional<HudFrameIdentity> frame_identity{};
     CompatibilitySnapshot compatibility{};
     std::vector<DiagnosticEntry> diagnostics{};
 
