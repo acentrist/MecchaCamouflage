@@ -38,6 +38,20 @@ struct ManagedLoaderMaterial
     std::vector<std::byte> override_bytes{};
 };
 
+struct ManagedLoaderExpectations
+{
+    OwnedFileExpectation proxy{};
+    OwnedFileExpectation override_file{};
+};
+
+struct ManagedLoaderObservation
+{
+    ArtifactState proxy{};
+    ArtifactState override_file{};
+
+    auto operator==(const ManagedLoaderObservation&) const -> bool = default;
+};
+
 struct ManagedLoaderApplyResult
 {
     std::optional<OwnedFileInstallResult> proxy{};
@@ -51,6 +65,18 @@ struct ManagedLoaderRemovalResult
 };
 
 #ifdef _WIN32
+[[nodiscard]] auto build_managed_loader_expectations(
+    const PayloadManifest& manifest,
+    const Sha256Digest& manifest_sha256,
+    const std::filesystem::path& active_runtime_directory)
+    -> std::expected<ManagedLoaderExpectations, ManagedLoaderError>;
+
+[[nodiscard]] auto observe_managed_loader(
+    const std::filesystem::path& game_directory,
+    const std::filesystem::path& ownership_directory,
+    const ManagedLoaderExpectations& expectations)
+    -> std::expected<ManagedLoaderObservation, ManagedLoaderError>;
+
 [[nodiscard]] auto build_managed_loader_material(
     const PayloadManifest& manifest,
     const Sha256Digest& manifest_sha256,

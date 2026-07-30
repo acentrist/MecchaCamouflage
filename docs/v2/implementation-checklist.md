@@ -93,6 +93,8 @@ Evidence:
 - [ ] Implement original-user preparation and minimal elevated broker.
   - [x] Compose immutable observation, deployment policy, preparation/removal
     planning, and ordered execution behind one portable typed workflow.
+  - [x] Derive and observe managed proxy/override expectations before runtime
+    publication without creating cache or ownership directories.
   - [ ] Bind the native original-user observation source and minimal elevated
     broker.
 - [x] Implement safe reuse, repair, update, cleanup, and `--remove`.

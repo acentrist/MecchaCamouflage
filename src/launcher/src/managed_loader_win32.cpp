@@ -52,7 +52,78 @@ auto ascii_path(const fs::path& path) -> std::optional<std::string>
     return result;
 }
 
-auto override_text(const fs::path& active_runtime_directory)
+auto deepest_plain_existing_directory(const fs::path& path)
+    -> std::expected<fs::path, ManagedLoaderError>
+{
+    auto current = path.root_path();
+    auto deepest = current;
+    for (const auto& component : path.relative_path())
+    {
+        current /= component;
+        const auto attributes = GetFileAttributesW(current.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES)
+        {
+            const auto last_error = GetLastError();
+            if (last_error == ERROR_FILE_NOT_FOUND ||
+                last_error == ERROR_PATH_NOT_FOUND)
+            {
+                break;
+            }
+            return error(
+                ManagedLoaderErrorCode::PathEncoding,
+                "The managed runtime path could not be inspected.");
+        }
+        if (!(attributes & FILE_ATTRIBUTE_DIRECTORY) ||
+            (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+        {
+            return error(
+                ManagedLoaderErrorCode::PathEncoding,
+                "The managed runtime path traverses a non-directory "
+                "or reparse point.");
+        }
+        deepest = current;
+    }
+    return deepest;
+}
+
+auto short_ascii_path(const fs::path& path)
+    -> std::expected<std::string, ManagedLoaderError>
+{
+    const auto required = GetShortPathNameW(path.c_str(), nullptr, 0);
+    if (required == 0)
+    {
+        return error(
+            ManagedLoaderErrorCode::PathEncoding,
+            "The pinned UE4SS proxy cannot represent the managed "
+            "runtime path and no short path is available.");
+    }
+    std::vector<wchar_t> buffer(required);
+    const auto written = GetShortPathNameW(
+        path.c_str(),
+        buffer.data(),
+        static_cast<DWORD>(buffer.size()));
+    if (written == 0 || written >= buffer.size())
+    {
+        return error(
+            ManagedLoaderErrorCode::PathEncoding,
+            "Windows could not produce a stable short runtime path.");
+    }
+    const auto short_path =
+        fs::path{std::wstring_view{buffer.data(), written}};
+    auto ascii = ascii_path(short_path);
+    if (!ascii)
+    {
+        return error(
+            ManagedLoaderErrorCode::PathEncoding,
+            "The available short runtime path is not ASCII-safe for "
+            "the pinned UE4SS proxy.");
+    }
+    return *ascii;
+}
+
+auto override_text(
+    const fs::path& active_runtime_directory,
+    bool require_active_directory)
     -> std::expected<std::string, ManagedLoaderError>
 {
     if (!active_runtime_directory.is_absolute() ||
@@ -64,16 +135,18 @@ auto override_text(const fs::path& active_runtime_directory)
             "The managed runtime path is not absolute and "
             "normalized.");
     }
-    const auto attributes =
-        GetFileAttributesW(active_runtime_directory.c_str());
-    if (attributes == INVALID_FILE_ATTRIBUTES ||
-        !(attributes & FILE_ATTRIBUTE_DIRECTORY) ||
-        (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+    const auto deepest =
+        deepest_plain_existing_directory(active_runtime_directory);
+    if (!deepest)
+    {
+        return std::unexpected(deepest.error());
+    }
+    if (require_active_directory &&
+        *deepest != active_runtime_directory)
     {
         return error(
             ManagedLoaderErrorCode::PathEncoding,
-            "The managed runtime path is unavailable or a reparse "
-            "point.");
+            "The managed runtime path is unavailable.");
     }
 
     auto preferred = active_runtime_directory;
@@ -83,32 +156,28 @@ auto override_text(const fs::path& active_runtime_directory)
         return *direct;
     }
 
-    const auto required = GetShortPathNameW(
-        preferred.c_str(),
-        nullptr,
-        0);
-    if (required == 0)
+    auto short_prefix = short_ascii_path(*deepest);
+    if (!short_prefix)
     {
-        return error(
-            ManagedLoaderErrorCode::PathEncoding,
-            "The pinned UE4SS proxy cannot represent the managed "
-            "runtime path and no short path is available.");
+        return std::unexpected(short_prefix.error());
     }
-    std::vector<wchar_t> buffer(required);
-    const auto written = GetShortPathNameW(
-        preferred.c_str(),
-        buffer.data(),
-        static_cast<DWORD>(buffer.size()));
-    if (written == 0 || written >= buffer.size())
+    auto represented = fs::path{*short_prefix};
+    const auto suffix =
+        preferred.lexically_relative(*deepest);
+    for (const auto& component : suffix)
     {
-        return error(
-            ManagedLoaderErrorCode::PathEncoding,
-            "Windows could not produce a stable short runtime "
-            "path.");
+        auto encoded = ascii_path(component);
+        if (!encoded)
+        {
+            return error(
+                ManagedLoaderErrorCode::PathEncoding,
+                "An unpublished managed runtime path component is "
+                "not ASCII-safe for the pinned UE4SS proxy.");
+        }
+        represented /= component;
     }
-    const auto short_path =
-        fs::path{std::wstring_view{buffer.data(), written}};
-    auto ascii = ascii_path(short_path);
+    represented.make_preferred();
+    auto ascii = ascii_path(represented);
     if (!ascii)
     {
         return error(
@@ -145,6 +214,52 @@ auto proxy_entry(const PayloadManifest& manifest)
             "dwmapi.dll proxy.");
     }
     return *proxy;
+}
+
+auto make_expectations(
+    const PayloadManifest& manifest,
+    const Sha256Digest& manifest_sha256,
+    const fs::path& active_runtime_directory,
+    bool require_active_directory)
+    -> std::expected<ManagedLoaderExpectations, ManagedLoaderError>
+{
+    auto proxy = proxy_entry(manifest);
+    if (!proxy)
+    {
+        return std::unexpected(proxy.error());
+    }
+    auto override = override_text(
+        active_runtime_directory,
+        require_active_directory);
+    if (!override)
+    {
+        return std::unexpected(override.error());
+    }
+    const auto override_bytes = byte_copy(*override);
+    const auto override_hash = sha256_bytes(override_bytes);
+    if (!override_hash)
+    {
+        return error(
+            ManagedLoaderErrorCode::Payload,
+            "Could not hash generated override.txt.");
+    }
+    return ManagedLoaderExpectations{
+        OwnedFileExpectation{
+            manifest.product_version,
+            manifest_sha256,
+            *proxy,
+        },
+        OwnedFileExpectation{
+            manifest.product_version,
+            manifest_sha256,
+            ManifestFile{
+                "override.txt",
+                FileRole::Override,
+                override_bytes.size(),
+                *override_hash,
+            },
+        },
+    };
 }
 
 auto state_matches(
@@ -200,6 +315,54 @@ auto install_if_needed(
 }
 } // namespace
 
+auto build_managed_loader_expectations(
+    const PayloadManifest& manifest,
+    const Sha256Digest& manifest_sha256,
+    const fs::path& active_runtime_directory)
+    -> std::expected<ManagedLoaderExpectations, ManagedLoaderError>
+{
+    return make_expectations(
+        manifest,
+        manifest_sha256,
+        active_runtime_directory,
+        false);
+}
+
+auto observe_managed_loader(
+    const fs::path& game_directory,
+    const fs::path& ownership_directory,
+    const ManagedLoaderExpectations& expectations)
+    -> std::expected<ManagedLoaderObservation, ManagedLoaderError>
+{
+    Win32OwnedFileStore proxy_store{
+        game_directory / "dwmapi.dll",
+        ownership_directory / "dwmapi.owner.json",
+        "dwmapi.dll",
+        FileRole::Proxy};
+    Win32OwnedFileStore override_store{
+        game_directory / "override.txt",
+        ownership_directory / "override.owner.json",
+        "override.txt",
+        FileRole::Override};
+    const auto proxy = proxy_store.observe(expectations.proxy);
+    if (!proxy)
+    {
+        return store_error("dwmapi.dll", proxy.error());
+    }
+    const auto override_file =
+        override_store.observe(expectations.override_file);
+    if (!override_file)
+    {
+        return store_error(
+            "override.txt",
+            override_file.error());
+    }
+    return ManagedLoaderObservation{
+        *proxy,
+        *override_file,
+    };
+}
+
 auto build_managed_loader_material(
     const PayloadManifest& manifest,
     const Sha256Digest& manifest_sha256,
@@ -207,12 +370,17 @@ auto build_managed_loader_material(
     RuntimePayloadSource& payload_source)
     -> std::expected<ManagedLoaderMaterial, ManagedLoaderError>
 {
-    auto proxy = proxy_entry(manifest);
-    if (!proxy)
+    auto expectations = make_expectations(
+        manifest,
+        manifest_sha256,
+        active_runtime_directory,
+        true);
+    if (!expectations)
     {
-        return std::unexpected(proxy.error());
+        return std::unexpected(expectations.error());
     }
-    auto proxy_bytes = payload_source.read_file(proxy->path);
+    auto proxy_bytes =
+        payload_source.read_file(expectations->proxy.file.path);
     if (!proxy_bytes)
     {
         return error(
@@ -221,15 +389,18 @@ auto build_managed_loader_material(
                 proxy_bytes.error().detail);
     }
     const auto proxy_hash = sha256_bytes(*proxy_bytes);
-    if (!proxy_hash || proxy_bytes->size() != proxy->size ||
-        *proxy_hash != proxy->sha256)
+    if (!proxy_hash ||
+        proxy_bytes->size() != expectations->proxy.file.size ||
+        *proxy_hash != expectations->proxy.file.sha256)
     {
         return error(
             ManagedLoaderErrorCode::Payload,
             "The embedded dwmapi.dll does not match the manifest.");
     }
 
-    auto override = override_text(active_runtime_directory);
+    auto override = override_text(
+        active_runtime_directory,
+        true);
     if (!override)
     {
         return std::unexpected(override.error());
@@ -242,24 +413,20 @@ auto build_managed_loader_material(
             ManagedLoaderErrorCode::Payload,
             "Could not hash generated override.txt.");
     }
-    const auto override_file = ManifestFile{
-        "override.txt",
-        FileRole::Override,
-        override_bytes.size(),
-        *override_hash,
-    };
+    if (override_bytes.size() !=
+            expectations->override_file.file.size ||
+        *override_hash !=
+            expectations->override_file.file.sha256)
+    {
+        return error(
+            ManagedLoaderErrorCode::Payload,
+            "Generated override.txt changed during material "
+            "construction.");
+    }
     return ManagedLoaderMaterial{
-        OwnedFileExpectation{
-            manifest.product_version,
-            manifest_sha256,
-            *proxy,
-        },
+        expectations->proxy,
         std::move(*proxy_bytes),
-        OwnedFileExpectation{
-            manifest.product_version,
-            manifest_sha256,
-            override_file,
-        },
+        expectations->override_file,
         std::move(override_bytes),
     };
 }

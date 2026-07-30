@@ -646,9 +646,9 @@ auto main() -> int
             *built_material == *cached_material &&
             (**built_material).proxy_bytes == provider_proxy &&
             !(**built_material).override_bytes.empty() &&
-            provider_source.reads == 2U,
+            provider_source.reads == 1U,
         "managed material was not retried once and cached after "
-        "runtime publication");
+        "runtime publication without precondition payload reads");
 
     if (all_passed && normal_passed && shared_passed &&
         provider_passed)

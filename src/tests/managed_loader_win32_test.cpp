@@ -140,6 +140,42 @@ auto main() -> int
     bool passed = true;
     auto package = make_package();
 
+    TemporaryTree observation{};
+    const auto unpublished_active =
+        observation.root / "runtime" / "active";
+    const auto expectations = build_managed_loader_expectations(
+        package.manifest,
+        package.manifest_sha256,
+        unpublished_active);
+    passed &= expect(
+        expectations &&
+            expectations->proxy.file.role == FileRole::Proxy &&
+            expectations->override_file.file.role ==
+                FileRole::Override &&
+            !fs::exists(observation.root / "runtime"),
+        "managed loader expectations mutated or required the unpublished "
+        "runtime");
+    const auto missing_observation =
+        expectations
+            ? observe_managed_loader(
+                  observation.root / "game",
+                  observation.root / "ownership",
+                  *expectations)
+            : std::expected<
+                  ManagedLoaderObservation,
+                  ManagedLoaderError>{
+                  std::unexpected(ManagedLoaderError{
+                      ManagedLoaderErrorCode::Manifest,
+                      "missing expectations",
+                  })};
+    passed &= expect(
+        missing_observation &&
+            missing_observation->proxy == ArtifactState::Missing &&
+            missing_observation->override_file ==
+                ArtifactState::Missing &&
+            !fs::exists(observation.root / "ownership"),
+        "managed loader observation mutated or misclassified a clean tree");
+
     TemporaryTree lifecycle{};
     const auto material = build_managed_loader_material(
         package.manifest,
@@ -185,6 +221,21 @@ auto main() -> int
                  lifecycle.root / "game" / "override.txt")
                  .ends_with('\n'),
         "managed loader files were not created canonically");
+    const auto installed_observation =
+        observe_managed_loader(
+            lifecycle.root / "game",
+            lifecycle.root / "ownership",
+            ManagedLoaderExpectations{
+                material->proxy,
+                material->override_file,
+            });
+    passed &= expect(
+        installed_observation &&
+            installed_observation->proxy ==
+                ArtifactState::ExactOwned &&
+            installed_observation->override_file ==
+                ArtifactState::ExactOwned,
+        "managed loader observation did not identify exact owned files");
 
     const auto stale_create = apply_managed_loader_plan(
         create_plan,

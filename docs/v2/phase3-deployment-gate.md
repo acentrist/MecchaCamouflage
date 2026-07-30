@@ -181,6 +181,13 @@ embedded-resource binding remain open, so Phase 3 remains open.
   publication/reuse has succeeded and the stable `active` directory can be
   validated. Successful material is cached for the invocation; a failed
   precondition is not cached and remains explicitly retryable.
+- Managed proxy/override expectations are independently derivable before the
+  runtime exists, so the original-user observer can classify both loader files
+  before planning without reading payload bytes or creating runtime/ownership
+  directories. Existing path components must be plain directories; the
+  generated override uses the direct ASCII path or an equivalent existing
+  short-path prefix plus ASCII unpublished suffix. Full material construction
+  still revalidates that `active` exists after publication.
 - Active Steam launch options are resolved from the calling user's HKCU
   `SteamPath` and `ActiveProcess/ActiveUser`, then read from that exact
   `userdata/<account>/config/localconfig.vdf` through the bounded VDF reader.
@@ -238,7 +245,9 @@ is skipped on hosts where Windows developer-mode link creation is unavailable;
 the junction fixture remains mandatory and passes.
 
 The managed-loader suite covers payload and generated-override material,
-two-file creation, exact reuse, stale-plan preflight, exact-unowned proxy
+read-only prepublication expectations, missing/exact-owned observation without
+directory creation, two-file creation, exact reuse, stale-plan preflight,
+exact-unowned proxy
 coexistence, payload tampering, Unicode-path short-path-or-refusal behavior,
 stale removal, ownership-safe removal, and zero-mutation elevated handoff.
 
