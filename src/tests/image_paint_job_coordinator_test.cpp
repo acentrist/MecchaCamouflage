@@ -259,7 +259,8 @@ auto main() -> int
             cancelled->progress.submitted == 0U,
         "a cancelled Image Paint planner mutated dispatch state");
 
-    builder.set_mode(CoordinatedBuilder::Mode::Success);
+    builder.set_mode(
+        CoordinatedBuilder::Mode::BlockUntilCancelled);
     const auto stale = coordinator.start(
         103U,
         std::string{ProjectId},
@@ -271,9 +272,10 @@ auto main() -> int
     passed &= expect(
         stale && builder.wait_until_entered(),
         "the stale-project fixture did not start");
-    const auto rejected = coordinator.tick(
+    const auto rejected = wait_for_phase(
+        coordinator,
+        JobPhase::Cancelled,
         300U,
-        {},
         ProjectId,
         10U);
     passed &= expect(

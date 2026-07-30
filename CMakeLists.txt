@@ -10,6 +10,11 @@ project(
 option(MECCHA_WITH_UE4SS "Build the UE4SS runtime and MecchaCamouflage mod" OFF)
 option(MECCHA_BUILD_TESTS "Build the secret-free v2 test suite" ON)
 option(MECCHA_WARNINGS_AS_ERRORS "Treat project warnings as errors" ON)
+option(
+    MECCHA_ENABLE_SANITIZERS
+    "Enable AddressSanitizer and UndefinedBehaviorSanitizer"
+    OFF
+)
 
 set(MECCHA_UE4SS_COMMIT
     "6c26f038751b3d96059d4a9148f5d093012d55ad"
@@ -51,6 +56,27 @@ else()
             -Wextra
             -Wpedantic
             $<$<BOOL:${MECCHA_WARNINGS_AS_ERRORS}>:-Werror>
+    )
+endif()
+
+if(MECCHA_ENABLE_SANITIZERS)
+    if(MSVC OR NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        message(
+            FATAL_ERROR
+            "MECCHA_ENABLE_SANITIZERS requires GCC or Clang."
+        )
+    endif()
+    target_compile_options(
+        meccha_build_options
+        INTERFACE
+            -fsanitize=address,undefined
+            -fno-omit-frame-pointer
+    )
+    target_link_options(
+        meccha_build_options
+        INTERFACE
+            -fsanitize=address,undefined
+            -fno-omit-frame-pointer
     )
 endif()
 

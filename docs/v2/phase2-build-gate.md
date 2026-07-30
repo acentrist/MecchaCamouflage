@@ -2,8 +2,9 @@
 
 ## Current status
 
-The secret-free source/build boundary is implemented and verified on Linux and
-Windows. The full UE4SS build is correctly blocked before dependency
+The secret-free source/build boundary is implemented and verified on Windows
+and on Linux with AddressSanitizer plus UndefinedBehaviorSanitizer. The full
+UE4SS build is correctly blocked before dependency
 configuration because this workspace does not have the maintainer's
 Epic-linked GitHub credential. This is expected, explicit, and not counted as
 a pass.
@@ -43,13 +44,26 @@ See [`dependency-lock.md`](dependency-lock.md) for commits and license state.
 Linux secret-free build:
 
 ```text
-cmake --preset dev-linux
-cmake --build --preset dev-linux
-ctest --preset dev-linux
+cmake -S . -B .build/v2/sanitize-linux -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug -DMECCHA_WITH_UE4SS=OFF \
+  -DMECCHA_BUILD_TESTS=ON -DMECCHA_WARNINGS_AS_ERRORS=ON \
+  -DMECCHA_ENABLE_SANITIZERS=ON
+cmake --build .build/v2/sanitize-linux
+ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+ctest --test-dir .build/v2/sanitize-linux --output-on-failure
 ```
 
-Result: all registered secret-free tests passed with GCC 13.3.0,
-CMake 3.28.3, and Ninja 1.13.2.
+Result: all 48 registered secret-free tests passed with GCC 13.3.0,
+CMake 3.28.3, Ninja 1.13.2, ASan, UBSan, and leak detection.
+
+The first sanitized run exposed a timing assumption in
+`image_paint_job_coordinator_test`: entering the planning function was treated
+as equivalent to publishing its worker completion. The production coordinator
+already retained the correct asynchronous cancellation/drain behavior. The
+fixture now deterministically blocks until cancellation and waits for the
+typed stale-project terminal result; ten repeated normal and sanitized runs
+pass.
 
 Windows secret-free build:
 

@@ -184,6 +184,13 @@ hard capacity, invalid IDs, FIFO bounded drains, concurrent publication, and
 terminal close/discard. The secret-free Linux suite currently passes all 48
 registered tests.
 
+The same 48-test graph also passes with GCC AddressSanitizer,
+UndefinedBehaviorSanitizer, frame pointers, and leak detection. The sanitizer
+feedback loop found and removed a test-only scheduling assumption in the Image
+Paint stale-project case: the fixture now blocks until cancellation and waits
+for the coordinator's terminal typed result instead of assuming that worker
+entry means worker completion. Ten repeated normal and sanitized runs pass.
+
 ## Deliberate non-port
 
 The complete 3,700-line v1 `runtime_contract.hpp` is not copied as a unit.

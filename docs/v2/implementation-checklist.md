@@ -64,6 +64,8 @@ Evidence:
   `6c26f038751b3d96059d4a9148f5d093012d55ad`.
 - [ ] Record the exact recursive source graph and licenses.
 - [x] Add secret-free fork CI with `MECCHA_WITH_UE4SS=OFF`.
+  - [x] Run the complete Linux graph under AddressSanitizer and
+    UndefinedBehaviorSanitizer in addition to the Windows MSVC Release graph.
 - [x] Add the maintainer-approved protected-ref full-build workflow.
 - [ ] Build UE4SS and the minimal mod from the same source/configuration.
 - [ ] Verify x64 Release ABI, imports, exports, runtime library, and provenance.
@@ -167,6 +169,10 @@ Evidence:
     resource-limit audit.
 - [ ] Pass unit, property, golden, state-machine, dependency-boundary, and
   supported sanitizer/static-analysis checks.
+  - [x] Pass all registered secret-free tests under Linux ASan/UBSan and keep
+    the sanitized job mandatory in public PR CI.
+  - [ ] Complete remaining property/golden and supported static-analysis
+    evidence.
 
 Evidence:
 

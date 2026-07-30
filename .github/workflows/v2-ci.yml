@@ -10,6 +10,38 @@ permissions:
   contents: read
 
 jobs:
+  linux-sanitizers:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout without restricted dependencies
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Checkout the public UE4SS root only
+        run: git submodule update --init third_party/RE-UE4SS
+
+      - name: Configure sanitized secret-free graph
+        run: >
+          cmake -S . -B .build/v2/ci-linux-sanitized -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DMECCHA_WITH_UE4SS=OFF
+          -DMECCHA_BUILD_TESTS=ON
+          -DMECCHA_WARNINGS_AS_ERRORS=ON
+          -DMECCHA_ENABLE_SANITIZERS=ON
+
+      - name: Build sanitized secret-free graph
+        run: cmake --build .build/v2/ci-linux-sanitized
+
+      - name: Test sanitized secret-free graph
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: >
+          ctest --test-dir .build/v2/ci-linux-sanitized
+          --output-on-failure
+
   windows:
     runs-on: windows-2022
 
