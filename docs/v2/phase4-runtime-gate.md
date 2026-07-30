@@ -37,8 +37,14 @@ open.
 - Compatibility failures use project-owned contract and failure-kind enums.
   Unsupported game builds are classified separately from runtime contract
   failures, and successful validation clears stale failure context.
+- Game-thread executor failures carry optional structured compatibility
+  context through the scheduler and lifecycle into the immutable application
+  snapshot without stringly typed contract IDs.
 - Diagnostic entries preserve optional structured compatibility context in a
   fixed-capacity oldest-first eviction history.
+- The HUD callback trampoline is non-throwing. Unexpected adapter exceptions
+  become a closed runtime execution failure instead of crossing the UE4SS
+  callback boundary.
 - Shutdown closes scheduling, deterministically discards pending feature work,
   requires transient UI/preview/input restoration on the game thread, and
   refuses callback unregistration until restoration succeeds.
@@ -62,6 +68,8 @@ open.
   diagnostic eviction;
 - composition-root initialization, configuration/callback fault paths,
   snapshot publication, recovery, and restore-before-finalize shutdown;
+- structured executor failure propagation and exception containment at the HUD
+  callback boundary;
 - cancellation of queued work during shutdown;
 - restore-before-unregister ordering.
 

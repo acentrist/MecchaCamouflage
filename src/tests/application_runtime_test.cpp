@@ -8,6 +8,7 @@
 #include <expected>
 #include <iostream>
 #include <latch>
+#include <stdexcept>
 #include <string_view>
 #include <thread>
 #include <utility>
@@ -40,11 +41,18 @@ public:
     }
 
     auto execute(const GameThreadOperation& operation)
-        -> std::expected<void, DrainError> override
+        -> std::expected<void, RuntimeExecutionError> override
     {
+        if (throw_on_execute)
+        {
+            throw std::runtime_error{"injected executor exception"};
+        }
         if (fail_after != 0U && operations.size() == fail_after)
         {
-            return std::unexpected(DrainError::ExecutionFailed);
+            return std::unexpected(RuntimeExecutionError{
+                RuntimeExecutionErrorCode::OperationFailure,
+                compatibility_failure,
+            });
         }
         operations.push_back(operation);
         return {};
@@ -52,6 +60,8 @@ public:
 
     bool game_thread_{};
     std::size_t fail_after{};
+    bool throw_on_execute{};
+    std::optional<CompatibilityFailure> compatibility_failure{};
     std::vector<GameThreadOperation> operations{};
 };
 
@@ -112,7 +122,9 @@ auto main() -> int
     RecordingExecutor wrong_thread{false};
     const auto rejected = scheduler.drain(wrong_thread, 2U);
     passed &= expect(
-        !rejected && rejected.error() == DrainError::WrongThread &&
+        !rejected &&
+            rejected.error().code ==
+                RuntimeExecutionErrorCode::WrongThread &&
             scheduler.snapshot().queued == 2U &&
             wrong_thread.operations.empty(),
         "a non-game thread executed or consumed Unreal work");
@@ -131,7 +143,8 @@ auto main() -> int
     const auto failed_drain = scheduler.drain(game_thread, 1U);
     passed &= expect(
         !failed_drain &&
-            failed_drain.error() == DrainError::ExecutionFailed &&
+            failed_drain.error().code ==
+                RuntimeExecutionErrorCode::OperationFailure &&
             scheduler.snapshot().queued == 1U,
         "a failed Unreal operation was lost from the queue");
 
@@ -282,6 +295,24 @@ auto main() -> int
             callbacks.unregistered_id == 91U &&
             lifecycle.snapshot().phase == RuntimePhase::Stopped,
         "the restored runtime did not unregister and stop exactly once");
+
+    FakeCallbacks throwing_callbacks{};
+    RecordingExecutor throwing_executor{true};
+    throwing_executor.throw_on_execute = true;
+    RuntimeLifecycle throwing_lifecycle{
+        throwing_callbacks,
+        throwing_executor,
+        2U,
+    };
+    passed &= expect(
+        throwing_lifecycle.initialize().has_value(),
+        "the throwing lifecycle did not initialize");
+    throwing_callbacks.invoke(FirstFrame);
+    passed &= expect(
+        throwing_lifecycle.snapshot().last_error ==
+                RuntimeLifecycleError::ExecutionFailed &&
+            throwing_executor.operations.empty(),
+        "an executor exception crossed the HUD callback boundary");
 
     if (passed)
     {

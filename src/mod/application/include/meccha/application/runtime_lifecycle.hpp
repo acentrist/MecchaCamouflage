@@ -70,6 +70,7 @@ struct RuntimeLifecycleSnapshot
     std::optional<HudFrameIdentity> frame_identity{};
     QueueSnapshot queue{};
     std::optional<RuntimeLifecycleError> last_error{};
+    std::optional<CompatibilityFailure> last_compatibility_failure{};
 
     auto operator==(const RuntimeLifecycleSnapshot&) const -> bool = default;
 };
@@ -129,7 +130,10 @@ private:
         void* context,
         const HudFrameIdentity& identity) noexcept -> void;
 
-    auto remember_error(RuntimeLifecycleError error) -> void;
+    auto remember_error(
+        RuntimeLifecycleError error,
+        std::optional<CompatibilityFailure> compatibility_failure =
+            std::nullopt) -> void;
 
     RuntimeCallbackPort& callbacks_;
     GameThreadExecutor& executor_;
@@ -140,6 +144,7 @@ private:
     std::optional<CallbackId> hud_callback_{};
     std::optional<HudFrameIdentity> frame_identity_{};
     std::optional<RuntimeLifecycleError> last_error_{};
+    std::optional<CompatibilityFailure> last_compatibility_failure_{};
     std::uint64_t shutdown_generation_{};
     bool initial_contracts_resolved_{};
     bool transient_state_restored_{};

@@ -30,11 +30,14 @@ auto GameThreadScheduler::schedule(GameThreadOperation operation)
 auto GameThreadScheduler::drain(
     GameThreadExecutor& executor,
     std::size_t maximum_operations)
-    -> std::expected<std::size_t, DrainError>
+    -> std::expected<std::size_t, RuntimeExecutionError>
 {
     if (!executor.is_game_thread())
     {
-        return std::unexpected(DrainError::WrongThread);
+        return std::unexpected(RuntimeExecutionError{
+            RuntimeExecutionErrorCode::WrongThread,
+            std::nullopt,
+        });
     }
 
     const auto drain_lock = std::scoped_lock{drain_mutex_};

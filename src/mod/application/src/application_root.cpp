@@ -210,7 +210,10 @@ auto ApplicationRoot::on_hud_frame_complete(
         const auto lock = std::scoped_lock{state_mutex_};
         if (!result)
         {
-            fail_locked(lifecycle_failure(result.error()));
+            fail_locked(
+                runtime_snapshot.last_compatibility_failure
+                    ? *runtime_snapshot.last_compatibility_failure
+                    : lifecycle_failure(result.error()));
         }
         else if (
             runtime_snapshot.frame_identity &&

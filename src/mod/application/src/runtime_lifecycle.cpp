@@ -8,9 +8,10 @@ namespace meccha::application
 {
 namespace
 {
-auto map_drain_error(DrainError error) -> RuntimeLifecycleError
+auto map_execution_error(const RuntimeExecutionError& error)
+    -> RuntimeLifecycleError
 {
-    return error == DrainError::WrongThread
+    return error.code == RuntimeExecutionErrorCode::WrongThread
                ? RuntimeLifecycleError::WrongThread
                : RuntimeLifecycleError::ExecutionFailed;
 }
@@ -133,7 +134,9 @@ auto RuntimeLifecycle::on_hud_frame(
             executor_.execute(ResolveInitialContracts{});
         if (!result)
         {
-            remember_error(RuntimeLifecycleError::ExecutionFailed);
+            remember_error(
+                RuntimeLifecycleError::ExecutionFailed,
+                result.error().compatibility_failure);
             return std::unexpected(
                 RuntimeLifecycleError::ExecutionFailed);
         }
@@ -146,7 +149,9 @@ auto RuntimeLifecycle::on_hud_frame(
             executor_.execute(RebindHudFrame{identity});
         if (!result)
         {
-            remember_error(RuntimeLifecycleError::ExecutionFailed);
+            remember_error(
+                RuntimeLifecycleError::ExecutionFailed,
+                result.error().compatibility_failure);
             return std::unexpected(
                 RuntimeLifecycleError::ExecutionFailed);
         }
@@ -173,8 +178,10 @@ auto RuntimeLifecycle::on_hud_frame(
         operation_budget);
     if (!drained)
     {
-        const auto mapped = map_drain_error(drained.error());
-        remember_error(mapped);
+        const auto mapped = map_execution_error(drained.error());
+        remember_error(
+            mapped,
+            drained.error().compatibility_failure);
         return std::unexpected(mapped);
     }
     return *drained;
@@ -265,6 +272,7 @@ auto RuntimeLifecycle::snapshot() const -> RuntimeLifecycleSnapshot
         frame_identity_,
         scheduler_.snapshot(),
         last_error_,
+        last_compatibility_failure_,
     };
 }
 
@@ -308,9 +316,13 @@ auto RuntimeLifecycle::hud_trampoline(
     }
 }
 
-auto RuntimeLifecycle::remember_error(RuntimeLifecycleError error) -> void
+auto RuntimeLifecycle::remember_error(
+    RuntimeLifecycleError error,
+    std::optional<CompatibilityFailure> compatibility_failure) -> void
 {
     const auto lock = std::scoped_lock{state_mutex_};
     last_error_ = error;
+    last_compatibility_failure_ =
+        std::move(compatibility_failure);
 }
 } // namespace meccha::application

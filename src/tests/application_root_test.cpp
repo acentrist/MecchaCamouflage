@@ -63,13 +63,22 @@ public:
     }
 
     auto execute(const GameThreadOperation& operation)
-        -> std::expected<void, DrainError> override
+        -> std::expected<void, RuntimeExecutionError> override
     {
+        if (fail_after != 0U && operations.size() == fail_after)
+        {
+            return std::unexpected(RuntimeExecutionError{
+                RuntimeExecutionErrorCode::OperationFailure,
+                failure,
+            });
+        }
         operations.push_back(operation);
         return {};
     }
 
     std::vector<GameThreadOperation> operations{};
+    std::size_t fail_after{};
+    std::optional<CompatibilityFailure> failure{};
 };
 
 class FakeCallbacks final : public RuntimeCallbackPort
@@ -257,6 +266,37 @@ auto main() -> int
                 RuntimeContractId::HudCallback &&
             callback_snapshot->diagnostics.size() == 1U,
         "callback failure did not publish structured incompatibility");
+
+    FakeStorage contract_storage{};
+    FakeCallbacks contract_callbacks{};
+    RecordingExecutor contract_executor{};
+    contract_executor.fail_after = 1U;
+    contract_executor.failure = CompatibilityFailure{
+        RuntimeContractId::PaintAtUvWithBrush,
+        ContractFailureKind::ParameterSizeMismatch,
+        "error.operation.failed",
+    };
+    ApplicationRoot contract_failure{
+        contract_callbacks,
+        contract_executor,
+        contract_storage,
+        2U,
+        2U,
+    };
+    passed &= expect(
+        contract_failure.initialize().has_value(),
+        "contract-failure root did not initialize");
+    contract_callbacks.invoke(Frame);
+    const auto contract_snapshot = contract_failure.snapshot();
+    passed &= expect(
+        contract_snapshot->runtime_phase ==
+                ApplicationRuntimePhase::Incompatible &&
+            contract_snapshot->compatibility.failure ==
+                contract_executor.failure &&
+            contract_snapshot->diagnostics.back()
+                    .compatibility_failure ==
+                contract_executor.failure,
+        "executor contract context was lost before snapshot publication");
 
     if (passed)
     {

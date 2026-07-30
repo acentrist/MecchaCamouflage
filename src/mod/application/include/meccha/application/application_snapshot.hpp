@@ -1,5 +1,6 @@
 #pragma once
 
+#include <meccha/application/compatibility.hpp>
 #include <meccha/application/game_thread_scheduler.hpp>
 #include <meccha/application/job_state.hpp>
 #include <meccha/core/config.hpp>
@@ -23,71 +24,6 @@ enum class ApplicationRuntimePhase : std::uint8_t
     Incompatible,
     ShuttingDown,
     Stopped,
-};
-
-enum class CompatibilityStatus : std::uint8_t
-{
-    Unknown,
-    Compatible,
-    UnsupportedGame,
-    RuntimeError,
-};
-
-enum class RuntimeContractId : std::uint8_t
-{
-    RuntimeInitialization,
-    HudCallback,
-    World,
-    PlayerController,
-    Hud,
-    Canvas,
-    PaintAtUvWithBrush,
-    ImagePaintTexture,
-    TextureMutation,
-    InputControl,
-};
-
-enum class ContractFailureKind : std::uint8_t
-{
-    MissingObject,
-    WrongClass,
-    MissingProperty,
-    WrongPropertyKind,
-    MissingFunction,
-    ParameterSizeMismatch,
-    StaleObject,
-    CallbackFailure,
-    ExecutionFailure,
-    UnsupportedGameBuild,
-};
-
-struct CompatibilityFailure
-{
-    RuntimeContractId contract{};
-    ContractFailureKind kind{};
-    std::string message_key{};
-
-    auto operator==(const CompatibilityFailure&) const -> bool = default;
-};
-
-struct CompatibilitySnapshot
-{
-    CompatibilityStatus status{CompatibilityStatus::Unknown};
-    std::optional<CompatibilityFailure> failure{};
-
-    auto operator==(const CompatibilitySnapshot&) const -> bool = default;
-};
-
-class CompatibilityState
-{
-public:
-    auto mark_compatible() -> void;
-    auto fail(CompatibilityFailure failure) -> void;
-
-    [[nodiscard]] auto snapshot() const -> CompatibilitySnapshot;
-
-private:
-    CompatibilitySnapshot snapshot_{};
 };
 
 enum class DiagnosticSeverity : std::uint8_t

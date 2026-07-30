@@ -1,10 +1,13 @@
 #pragma once
 
+#include <meccha/application/compatibility.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <expected>
 #include <mutex>
+#include <optional>
 #include <variant>
 
 namespace meccha::application
@@ -73,10 +76,18 @@ enum class ScheduleResult : std::uint8_t
     Closed,
 };
 
-enum class DrainError : std::uint8_t
+enum class RuntimeExecutionErrorCode : std::uint8_t
 {
     WrongThread,
-    ExecutionFailed,
+    OperationFailure,
+};
+
+struct RuntimeExecutionError
+{
+    RuntimeExecutionErrorCode code{};
+    std::optional<CompatibilityFailure> compatibility_failure{};
+
+    auto operator==(const RuntimeExecutionError&) const -> bool = default;
 };
 
 struct QueueSnapshot
@@ -100,7 +111,7 @@ public:
 
     [[nodiscard]] virtual auto is_game_thread() const noexcept -> bool = 0;
     virtual auto execute(const GameThreadOperation& operation)
-        -> std::expected<void, DrainError> = 0;
+        -> std::expected<void, RuntimeExecutionError> = 0;
 };
 
 class GameThreadScheduler
@@ -117,7 +128,7 @@ public:
     [[nodiscard]] auto drain(
         GameThreadExecutor& executor,
         std::size_t maximum_operations)
-        -> std::expected<std::size_t, DrainError>;
+        -> std::expected<std::size_t, RuntimeExecutionError>;
 
     auto close() -> void;
     auto discard() -> std::size_t;
