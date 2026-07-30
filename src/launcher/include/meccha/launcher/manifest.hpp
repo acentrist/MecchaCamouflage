@@ -67,6 +67,13 @@ struct PayloadManifest
     auto operator==(const PayloadManifest&) const -> bool = default;
 };
 
+[[nodiscard]] constexpr auto is_runtime_cache_role(
+    FileRole role) noexcept -> bool
+{
+    return role != FileRole::Proxy &&
+           role != FileRole::Override;
+}
+
 [[nodiscard]] auto parse_payload_manifest(std::string_view json)
     -> std::expected<PayloadManifest, ManifestError>;
 

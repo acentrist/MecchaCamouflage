@@ -555,7 +555,10 @@ auto verify_generation_tree(
     std::map<std::string, const ManifestFile*, std::less<>> expected_files{};
     for (const auto& file : manifest.files)
     {
-        expected_files.emplace(lower_ascii(file.path), &file);
+        if (is_runtime_cache_role(file.role))
+        {
+            expected_files.emplace(lower_ascii(file.path), &file);
+        }
     }
     std::unordered_set<std::string> seen_files{};
 
@@ -607,7 +610,8 @@ auto verify_generation_tree(
             const auto is_required_parent = std::ranges::any_of(
                 manifest.files,
                 [&relative](const ManifestFile& file) {
-                    return is_parent_of(relative, file.path);
+                    return is_runtime_cache_role(file.role) &&
+                           is_parent_of(relative, file.path);
                 }) ||
                 std::ranges::any_of(
                     manifest.generated_paths,
@@ -1119,6 +1123,10 @@ auto Win32RuntimeStorage::stage_generation(
 
     for (const auto& file : manifest->files)
     {
+        if (!is_runtime_cache_role(file.role))
+        {
+            continue;
+        }
         auto payload = payload_source_.read_file(file.path);
         if (!payload)
         {

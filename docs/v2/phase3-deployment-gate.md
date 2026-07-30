@@ -83,6 +83,14 @@ payload, so Phase 3 remains open.
 - Read-only observation and no-op removal do not create ownership directories.
   Mutation remeasures the target immediately before atomic publication, and
   removal remeasures it after recording intent.
+- Canonical payload roles are also destination boundaries. Proxy and generated
+  override entries are never extracted into `runtime/active`; the managed
+  runtime transaction publishes only runtime-cache roles.
+- The pinned UE4SS source confirms that `override.txt` contains the directory
+  holding `UE4SS.dll`, while the product mod is self-enabled by
+  `Mods/MecchaCamouflage/enabled.txt` and loads
+  `Mods/MecchaCamouflage/dlls/main.dll`. The launcher will not edit a shared
+  `Mods/mods.txt`.
 
 ## Automated evidence
 
@@ -137,6 +145,10 @@ without adding a test-only branch to production coordination.
 - Implement compatible shared-tree observation and mod-only installation.
 - Implement the managed `dwmapi.dll` and `override.txt` mutation set,
   ownership persistence, exact-match reuse, and removal.
+- Validate Unicode and ANSI-round-trip behavior of the pinned proxy's
+  narrow-string `override.txt` reader. Use a verified short path when
+  available and fail closed if the stable runtime path cannot be represented;
+  do not patch the proxy without architecture review.
 - Add the minimal elevated two-file broker and alternate-credential contract.
 - Extend the passing owned-file junction fixture to the managed runtime
   generation adapter.

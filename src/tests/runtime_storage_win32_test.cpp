@@ -72,12 +72,16 @@ auto make_package(std::string_view suffix) -> Package
         bytes(std::string{"runtime-"} + std::string{suffix});
     package.payload.files["Mods/MecchaCamouflage/dlls/main.dll"] =
         bytes(std::string{"mod-"} + std::string{suffix});
+    package.payload.files["dwmapi.dll"] =
+        bytes(std::string{"proxy-"} + std::string{suffix});
 
     const auto runtime_hash =
         sha256_bytes(package.payload.files.at("UE4SS.dll")).value();
     const auto mod_hash = sha256_bytes(
         package.payload.files.at(
             "Mods/MecchaCamouflage/dlls/main.dll")).value();
+    const auto proxy_hash =
+        sha256_bytes(package.payload.files.at("dwmapi.dll")).value();
     package.manifest_json =
         std::string{R"json({"schema_version":1,"product_version":"2.0.0",)json"} +
         R"json("ue4ss_commit":"6c26f038751b3d96059d4a9148f5d093012d55ad",)json" +
@@ -90,7 +94,12 @@ auto make_package(std::string_view suffix) -> Package
         std::to_string(
             package.payload.files.at(
                 "Mods/MecchaCamouflage/dlls/main.dll").size()) +
-        R"json(,"sha256":")json" + sha256_hex(mod_hash) + R"json("}]})json";
+        R"json(,"sha256":")json" + sha256_hex(mod_hash) +
+        R"json("},{"path":"dwmapi.dll","role":"proxy","size":)json" +
+        std::to_string(
+            package.payload.files.at("dwmapi.dll").size()) +
+        R"json(,"sha256":")json" + sha256_hex(proxy_hash) +
+        R"json("}]})json";
     package.manifest_sha256 =
         sha256_bytes(std::as_bytes(std::span{package.manifest_json})).value();
     return package;
@@ -166,8 +175,11 @@ auto main() -> int
         prepare_runtime(reuse_storage, v1.manifest_sha256, Nonce);
     passed &= expect(
         first && *first == RuntimePrepareResult::Published &&
-            root_has_only_active(reuse_tree.root),
-        "fresh disk publication did not leave only active");
+            root_has_only_active(reuse_tree.root) &&
+            !fs::exists(
+                reuse_tree.root / "active" / "dwmapi.dll") &&
+            v1.payload.read_count == 2U,
+        "fresh publication extracted a loader file into active");
 
     fs::create_directories(reuse_tree.root / "active" / "Logs");
     write_bytes(
