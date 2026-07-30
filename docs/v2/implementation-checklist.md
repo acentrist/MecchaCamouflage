@@ -111,6 +111,9 @@ Evidence:
     shared runtime/config/mod state, and non-mutating access probes.
   - [x] Bind the observed shared runtime root into the execution backend
     without re-reading loader configuration.
+  - [x] Compose verified manifest identity, running-game preflight, startup
+    recovery, material/observation/execution adapters, and the typed launcher
+    workflow behind one synchronous native boundary.
   - [ ] Implement the minimal elevated two-file broker.
 - [x] Implement safe reuse, repair, update, cleanup, and `--remove`.
 - [ ] Pass temporary-tree, hostile-path, reparse, interrupted-transaction,
