@@ -456,16 +456,21 @@ struct LoadedLedger
     detail::SharedModLedger ledger{};
 };
 
-auto load_ledger(const fs::path& ownership_scope)
+auto load_ledger(
+    const fs::path& ownership_scope,
+    bool recover_first)
     -> std::expected<std::optional<LoadedLedger>, SharedModError>
 {
     auto store = make_ledger_store(ownership_scope);
-    auto recovered = store.recover();
-    if (!recovered)
+    if (recover_first)
     {
-        return store_error(
-            LedgerManifestPath,
-            recovered.error());
+        auto recovered = store.recover();
+        if (!recovered)
+        {
+            return store_error(
+                LedgerManifestPath,
+                recovered.error());
+        }
     }
     auto bytes = detail::read_plain_file_bytes(
         ownership_scope / LedgerFileName,
@@ -659,6 +664,162 @@ auto build_shared_mod_material(
     return material;
 }
 
+auto observe_shared_mod(
+    const fs::path& shared_runtime_directory,
+    const fs::path& ownership_directory,
+    const SharedModMaterial& material)
+    -> std::expected<ArtifactState, SharedModError>
+{
+    const auto roots = validate_roots(
+        shared_runtime_directory,
+        ownership_directory);
+    if (!roots)
+    {
+        return std::unexpected(roots.error());
+    }
+    const auto compatible = validate_compatibility_files(
+        shared_runtime_directory,
+        material);
+    if (!compatible)
+    {
+        return std::unexpected(compatible.error());
+    }
+    const auto current_ledger = final_ledger(material);
+    if (!current_ledger)
+    {
+        return std::unexpected(current_ledger.error());
+    }
+    const auto scope = ownership_scope(
+        ownership_directory,
+        shared_runtime_directory);
+    if (!scope)
+    {
+        return std::unexpected(scope.error());
+    }
+    const auto installed_ledger = load_ledger(*scope, false);
+    if (!installed_ledger)
+    {
+        return ArtifactState::Conflict;
+    }
+
+    auto states = std::vector<ArtifactState>{};
+    states.reserve(material.files.size());
+    for (const auto& file : material.files)
+    {
+        auto store = make_store(
+            shared_runtime_directory,
+            *scope,
+            file);
+        const auto state = store.observe(file.expectation);
+        if (!state)
+        {
+            if (state.error().code ==
+                OwnedFileStoreErrorCode::Conflict)
+            {
+                return ArtifactState::Conflict;
+            }
+            return store_error(
+                file.expectation.file.path,
+                state.error());
+        }
+        states.push_back(*state);
+    }
+
+    if (!*installed_ledger)
+    {
+        if (std::ranges::all_of(
+                states,
+                [](ArtifactState state) {
+                    return state == ArtifactState::Missing;
+                }))
+        {
+            return ArtifactState::Missing;
+        }
+        if (std::ranges::all_of(
+                states,
+                [](ArtifactState state) {
+                    return state == ArtifactState::ExactUnowned;
+                }))
+        {
+            return ArtifactState::ExactUnowned;
+        }
+        return ArtifactState::Conflict;
+    }
+
+    if (std::ranges::any_of(
+            states,
+            [](ArtifactState state) {
+                return state == ArtifactState::Conflict ||
+                       state == ArtifactState::ExactUnowned;
+            }))
+    {
+        return ArtifactState::Conflict;
+    }
+    const auto stale = stale_files(
+        *installed_ledger,
+        material);
+    for (const auto& file : stale)
+    {
+        auto store = make_store(
+            shared_runtime_directory,
+            *scope,
+            file);
+        const auto removable = store.removable();
+        if (!removable)
+        {
+            if (removable.error().code ==
+                OwnedFileStoreErrorCode::Conflict)
+            {
+                return ArtifactState::Conflict;
+            }
+            return store_error(
+                file.expectation.file.path,
+                removable.error());
+        }
+        if (*removable)
+        {
+            continue;
+        }
+        const auto state = store.observe(file.expectation);
+        if (!state)
+        {
+            if (state.error().code ==
+                OwnedFileStoreErrorCode::Conflict)
+            {
+                return ArtifactState::Conflict;
+            }
+            return store_error(
+                file.expectation.file.path,
+                state.error());
+        }
+        if (*state != ArtifactState::Missing)
+        {
+            return ArtifactState::Conflict;
+        }
+    }
+
+    const auto all_exact = std::ranges::all_of(
+        states,
+        [](ArtifactState state) {
+            return state == ArtifactState::ExactOwned;
+        });
+    if (all_exact && stale.empty() &&
+        (**installed_ledger).ledger == *current_ledger)
+    {
+        return ArtifactState::ExactOwned;
+    }
+    const auto safely_updatable = std::ranges::all_of(
+        states,
+        [](ArtifactState state) {
+            return state == ArtifactState::Missing ||
+                   state == ArtifactState::ExactOwned ||
+                   state == ArtifactState::OwnedPrevious;
+        });
+    return safely_updatable
+               ? ArtifactState::OwnedPrevious
+               : ArtifactState::Conflict;
+}
+
 auto apply_shared_mod_plan(
     SharedModAction action,
     const fs::path& shared_runtime_directory,
@@ -703,7 +864,7 @@ auto apply_shared_mod_plan(
     {
         return std::unexpected(final_prepared.error());
     }
-    auto installed_ledger = load_ledger(*scope);
+    auto installed_ledger = load_ledger(*scope, true);
     if (!installed_ledger)
     {
         return std::unexpected(installed_ledger.error());
@@ -973,7 +1134,7 @@ auto apply_shared_mod_removal(
     {
         return std::unexpected(scope.error());
     }
-    auto installed_ledger = load_ledger(*scope);
+    auto installed_ledger = load_ledger(*scope, true);
     if (!installed_ledger)
     {
         return std::unexpected(installed_ledger.error());

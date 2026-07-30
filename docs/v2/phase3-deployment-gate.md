@@ -5,9 +5,10 @@
 The manifest, ownership, loader-policy, recoverable transaction, native
 Windows managed-runtime storage, side-effect-free preparation/removal
 planning, portable observation-to-plan workflow, concrete normal/shared
-execution backend, and Steam launch effect are implemented. The native
-observation/material composition root, production elevated broker, and final
-embedded-resource binding remain open, so Phase 3 remains open.
+execution backend, read-only runtime/shared-state classification, and Steam
+launch effect are implemented. The native observation/material composition
+root, production elevated broker, and final embedded-resource binding remain
+open, so Phase 3 remains open.
 
 ## Implemented contracts
 
@@ -142,6 +143,12 @@ embedded-resource binding remain open, so Phase 3 remains open.
 - Exact owned and exact unowned shared mods are reusable without rewriting or
   claiming content. Unknown, modified, stale-plan, and reparse targets fail
   closed before any mod payload is installed.
+- Shared-mod observation is strictly read-only. It classifies a compatible
+  root as missing, exact owned, exact unowned, safely owned previous, or
+  conflict from the payload, root-scoped ownership receipts, and installed
+  ledger without transaction recovery or ownership-directory creation.
+  Malformed ledgers, mixed ownership, changed current files, and changed stale
+  ledger-only files are conflicts.
 - Shared removal preflights every current manifest file and deletes only
   receipt-backed, hash-matched MecchaCamouflage files. `UE4SS.dll`,
   `Mods/mods.txt`, loader files, settings, unrelated mods, and exact unowned
@@ -259,15 +266,16 @@ exact-unowned proxy
 coexistence, payload tampering, Unicode-path short-path-or-refusal behavior,
 stale removal, ownership-safe removal, and zero-mutation elevated handoff.
 
-The shared-mod suite covers canonical material construction, fresh nested
-installation, exact-owned and exact-unowned reuse, all-file conflict preflight,
-receipt-only unchanged-file updates, changed-file replacement, hash-safe
-removal after a runtime-owner update, manifest-removed file cleanup,
-new-launcher removal of an old install, ledger tampering, cross-root receipt
-rejection, payload tampering, foreign mod-path rejection, preservation of
-`Mods/mods.txt`, complete owned-directory cleanup, pre-mutation refusal of
-unknown mod or ownership content, and a privilege-free target-directory
-junction fixture.
+The shared-mod suite covers canonical material construction, read-only
+missing/exact-owned/exact-unowned/owned-previous/conflict classification,
+fresh nested installation, exact-owned and exact-unowned reuse, all-file
+conflict preflight, receipt-only unchanged-file updates, changed-file
+replacement, hash-safe removal after a runtime-owner update, manifest-removed
+file cleanup, new-launcher removal of an old install, ledger tampering,
+cross-root receipt rejection, payload tampering, foreign mod-path rejection,
+preservation of `Mods/mods.txt`, complete owned-directory cleanup,
+pre-mutation refusal of unknown mod or ownership content, and a privilege-free
+target-directory junction fixture.
 The portable ledger suite additionally proves canonical ordering, strict
 round trips, duplicate rejection, per-file ownership retention, and old/new
 transition union semantics.

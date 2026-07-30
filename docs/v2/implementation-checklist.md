@@ -97,6 +97,9 @@ Evidence:
     publication without creating cache or ownership directories.
   - [x] Classify a recovered runtime cache as missing, exact, owned previous,
     or conflict through a read-only transaction boundary.
+  - [x] Observe compatible shared mod payload and installed-ledger state as
+    missing, exact owned, exact unowned, owned previous, or conflict without
+    creating ownership metadata or recovering transactions.
   - [ ] Bind the native original-user observation source and minimal elevated
     broker.
 - [x] Implement safe reuse, repair, update, cleanup, and `--remove`.

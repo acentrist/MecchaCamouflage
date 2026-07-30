@@ -63,6 +63,12 @@ struct SharedModRemovalResult
     RuntimePayloadSource& payload_source)
     -> std::expected<SharedModMaterial, SharedModError>;
 
+[[nodiscard]] auto observe_shared_mod(
+    const std::filesystem::path& shared_runtime_directory,
+    const std::filesystem::path& ownership_directory,
+    const SharedModMaterial& material)
+    -> std::expected<ArtifactState, SharedModError>;
+
 auto apply_shared_mod_plan(
     SharedModAction action,
     const std::filesystem::path& shared_runtime_directory,

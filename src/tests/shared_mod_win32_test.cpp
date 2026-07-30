@@ -290,6 +290,23 @@ auto main() -> int
         "shared mod material did not include the complete mod");
 
     TemporaryTree lifecycle{};
+    const auto missing = material
+                             ? observe_shared_mod(
+                                   lifecycle.root / "shared",
+                                   lifecycle.root / "ownership",
+                                   *material)
+                             : std::expected<
+                                   ArtifactState,
+                                   SharedModError>{
+                                   std::unexpected(SharedModError{
+                                       SharedModErrorCode::Payload,
+                                       "missing material",
+                                   })};
+    passed &= expect(
+        missing && *missing == ArtifactState::Missing &&
+            !fs::exists(lifecycle.root / "ownership"),
+        "shared mod observation mutated or misclassified a clean tree");
+
     const auto installed = material
                                ? apply_shared_mod_plan(
                                      SharedModAction::Install,
@@ -318,6 +335,14 @@ auto main() -> int
                 lifecycle.root / "shared" / "Mods" /
                 "mods.txt") == "user-mods",
         "fresh shared install changed unrelated content or missed files");
+    const auto exact_owned = observe_shared_mod(
+        lifecycle.root / "shared",
+        lifecycle.root / "ownership",
+        *material);
+    passed &= expect(
+        exact_owned &&
+            *exact_owned == ArtifactState::ExactOwned,
+        "shared mod observation missed the exact owned installation");
 
     const auto reused_owned = apply_shared_mod_plan(
         SharedModAction::Reuse,
@@ -336,6 +361,17 @@ auto main() -> int
     write_payload_files(
         exact_unowned.root / "shared",
         package);
+    const auto exact_unowned_observation = observe_shared_mod(
+        exact_unowned.root / "shared",
+        exact_unowned.root / "ownership",
+        *material);
+    passed &= expect(
+        exact_unowned_observation &&
+            *exact_unowned_observation ==
+                ArtifactState::ExactUnowned &&
+            !fs::exists(exact_unowned.root / "ownership"),
+        "shared mod observation claimed or misclassified exact unowned "
+        "content");
     const auto reused_unowned = apply_shared_mod_plan(
         SharedModAction::Reuse,
         exact_unowned.root / "shared",
@@ -432,6 +468,18 @@ auto main() -> int
         updated_package.manifest,
         updated_package.manifest_sha256,
         updated_package.payload);
+    const auto pending_update = observe_shared_mod(
+        lifecycle.root / "shared",
+        lifecycle.root / "ownership",
+        *updated_material);
+    passed &= expect(
+        pending_update &&
+            *pending_update == ArtifactState::OwnedPrevious &&
+            read_text(
+                lifecycle.root / "shared" / "Mods" /
+                "MecchaCamouflage" / "dlls" / "main.dll") ==
+                "main-v2",
+        "shared mod observation missed or mutated an owned update");
     const auto updated = apply_shared_mod_plan(
         SharedModAction::Install,
         lifecycle.root / "shared",
@@ -486,6 +534,10 @@ auto main() -> int
         stale_conflict.root / "shared" / "Mods" /
             "MecchaCamouflage" / "resources" / "catalog.bin",
         "user-change");
+    const auto observed_stale_conflict = observe_shared_mod(
+        stale_conflict.root / "shared",
+        stale_conflict.root / "ownership",
+        *material_without_resource);
     const auto refused_stale_conflict =
         apply_shared_mod_plan(
             SharedModAction::Install,
@@ -493,7 +545,9 @@ auto main() -> int
             stale_conflict.root / "ownership",
             *material_without_resource);
     passed &= expect(
-        stale_conflict_install && !refused_stale_conflict &&
+        stale_conflict_install && observed_stale_conflict &&
+            *observed_stale_conflict == ArtifactState::Conflict &&
+            !refused_stale_conflict &&
             refused_stale_conflict.error().code ==
                 SharedModErrorCode::Store &&
             read_text(
@@ -555,6 +609,10 @@ auto main() -> int
     {
         TemporaryTree::write_text(*ledger_path, "{}");
     }
+    const auto observed_tampered_ledger = observe_shared_mod(
+        tampered_ledger.root / "shared",
+        tampered_ledger.root / "ownership",
+        *updated_material);
     const auto refused_tampered_ledger =
         apply_shared_mod_plan(
             SharedModAction::Install,
@@ -563,6 +621,9 @@ auto main() -> int
             *updated_material);
     passed &= expect(
         tampered_ledger_install && ledger_path &&
+            observed_tampered_ledger &&
+            *observed_tampered_ledger ==
+                ArtifactState::Conflict &&
             !refused_tampered_ledger &&
             refused_tampered_ledger.error().code ==
                 SharedModErrorCode::Store &&
