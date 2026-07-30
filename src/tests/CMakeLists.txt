@@ -34,6 +34,18 @@ target_link_libraries(
 )
 add_test(NAME application_state COMMAND meccha_application_state_tests)
 
+add_executable(
+    meccha_config_persistence_tests
+    config_persistence_test.cpp
+)
+target_link_libraries(
+    meccha_config_persistence_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(NAME config_persistence COMMAND meccha_config_persistence_tests)
+
 add_executable(meccha_core_contract_tests core_contract_test.cpp)
 target_link_libraries(
     meccha_core_contract_tests
@@ -101,6 +113,18 @@ target_link_libraries(
 add_test(NAME runtime_transaction COMMAND meccha_runtime_transaction_tests)
 
 if(WIN32)
+    add_executable(
+        meccha_config_storage_tests
+        config_storage_win32_test.cpp
+    )
+    target_link_libraries(
+        meccha_config_storage_tests
+        PRIVATE
+            MecchaCamouflage::Application
+            meccha_build_options
+    )
+    add_test(NAME config_storage COMMAND meccha_config_storage_tests)
+
     add_executable(
         meccha_runtime_storage_tests
         runtime_storage_win32_test.cpp

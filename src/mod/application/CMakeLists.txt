@@ -3,6 +3,8 @@ add_library(
     STATIC
         src/application_snapshot.cpp
         src/callback_barrier.cpp
+        src/config_codec.cpp
+        src/config_store.cpp
         src/game_thread_scheduler.cpp
         src/job_state.cpp
         src/runtime_lifecycle.cpp
@@ -19,5 +21,20 @@ target_link_libraries(
     PUBLIC
         MecchaCamouflage::Core
     PRIVATE
+        glaze::glaze
         meccha_build_options
 )
+
+if(WIN32)
+    target_sources(
+        meccha_application
+        PRIVATE
+            src/config_storage_win32.cpp
+    )
+    target_link_libraries(
+        meccha_application
+        PRIVATE
+            ole32
+            shell32
+    )
+endif()

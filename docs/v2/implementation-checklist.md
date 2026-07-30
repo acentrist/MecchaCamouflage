@@ -157,8 +157,8 @@ Evidence:
 
 ## Phase 7 — Configuration, localization, and persistence
 
-- [ ] Specify and implement the strict v2 config schema.
-- [ ] Keep image bytes and layer collections out of `config.json`.
+- [x] Specify and implement the strict v2 config schema.
+- [x] Keep image bytes and layer collections out of `config.json`.
 - [ ] Implement atomic config and active-draft persistence.
 - [ ] Port all 16 localization catalogs and validate placeholders/glyphs.
 - [ ] Specify the canonical v2-only `.mcpreset` container.
@@ -168,6 +168,10 @@ Evidence:
   determinism, and resource-limit tests.
 - [ ] DEFERRED — maintainer interaction required: verify native file-picker and
   non-ASCII Windows path behavior.
+
+Evidence:
+
+- [`phase7-persistence-progress.md`](phase7-persistence-progress.md)
 
 ## Phase 8 — Paint
 
