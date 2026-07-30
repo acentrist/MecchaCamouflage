@@ -91,9 +91,9 @@ not yet complete.
 - Snapshots are immutable shared values with monotonic revisions. Diagnostic
   history has a hard capacity and stable sequence numbers.
 - The bounded game-thread scheduler keeps separate control and frame lanes.
-  Resolve/rebind/restore work is admitted within the same hard capacity but
+  One slot is reserved from frame admission, and resolve/rebind/restore work
   drains before Paint/texture work, so teardown and rebinding cannot be
-  starved by a full Paint stream.
+  starved by a full Paint stream while total storage remains hard-bounded.
 
 ## Evidence
 

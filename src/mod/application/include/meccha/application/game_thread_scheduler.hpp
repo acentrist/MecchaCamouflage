@@ -1,6 +1,7 @@
 #pragma once
 
 #include <meccha/application/compatibility.hpp>
+#include <meccha/application/job_state.hpp>
 #include <meccha/core/paint.hpp>
 
 #include <cstddef>
@@ -59,6 +60,7 @@ struct RuntimeObjectHandle
 struct PaintAtUvWithBrush
 {
     std::uint64_t request_id{};
+    JobGeneration job_generation{};
     RuntimeObjectHandle component{};
     double u{};
     double v{};
@@ -160,8 +162,12 @@ public:
 
     auto close() -> void;
     auto discard() -> std::size_t;
+    auto discard_paint_generation(JobGeneration generation)
+        -> std::size_t;
 
     [[nodiscard]] auto snapshot() const -> QueueSnapshot;
+    [[nodiscard]] auto queued_paint_generation(
+        JobGeneration generation) const -> std::size_t;
 
 private:
     const std::size_t capacity_{};

@@ -107,6 +107,7 @@ auto main() -> int
         std::byte{0x7F});
     const auto paint = PaintAtUvWithBrush{
         10U,
+        1U,
         component,
         0.25,
         0.75,
@@ -123,7 +124,7 @@ auto main() -> int
         pixels,
     };
 
-    GameThreadScheduler scheduler{2U};
+    GameThreadScheduler scheduler{3U};
     static_cast<void>(scheduler.schedule(paint));
     static_cast<void>(scheduler.schedule(image));
     const auto drained = scheduler.drain(executor, 2U);

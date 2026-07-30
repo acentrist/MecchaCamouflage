@@ -13,6 +13,7 @@ add_library(
         src/job_state.cpp
         src/localization.cpp
         src/mesh_profile_codec.cpp
+        src/paint_dispatch.cpp
         src/runtime_lifecycle.cpp
         src/runtime_operation_executor.cpp
 )

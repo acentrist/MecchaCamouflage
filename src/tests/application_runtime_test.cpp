@@ -23,6 +23,7 @@ auto paint_call(std::uint64_t request_id) -> PaintAtUvWithBrush
 {
     return PaintAtUvWithBrush{
         request_id,
+        1U,
         RuntimeObjectHandle{10U, 1U},
         0.25,
         0.75,

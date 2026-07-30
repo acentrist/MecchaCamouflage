@@ -91,8 +91,8 @@ inventory drift.
 | PAINT-012 | Preview captures all changed channels and exact restore is guarded against wrong component/repeat use. | Bridge preview export/import | Preview lease/runtime adapter | T1, T2, T4 | Import/export bridge commands |
 | PAINT-013 | Normal production painting calls game-owned `PaintAtUVWithBrush` for every accepted stroke and no alternative sender. | `SDK`, Bridge direct route, maintenance docs | Runtime adapter/dispatcher | T0, T2, T4, T6 | Bridge direct RPC |
 | PAINT-014 | Planning and dispatch are cancellable and bounded per frame. | `Native contracts`, async Bridge job | stop-token planner + application scheduler | T1, T2, T4 | Bridge async globals |
-| PAINT-015 | Progress distinguishes planning, pass, submitted, queued, drained, elapsed, ETA, cancel, and failure. | `UI contracts`, Session, Bridge progress | Application snapshots | T1, T2, T4 | Progress sidecars |
-| PAINT-016 | Terminal completion is impossible while the game-owned queue is nonzero. | Bridge queue drain, release checklist | Dispatcher/job arbiter | T1, T2, T4, T6 | Bridge completion heuristic |
+| PAINT-015 | Progress distinguishes planning, pass, submitted, queued, drained, elapsed, ETA, cancel, and failure. | `UI contracts`, Session, Bridge progress | `PaintDispatchController` + snapshots | T1, T2, T4 | Progress sidecars |
+| PAINT-016 | Terminal completion is impossible while the game-owned queue is nonzero. | Bridge queue drain, release checklist | generation-tagged dispatcher/job arbiter | T1, T2, T4, T6 | Bridge completion heuristic |
 | PAINT-017 | A valid captured paint component survives controller-pawn/freecam changes and fails safely when invalidated. | Bridge captured-component tests | Runtime handle/job | T2, T4 | Bridge process context |
 | PAINT-018 | Host-painter and joining-client-painter both replicate completely without crash/disconnect. | multiplayer checklist | Game-owned dispatcher | T6 | No mock replacement |
 

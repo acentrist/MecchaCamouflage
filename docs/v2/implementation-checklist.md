@@ -185,7 +185,7 @@ Evidence:
   PBR, compression, and Fill-first ordering.
 - [ ] Implement exact preview capture/apply/restore ownership.
 - [ ] Dispatch only through game-owned `PaintAtUVWithBrush`.
-- [ ] Implement bounded per-frame pacing, progress, cancellation, and terminal
+- [x] Implement bounded per-frame pacing, progress, cancellation, and terminal
   queue drain.
 - [ ] Preserve valid jobs through freecam/controller-pawn changes.
 - [ ] Pass all Paint unit, contract, fake-runtime, stress, and failure tests.

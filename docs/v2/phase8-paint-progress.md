@@ -1,8 +1,8 @@
 # Phase 8 Paint Progress
 
-Phase 8 is open. Its pure, immutable planning boundary is implemented and
-verified; production capture, preview, dispatch, and queue-drain integration
-remain.
+Phase 8 is open. Its pure immutable planning and generation-tagged dispatch
+boundaries are implemented and verified; production capture, preview, and
+UE4SS runtime integration remain.
 
 ## Immutable capture-to-plan contract
 
@@ -49,6 +49,33 @@ publishing a partial plan.
   `PaintAtUvWithBrush`; no texture import, bridge sender, or custom multiplayer
   transport exists in v2.
 
+## Bounded dispatch contract
+
+`PaintDispatchController` consumes an immutable plan only after the shared job
+state has entered `Planning`. It then:
+
+- tags every scheduled stroke with the active job generation and a monotonic
+  request ID;
+- admits no more than the validated pacing `calls_per_tick` after each cadence
+  window;
+- leaves the remaining plan untouched when the frame lane is full;
+- reserves scheduler capacity for control work and drains control before
+  frame work;
+- publishes submitted counts, bounded queue pressure, elapsed time, and ETA;
+- enters `Draining` only after every stroke has been admitted;
+- requires the same generation to have no scheduled strokes, the authoritative
+  visual/outgoing observations to be empty, and the final confirmation window
+  to elapse before completion;
+- cancels admission, removes only queued strokes from the cancelled
+  generation, preserves control/other-generation work, retains the actual
+  submitted count, and uses the same confirmation window before terminal
+  cancellation.
+
+Unavailable game queue observers are treated as zero only after the
+confirmation window; they do not permit immediate completion or cancellation.
+The captured component handle belongs to the job and does not change when a
+controller/freecam pawn changes.
+
 ## Automated evidence
 
 `paint_planner` passes on GCC and MSVC Release and covers:
@@ -65,7 +92,11 @@ publishing a partial plan.
 `core_contract` additionally covers replay/adaptive resource limits and
 cancellation. `runtime_operation_executor` covers effective Fill radius
 admission and oversized-radius rejection. `application_runtime` covers control
-priority over queued Paint work.
+priority and reserved control capacity over queued Paint work.
+`paint_dispatch` covers cadence, frame admission, backpressure, exact
+generation-tagged stroke conversion, queue observations, confirmation,
+completion, cancellation, selective discard, progress preservation, and stale
+generation rejection. All related tests pass on GCC and MSVC Release.
 
 ## Remaining gate
 
@@ -73,8 +104,7 @@ priority over queued Paint work.
   through validated reflected contracts on the game thread.
 - Run planning on the owned worker and reject stale command/generation
   completions.
-- Add generation-tagged bounded per-frame admission, cancellation, game queue
-  observations, terminal confirmation, elapsed/ETA publication, and exact
-  preview restoration.
+- Connect the dispatcher to `ApplicationRoot`, live game queue observers, and
+  exact preview restoration.
 - Complete fake-runtime failures and the deferred single-/two-client live
   matrix before Phase 8 can close.

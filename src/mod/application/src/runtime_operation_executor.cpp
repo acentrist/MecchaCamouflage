@@ -42,7 +42,8 @@ auto unit(double value) -> bool
 auto validate(const PaintAtUvWithBrush& request)
     -> std::expected<void, RuntimeExecutionError>
 {
-    if (request.request_id == 0U)
+    if (request.request_id == 0U ||
+        request.job_generation == 0U)
     {
         return invalid(
             RuntimeContractId::PaintAtUvWithBrush,
