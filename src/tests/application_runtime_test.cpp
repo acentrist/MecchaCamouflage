@@ -115,6 +115,10 @@ public:
     {
         ++unregister_count;
         unregistered_id = id;
+        if (fail_unregistration)
+        {
+            return std::unexpected(CallbackPortError::Unregistration);
+        }
         callback = nullptr;
         context = nullptr;
         return {};
@@ -133,6 +137,7 @@ public:
     std::size_t register_count{};
     std::size_t unregister_count{};
     CallbackId unregistered_id{};
+    bool fail_unregistration{};
 };
 } // namespace
 
@@ -344,6 +349,138 @@ auto main() -> int
                 RuntimeLifecycleError::ExecutionFailed &&
             throwing_executor.operations.empty(),
         "an executor exception crossed the HUD callback boundary");
+
+    FakeCallbacks retry_callbacks{};
+    RecordingExecutor retry_executor{true};
+    RuntimeLifecycle retry_lifecycle{
+        retry_callbacks,
+        retry_executor,
+        2U,
+    };
+    passed &= expect(
+        retry_lifecycle.initialize().has_value(),
+        "the retry lifecycle did not initialize");
+    retry_callbacks.invoke(FirstFrame);
+    retry_executor.fail_after = 2U;
+    retry_executor.compatibility_failure = CompatibilityFailure{
+        RuntimeContractId::Canvas,
+        ContractFailureKind::StaleObject,
+        "error.operation.failed",
+    };
+    constexpr auto ReplacementFrame = HudFrameIdentity{
+        101U,
+        201U,
+        301U,
+        401U,
+    };
+    retry_callbacks.invoke(ReplacementFrame);
+    passed &= expect(
+        retry_executor.operations.size() == 2U &&
+            retry_lifecycle.snapshot().frame_identity ==
+                FirstFrame &&
+            retry_lifecycle.snapshot()
+                    .last_compatibility_failure ==
+                retry_executor.compatibility_failure,
+        "a failed frame rebind published an unvalidated identity");
+    retry_executor.fail_after = 0U;
+    retry_callbacks.invoke(ReplacementFrame);
+    passed &= expect(
+        retry_executor.operations.back() ==
+                GameThreadOperation{
+                    RebindHudFrame{ReplacementFrame}} &&
+            retry_lifecycle.snapshot().frame_identity ==
+                ReplacementFrame,
+        "a transient frame rebind failure was not retried");
+
+    retry_executor.fail_after = retry_executor.operations.size();
+    passed &= expect(
+        retry_lifecycle.request_shutdown(11U).has_value(),
+        "the retry lifecycle did not start shutdown");
+    retry_callbacks.invoke(ReplacementFrame);
+    passed &= expect(
+        retry_lifecycle.snapshot().last_error ==
+                RuntimeLifecycleError::ExecutionFailed &&
+            !retry_lifecycle.finalize_shutdown() &&
+            retry_lifecycle.finalize_shutdown().error() ==
+                RuntimeLifecycleError::PendingGameThreadRestore,
+        "a failed restore allowed callback unregistration");
+    retry_executor.fail_after = 0U;
+    retry_callbacks.invoke(ReplacementFrame);
+    passed &= expect(
+        retry_executor.operations.back() ==
+            GameThreadOperation{RestoreTransientState{11U}},
+        "a transient shutdown restore failure was not retried");
+
+    retry_callbacks.fail_unregistration = true;
+    const auto failed_unregistration =
+        retry_lifecycle.finalize_shutdown();
+    passed &= expect(
+        !failed_unregistration &&
+            failed_unregistration.error() ==
+                RuntimeLifecycleError::CallbackUnregistration &&
+            retry_lifecycle.snapshot().phase ==
+                RuntimePhase::Failed &&
+            retry_callbacks.callback != nullptr,
+        "an unregistration failure was reported as a clean stop");
+    retry_callbacks.fail_unregistration = false;
+
+    FakeCallbacks destructor_callbacks{};
+    {
+        RecordingExecutor destructor_executor{true};
+        RuntimeLifecycle destructor_lifecycle{
+            destructor_callbacks,
+            destructor_executor,
+            2U,
+        };
+        passed &= expect(
+            destructor_lifecycle.initialize().has_value(),
+            "the destructor-recovery lifecycle did not initialize");
+        destructor_callbacks.invoke(FirstFrame);
+        passed &= expect(
+            destructor_lifecycle.request_shutdown(12U).has_value(),
+            "the destructor-recovery lifecycle did not begin shutdown");
+        destructor_callbacks.invoke(FirstFrame);
+        destructor_callbacks.fail_unregistration = true;
+        passed &= expect(
+            !destructor_lifecycle.finalize_shutdown(),
+            "the destructor-recovery fault was not injected");
+        destructor_callbacks.fail_unregistration = false;
+    }
+    passed &= expect(
+        destructor_callbacks.unregister_count == 2U &&
+            destructor_callbacks.callback == nullptr &&
+            destructor_callbacks.context == nullptr,
+        "destruction did not retry exact callback unregistration");
+
+    auto repeated_unregistrations = std::size_t{};
+    for (auto iteration = std::size_t{}; iteration < 128U; ++iteration)
+    {
+        FakeCallbacks repeated_callbacks{};
+        RecordingExecutor repeated_executor{true};
+        {
+            RuntimeLifecycle repeated{
+                repeated_callbacks,
+                repeated_executor,
+                2U,
+            };
+            passed &= expect(
+                repeated.initialize().has_value(),
+                "a repeated lifecycle did not initialize");
+            repeated_callbacks.invoke(FirstFrame);
+            passed &= expect(
+                repeated.request_shutdown(iteration + 1U).has_value(),
+                "a repeated lifecycle did not begin shutdown");
+            repeated_callbacks.invoke(FirstFrame);
+            passed &= expect(
+                repeated.finalize_shutdown().has_value(),
+                "a repeated lifecycle did not finalize");
+        }
+        repeated_unregistrations +=
+            repeated_callbacks.unregister_count;
+    }
+    passed &= expect(
+        repeated_unregistrations == 128U,
+        "repeated lifecycle teardown did not unregister exactly once");
 
     if (passed)
     {

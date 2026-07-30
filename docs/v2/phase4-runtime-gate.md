@@ -78,6 +78,12 @@ open.
   snapshot publication, recovery, and restore-before-finalize shutdown;
 - structured executor failure propagation and exception containment at the HUD
   callback boundary;
+- failed HUD rebinding without publishing the replacement identity, followed by
+  deterministic retry on the next valid frame;
+- failed transient-state restoration without unregistering the callback,
+  followed by deterministic retry;
+- callback-unregistration failure publication and exact destructor recovery;
+- 128 consecutive initialize/resolve/restore/unregister cycles;
 - typed Paint/Image runtime dispatch, invalid-request rejection, and direct
   off-thread port isolation;
 - cancellation of queued work during shutdown;
