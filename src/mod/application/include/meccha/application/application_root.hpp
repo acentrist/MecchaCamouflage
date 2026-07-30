@@ -100,7 +100,7 @@ private:
         ApplicationCommand command) -> void;
     auto advance_paint(std::uint64_t now_ms) -> void;
     auto advance_paint_preview(std::uint64_t now_ms) -> void;
-    auto advance_shutdown() -> void;
+    auto advance_shutdown(std::uint64_t now_ms) -> void;
     auto publish_locked(
         const RuntimeLifecycleSnapshot& runtime_snapshot) -> void;
     auto publish_locked() -> void;
@@ -136,6 +136,7 @@ private:
     std::optional<std::uint64_t>
         pending_shutdown_generation_{};
     bool lifecycle_shutdown_requested_{};
+    bool paint_shutdown_cancel_requested_{};
     bool ui_open_{};
     bool esp_enabled_{true};
 };

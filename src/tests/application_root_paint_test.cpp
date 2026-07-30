@@ -245,7 +245,15 @@ public:
         ++observe_count;
         observed_component = component;
         observed_generation = generation;
-        return PaintQueueObservation{};
+        return hold_queues
+                   ? PaintQueueObservation{
+                         true,
+                         true,
+                         1U,
+                         true,
+                         1U,
+                     }
+                   : PaintQueueObservation{};
     }
 
     std::size_t capture_count{};
@@ -253,6 +261,7 @@ public:
     core::PaintSettings captured_settings{};
     RuntimeObjectHandle observed_component{};
     JobGeneration observed_generation{};
+    bool hold_queues{};
 };
 } // namespace
 
@@ -477,6 +486,61 @@ auto main() -> int
             root.finalize_shutdown().has_value(),
         "generic transient restoration or callback finalization bypassed the "
         "project-owned preview barrier");
+
+    auto active_storage = FakeStorage{};
+    auto active_callbacks = FakeCallbacks{};
+    auto active_executor = RecordingExecutor{};
+    auto active_thread = FakeThreadContext{};
+    auto active_preview_runtime = FakePreviewRuntime{};
+    auto active_paint_runtime = FakePaintRuntime{};
+    active_paint_runtime.hold_queues = true;
+    auto active_root = ApplicationRoot{
+        active_callbacks,
+        active_executor,
+        active_storage,
+        active_paint_runtime,
+        active_thread,
+        active_preview_runtime,
+        4U,
+        2U,
+        8U,
+    };
+    passed &= expect(
+        active_root.initialize().has_value() &&
+            active_root.enqueue_command(StartPaint{
+                201U,
+                core::PaintSettings{},
+            }) == CommandEnqueueResult::Accepted,
+        "the active-Paint shutdown fixture did not start");
+    for (auto attempt = 0; attempt < 1000; ++attempt)
+    {
+        active_callbacks.invoke(Frame);
+        if (active_root.snapshot()->job.phase ==
+            JobPhase::Draining)
+        {
+            break;
+        }
+        std::this_thread::sleep_for(1ms);
+    }
+    passed &= expect(
+        active_root.snapshot()->job.phase == JobPhase::Draining &&
+            active_root.request_shutdown(88U).has_value(),
+        "the shutdown fixture did not retain an observed active Paint job");
+    active_callbacks.invoke(Frame);
+    passed &= expect(
+        active_root.snapshot()->job.phase == JobPhase::Cancelling &&
+            !active_root.finalize_shutdown(),
+        "shutdown quiesced before the active Paint generation drained");
+    active_paint_runtime.hold_queues = false;
+    active_callbacks.invoke(Frame);
+    passed &= expect(
+        active_root.snapshot()->job.phase == JobPhase::Cancelled &&
+            !active_root.finalize_shutdown(),
+        "shutdown did not terminally cancel the active Paint generation");
+    active_callbacks.invoke(Frame);
+    passed &= expect(
+        active_root.finalize_shutdown().has_value(),
+        "active Paint cancellation did not release lifecycle finalization");
 
     if (passed)
     {

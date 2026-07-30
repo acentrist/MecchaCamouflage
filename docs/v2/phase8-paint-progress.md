@@ -125,6 +125,10 @@ Shutdown uses the same cancellation boundary: it collects and discards any
 late worker result, restores the controller-owned original on a HUD frame, and
 only then lets `RuntimeLifecycle` enter its generic transient-state restore
 frame and callback-unregistration barrier.
+If real Paint is active, the root first requests cancellation of that exact
+generation and continues observing its local, visual, and outgoing queues on
+HUD frames. Preview restoration and lifecycle quiescing cannot begin until the
+job reaches `Cancelled` or another terminal state.
 
 ## Preview ownership and recovery boundary
 
@@ -204,7 +208,9 @@ failure, shutdown restoration, malformed capture, and invalid-handle expiry.
 `application_root_paint` covers the end-to-end real-Paint and preview commands,
 capture, workers, game-thread preview apply/restore, restore-before-real-Paint,
 dispatch, execution, observation, completion, command backpressure, and
-frame-owned UI/ESP path. `paint_preview_composer` adds Fill/Paint overwrite
+frame-owned UI/ESP path. It also holds fake runtime queues nonempty during
+shutdown and proves the active Paint generation reaches `Cancelled` before
+quiescing. `paint_preview_composer` adds Fill/Paint overwrite
 ordering, packed-PBR quantization, edge clipping, original immutability,
 invalid plan/buffer rejection, cancellation, and resource-limit evidence. The
 secret-free Linux suite currently passes all 34 registered tests.

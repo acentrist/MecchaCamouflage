@@ -60,10 +60,12 @@ open.
   executed through `PaintAtUvWithBrush`, and completed only after observed
   runtime drain.
 - Shutdown closes scheduling, deterministically discards pending feature work,
-  first cancels and collects any root-owned Paint preview build, restores its
-  exact project-owned texture snapshot on the game thread, then requires
-  transient UI/input restoration on the next game-thread frame. It refuses
-  callback unregistration until both restoration layers succeed.
+  first requests generation-checked cancellation of active Paint and waits for
+  its local and observed visual/outgoing queues to drain. It then cancels and
+  collects any root-owned Paint preview build, restores its exact project-owned
+  texture snapshot on the game thread, and requires transient UI/input
+  restoration on the next game-thread frame. It refuses callback
+  unregistration until the job and both restoration layers are terminal.
 - Finalization closes callback admission, unregisters the exact recorded
   callback ID, drains in-flight leases, and then reaches `Stopped`.
 
@@ -101,7 +103,9 @@ open.
 backpressure, immutable snapshot queue pressure, typed Paint capture,
 off-thread planning, lifecycle-owned dispatch, runtime queue observation,
 terminal completion, frame-owned UI/ESP toggles, and project-preview restore
-before lifecycle transient restore and callback finalization end to end.
+before lifecycle transient restore and callback finalization end to end. A
+second root fixture holds authoritative visual/outgoing queues nonempty and
+proves lifecycle quiescing cannot overtake active Paint cancellation/drain.
 
 The test runs in both the Linux secret-free build and the Windows MSVC
 `/W4 /WX` build.

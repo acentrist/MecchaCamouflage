@@ -348,7 +348,7 @@ auto ApplicationRoot::on_hud_frame_complete(
         }
         if (advance_root_shutdown)
         {
-            advance_shutdown();
+            advance_shutdown(monotonic_milliseconds());
         }
         const auto lock = std::scoped_lock{state_mutex_};
         publish_locked(runtime_snapshot);
@@ -572,6 +572,7 @@ auto ApplicationRoot::begin_paint(
         return;
     }
     active_paint_component_ = component;
+    paint_shutdown_cancel_requested_ = false;
 }
 
 auto ApplicationRoot::begin_paint_preview(
@@ -783,6 +784,7 @@ auto ApplicationRoot::advance_paint(std::uint64_t now_ms) -> void
         ticked->phase == JobPhase::Failed)
     {
         active_paint_component_.reset();
+        paint_shutdown_cancel_requested_ = false;
     }
 }
 
@@ -863,8 +865,78 @@ auto ApplicationRoot::advance_paint_preview(
     }
 }
 
-auto ApplicationRoot::advance_shutdown() -> void
+auto ApplicationRoot::advance_shutdown(
+    std::uint64_t now_ms) -> void
 {
+    const auto paint_job = jobs_.snapshot();
+    if (active_job(paint_job.phase))
+    {
+        if (!paint_runtime_ || !active_paint_component_)
+        {
+            record_command_error(
+                paint_job.command_id.value_or(0U));
+            return;
+        }
+
+        auto observation = PaintQueueObservation{};
+        if (paint_jobs_.requires_queue_observation())
+        {
+            const auto observed = paint_runtime_->observe_queues(
+                *active_paint_component_,
+                paint_job.generation);
+            if (!observed)
+            {
+                record_runtime_error(
+                    observed.error(),
+                    paint_job.command_id);
+                return;
+            }
+            observation = *observed;
+        }
+
+        if (!paint_shutdown_cancel_requested_)
+        {
+            const auto cancelled = paint_jobs_.request_cancel(
+                paint_job.generation,
+                now_ms,
+                observation);
+            if (!cancelled)
+            {
+                record_command_error(
+                    paint_job.command_id.value_or(0U));
+                if (active_job(jobs_.snapshot().phase))
+                {
+                    return;
+                }
+            }
+            else
+            {
+                paint_shutdown_cancel_requested_ = true;
+            }
+        }
+        else
+        {
+            const auto ticked =
+                paint_jobs_.tick(now_ms, observation);
+            if (!ticked)
+            {
+                record_command_error(
+                    paint_job.command_id.value_or(0U));
+                if (active_job(jobs_.snapshot().phase))
+                {
+                    return;
+                }
+            }
+        }
+
+        if (active_job(jobs_.snapshot().phase))
+        {
+            return;
+        }
+        active_paint_component_.reset();
+        paint_shutdown_cancel_requested_ = false;
+    }
+
     if (active_paint_preview_generation_.load(
             std::memory_order_acquire) != 0U)
     {
