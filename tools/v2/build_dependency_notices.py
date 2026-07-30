@@ -120,7 +120,9 @@ def _reject_json_constant(value: str) -> None:
     )
 
 
-def _load_canonical_json(path: Path) -> tuple[dict[str, Any], bytes]:
+def load_canonical_dependency_json(
+    path: Path,
+) -> tuple[dict[str, Any], bytes]:
     encoded = _plain_file(path, _MAXIMUM_METADATA_BYTES)
 
     def reject_duplicate_keys(
@@ -225,7 +227,7 @@ def _canonical_path(value: object) -> str:
     return path
 
 
-def _validate_evidence(
+def validate_dependency_evidence(
     evidence: dict[str, Any],
     ue4ss_commit: str,
 ) -> list[dict[str, str]]:
@@ -643,11 +645,15 @@ def build_dependency_notices(
             "Dependency notice and report outputs must be distinct."
         )
     roots = _validate_roots(inputs.roots)
-    evidence, evidence_bytes = _load_canonical_json(inputs.evidence)
-    audit, audit_bytes = _load_canonical_json(inputs.approved_audit)
+    evidence, evidence_bytes = load_canonical_dependency_json(
+        inputs.evidence
+    )
+    audit, audit_bytes = load_canonical_dependency_json(
+        inputs.approved_audit
+    )
     evidence_sha256 = hashlib.sha256(evidence_bytes).hexdigest()
     audit_sha256 = hashlib.sha256(audit_bytes).hexdigest()
-    evidence_components = _validate_evidence(
+    evidence_components = validate_dependency_evidence(
         evidence,
         inputs.ue4ss_commit,
     )

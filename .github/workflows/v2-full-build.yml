@@ -93,6 +93,11 @@ jobs:
             --ue4ss-commit 6c26f038751b3d96059d4a9148f5d093012d55ad `
             --output .build\v2\full-windows\dependency-evidence.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools\v2\generate_dependency_audit_template.py `
+            --evidence .build\v2\full-windows\dependency-evidence.json `
+            --output .build\v2\full-windows\dependency-audit-template.json `
+            --ue4ss-commit 6c26f038751b3d96059d4a9148f5d093012d55ad
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test project contracts
         shell: powershell
@@ -107,4 +112,5 @@ jobs:
           path: |
             .build/v2/full-windows/phase2-provenance.json
             .build/v2/full-windows/dependency-evidence.json
+            .build/v2/full-windows/dependency-audit-template.json
           if-no-files-found: error

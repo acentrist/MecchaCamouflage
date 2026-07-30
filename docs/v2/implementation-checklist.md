@@ -67,6 +67,8 @@ Evidence:
     codemodel v2, collapse its actual git roots with tracked-diff identities,
     and add the target-filtered locked Cargo resolve closure with registry
     checksum and feature identities.
+  - [x] Generate and upload an exact evidence-bound, deliberately unapproved
+    audit template whose empty review fields cannot pass notice assembly.
   - [ ] Run the collector on the protected recursive graph and approve every
     corresponding license file.
 - [x] Add secret-free fork CI with `MECCHA_WITH_UE4SS=OFF`.
@@ -443,6 +445,9 @@ Evidence:
     extra, changed, empty, linked, or reparse-routed license inputs.
   - [x] Wire deterministic CMake/git/Cargo evidence collection into the
     protected full-build workflow.
+  - [x] Generate an evidence-bound review template without inferring license
+    expressions, files, or approval; the protected notice builder rejects that
+    template until every component is reviewed.
   - [ ] Run that protected collector and approve the complete dependency
     evidence and corresponding license-file hashes.
   - [ ] Bind the final trusted CAB, manifest, profiles, localization, fonts,

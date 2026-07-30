@@ -108,3 +108,9 @@ roots and tracked diffs, and the target-filtered Cargo resolve closure. Registry
 packages are bound to both `Cargo.lock` and Cargo's package checksum evidence;
 resolved feature sets are part of each source identity. The protected workflow
 uploads this evidence for separate license review.
+
+`tools/v2/generate_dependency_audit_template.py` copies only those validated
+component identities and the evidence SHA-256 into a canonical review
+template. Every license expression and file list is deliberately empty. The
+template is not approval and is rejected by the notice builder until a
+maintainer verifies and fills every component against the protected graph.

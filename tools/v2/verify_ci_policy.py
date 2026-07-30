@@ -91,6 +91,8 @@ def verify_trusted_workflow() -> None:
             "submodule update --init --recursive third_party/RE-UE4SS",
             "cmake --preset full-windows",
             "cmake --build --preset full-windows",
+            "generate_dependency_audit_template.py",
+            "dependency-audit-template.json",
         },
         "trusted workflow",
     )

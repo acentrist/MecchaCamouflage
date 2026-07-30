@@ -116,8 +116,11 @@ After approval, it must:
    gitlink, and the exact pinned commit;
 6. collect the closed production CMake target graph, exact git revisions and
    tracked diffs, and target-filtered locked Cargo package/checksum/features;
-7. run all registered contracts;
-8. upload only provenance and dependency evidence, not a distributable runtime.
+7. generate a canonical evidence-bound audit template with deliberately empty
+   license-expression/file review fields;
+8. run all registered contracts;
+9. upload provenance, dependency evidence, and that unapproved template, not a
+   distributable runtime.
 
 ## Open exit evidence
 

@@ -923,6 +923,12 @@ add_test(
         "${PROJECT_SOURCE_DIR}/tools/v2/test_build_dependency_notices.py"
 )
 add_test(
+    NAME dependency_audit_template_tool
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tools/v2/test_generate_dependency_audit_template.py"
+)
+add_test(
     NAME dependency_evidence_tool
     COMMAND
         "${Python3_EXECUTABLE}"

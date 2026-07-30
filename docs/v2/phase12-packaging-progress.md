@@ -206,6 +206,10 @@ missing/extra/changed components, and direct/parent link or reparse rejection.
 git-root and tracked-diff binding, Cargo resolve/lock/package-checksum identity,
 canonical output, and missing-target/configuration/checksum refusal.
 
+`dependency_audit_template_tool` proves exact evidence binding, deterministic
+identity copying, explicit empty review fields, rejection by the notice
+builder, and preservation of prior output after invalid input.
+
 ## Exact release artifact verifier
 
 `tools/v2/verify_release_artifact.py` is a dependency-free bounded parser for
@@ -271,6 +275,14 @@ inputs: that canonical evidence and a separately approved audit. The approved
 audit must repeat every evidence component exactly and bind each component's
 version, source identity, license expression, and one or more
 project/build/Cargo license paths by SHA-256.
+
+`tools/v2/generate_dependency_audit_template.py` turns the exact evidence into
+a canonical review starting point. It copies component identities and binds
+the evidence SHA-256, but deliberately emits empty license expressions and
+file lists. The notice builder rejects those placeholders. The protected
+full-build workflow uploads this unapproved template beside its evidence so
+the maintainer only supplies review decisions rather than reconstructing the
+resolved graph by hand.
 
 Notice assembly fails before publication for missing or extra components,
 changed identities, absent license evidence, malformed or non-canonical paths,
