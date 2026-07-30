@@ -604,6 +604,17 @@ auto parse_steam_launch_options(std::string_view vdf)
     return launch_options;
 }
 
+auto read_steam_launch_options_file(const fs::path& local_config)
+    -> std::expected<std::optional<std::string>, GameDiscoveryError>
+{
+    const auto contents = read_bounded_file(local_config);
+    if (!contents)
+    {
+        return std::unexpected(contents.error());
+    }
+    return parse_steam_launch_options(*contents);
+}
+
 auto discover_game_installation(std::span<const fs::path> steam_roots)
     -> std::expected<GameInstallation, GameDiscoveryError>
 {

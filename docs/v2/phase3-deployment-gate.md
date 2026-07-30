@@ -169,6 +169,16 @@ payload, so Phase 3 remains open.
   removal request. Normal managed and shared integration tests operate on real
   temporary Windows trees; Steam launch remains an injected final effect and
   is not invoked by the tests.
+- Active Steam launch options are resolved from the calling user's HKCU
+  `SteamPath` and `ActiveProcess/ActiveUser`, then read from that exact
+  `userdata/<account>/config/localconfig.vdf` through the bounded VDF reader.
+  A missing/zero active user or unreadable file fails closed. The native folder
+  picker returns only a filesystem directory and routes it through the same
+  strict game-shape validation as `--game-dir`.
+- The concrete Steam launcher opens only
+  `steam://rungameid/4704690`. It is an injected final execution effect, closes
+  any returned shell process handle, and is never exercised by automated
+  tests or preparation validation.
 
 ## Automated evidence
 
@@ -229,6 +239,7 @@ Covered Windows directory cases:
 - unknown content at the managed runtime root.
 - default and non-default Steam libraries;
 - current and legacy library VDF forms;
+- bounded active-user `localconfig.vdf` launch-option reads;
 - malformed manifests, traversal install names, missing folder shapes, and
   ambiguous installations;
 - Windows process enumeration against the calling test executable.
@@ -241,9 +252,8 @@ without adding a test-only branch to production coordination.
 
 ## Remaining Phase 3 work
 
-- Connect active Steam-user `localconfig.vdf` lookup to launcher orchestration.
-- Connect the native folder-picker fallback to the validated explicit-directory
-  path.
+- Consume the active-user launch-option lookup in the native composition root.
+- Invoke the native folder-picker fallback from automatic discovery failures.
 - Build the native observation/material composition root around the Win32
   execution backend and connect the concrete Steam URI launcher.
 - Validate Unicode and ANSI-round-trip behavior of the pinned proxy's

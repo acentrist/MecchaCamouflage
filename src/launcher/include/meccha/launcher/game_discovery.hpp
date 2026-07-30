@@ -25,6 +25,7 @@ enum class GameDiscoveryErrorCode : std::uint8_t
     AmbiguousGame,
     Registry,
     ProcessEnumeration,
+    UserCancelled,
 };
 
 struct GameDiscoveryError
@@ -54,6 +55,10 @@ struct GameInstallation
 [[nodiscard]] auto parse_steam_launch_options(std::string_view vdf)
     -> std::expected<std::optional<std::string>, GameDiscoveryError>;
 
+[[nodiscard]] auto read_steam_launch_options_file(
+    const std::filesystem::path& local_config)
+    -> std::expected<std::optional<std::string>, GameDiscoveryError>;
+
 [[nodiscard]] auto discover_game_installation(
     std::span<const std::filesystem::path> steam_roots)
     -> std::expected<GameInstallation, GameDiscoveryError>;
@@ -65,6 +70,12 @@ struct GameInstallation
 #ifdef _WIN32
 [[nodiscard]] auto discover_windows_steam_roots()
     -> std::expected<std::vector<std::filesystem::path>, GameDiscoveryError>;
+
+[[nodiscard]] auto read_windows_active_steam_launch_options()
+    -> std::expected<std::optional<std::string>, GameDiscoveryError>;
+
+[[nodiscard]] auto pick_windows_game_installation()
+    -> std::expected<GameInstallation, GameDiscoveryError>;
 
 [[nodiscard]] auto is_process_running_by_image_name(
     std::wstring_view image_name)

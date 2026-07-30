@@ -50,6 +50,8 @@ if(WIN32)
         PRIVATE
             advapi32
             bcrypt
+            ole32
             shell32
+            uuid
     )
 endif()

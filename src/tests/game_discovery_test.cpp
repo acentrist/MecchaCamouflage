@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -186,6 +187,28 @@ auto main() -> int
             ambiguous_game.error().code ==
                 GameDiscoveryErrorCode::AmbiguousGame,
         "multiple installations were selected arbitrarily");
+
+    TemporaryTree local_config_tree{};
+    const auto local_config_path =
+        local_config_tree.root / "localconfig.vdf";
+    write_text(
+        local_config_path,
+        R"vdf("UserLocalConfigStore"
+{
+    "Software" { "Valve" { "Steam" { "apps" {
+        "4704690" { "LaunchOptions" "--ue4ss-path C:\\Pinned" }
+    } } } }
+}
+)vdf");
+    const auto launch_options =
+        read_steam_launch_options_file(local_config_path);
+    passed &= expect(
+        launch_options &&
+            *launch_options ==
+                std::optional<std::string>{
+                    R"(--ue4ss-path C:\Pinned)"},
+        "active-user launch options file was not read through the "
+        "bounded VDF path");
 
 #ifdef _WIN32
     wchar_t module_path[32768]{};

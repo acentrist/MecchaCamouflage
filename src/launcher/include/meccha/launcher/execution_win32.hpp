@@ -8,10 +8,14 @@
 #include <expected>
 #include <filesystem>
 #include <string>
+#include <string_view>
 
 namespace meccha::launcher
 {
 #ifdef _WIN32
+inline constexpr std::wstring_view TargetSteamGameUri{
+    L"steam://rungameid/4704690"};
+
 class ElevatedLoaderBroker
 {
 public:
@@ -52,6 +56,13 @@ public:
 
     virtual auto launch()
         -> std::expected<void, LauncherEffectError> = 0;
+};
+
+class Win32SteamGameLauncher final : public SteamGameLauncher
+{
+public:
+    auto launch()
+        -> std::expected<void, LauncherEffectError> override;
 };
 
 class Win32LauncherExecutionBackend final

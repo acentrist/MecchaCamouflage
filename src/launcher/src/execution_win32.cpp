@@ -1,5 +1,10 @@
 #include <meccha/launcher/execution_win32.hpp>
 
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <shellapi.h>
+
 #include <string>
 #include <string_view>
 #include <utility>
@@ -18,6 +23,32 @@ auto effect_error(
     });
 }
 } // namespace
+
+auto Win32SteamGameLauncher::launch()
+    -> std::expected<void, LauncherEffectError>
+{
+    SHELLEXECUTEINFOW request{};
+    request.cbSize = sizeof(request);
+    request.fMask =
+        SEE_MASK_NOCLOSEPROCESS |
+        SEE_MASK_NOASYNC |
+        SEE_MASK_FLAG_NO_UI;
+    request.lpVerb = L"open";
+    request.lpFile = TargetSteamGameUri.data();
+    request.nShow = SW_SHOWNORMAL;
+    if (!ShellExecuteExW(&request))
+    {
+        return effect_error(
+            "Steam launch",
+            "ShellExecuteExW failed with Windows error " +
+                std::to_string(GetLastError()));
+    }
+    if (request.hProcess != nullptr)
+    {
+        static_cast<void>(CloseHandle(request.hProcess));
+    }
+    return {};
+}
 
 Win32LauncherExecutionBackend::Win32LauncherExecutionBackend(
     RuntimeStorage& runtime_storage,
