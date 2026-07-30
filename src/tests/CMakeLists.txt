@@ -94,6 +94,21 @@ add_test(
 )
 
 add_executable(
+    meccha_image_project_store_tests
+    image_project_store_test.cpp
+)
+target_link_libraries(
+    meccha_image_project_store_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(
+    NAME image_project_store
+    COMMAND meccha_image_project_store_tests
+)
+
+add_executable(
     meccha_config_persistence_tests
     config_persistence_test.cpp
 )

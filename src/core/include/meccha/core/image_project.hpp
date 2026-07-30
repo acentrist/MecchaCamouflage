@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace meccha::core
@@ -156,6 +157,9 @@ struct ImageProject
 
     auto operator==(const ImageProject& other) const -> bool;
 };
+
+[[nodiscard]] auto valid_image_project_id(
+    std::string_view project_id) -> bool;
 
 enum class ImageProjectField : std::uint8_t
 {

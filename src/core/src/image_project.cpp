@@ -62,6 +62,11 @@ auto valid_metadata_name(
 }
 } // namespace
 
+auto valid_image_project_id(std::string_view project_id) -> bool
+{
+    return lowercase_hex(project_id, 32U);
+}
+
 auto validate(const ImageLayer& layer)
     -> std::vector<ImageLayerField>
 {
@@ -216,7 +221,7 @@ auto validate(const ImageProject& project)
     {
         errors.push_back(ImageProjectField::SchemaVersion);
     }
-    if (!lowercase_hex(project.project_id, 32U))
+    if (!valid_image_project_id(project.project_id))
     {
         errors.push_back(ImageProjectField::ProjectId);
     }

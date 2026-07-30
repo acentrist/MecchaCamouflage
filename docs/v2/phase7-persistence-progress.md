@@ -119,8 +119,16 @@ implemented.
 - `MCIPRST1` is recognized only to return the dedicated non-destructive legacy
   result. No v1 field or migration path is interpreted.
 - SHA-256 is shared through the narrow `meccha_common` boundary. Production
-  Windows uses BCrypt; secret-free portable codec tests inject a deterministic
-  test hasher without adding a selectable production fake.
+Windows uses BCrypt; secret-free portable codec tests inject a deterministic
+test hasher without adding a selectable production fake.
+
+`ImageProjectStore` now coordinates named projects and the active recovery
+draft through a project-owned atomic-storage port. It keeps project IDs out of
+filesystem path parsing, preserves structured storage/codec failures, rejects
+embedded-ID/file-name mismatches, requires consecutive revisions for saves and
+renames, and makes delete/clear idempotent. The portable contract is verified
+with missing, stale, corrupt, legacy, mismatched, overflow, and injected I/O
+cases. The production Win32 storage adapter remains part of the gate below.
 
 ## Remaining gate
 
