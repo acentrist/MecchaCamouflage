@@ -141,10 +141,25 @@ composition worker: no concurrent start, stop-token propagation, typed planner
 failure, exception containment, collection before reuse, and cancel/join on
 shutdown. `image_paint_planning_worker_test` directly covers those rules.
 
+`ImagePaintJobCoordinator` consumes only an exactly matching generation,
+project ID, and project revision. It aliases the plan's inner immutable
+`PaintPlan` into the existing `PaintDispatchController`, so Image Paint has no
+second sender, pacing implementation, scheduler, or drain heuristic. A project
+revision change during planning cancels and collects the worker before any
+stroke is admitted. A change during dispatch cancels admission, discards the
+queued generation, waits through the normal queue/confirmation drain, and
+terminates with the typed `StaleProject` result.
+
+`image_paint_job_coordinator_test` covers the shared
+`PaintAtUvWithBrush`-operation queue, generation preservation, terminal drain,
+planning cancellation, stale-before-dispatch rejection, stale-during-dispatch
+discard/drain, and typed planner failure.
+
 The runtime adapter still needs to capture the validated triangle/barycentric
-anchors and the application root must dispatch the resulting shared plan.
-Until that integration is complete, this is a tested pure boundary rather than
-a production Image Paint path.
+anchors and the application root must invoke this coordinator with the current
+project revision and queue observations. Until that integration is complete,
+this is a tested application boundary rather than a production Image Paint
+path.
 
 ## Remaining work
 
@@ -157,7 +172,7 @@ a production Image Paint path.
 - Implement game-thread texture creation/update/release through the accepted
   runtime adapter.
 - Capture triangle/barycentric anchors through the runtime adapter and connect
-  the resulting shared Paint plan to the accepted dispatcher.
+  the application root to the shared Image Paint coordinator.
 - Build the complete UCanvas editor and pass fake-runtime and live checks.
 
 No decoder, runtime, or UI fallback is implied by this core milestone.

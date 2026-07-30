@@ -251,7 +251,12 @@ Evidence:
     capture/profile/atlas input, one active generation, typed cancellation and
     failures, project/revision-tagged results, exception containment, reuse,
     and terminal shutdown.
-  - [ ] Connect the resulting shared plan to the accepted dispatcher.
+  - [x] Connect the resulting plan to the shared bounded Paint dispatcher
+    through a project/revision-validating coordinator, including planning and
+    dispatch cancellation, queued-generation discard, drain, and stale-result
+    rejection.
+  - [ ] Wire the coordinator to production root/runtime capture and queue
+    observation.
 - [ ] Integrate v2 project/preset management.
 - [ ] Pass decoder, layer, guide, atlas, mapping, preset, fake-runtime, and
   resource-limit tests.

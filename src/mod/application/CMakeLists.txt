@@ -9,6 +9,7 @@ add_library(
         src/config_store.cpp
         src/game_thread_scheduler.cpp
         src/image_composition_worker.cpp
+        src/image_paint_job_coordinator.cpp
         src/image_paint_planning_worker.cpp
         src/image_project_codec.cpp
         src/image_project_persistence.cpp

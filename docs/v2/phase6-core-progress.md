@@ -47,6 +47,12 @@ not yet complete.
   publishes the immutable Image Paint plan only with job generation and
   project revision tags, and contains typed planner failure, cancellation,
   exceptions, reuse, and terminal shutdown.
+- `ImagePaintJobCoordinator` shares the normal `JobStateMachine`,
+  `PaintDispatchController`, scheduler, queue observation, pacing, drain, and
+  cancellation path. It checks project identity/revision before consuming a
+  plan, aliases the immutable inner `PaintPlan` without copying strokes, and
+  cancels/discards/drains the active generation if the project changes during
+  dispatch.
 
 ### Image Paint
 
@@ -162,7 +168,7 @@ copied inputs, bounded concurrency, generation-checked cancellation,
 planner/composer errors, immutable publication, worker reuse, exception
 containment, and terminal shutdown. `application_command_queue_test` covers
 hard capacity, invalid IDs, FIFO bounded drains, concurrent publication, and
-terminal close/discard. The secret-free Linux suite currently passes all 39
+terminal close/discard. The secret-free Linux suite currently passes all 40
 registered tests.
 
 ## Deliberate non-port
