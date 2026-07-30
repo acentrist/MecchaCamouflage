@@ -190,6 +190,12 @@ feedback loop found and removed a test-only scheduling assumption in the Image
 Paint stale-project case: the fixture now blocks until cancellation and waits
 for the coordinator's terminal typed result instead of assuming that worker
 entry means worker completion. Ten repeated normal and sanitized runs pass.
+After payload-tool registration increased the graph to 49 tests, the same loop
+found a second test-only assumption in the Paint stale-completion case: its
+helper returned as soon as the replacement job was observed in `Planning`,
+before the old worker completion arrived. It now waits for the typed
+`StaleCompletion` result. Twenty repeated normal and sanitized runs pass, and
+production generation checks were unchanged.
 
 ## Deliberate non-port
 

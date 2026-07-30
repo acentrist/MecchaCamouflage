@@ -189,6 +189,10 @@ payload, so Phase 3 remains open.
   invocation fails immediately, and the RAII guard releases the kernel object
   on every exit path. The child broker protocol remains a distinct internal
   mode so the elevated process cannot deadlock against its parent.
+- Canonical manifest generation consumes a separately declared exact layout,
+  measures every payload file, rejects extra/missing/hostile/reparse entries,
+  orders paths deterministically, and publishes through atomic replacement.
+  CAB creation and embedded payload binding remain open.
 
 ## Automated evidence
 

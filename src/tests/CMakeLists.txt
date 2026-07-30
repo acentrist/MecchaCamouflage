@@ -732,3 +732,9 @@ add_test(
         "${Python3_EXECUTABLE}"
         "${PROJECT_SOURCE_DIR}/tools/v2/verify_ci_policy.py"
 )
+add_test(
+    NAME payload_manifest_tool
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tools/v2/test_generate_payload_manifest.py"
+)

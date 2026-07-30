@@ -358,6 +358,11 @@ Evidence:
 - [ ] Complete launcher switches and every managed/shared lifecycle.
 - [ ] Assemble the minimal release UE4SS configuration.
 - [ ] Generate canonical manifest and deterministic CAB.
+  - [x] Generate the manifest from an exact declared layout with canonical
+    ordering, SHA-256/size binding, strict hostile-path rejection, exact tree
+    coverage, reparse refusal, and atomic output publication.
+  - [ ] Generate a deterministic CAB and verify its round trip against the
+    canonical manifest.
 - [ ] Embed payload, resources, licenses, and notices.
 - [ ] Build runtime and mod from the same trusted graph.
 - [ ] Complete secret-free PR CI and protected full-build/release CI.
@@ -366,6 +371,10 @@ Evidence:
 - [ ] Produce exactly one EXE and its SHA-256.
 - [ ] DEFERRED — maintainer interaction required: complete real Steam/UAC/
   coexistence/update/remove checks.
+
+Evidence:
+
+- [`phase12-packaging-progress.md`](phase12-packaging-progress.md)
 
 ## Phase 13 — Stabilization and release matrix
 

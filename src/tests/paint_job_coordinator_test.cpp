@@ -148,6 +148,25 @@ auto wait_for_phase(
         PaintJobCoordinatorError::PlanningFailure);
 }
 
+auto wait_for_error(
+    PaintJobCoordinator& coordinator,
+    PaintJobCoordinatorError error,
+    std::uint64_t now_ms)
+    -> std::expected<JobSnapshot, PaintJobCoordinatorError>
+{
+    for (auto attempt = 0; attempt < 1000; ++attempt)
+    {
+        auto ticked = coordinator.tick(now_ms, {});
+        if (!ticked && ticked.error() == error)
+        {
+            return ticked;
+        }
+        std::this_thread::sleep_for(1ms);
+    }
+    return std::unexpected(
+        PaintJobCoordinatorError::PlanningFailure);
+}
+
 constexpr auto Pacing = core::ReplicationPacingPlan{
     100,
     10,
@@ -269,8 +288,10 @@ auto main() -> int
                 JobMutationResult::Applied,
         "the stale-completion fixture could not replace the job");
     const auto replacement = jobs.snapshot();
-    const auto ignored =
-        wait_for_phase(coordinator, JobPhase::Planning, 400U);
+    const auto ignored = wait_for_error(
+        coordinator,
+        PaintJobCoordinatorError::StaleCompletion,
+        400U);
     passed &= expect(
         !ignored &&
             ignored.error() ==
