@@ -1,9 +1,9 @@
 # Phase 7 Configuration and Persistence Progress
 
 Phase 7 is open. The strict configuration codec, atomic Windows `config.json`
-path, and localization catalog boundary are implemented. Active-draft
-persistence, final glyph coverage, the v2-only preset container, and
-project/source storage are not yet complete.
+path, localization catalog boundary, immutable project model, and v2-only
+preset codec are implemented. Active-draft/project filesystem publication and
+final glyph coverage are not yet complete.
 
 ## Configuration contract
 
@@ -91,11 +91,41 @@ Verified in both the Linux secret-free build and the Windows MSVC Release
 build. The repeated MSBuild `MSB8064`/`MSB8065` messages are caused by building
 the Windows tree through a WSL UNC path and are not project compiler warnings.
 
+## v2-only project container
+
+[`image-preset-container.md`](image-preset-container.md) freezes the
+uncompressed little-endian `MCV2PR01` format before filesystem publication is
+implemented.
+
+- Project identity, display name, revision, all Image Paint settings, ordered
+  layers, content-addressed original sources, and the exact 1024×512 RGBA atlas
+  are validated as one immutable domain value.
+- Alpha `skip`/`background` is now an explicit retained setting rather than an
+  untyped transport string.
+- Source objects use immutable shared bytes and semantic equality; source
+  storage order is canonicalized without changing layer order.
+- Every source asset ID is its lowercase SHA-256. The atlas and every source
+  descriptor carry a binary SHA-256 and must match before publication. The
+  exact manifest bytes are also hashed and verified before JSON parsing.
+- Header, manifest, entry-count, per-source, total-source, atlas, and complete
+  container bounds are checked before allocation or copying.
+- Strict JSON rejects missing, unknown, duplicate, malformed, non-finite, and
+  trailing manifest content.
+- Entry names are sorted, strict lowercase ASCII relative paths. Traversal,
+  alternate separators, unknown roles, duplicate names, case collisions,
+  unused entries, truncation, and trailing data fail closed.
+- PNG, JPEG, and WebP are the only manifest codecs. The codec does not decode
+  pixels; WIC/WebP remain separate bounded Image Paint adapters.
+- `MCIPRST1` is recognized only to return the dedicated non-destructive legacy
+  result. No v1 field or migration path is interpreted.
+- SHA-256 is shared through the narrow `meccha_common` boundary. Production
+  Windows uses BCrypt; secret-free portable codec tests inject a deterministic
+  test hasher without adding a selectable production fake.
+
 ## Remaining gate
 
-- Active Image Paint draft storage must use a separate bounded format.
+- Active Image Paint draft and named-project storage must atomically publish
+  the accepted container.
 - The final v2-only UI key set and game/OFL fallback glyph coverage remain.
-- The canonical `.mcpreset` container and content-addressed source storage
-  remain.
 - Reparse-point, power-loss, antivirus-lock, non-ASCII path, and native file
   picker coverage must be completed before Phase 7 closes.

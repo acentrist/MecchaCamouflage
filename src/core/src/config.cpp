@@ -90,6 +90,19 @@ auto validate(const ApplicationConfig& config)
     {
         errors.push_back(ConfigurationField::Paint);
     }
+    if (const auto image_errors = validate(config.image_paint);
+        std::ranges::any_of(
+            image_errors,
+            [](ImageProjectError error)
+            {
+                return error == ImageProjectError::BodyProfile ||
+                       error == ImageProjectError::Placement ||
+                       error == ImageProjectError::AlphaMode ||
+                       error == ImageProjectError::FaceMode;
+            }))
+    {
+        errors.push_back(ConfigurationField::ImageSettings);
+    }
     if (!std::isfinite(config.image_paint.brush_size_texels) ||
         config.image_paint.brush_size_texels < 1.0 ||
         config.image_paint.brush_size_texels > 10.0)

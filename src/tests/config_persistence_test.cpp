@@ -95,6 +95,7 @@ auto main() -> int
     config.ui.language = "ja";
     config.paint.front_mode = core::RegionMode::Fill;
     config.image_paint.body = core::BodyProfile::Fukuyoka;
+    config.image_paint.alpha = core::AlphaMode::Background;
     config.esp.scope = core::EspScope::Hunter;
 
     const auto encoded = application::encode_config(config);
@@ -109,6 +110,8 @@ auto main() -> int
             encoded->find(R"("front_mode":"fill")") !=
                 std::string::npos &&
             encoded->find(R"("body":"fukuyoka")") !=
+                std::string::npos &&
+            encoded->find(R"("alpha":"background")") !=
                 std::string::npos &&
             encoded->find(R"("scope":"hunter")") !=
                 std::string::npos,
@@ -235,6 +238,19 @@ auto main() -> int
             invalid_write.error().code ==
                 application::ConfigCodecErrorCode::InvalidValue,
         "invalid config was serialized");
+
+    auto invalid_alpha = config;
+    invalid_alpha.image_paint.alpha =
+        static_cast<core::AlphaMode>(0xFFU);
+    const auto invalid_alpha_write =
+        application::encode_config(invalid_alpha);
+    passed &= expect(
+        !invalid_alpha_write &&
+            invalid_alpha_write.error().code ==
+                application::ConfigCodecErrorCode::InvalidValue &&
+            invalid_alpha_write.error().fields ==
+                std::vector{core::ConfigurationField::ImageSettings},
+        "an invalid Image Paint alpha enum was serialized");
 
     passed &= expect(
         application::v2_data_root(

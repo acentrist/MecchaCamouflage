@@ -104,6 +104,7 @@ enum class ConfigurationField : std::uint8_t
     HotkeyRange,
     DuplicateHotkey,
     Paint,
+    ImageSettings,
     ImageBrushSize,
     ImageCompressionTolerance,
     ImageMaterial,

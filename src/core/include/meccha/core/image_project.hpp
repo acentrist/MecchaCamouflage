@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -13,6 +14,11 @@ inline constexpr std::size_t MaximumImageSourceBytes =
     12U * 1024U * 1024U;
 inline constexpr std::size_t MaximumProjectSourceBytes =
     64U * 1024U * 1024U;
+inline constexpr std::size_t MaximumImageLayers = 256U;
+inline constexpr std::size_t MaximumImageSources = 256U;
+inline constexpr std::size_t CanonicalAtlasByteLength =
+    1024U * 512U * 4U;
+inline constexpr std::uint32_t ImageProjectSchemaVersion = 1U;
 
 enum class ImageMime : std::uint8_t
 {
@@ -38,6 +44,12 @@ enum class FaceBaseMode : std::uint8_t
 {
     Fill,
     Skip,
+};
+
+enum class AlphaMode : std::uint8_t
+{
+    Skip,
+    Background,
 };
 
 struct NormalizedCrop
@@ -71,6 +83,7 @@ enum class ImageLayerField : std::uint8_t
 {
     AssetId,
     FileName,
+    Mime,
     SourceSize,
     Placement,
     Crop,
@@ -83,6 +96,7 @@ struct ImageProjectSettings
 {
     BodyProfile body{BodyProfile::Round};
     PlacementMode placement{PlacementMode::Fit};
+    AlphaMode alpha{AlphaMode::Skip};
     FaceBaseMode front{FaceBaseMode::Skip};
     FaceBaseMode right{FaceBaseMode::Skip};
     FaceBaseMode back{FaceBaseMode::Skip};
@@ -102,14 +116,65 @@ enum class ImageProjectError : std::uint8_t
     InvalidLayer,
     SourceSizeOverflow,
     SourceSizeLimit,
+    BodyProfile,
+    Placement,
+    AlphaMode,
+    FaceMode,
     BrushSize,
     CompressionTolerance,
     ImageMaterial,
     FillMaterial,
 };
 
+[[nodiscard]] auto validate(const ImageProjectSettings& settings)
+    -> std::vector<ImageProjectError>;
+
 [[nodiscard]] auto validate(
     const ImageProjectSettings& settings,
     const std::vector<ImageLayer>& layers)
     -> std::vector<ImageProjectError>;
+
+struct ImageSourceAsset
+{
+    std::string asset_id{};
+    ImageMime mime{ImageMime::Png};
+    std::shared_ptr<const std::vector<std::byte>> bytes{};
+
+    auto operator==(const ImageSourceAsset& other) const -> bool;
+};
+
+struct ImageProject
+{
+    std::uint32_t schema_version{ImageProjectSchemaVersion};
+    std::string project_id{};
+    std::string display_name{};
+    std::uint64_t revision{};
+    ImageProjectSettings settings{};
+    std::vector<ImageLayer> layers{};
+    std::vector<ImageSourceAsset> sources{};
+    std::shared_ptr<const std::vector<std::byte>> canonical_atlas{};
+
+    auto operator==(const ImageProject& other) const -> bool;
+};
+
+enum class ImageProjectField : std::uint8_t
+{
+    SchemaVersion,
+    ProjectId,
+    DisplayName,
+    Revision,
+    Settings,
+    LayerCount,
+    Layers,
+    SourceCount,
+    SourceIdentity,
+    SourceCodec,
+    SourceContent,
+    SourceReference,
+    SourceSize,
+    CanonicalAtlas,
+};
+
+[[nodiscard]] auto validate(const ImageProject& project)
+    -> std::vector<ImageProjectField>;
 } // namespace meccha::core

@@ -7,6 +7,7 @@ add_library(
         src/config_codec.cpp
         src/config_store.cpp
         src/game_thread_scheduler.cpp
+        src/image_project_codec.cpp
         src/job_state.cpp
         src/localization.cpp
         src/mesh_profile_codec.cpp
@@ -24,6 +25,7 @@ target_link_libraries(
     meccha_application
     PUBLIC
         MecchaCamouflage::Core
+        MecchaCamouflage::Common
     PRIVATE
         glaze::glaze
         meccha_build_options

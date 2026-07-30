@@ -8,6 +8,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -340,6 +341,7 @@ auto main() -> int
             validate(image_defaults, std::vector{layer}).empty() &&
             image_defaults.body == BodyProfile::Round &&
             image_defaults.placement == PlacementMode::Fit &&
+            image_defaults.alpha == AlphaMode::Skip &&
             image_defaults.front == FaceBaseMode::Skip &&
             image_defaults.right == FaceBaseMode::Skip &&
             image_defaults.back == FaceBaseMode::Skip &&
@@ -356,6 +358,21 @@ auto main() -> int
             std::vector{ImageLayerField::Crop},
         "an out-of-source normalized crop was accepted");
 
+    auto invalid_layer_text = layer;
+    invalid_layer_text.file_name =
+        std::string{"bad"} + static_cast<char>(0xC0);
+    passed &= expect(
+        validate(invalid_layer_text) ==
+            std::vector{ImageLayerField::FileName},
+        "an invalid UTF-8 Image Paint file name was accepted");
+
+    auto invalid_layer_mime = layer;
+    invalid_layer_mime.mime = static_cast<ImageMime>(0xFFU);
+    passed &= expect(
+        validate(invalid_layer_mime) ==
+            std::vector{ImageLayerField::Mime},
+        "an invalid Image Paint MIME enum was accepted");
+
     auto oversized_layers = std::vector<ImageLayer>{};
     for (auto index = 0; index < 6; ++index)
     {
@@ -368,6 +385,92 @@ auto main() -> int
         validate(image_defaults, oversized_layers) ==
             std::vector{ImageProjectError::SourceSizeLimit},
         "the total Image Paint source-byte limit was not enforced");
+
+    const auto source_bytes =
+        std::make_shared<const std::vector<std::byte>>(
+            3U,
+            std::byte{0x2A});
+    const auto atlas =
+        std::make_shared<const std::vector<std::byte>>(
+            CanonicalAtlasByteLength,
+            std::byte{0x7F});
+    const auto asset_id = std::string(64U, 'a');
+    auto project_layer = layer;
+    project_layer.asset_id = asset_id;
+    project_layer.source_bytes = source_bytes->size();
+    const auto project = ImageProject{
+        ImageProjectSchemaVersion,
+        "0123456789abcdef0123456789abcdef",
+        "Project 日本語",
+        1U,
+        image_defaults,
+        {project_layer},
+        {ImageSourceAsset{
+            asset_id,
+            ImageMime::Png,
+            source_bytes,
+        }},
+        atlas,
+    };
+    passed &= expect(
+        validate(project).empty(),
+        "a valid immutable Image Paint project was rejected");
+
+    auto shared_source_project = project;
+    shared_source_project.sources.front().bytes =
+        std::make_shared<const std::vector<std::byte>>(
+            MaximumImageSourceBytes,
+            std::byte{0x2A});
+    shared_source_project.layers.assign(6U, project_layer);
+    for (auto& shared_layer : shared_source_project.layers)
+    {
+        shared_layer.source_bytes = MaximumImageSourceBytes;
+    }
+    passed &= expect(
+        validate(shared_source_project).empty(),
+        "reused content-addressed source bytes were counted per layer");
+
+    auto invalid_project_settings = project;
+    invalid_project_settings.settings.alpha =
+        static_cast<AlphaMode>(0xFFU);
+    passed &= expect(
+        validate(invalid_project_settings) ==
+            std::vector{ImageProjectField::Settings},
+        "invalid project settings were not isolated from layer errors");
+
+    auto invalid_project_text = project;
+    invalid_project_text.display_name =
+        std::string{"bad"} + static_cast<char>(0xC0);
+    passed &= expect(
+        validate(invalid_project_text) ==
+            std::vector{ImageProjectField::DisplayName},
+        "an invalid UTF-8 project display name was accepted");
+
+    auto invalid_source_codec = project;
+    invalid_source_codec.sources.front().mime =
+        static_cast<ImageMime>(0xFFU);
+    passed &= expect(
+        validate(invalid_source_codec) ==
+            std::vector{
+                ImageProjectField::SourceCodec,
+                ImageProjectField::SourceReference,
+            },
+        "an invalid source codec enum was accepted");
+
+    auto invalid_project = project;
+    invalid_project.project_id = "../escape";
+    invalid_project.sources.front().asset_id.assign(64U, 'A');
+    invalid_project.canonical_atlas =
+        std::make_shared<const std::vector<std::byte>>(1U);
+    passed &= expect(
+        validate(invalid_project) ==
+            std::vector{
+                ImageProjectField::ProjectId,
+                ImageProjectField::SourceIdentity,
+                ImageProjectField::SourceReference,
+                ImageProjectField::CanonicalAtlas,
+            },
+        "unsafe project identity, source, or atlas was accepted");
 
     for (const auto body : {
              BodyProfile::Round,

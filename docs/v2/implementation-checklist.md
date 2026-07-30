@@ -165,9 +165,9 @@ Evidence:
   - [x] Preserve all 16 catalogs in the v2 resource tree.
   - [x] Validate locale/key sets, placeholders, UTF-8, and glyph inventory.
   - [ ] Verify game-font and packaged fallback glyph coverage.
-- [ ] Specify the canonical v2-only `.mcpreset` container.
+- [x] Specify the canonical v2-only `.mcpreset` container.
 - [ ] Implement project save/load/rename/delete and content-addressed sources.
-- [ ] Reject v1 presets with the explicit non-destructive legacy result.
+- [x] Reject v1 presets with the explicit non-destructive legacy result.
 - [ ] Pass schema, corruption, hostile-container, fault-injection, recovery,
   determinism, and resource-limit tests.
 - [ ] DEFERRED — maintainer interaction required: verify native file-picker and
