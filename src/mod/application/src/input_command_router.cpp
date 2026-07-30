@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <limits>
 #include <optional>
-#include <utility>
 
 namespace meccha::application
 {
@@ -167,6 +166,7 @@ auto InputCommandRouter::route(
         InputCommandBatch,
         InputCommandRouterError>
 {
+    const auto lock = std::scoped_lock{mutex_};
     if (stopped_)
     {
         return std::unexpected(
@@ -258,40 +258,47 @@ auto InputCommandRouter::route(
     }
 
     batch.commands.reserve(pending.size());
+    auto allocated_id = next_command_id_;
+    auto exhausted = command_ids_exhausted_;
     for (const auto& item : pending)
     {
         batch.commands.push_back(make_command(
             item.action,
-            next_command_id_,
+            allocated_id,
             snapshot));
-        if (next_command_id_ ==
+        if (allocated_id ==
             std::numeric_limits<CommandId>::max())
         {
-            command_ids_exhausted_ = true;
+            exhausted = true;
         }
         else
         {
-            ++next_command_id_;
+            ++allocated_id;
         }
     }
+    next_command_id_ = allocated_id;
+    command_ids_exhausted_ = exhausted;
     held_ = next_held;
     return batch;
 }
 
-auto InputCommandRouter::release_all() noexcept -> void
+auto InputCommandRouter::release_all() -> void
 {
+    const auto lock = std::scoped_lock{mutex_};
     held_.fill(false);
 }
 
-auto InputCommandRouter::shutdown() noexcept -> void
+auto InputCommandRouter::shutdown() -> void
 {
-    release_all();
+    const auto lock = std::scoped_lock{mutex_};
+    held_.fill(false);
     stopped_ = true;
 }
 
-auto InputCommandRouter::snapshot() const noexcept
+auto InputCommandRouter::snapshot() const
     -> InputCommandRouterSnapshot
 {
+    const auto lock = std::scoped_lock{mutex_};
     return {
         static_cast<std::size_t>(
             std::ranges::count(held_, true)),

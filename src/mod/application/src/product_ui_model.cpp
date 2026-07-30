@@ -151,12 +151,16 @@ auto build_product_ui_model(
 
     const auto job_is_active =
         active_job(snapshot.job.phase);
+    const auto command_admission_ready =
+        snapshot.command_queue.accepting &&
+        snapshot.command_queue.queued <
+            snapshot.command_queue.capacity;
     const auto runtime_ready =
         snapshot.runtime_phase ==
             ApplicationRuntimePhase::Compatible &&
         snapshot.compatibility.status ==
             CompatibilityStatus::Compatible &&
-        snapshot.command_queue.accepting &&
+        command_admission_ready &&
         snapshot.runtime_queue.accepting;
     const auto editor_busy =
         snapshot.image_editor.persistence_command.has_value() ||
@@ -211,7 +215,7 @@ auto build_product_ui_model(
     };
     model.esp = {
         snapshot.esp_enabled,
-        snapshot.command_queue.accepting &&
+        command_admission_ready &&
             snapshot.runtime_phase !=
                 ApplicationRuntimePhase::ShuttingDown &&
             snapshot.runtime_phase !=

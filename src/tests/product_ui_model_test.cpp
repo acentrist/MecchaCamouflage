@@ -163,6 +163,21 @@ auto main() -> int
             image_busy->image_paint.project.busy,
         "busy editor exposed unsafe project or Image Paint actions");
 
+    auto backpressured = ready_snapshot();
+    backpressured.command_queue.queued =
+        backpressured.command_queue.capacity;
+    const auto full_queue =
+        build_product_ui_model(backpressured);
+    passed &= expect(
+        full_queue &&
+            !full_queue->paint.actions.start &&
+            !full_queue->image_paint.actions.preview &&
+            !full_queue->esp.can_toggle &&
+            !full_queue->settings.can_apply &&
+            full_queue->diagnostics.command_queue.utilization ==
+                1.0,
+        "full command queue did not close UI action admission");
+
     auto composing = ready_snapshot();
     composing.image_editor.pipeline.phase =
         ImageEditorPipelinePhase::Composing;

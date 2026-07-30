@@ -215,7 +215,7 @@ trusted from UI input.
 metadata isolation, revision/asset/range guards, order preservation into the
 debounced draft, and terminal shutdown. `application_root_image_paint` proves
 the typed command route and immutable document publication. The normal Linux,
-ASan/UBSan, and Windows Release graphs pass 67, 67, and 84 tests respectively.
+ASan/UBSan, and Windows Release graphs pass 68, 68, and 85 tests respectively.
 
 ## Remaining feasibility work
 

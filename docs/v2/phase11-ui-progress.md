@@ -54,8 +54,8 @@ held-key behavior across snapshot publication, complete remapping, duplicate
 mapping refusal, invalid/event-limit refusal, exact command-ID exhaustion,
 input-loss release, and terminal shutdown.
 
-The complete Linux, Linux ASan/UBSan, and Windows MSVC Release graphs pass 67,
-67, and 84 tests respectively.
+The complete Linux, Linux ASan/UBSan, and Windows MSVC Release graphs pass 68,
+68, and 85 tests respectively.
 
 ## Immutable product presentation
 
@@ -85,12 +85,46 @@ are rejected before a model is published. Closing the panel changes only the
 published `ui_open` value; it does not erase or pause ESP, preview, job, or
 queue state.
 
+## Shared typed product actions
+
+`InputCommandRouter` now owns one synchronized command-ID sequence for both
+function-key events and Canvas-originated product actions. This prevents
+hotkey and pointer/keyboard UI callbacks from issuing duplicate command IDs
+when they arrive concurrently.
+
+The product-action variant covers:
+
+- Paint and Image Paint Start, Preview, Restore, and Cancel.
+- Product-panel and ESP toggles.
+- Validated complete settings application.
+- Project load and current-project save, rename, delete, and editor mutation.
+
+Each Canvas action carries the exact `ApplicationSnapshot::revision` from
+which its control was rendered. A stale action is rejected transactionally.
+At most one Canvas action is admitted per immutable frame, matching the
+exclusive interaction contract and preventing two state-changing commands
+from consuming the same snapshot. Disabled actions return a typed bounded
+rejection without consuming an ID.
+
+Commands bind Paint settings and current project ID/revision from the
+immutable snapshot rather than trusting caller-owned identities. Settings
+cannot replace the application-owned active-project reference. Names, project
+IDs, editor mutations, layer/asset guards, action enums, and batch bounds are
+validated before command construction. Start/Preview require exact readiness;
+Restore/Cancel remain available from preview/job ownership without requiring a
+currently published editor document.
+
+The shared router serializes concurrent callers, preserves physical hotkey
+repeat state, uses the final `uint64_t` command ID exactly once, clears held
+keys on input loss/shutdown, and closes both hotkey and Canvas admission on
+terminal shutdown.
+
 ## Remaining work
 
 - Compose the five complete Paint, Image Paint, ESP, Settings, and Diagnostics
   Canvas sections from the implemented immutable presentation values.
-- Convert Canvas interactions into typed commands without direct runtime
-  mutation.
+- Connect Canvas widget/editor activations to the implemented typed product
+  action router without direct runtime mutation.
 - Connect the production UE4SS key callbacks and input lease.
 - Implement game-font/OFL fallback selection and runtime texture lifetime.
 - Complete fake-runtime and live UI verification across all languages,

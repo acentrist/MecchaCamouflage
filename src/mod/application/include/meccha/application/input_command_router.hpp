@@ -2,11 +2,13 @@
 
 #include <meccha/application/application_snapshot.hpp>
 #include <meccha/application/commands.hpp>
+#include <meccha/application/product_ui_actions.hpp>
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <mutex>
 #include <span>
 #include <vector>
 
@@ -67,6 +69,10 @@ enum class InputCommandRouterError : std::uint8_t
     InvalidSettings,
     InvalidEvent,
     EventLimit,
+    InvalidSnapshot,
+    InvalidUiAction,
+    UiActionLimit,
+    StaleSnapshot,
     CommandOverflow,
     Stopped,
 };
@@ -83,13 +89,21 @@ public:
             InputCommandBatch,
             InputCommandRouterError>;
 
-    auto release_all() noexcept -> void;
-    auto shutdown() noexcept -> void;
+    [[nodiscard]] auto route_ui_actions(
+        const ApplicationSnapshot& snapshot,
+        std::span<const ProductUiActionEnvelope> actions)
+        -> std::expected<
+            ProductUiActionBatch,
+            InputCommandRouterError>;
 
-    [[nodiscard]] auto snapshot() const noexcept
+    auto release_all() -> void;
+    auto shutdown() -> void;
+
+    [[nodiscard]] auto snapshot() const
         -> InputCommandRouterSnapshot;
 
 private:
+    mutable std::mutex mutex_{};
     std::array<bool, 24U> held_{};
     CommandId next_command_id_{1U};
     bool command_ids_exhausted_{};

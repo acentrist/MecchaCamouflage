@@ -65,6 +65,21 @@ add_test(
 )
 
 add_executable(
+    meccha_product_ui_action_router_tests
+    product_ui_action_router_test.cpp
+)
+target_link_libraries(
+    meccha_product_ui_action_router_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(
+    NAME product_ui_action_router
+    COMMAND meccha_product_ui_action_router_tests
+)
+
+add_executable(
     meccha_product_ui_model_tests
     product_ui_model_test.cpp
 )

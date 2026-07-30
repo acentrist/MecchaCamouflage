@@ -461,14 +461,18 @@ Evidence:
 - [ ] Bind UI only to typed commands and immutable snapshots.
   - [x] Build presentation state solely from a validated immutable
     `ApplicationSnapshot`, without Unreal, graphics, or mutable runtime access.
-  - [ ] Route every Canvas interaction through the shared typed command
-    boundary.
+  - [x] Define a revision-bound product-action variant covering every Paint,
+    Image Paint, ESP, settings, and project operation, and convert it through
+    the same thread-safe monotonic command-ID owner used by hotkeys.
+  - [ ] Connect every production Canvas widget/editor activation to that
+    product-action boundary and enqueue its typed result.
 - [ ] Complete all editor interactions and body-guide behavior.
 - [ ] Complete F9 and configurable F1–F8 hotkey behavior.
   - [x] Implement a bounded application-owned F1–F24 command router with the
     F9/F1–F8 defaults, validated remapping, physical-key repeat suppression
     until release, immutable snapshot capture, unavailable-project rejection,
-    monotonic command IDs, input-loss release, and terminal shutdown.
+    one command-ID sequence shared with Canvas actions, concurrent admission,
+    input-loss release, and terminal shutdown.
   - [ ] Register all supported keys once and connect the production UE4SS input
     callbacks to the router.
 - [ ] Complete progress, backpressure, compatibility, and diagnostics display.
