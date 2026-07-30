@@ -45,6 +45,30 @@ private:
     HANDLE value_{INVALID_HANDLE_VALUE};
 };
 
+class FindHandle
+{
+public:
+    explicit FindHandle(HANDLE value) : value_(value) {}
+    FindHandle(const FindHandle&) = delete;
+    auto operator=(const FindHandle&) -> FindHandle& = delete;
+
+    ~FindHandle()
+    {
+        if (value_ != INVALID_HANDLE_VALUE)
+        {
+            static_cast<void>(FindClose(value_));
+        }
+    }
+
+    [[nodiscard]] auto get() const noexcept -> HANDLE
+    {
+        return value_;
+    }
+
+private:
+    HANDLE value_{INVALID_HANDLE_VALUE};
+};
+
 auto error(OwnedFileStoreErrorCode code, std::string detail)
     -> std::unexpected<OwnedFileStoreError>
 {
@@ -144,6 +168,105 @@ auto read_plain_text(const fs::path& path)
         remaining = remaining.subspan(read);
     }
     return result;
+}
+
+auto snapshot_plain_directory(
+    const fs::path& directory,
+    std::size_t maximum_entries,
+    std::size_t& entry_count,
+    PlainDirectoryTreeSnapshot& snapshot)
+    -> std::expected<void, OwnedFileStoreError>
+{
+    const auto current_attributes = attributes(directory);
+    if (!current_attributes)
+    {
+        return std::unexpected(current_attributes.error());
+    }
+    if (!*current_attributes)
+    {
+        return {};
+    }
+    if (!(**current_attributes & FILE_ATTRIBUTE_DIRECTORY) ||
+        (**current_attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+    {
+        return error(
+            OwnedFileStoreErrorCode::Conflict,
+            "Directory snapshot encountered a non-directory or "
+            "reparse entry: " +
+                directory.string());
+    }
+
+    WIN32_FIND_DATAW data{};
+    const auto pattern = directory / L"*";
+    FindHandle find{FindFirstFileW(pattern.c_str(), &data)};
+    if (find.get() == INVALID_HANDLE_VALUE)
+    {
+        const auto last_error = GetLastError();
+        if (last_error == ERROR_FILE_NOT_FOUND ||
+            last_error == ERROR_PATH_NOT_FOUND)
+        {
+            return {};
+        }
+        return windows_error(
+            "Could not enumerate an owned directory.");
+    }
+
+    while (true)
+    {
+        const std::wstring_view name{data.cFileName};
+        if (name != L"." && name != L"..")
+        {
+            ++entry_count;
+            if (entry_count > maximum_entries)
+            {
+                return error(
+                    OwnedFileStoreErrorCode::InvalidData,
+                    "Owned directory exceeds the bounded entry "
+                    "limit.");
+            }
+            const auto child = directory / data.cFileName;
+            if (data.dwFileAttributes &
+                FILE_ATTRIBUTE_REPARSE_POINT)
+            {
+                return error(
+                    OwnedFileStoreErrorCode::Conflict,
+                    "Directory snapshot encountered a reparse "
+                    "entry: " +
+                        child.string());
+            }
+            if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+            {
+                auto nested = snapshot_plain_directory(
+                    child,
+                    maximum_entries,
+                    entry_count,
+                    snapshot);
+                if (!nested)
+                {
+                    return std::unexpected(nested.error());
+                }
+            }
+            else
+            {
+                snapshot.files.push_back(child);
+            }
+        }
+
+        if (!FindNextFileW(find.get(), &data))
+        {
+            const auto last_error = GetLastError();
+            if (last_error != ERROR_NO_MORE_FILES)
+            {
+                SetLastError(last_error);
+                return windows_error(
+                    "Could not finish enumerating an owned "
+                    "directory.");
+            }
+            break;
+        }
+    }
+    snapshot.directories.push_back(directory);
+    return {};
 }
 } // namespace
 
@@ -266,6 +389,43 @@ auto ensure_plain_directory_tree(const fs::path& path)
         }
     }
     return {};
+}
+
+auto snapshot_plain_directory_tree(
+    const fs::path& root,
+    std::size_t maximum_entries)
+    -> std::expected<
+        PlainDirectoryTreeSnapshot,
+        OwnedFileStoreError>
+{
+    if (!root.is_absolute() || root.lexically_normal() != root ||
+        root.filename().empty() || maximum_entries == 0U)
+    {
+        return error(
+            OwnedFileStoreErrorCode::InvalidRequest,
+            "Directory snapshot root or entry limit is invalid.");
+    }
+    auto tree = inspect_plain_directory_tree(root);
+    if (!tree)
+    {
+        return std::unexpected(tree.error());
+    }
+    auto snapshot = PlainDirectoryTreeSnapshot{};
+    if (!*tree)
+    {
+        return snapshot;
+    }
+    std::size_t entry_count{};
+    auto captured = snapshot_plain_directory(
+        root,
+        maximum_entries,
+        entry_count,
+        snapshot);
+    if (!captured)
+    {
+        return std::unexpected(captured.error());
+    }
+    return snapshot;
 }
 
 auto measure_plain_file(const fs::path& path)
@@ -393,6 +553,43 @@ auto delete_plain_file(const fs::path& path)
         return windows_error("Could not delete an owned file.");
     }
     return {};
+}
+
+auto delete_plain_empty_directory(const fs::path& path)
+    -> std::expected<bool, OwnedFileStoreError>
+{
+    const auto value = attributes(path);
+    if (!value)
+    {
+        return std::unexpected(value.error());
+    }
+    if (!*value)
+    {
+        return true;
+    }
+    if (!(**value & FILE_ATTRIBUTE_DIRECTORY) ||
+        (**value & FILE_ATTRIBUTE_REPARSE_POINT))
+    {
+        return error(
+            OwnedFileStoreErrorCode::Conflict,
+            "Refusing to delete a non-directory or reparse point.");
+    }
+    if (RemoveDirectoryW(path.c_str()))
+    {
+        return true;
+    }
+    const auto last_error = GetLastError();
+    if (last_error == ERROR_DIR_NOT_EMPTY)
+    {
+        return false;
+    }
+    if (last_error == ERROR_FILE_NOT_FOUND ||
+        last_error == ERROR_PATH_NOT_FOUND)
+    {
+        return true;
+    }
+    SetLastError(last_error);
+    return windows_error("Could not delete an owned directory.");
 }
 
 auto write_new_durable(

@@ -588,12 +588,101 @@ auto main() -> int
             !fs::exists(
                 lifecycle.root / "shared" / "Mods" /
                 "MecchaCamouflage" / "dlls" / "main.dll") &&
+            !fs::exists(
+                lifecycle.root / "shared" / "Mods" /
+                "MecchaCamouflage") &&
+            fs::is_empty(lifecycle.root / "ownership") &&
             fs::exists(
                 lifecycle.root / "shared" / "UE4SS.dll") &&
             read_text(
                 lifecycle.root / "shared" / "Mods" /
                 "mods.txt") == "user-mods",
         "shared removal touched unrelated runtime content");
+
+    TemporaryTree unknown_mod_content{};
+    const auto unknown_content_install =
+        apply_shared_mod_plan(
+            SharedModAction::Install,
+            unknown_mod_content.root / "shared",
+            unknown_mod_content.root / "ownership",
+            *material);
+    TemporaryTree::write_text(
+        unknown_mod_content.root / "shared" / "Mods" /
+            "MecchaCamouflage" / "user-file.txt",
+        "preserve");
+    const auto refused_unknown_content_removal =
+        apply_shared_mod_removal(
+            RemovalPlan{
+                RemovalAction::None,
+                RemovalAction::None,
+                RemovalAction::None,
+                RemovalAction::RemoveOwned,
+                false,
+            },
+            unknown_mod_content.root / "shared",
+            unknown_mod_content.root / "ownership",
+            *material);
+    passed &= expect(
+        unknown_content_install &&
+            !refused_unknown_content_removal &&
+            refused_unknown_content_removal.error().code ==
+                SharedModErrorCode::Plan &&
+            read_text(
+                unknown_mod_content.root / "shared" / "Mods" /
+                "MecchaCamouflage" / "user-file.txt") ==
+                "preserve" &&
+            fs::exists(
+                unknown_mod_content.root / "shared" / "Mods" /
+                "MecchaCamouflage" / "dlls" / "main.dll"),
+        "unknown mod content did not abort removal before mutation");
+
+    TemporaryTree unknown_ownership_content{};
+    const auto unknown_ownership_install =
+        apply_shared_mod_plan(
+            SharedModAction::Install,
+            unknown_ownership_content.root / "shared",
+            unknown_ownership_content.root / "ownership",
+            *material);
+    std::optional<fs::path> ownership_scope_path{};
+    for (const auto& entry : fs::recursive_directory_iterator{
+             unknown_ownership_content.root / "ownership"})
+    {
+        if (entry.path().filename() == "installed-files.json")
+        {
+            ownership_scope_path = entry.path().parent_path();
+            break;
+        }
+    }
+    if (ownership_scope_path)
+    {
+        TemporaryTree::write_text(
+            *ownership_scope_path / "foreign.json",
+            "preserve");
+    }
+    const auto refused_unknown_ownership_removal =
+        apply_shared_mod_removal(
+            RemovalPlan{
+                RemovalAction::None,
+                RemovalAction::None,
+                RemovalAction::None,
+                RemovalAction::RemoveOwned,
+                false,
+            },
+            unknown_ownership_content.root / "shared",
+            unknown_ownership_content.root / "ownership",
+            *material);
+    passed &= expect(
+        unknown_ownership_install && ownership_scope_path &&
+            !refused_unknown_ownership_removal &&
+            refused_unknown_ownership_removal.error().code ==
+                SharedModErrorCode::Plan &&
+            read_text(*ownership_scope_path / "foreign.json") ==
+                "preserve" &&
+            fs::exists(
+                unknown_ownership_content.root / "shared" / "Mods" /
+                "MecchaCamouflage" / "dlls" / "main.dll"),
+        "unknown ownership metadata did not abort removal before "
+        "mutation");
 
     TemporaryTree changed_runtime_removal{};
     const auto changed_removal_install =

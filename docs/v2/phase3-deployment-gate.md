@@ -145,6 +145,12 @@ payload, so Phase 3 remains open.
   receipt-backed, hash-matched MecchaCamouflage files. `UE4SS.dll`,
   `Mods/mods.txt`, loader files, settings, unrelated mods, and exact unowned
   MecchaCamouflage files are never changed.
+- Before the first deletion, shared removal takes bounded, reparse-refusing
+  snapshots of both `Mods/MecchaCamouflage` and its root-scoped ownership
+  metadata. Every observed file and directory must be derivable from the
+  current/installed ledger union. Unknown content aborts the whole operation;
+  a successful removal then prunes only the now-empty Meccha-owned directory
+  tree and leaves shared parent directories intact.
 
 ## Automated evidence
 
@@ -178,7 +184,9 @@ receipt-only unchanged-file updates, changed-file replacement, hash-safe
 removal after a runtime-owner update, manifest-removed file cleanup,
 new-launcher removal of an old install, ledger tampering, cross-root receipt
 rejection, payload tampering, foreign mod-path rejection, preservation of
-`Mods/mods.txt`, and a privilege-free target-directory junction fixture.
+`Mods/mods.txt`, complete owned-directory cleanup, pre-mutation refusal of
+unknown mod or ownership content, and a privilege-free target-directory
+junction fixture.
 The portable ledger suite additionally proves canonical ordering, strict
 round trips, duplicate rejection, per-file ownership retention, and old/new
 transition union semantics.
@@ -212,9 +220,6 @@ without adding a test-only branch to production coordination.
   path.
 - Connect the validated preparation/removal plans to native side-effect
   orchestration.
-- Add ownership-aware cleanup for empty MecchaCamouflage-only directories and
-  root-scoped receipt metadata after successful `--remove`; unknown generated
-  content must remain a conflict rather than being recursively deleted.
 - Validate Unicode and ANSI-round-trip behavior of the pinned proxy's
   narrow-string `override.txt` reader. Use a verified short path when
   available and fail closed if the stable runtime path cannot be represented;

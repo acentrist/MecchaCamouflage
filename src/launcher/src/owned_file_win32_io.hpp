@@ -12,6 +12,13 @@
 
 namespace meccha::launcher::detail
 {
+struct PlainDirectoryTreeSnapshot
+{
+    std::vector<std::filesystem::path> files{};
+    // Directories are ordered deepest-first and include the root.
+    std::vector<std::filesystem::path> directories{};
+};
+
 [[nodiscard]] auto owned_file_staging_path(
     const std::filesystem::path& target) -> std::filesystem::path;
 
@@ -32,6 +39,13 @@ namespace meccha::launcher::detail
     const std::filesystem::path& path)
     -> std::expected<void, OwnedFileStoreError>;
 
+[[nodiscard]] auto snapshot_plain_directory_tree(
+    const std::filesystem::path& root,
+    std::size_t maximum_entries)
+    -> std::expected<
+        PlainDirectoryTreeSnapshot,
+        OwnedFileStoreError>;
+
 [[nodiscard]] auto measure_plain_file(
     const std::filesystem::path& path)
     -> std::expected<
@@ -47,6 +61,10 @@ namespace meccha::launcher::detail
 
 auto delete_plain_file(const std::filesystem::path& path)
     -> std::expected<void, OwnedFileStoreError>;
+
+auto delete_plain_empty_directory(
+    const std::filesystem::path& path)
+    -> std::expected<bool, OwnedFileStoreError>;
 
 auto write_new_durable(
     const std::filesystem::path& path,

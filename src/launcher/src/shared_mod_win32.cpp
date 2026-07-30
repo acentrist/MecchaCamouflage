@@ -5,7 +5,12 @@
 #include "owned_file_win32_io.hpp"
 #include "shared_mod_ledger.hpp"
 
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+
 #include <algorithm>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
@@ -32,6 +37,7 @@ constexpr std::string_view LedgerFileName{
 constexpr std::string_view LedgerReceiptName{
     "installed-files.owner.json"};
 constexpr std::size_t MaximumLedgerBytes = 4U * 1024U * 1024U;
+constexpr std::size_t MaximumOwnedTreeEntries = 8192U;
 
 auto error(SharedModErrorCode code, std::string detail)
     -> std::unexpected<SharedModError>
@@ -131,6 +137,148 @@ auto ownership_scope(
     }
     return ownership_directory / "shared-mod" /
            sha256_hex(*digest);
+}
+
+auto same_windows_path(
+    const fs::path& left,
+    const fs::path& right) -> bool
+{
+    auto left_native = left.native();
+    auto right_native = right.native();
+    std::ranges::replace(left_native, L'/', L'\\');
+    std::ranges::replace(right_native, L'/', L'\\');
+    if (left_native.size() >
+            static_cast<std::size_t>(
+                std::numeric_limits<int>::max()) ||
+        right_native.size() >
+            static_cast<std::size_t>(
+                std::numeric_limits<int>::max()))
+    {
+        return false;
+    }
+    return CompareStringOrdinal(
+               left_native.data(),
+               static_cast<int>(left_native.size()),
+               right_native.data(),
+               static_cast<int>(right_native.size()),
+               TRUE) == CSTR_EQUAL;
+}
+
+auto contains_windows_path(
+    std::span<const fs::path> paths,
+    const fs::path& candidate) -> bool
+{
+    return std::ranges::any_of(
+        paths,
+        [&candidate](const fs::path& path) {
+            return same_windows_path(path, candidate);
+        });
+}
+
+auto expected_directories(
+    const fs::path& root,
+    std::span<const fs::path> files)
+    -> std::expected<std::vector<fs::path>, SharedModError>
+{
+    std::vector<fs::path> result{root};
+    for (const auto& file : files)
+    {
+        auto directory = file.parent_path();
+        while (!same_windows_path(directory, root))
+        {
+            if (directory.empty() ||
+                same_windows_path(
+                    directory,
+                    directory.parent_path()))
+            {
+                return error(
+                    SharedModErrorCode::Path,
+                    "An owned file is outside its expected tree: " +
+                        file.string() + " (root " +
+                        root.string() + ", reached " +
+                        directory.string() + ").");
+            }
+            if (!contains_windows_path(result, directory))
+            {
+                result.push_back(directory);
+            }
+            directory = directory.parent_path();
+        }
+    }
+    return result;
+}
+
+auto preflight_known_tree(
+    const fs::path& root,
+    std::span<const fs::path> expected_files,
+    std::string_view label)
+    -> std::expected<
+        detail::PlainDirectoryTreeSnapshot,
+        SharedModError>
+{
+    auto expected_dirs = expected_directories(
+        root,
+        expected_files);
+    if (!expected_dirs)
+    {
+        return std::unexpected(expected_dirs.error());
+    }
+    auto snapshot = detail::snapshot_plain_directory_tree(
+        root,
+        MaximumOwnedTreeEntries);
+    if (!snapshot)
+    {
+        return store_error(label, snapshot.error());
+    }
+    for (const auto& file : snapshot->files)
+    {
+        if (!contains_windows_path(expected_files, file))
+        {
+            return error(
+                SharedModErrorCode::Plan,
+                std::string{label} +
+                    " contains an unknown file; nothing was "
+                    "removed: " +
+                    file.string());
+        }
+    }
+    for (const auto& directory : snapshot->directories)
+    {
+        if (!contains_windows_path(*expected_dirs, directory))
+        {
+            return error(
+                SharedModErrorCode::Plan,
+                std::string{label} +
+                    " contains an unknown directory; nothing was "
+                    "removed: " +
+                    directory.string());
+        }
+    }
+    return std::move(*snapshot);
+}
+
+auto remove_snapshot_directories(
+    const detail::PlainDirectoryTreeSnapshot& snapshot,
+    std::string_view label)
+    -> std::expected<void, SharedModError>
+{
+    for (const auto& directory : snapshot.directories)
+    {
+        auto removed =
+            detail::delete_plain_empty_directory(directory);
+        if (!removed)
+        {
+            return store_error(label, removed.error());
+        }
+        if (!*removed)
+        {
+            return error(
+                SharedModErrorCode::Plan,
+                std::string{label} +
+                    " acquired unknown content during removal.");
+        }
+    }
+    return {};
 }
 
 auto make_store(
@@ -935,6 +1083,40 @@ auto apply_shared_mod_removal(
         return SharedModRemovalResult{};
     }
 
+    std::vector<fs::path> expected_mod_files{};
+    std::vector<fs::path> expected_ownership_files{};
+    expected_mod_files.reserve(tracked.size());
+    expected_ownership_files.reserve(tracked.size() + 2U);
+    for (const auto& file : tracked)
+    {
+        expected_mod_files.push_back(target_path(
+            shared_runtime_directory,
+            file.expectation.file.path));
+        expected_ownership_files.push_back(receipt_path(
+            *scope,
+            file.expectation.file.path));
+    }
+    expected_ownership_files.push_back(*scope / LedgerFileName);
+    expected_ownership_files.push_back(*scope / LedgerReceiptName);
+
+    auto mod_snapshot = preflight_known_tree(
+        shared_runtime_directory / "Mods" /
+            "MecchaCamouflage",
+        expected_mod_files,
+        "Shared mod tree");
+    if (!mod_snapshot)
+    {
+        return std::unexpected(mod_snapshot.error());
+    }
+    auto ownership_snapshot = preflight_known_tree(
+        *scope,
+        expected_ownership_files,
+        "Shared mod ownership tree");
+    if (!ownership_snapshot)
+    {
+        return std::unexpected(ownership_snapshot.error());
+    }
+
     auto result = SharedModRemovalResult{};
     for (std::size_t reverse_index = tracked.size();
          reverse_index > 0;
@@ -976,6 +1158,32 @@ auto apply_shared_mod_removal(
                 SharedModErrorCode::Plan,
                 "The shared mod ledger changed during removal.");
         }
+    }
+    auto mod_directories_removed = remove_snapshot_directories(
+        *mod_snapshot,
+        "Shared mod tree");
+    if (!mod_directories_removed)
+    {
+        return std::unexpected(
+            mod_directories_removed.error());
+    }
+    auto ownership_directories_removed =
+        remove_snapshot_directories(
+            *ownership_snapshot,
+            "Shared mod ownership tree");
+    if (!ownership_directories_removed)
+    {
+        return std::unexpected(
+            ownership_directories_removed.error());
+    }
+    auto shared_ownership_parent_removed =
+        detail::delete_plain_empty_directory(
+            scope->parent_path());
+    if (!shared_ownership_parent_removed)
+    {
+        return store_error(
+            "Shared mod ownership parent",
+            shared_ownership_parent_removed.error());
     }
     return result;
 }
