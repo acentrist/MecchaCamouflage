@@ -10,6 +10,18 @@ target_link_libraries(
 
 add_test(NAME build_identity COMMAND meccha_build_identity_test)
 
+add_executable(
+    meccha_application_runtime_tests
+    application_runtime_test.cpp
+)
+target_link_libraries(
+    meccha_application_runtime_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(NAME application_runtime COMMAND meccha_application_runtime_tests)
+
 add_executable(meccha_launcher_tests launcher_manifest_test.cpp)
 target_link_libraries(
     meccha_launcher_tests

@@ -106,19 +106,23 @@ Evidence:
 ## Phase 4 — Runtime lifecycle and teardown gate
 
 - [ ] Implement the composition root and runtime state machine.
-- [ ] Implement callback registration, in-flight barrier, and exact
+- [x] Implement callback registration, in-flight barrier, and exact
   unregistration.
-- [ ] Implement the bounded game-thread scheduler.
-- [ ] Keep `on_update()` free of UObject and ProcessEvent access.
+- [x] Implement the bounded game-thread scheduler.
+- [x] Keep `on_update()` free of UObject and ProcessEvent access.
 - [ ] Implement generation-checked World/controller/HUD/Canvas rebinding.
 - [ ] Implement structured compatibility failures and bounded diagnostics.
 - [ ] Implement representative retained Paint and Image Paint runtime
   operations on the game-thread path.
-- [ ] Implement restore-before-unregister explicit unload ordering.
+- [x] Implement restore-before-unregister explicit unload ordering.
 - [ ] Pass fake-runtime, thread-affinity, lifecycle fault, and concurrent
   uninstall tests.
 - [ ] DEFERRED — maintainer interaction required: verify live load, travel,
   HUD replacement, freecam, spectator, explicit unload, and game shutdown.
+
+Evidence:
+
+- [`phase4-runtime-gate.md`](phase4-runtime-gate.md)
 
 ## Phase 5 — UCanvas feasibility gate
 

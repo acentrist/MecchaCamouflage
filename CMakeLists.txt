@@ -68,6 +68,7 @@ target_include_directories(
 target_link_libraries(meccha_build_identity INTERFACE meccha_build_options)
 
 add_subdirectory(src/core)
+add_subdirectory(src/mod/application)
 add_subdirectory(src/launcher)
 
 if(MECCHA_WITH_UE4SS)
