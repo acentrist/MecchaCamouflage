@@ -145,9 +145,9 @@ remain shared and immutable. It:
 - joins the completed thread before accepting another request, and cancels and
   joins on shutdown.
 
-The worker does not own the current editable project revision. The future
-application/editor owner must compare all three completion tags and discard a
-result when its job generation, project ID, or revision is no longer current.
+The worker does not own the current editable project revision.
+`ImageEditorPipeline` compares all three completion tags and discards a result
+when its job generation, project ID, or revision is no longer current.
 
 `image_composition_worker_test` covers copied collections, single-generation
 admission, stale-generation cancellation, cancellation propagation, completion
@@ -217,22 +217,40 @@ terminates with the typed `StaleProject` result.
 planning cancellation, stale-before-dispatch rejection, stale-during-dispatch
 discard/drain, and typed planner failure.
 
-The runtime adapter still needs to capture the validated triangle/barycentric
-anchors and the application root must invoke this coordinator with the current
-project revision and queue observations. Until that integration is complete,
-this is a tested application boundary rather than a production Image Paint
-path.
+## Application root boundary
+
+`ApplicationRoot` now consumes an exact project-ID/revision readiness port and
+a narrow game-thread `ImagePaintGameRuntimePort`. A typed Start command cannot
+reach game capture until the requested derived atlas is ready. The runtime
+port supplies only the validated raw/reference profiles, triangle/barycentric
+samples, component handle, and pacing; project settings and the atlas remain
+owned by the editor value.
+
+The root starts `ImagePaintJobCoordinator`, advances it on HUD frames, observes
+game queues through the Image Paint port, publishes editor and job state in the
+immutable application snapshot, and shares the existing job state and
+dispatcher with Paint. Typed Cancel, a newer editor revision, and shutdown all
+stop admission and retain ownership until the observed queue drain is
+terminal. No second sender or dispatch policy was introduced.
+
+`application_root_image_paint_test` covers exact ready lookup, body/profile
+capture, planning through final drain, the shared `PaintAtUvWithBrush`
+operation, stale command rejection before capture, typed cancellation under
+queue pressure, edit invalidation during dispatch, immutable snapshot state,
+and cancel-before-lifecycle shutdown.
+
+The production runtime adapter still needs to capture validated
+triangle/barycentric anchors and real queue observations from reflected game
+contracts. Until that adapter is complete, this is a tested root boundary, not
+a live production path.
 
 ## Remaining work
 
-- Connect the worker and reject stale revisions in the application/editor
-  owner.
 - Connect project persistence and editing commands to the application root.
 - Derive and version all three editor-only guide overlays.
 - Implement game-thread texture creation/update/release through the accepted
   runtime adapter.
-- Capture triangle/barycentric anchors through the runtime adapter and connect
-  the application root to the shared Image Paint coordinator.
+- Capture triangle/barycentric anchors through the production runtime adapter.
 - Build the complete UCanvas editor and pass fake-runtime and live checks.
 
 No decoder, runtime, or UI fallback is implied by this core milestone.

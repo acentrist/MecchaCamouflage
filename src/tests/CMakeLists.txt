@@ -77,6 +77,21 @@ add_test(
 )
 
 add_executable(
+    meccha_application_root_image_paint_tests
+    application_root_image_paint_test.cpp
+)
+target_link_libraries(
+    meccha_application_root_image_paint_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(
+    NAME application_root_image_paint
+    COMMAND meccha_application_root_image_paint_tests
+)
+
+add_executable(
     meccha_runtime_operation_executor_tests
     runtime_operation_executor_test.cpp
 )

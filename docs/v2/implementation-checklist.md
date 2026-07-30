@@ -265,8 +265,12 @@ Evidence:
     through a project/revision-validating coordinator, including planning and
     dispatch cancellation, queued-generation discard, drain, and stale-result
     rejection.
-  - [ ] Wire the coordinator to production root/runtime capture and queue
-    observation.
+  - [x] Wire the coordinator to `ApplicationRoot` through exact editor
+    readiness plus game-thread capture and queue-observation ports, including
+    typed Start/Cancel, edit invalidation, shutdown drain, and immutable
+    snapshot publication.
+  - [ ] Implement the production UE4SS triangle-anchor capture and queue
+    observation adapter.
 - [ ] Integrate v2 project/preset management.
 - [ ] Pass decoder, layer, guide, atlas, mapping, preset, fake-runtime, and
   resource-limit tests.

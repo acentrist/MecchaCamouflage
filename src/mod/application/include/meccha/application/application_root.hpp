@@ -3,6 +3,9 @@
 #include <meccha/application/application_command_queue.hpp>
 #include <meccha/application/application_snapshot.hpp>
 #include <meccha/application/config_store.hpp>
+#include <meccha/application/image_editor_pipeline.hpp>
+#include <meccha/application/image_paint_game_runtime.hpp>
+#include <meccha/application/image_paint_job_coordinator.hpp>
 #include <meccha/application/paint_game_runtime.hpp>
 #include <meccha/application/paint_job_coordinator.hpp>
 #include <meccha/application/paint_preview_build_worker.hpp>
@@ -44,6 +47,18 @@ public:
         PaintGameRuntimePort& paint_runtime,
         GameThreadContext& game_thread_context,
         PaintPreviewRuntimePort& paint_preview_runtime,
+        std::size_t queue_capacity,
+        std::size_t command_capacity,
+        std::size_t diagnostic_capacity);
+    ApplicationRoot(
+        RuntimeCallbackPort& callbacks,
+        GameThreadExecutor& executor,
+        AtomicTextStorage& config_storage,
+        PaintGameRuntimePort& paint_runtime,
+        GameThreadContext& game_thread_context,
+        PaintPreviewRuntimePort& paint_preview_runtime,
+        ImagePaintGameRuntimePort& image_runtime,
+        ImageProjectReadinessPort& image_projects,
         std::size_t queue_capacity,
         std::size_t command_capacity,
         std::size_t diagnostic_capacity);
@@ -93,12 +108,16 @@ private:
     auto begin_paint(
         StartPaint request,
         std::uint64_t now_ms) -> void;
+    auto begin_image_paint(
+        StartImagePaint request,
+        std::uint64_t now_ms) -> void;
     auto begin_paint_preview(PreviewPaint request) -> void;
     auto restore_paint_preview(
         RestorePaintPreview request) -> void;
     auto defer_for_paint_preview(
         ApplicationCommand command) -> void;
     auto advance_paint(std::uint64_t now_ms) -> void;
+    auto advance_image_paint(std::uint64_t now_ms) -> void;
     auto advance_paint_preview(std::uint64_t now_ms) -> void;
     auto advance_shutdown(std::uint64_t now_ms) -> void;
     auto publish_locked(
@@ -118,14 +137,21 @@ private:
     RuntimeLifecycle lifecycle_;
     CorePaintPlanBuilder paint_plan_builder_{};
     CorePaintPlanBuilder paint_preview_plan_builder_{};
+    CoreImagePaintPlanBuilder image_paint_plan_builder_{};
     PaintPlanningWorker paint_planner_;
+    ImagePaintPlanningWorker image_paint_planner_;
     PaintPreviewBuildWorker paint_preview_builder_;
     PaintDispatchController paint_dispatcher_;
     PaintJobCoordinator paint_jobs_;
+    ImagePaintJobCoordinator image_paint_jobs_;
     PaintGameRuntimePort* paint_runtime_{};
+    ImagePaintGameRuntimePort* image_paint_runtime_{};
+    ImageProjectReadinessPort* image_projects_{};
     std::unique_ptr<ApplicationCommandQueue> command_queue_{};
     std::unique_ptr<PaintPreviewController> paint_previews_{};
     std::optional<RuntimeObjectHandle> active_paint_component_{};
+    std::optional<RuntimeObjectHandle>
+        active_image_paint_component_{};
     std::optional<ActivePaintPreviewBuild>
         active_paint_preview_build_{};
     std::optional<ApplicationCommand>

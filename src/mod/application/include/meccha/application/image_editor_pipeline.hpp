@@ -65,7 +65,27 @@ enum class ImageEditorSubmitError : std::uint8_t
     DecodeStart,
 };
 
-class ImageEditorPipeline
+class ImageProjectReadinessPort
+{
+public:
+    ImageProjectReadinessPort() = default;
+    ImageProjectReadinessPort(
+        const ImageProjectReadinessPort&) = delete;
+    auto operator=(const ImageProjectReadinessPort&)
+        -> ImageProjectReadinessPort& = delete;
+    virtual ~ImageProjectReadinessPort() = default;
+
+    [[nodiscard]] virtual auto snapshot() const
+        -> ImageEditorPipelineSnapshot = 0;
+
+    [[nodiscard]] virtual auto ready_project(
+        std::string_view project_id,
+        std::uint64_t project_revision) const
+        -> std::shared_ptr<const core::ImageProject> = 0;
+};
+
+class ImageEditorPipeline final
+    : public ImageProjectReadinessPort
 {
 public:
     ImageEditorPipeline(
@@ -83,12 +103,12 @@ public:
     auto shutdown() noexcept -> void;
 
     [[nodiscard]] auto snapshot() const
-        -> ImageEditorPipelineSnapshot;
+        -> ImageEditorPipelineSnapshot override;
 
     [[nodiscard]] auto ready_project(
         std::string_view project_id,
         std::uint64_t project_revision) const
-        -> std::shared_ptr<const core::ImageProject>;
+        -> std::shared_ptr<const core::ImageProject> override;
 
 private:
     auto start(

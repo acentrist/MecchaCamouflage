@@ -94,9 +94,14 @@ ApplicationRoot::ApplicationRoot(
       diagnostics_{diagnostic_capacity},
       lifecycle_{callbacks, executor, queue_capacity, this},
       paint_planner_{paint_plan_builder_},
+      image_paint_planner_{image_paint_plan_builder_},
       paint_preview_builder_{paint_preview_plan_builder_},
       paint_dispatcher_{lifecycle_, jobs_},
-      paint_jobs_{jobs_, paint_planner_, paint_dispatcher_}
+      paint_jobs_{jobs_, paint_planner_, paint_dispatcher_},
+      image_paint_jobs_{
+          jobs_,
+          image_paint_planner_,
+          paint_dispatcher_}
 {
 }
 
@@ -127,6 +132,33 @@ ApplicationRoot::ApplicationRoot(
         preview_);
     const auto lock = std::scoped_lock{state_mutex_};
     publish_locked();
+}
+
+ApplicationRoot::ApplicationRoot(
+    RuntimeCallbackPort& callbacks,
+    GameThreadExecutor& executor,
+    AtomicTextStorage& config_storage,
+    PaintGameRuntimePort& paint_runtime,
+    GameThreadContext& game_thread_context,
+    PaintPreviewRuntimePort& paint_preview_runtime,
+    ImagePaintGameRuntimePort& image_runtime,
+    ImageProjectReadinessPort& image_projects,
+    std::size_t queue_capacity,
+    std::size_t command_capacity,
+    std::size_t diagnostic_capacity)
+    : ApplicationRoot{
+          callbacks,
+          executor,
+          config_storage,
+          paint_runtime,
+          game_thread_context,
+          paint_preview_runtime,
+          queue_capacity,
+          command_capacity,
+          diagnostic_capacity}
+{
+    image_paint_runtime_ = &image_runtime;
+    image_projects_ = &image_projects;
 }
 
 auto ApplicationRoot::initialize()
@@ -420,6 +452,7 @@ auto ApplicationRoot::process_commands(std::uint64_t now_ms) noexcept
             process_command(std::move(command), now_ms);
         }
         advance_paint(now_ms);
+        advance_image_paint(now_ms);
         advance_paint_preview(now_ms);
     }
     catch (...)
@@ -441,6 +474,11 @@ auto ApplicationRoot::process_command(
             if constexpr (std::is_same_v<Request, StartPaint>)
             {
                 begin_paint(std::move(request), now_ms);
+            }
+            else if constexpr (
+                std::is_same_v<Request, StartImagePaint>)
+            {
+                begin_image_paint(std::move(request), now_ms);
             }
             else if constexpr (
                 std::is_same_v<Request, PreviewPaint>)
@@ -485,6 +523,42 @@ auto ApplicationRoot::process_command(
                 std::is_same_v<Request, RestorePaintPreview>)
             {
                 restore_paint_preview(std::move(request));
+            }
+            else if constexpr (
+                std::is_same_v<Request, CancelImagePaint>)
+            {
+                const auto job = jobs_.snapshot();
+                if (!job.feature ||
+                    *job.feature != Feature::ImagePaint ||
+                    !active_image_paint_component_ ||
+                    !image_paint_runtime_)
+                {
+                    record_command_error(request.id);
+                    return;
+                }
+                auto observation = PaintQueueObservation{};
+                if (image_paint_jobs_.requires_queue_observation())
+                {
+                    const auto observed =
+                        image_paint_runtime_->observe_queues(
+                            *active_image_paint_component_,
+                            job.generation);
+                    if (!observed)
+                    {
+                        record_runtime_error(
+                            observed.error(),
+                            request.id);
+                        return;
+                    }
+                    observation = *observed;
+                }
+                if (!image_paint_jobs_.request_cancel(
+                        job.generation,
+                        now_ms,
+                        observation))
+                {
+                    record_command_error(request.id);
+                }
             }
             else if constexpr (std::is_same_v<Request, ToggleUi>)
             {
@@ -572,6 +646,88 @@ auto ApplicationRoot::begin_paint(
         return;
     }
     active_paint_component_ = component;
+    paint_shutdown_cancel_requested_ = false;
+}
+
+auto ApplicationRoot::begin_image_paint(
+    StartImagePaint request,
+    std::uint64_t now_ms) -> void
+{
+    if (active_paint_preview_build_)
+    {
+        defer_for_paint_preview(
+            ApplicationCommand{std::move(request)});
+        return;
+    }
+    if (active_job(jobs_.snapshot().phase) ||
+        !image_paint_runtime_ || !image_projects_)
+    {
+        record_command_error(request.id);
+        return;
+    }
+    if (paint_previews_ && preview_.snapshot().feature)
+    {
+        const auto restored =
+            paint_previews_->restore_active();
+        if (!restored)
+        {
+            record_preview_error(
+                restored.error(),
+                request.id);
+            return;
+        }
+    }
+
+    const auto project = image_projects_->ready_project(
+        request.project_id,
+        request.project_revision);
+    if (!project)
+    {
+        record_command_error(request.id);
+        return;
+    }
+
+    auto captured =
+        image_paint_runtime_->capture(project->settings.body);
+    if (!captured)
+    {
+        record_runtime_error(
+            captured.error(),
+            request.id);
+        return;
+    }
+    if (!captured->component.valid() ||
+        captured->raw_profile.body !=
+            project->settings.body ||
+        captured->image_profile.geometry.identity.body !=
+            project->settings.body)
+    {
+        record_command_error(request.id);
+        return;
+    }
+
+    const auto component = captured->component;
+    auto plan = core::ImagePaintPlanRequest{
+        std::move(captured->raw_profile),
+        std::move(captured->image_profile),
+        project->settings,
+        project->canonical_atlas,
+        std::move(captured->samples),
+    };
+    const auto started = image_paint_jobs_.start(
+        request.id,
+        std::move(request.project_id),
+        request.project_revision,
+        component,
+        std::move(plan),
+        captured->pacing,
+        now_ms);
+    if (!started)
+    {
+        record_command_error(request.id);
+        return;
+    }
+    active_image_paint_component_ = component;
     paint_shutdown_cancel_requested_ = false;
 }
 
@@ -788,6 +944,65 @@ auto ApplicationRoot::advance_paint(std::uint64_t now_ms) -> void
     }
 }
 
+auto ApplicationRoot::advance_image_paint(
+    std::uint64_t now_ms) -> void
+{
+    const auto job = jobs_.snapshot();
+    if (!job.feature ||
+        *job.feature != Feature::ImagePaint ||
+        !active_job(job.phase))
+    {
+        return;
+    }
+    if (!image_paint_runtime_ || !image_projects_ ||
+        !active_image_paint_component_)
+    {
+        record_command_error(job.command_id.value_or(0U));
+        return;
+    }
+
+    auto observation = PaintQueueObservation{};
+    if (image_paint_jobs_.requires_queue_observation())
+    {
+        const auto observed =
+            image_paint_runtime_->observe_queues(
+                *active_image_paint_component_,
+                job.generation);
+        if (!observed)
+        {
+            record_runtime_error(
+                observed.error(),
+                job.command_id);
+            return;
+        }
+        observation = *observed;
+    }
+
+    const auto project = image_projects_->snapshot();
+    const auto ticked = image_paint_jobs_.tick(
+        now_ms,
+        observation,
+        project.project_id,
+        project.project_revision);
+    if (!ticked)
+    {
+        record_command_error(job.command_id.value_or(0U));
+        if (jobs_.snapshot().phase == JobPhase::Failed ||
+            !active_job(jobs_.snapshot().phase))
+        {
+            active_image_paint_component_.reset();
+        }
+        return;
+    }
+    if (ticked->phase == JobPhase::Completed ||
+        ticked->phase == JobPhase::Cancelled ||
+        ticked->phase == JobPhase::Failed)
+    {
+        active_image_paint_component_.reset();
+        paint_shutdown_cancel_requested_ = false;
+    }
+}
+
 auto ApplicationRoot::advance_paint_preview(
     std::uint64_t now_ms) -> void
 {
@@ -868,27 +1083,45 @@ auto ApplicationRoot::advance_paint_preview(
 auto ApplicationRoot::advance_shutdown(
     std::uint64_t now_ms) -> void
 {
-    const auto paint_job = jobs_.snapshot();
-    if (active_job(paint_job.phase))
+    const auto job = jobs_.snapshot();
+    if (active_job(job.phase))
     {
-        if (!paint_runtime_ || !active_paint_component_)
+        const auto image =
+            job.feature == Feature::ImagePaint;
+        const auto paint =
+            job.feature == Feature::Paint;
+        if ((!paint && !image) ||
+            (paint &&
+             (!paint_runtime_ || !active_paint_component_)) ||
+            (image &&
+             (!image_paint_runtime_ || !image_projects_ ||
+              !active_image_paint_component_)))
         {
             record_command_error(
-                paint_job.command_id.value_or(0U));
+                job.command_id.value_or(0U));
             return;
         }
 
         auto observation = PaintQueueObservation{};
-        if (paint_jobs_.requires_queue_observation())
+        const auto requires_observation =
+            paint
+                ? paint_jobs_.requires_queue_observation()
+                : image_paint_jobs_.requires_queue_observation();
+        if (requires_observation)
         {
-            const auto observed = paint_runtime_->observe_queues(
-                *active_paint_component_,
-                paint_job.generation);
+            const auto observed =
+                paint
+                    ? paint_runtime_->observe_queues(
+                          *active_paint_component_,
+                          job.generation)
+                    : image_paint_runtime_->observe_queues(
+                          *active_image_paint_component_,
+                          job.generation);
             if (!observed)
             {
                 record_runtime_error(
                     observed.error(),
-                    paint_job.command_id);
+                    job.command_id);
                 return;
             }
             observation = *observed;
@@ -896,14 +1129,22 @@ auto ApplicationRoot::advance_shutdown(
 
         if (!paint_shutdown_cancel_requested_)
         {
-            const auto cancelled = paint_jobs_.request_cancel(
-                paint_job.generation,
-                now_ms,
-                observation);
+            const auto cancelled =
+                paint
+                    ? static_cast<bool>(
+                          paint_jobs_.request_cancel(
+                              job.generation,
+                              now_ms,
+                              observation))
+                    : static_cast<bool>(
+                          image_paint_jobs_.request_cancel(
+                              job.generation,
+                              now_ms,
+                              observation));
             if (!cancelled)
             {
                 record_command_error(
-                    paint_job.command_id.value_or(0U));
+                    job.command_id.value_or(0U));
                 if (active_job(jobs_.snapshot().phase))
                 {
                     return;
@@ -916,12 +1157,27 @@ auto ApplicationRoot::advance_shutdown(
         }
         else
         {
-            const auto ticked =
-                paint_jobs_.tick(now_ms, observation);
+            auto ticked = false;
+            if (paint)
+            {
+                ticked = static_cast<bool>(
+                    paint_jobs_.tick(now_ms, observation));
+            }
+            else
+            {
+                const auto project =
+                    image_projects_->snapshot();
+                ticked = static_cast<bool>(
+                    image_paint_jobs_.tick(
+                        now_ms,
+                        observation,
+                        project.project_id,
+                        project.project_revision));
+            }
             if (!ticked)
             {
                 record_command_error(
-                    paint_job.command_id.value_or(0U));
+                    job.command_id.value_or(0U));
                 if (active_job(jobs_.snapshot().phase))
                 {
                     return;
@@ -933,7 +1189,14 @@ auto ApplicationRoot::advance_shutdown(
         {
             return;
         }
-        active_paint_component_.reset();
+        if (paint)
+        {
+            active_paint_component_.reset();
+        }
+        else
+        {
+            active_image_paint_component_.reset();
+        }
         paint_shutdown_cancel_requested_ = false;
     }
 
@@ -1009,6 +1272,10 @@ auto ApplicationRoot::publish_locked(
     snapshot.ui_open = ui_open_;
     snapshot.esp_enabled = esp_enabled_;
     snapshot.settings = settings_;
+    snapshot.image_editor =
+        image_projects_
+            ? image_projects_->snapshot()
+            : ImageEditorPipelineSnapshot{};
     snapshot.job = jobs_.snapshot();
     snapshot.preview = preview_.snapshot();
     snapshot.command_queue =
