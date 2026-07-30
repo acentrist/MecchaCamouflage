@@ -66,14 +66,18 @@ jobs:
             Join-Path $env:USERPROFILE ".cargo"
           }
           $Metadata = ".build\v2\full-windows\patternsleuth-cargo-metadata.json"
-          cargo metadata `
+          $CargoJson = cargo metadata `
             --locked `
             --offline `
             --filter-platform x86_64-pc-windows-msvc `
             --format-version 1 `
-            --manifest-path third_party\RE-UE4SS\deps\first\patternsleuth_bind\Cargo.toml |
-            Set-Content -LiteralPath $Metadata -Encoding utf8NoBOM
+            --manifest-path third_party\RE-UE4SS\deps\first\patternsleuth_bind\Cargo.toml
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          [System.IO.File]::WriteAllText(
+            $Metadata,
+            ($CargoJson -join [Environment]::NewLine),
+            [System.Text.UTF8Encoding]::new($false)
+          )
           python tools\v2\collect_dependency_evidence.py `
             --project-root . `
             --build-root .build\v2\full-windows `

@@ -1,0 +1,84 @@
+name: V2 Trusted Release Candidate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-candidate:
+    if: >-
+      github.repository == 'acentrist/MecchaCamouflage' &&
+      (github.ref == 'refs/heads/rewrite/ue4ss-v2' ||
+       github.ref == 'refs/heads/main' ||
+       startsWith(github.ref, 'refs/tags/v2.'))
+    environment: ue4ss-full-build
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout reviewed ref
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+
+      - name: Require reviewed dependency license audit
+        shell: powershell
+        run: |
+          $Audit = "docs\v2\approved-dependency-license-audit.json"
+          if (-not (Test-Path -LiteralPath $Audit -PathType Leaf)) {
+            throw "The reviewed protected dependency license audit is not committed."
+          }
+
+      - name: Checkout complete pinned UE4SS graph
+        shell: powershell
+        env:
+          UE4SS_GITHUB_TOKEN: ${{ secrets.UE4SS_GITHUB_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:UE4SS_GITHUB_TOKEN)) {
+            throw "UE4SS_GITHUB_TOKEN is required for the protected release build."
+          }
+          git -c "url.https://x-access-token:$env:UE4SS_GITHUB_TOKEN@github.com/.insteadOf=git@github.com:" submodule update --init --recursive third_party/RE-UE4SS
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/v2/verify_source_graph.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure trusted graph
+        shell: powershell
+        run: cmake --preset full-windows
+
+      - name: Build runtime, proxy, mod, and contracts
+        shell: powershell
+        run: cmake --build --preset full-windows
+
+      - name: Assemble and verify exact release candidate
+        shell: powershell
+        run: >
+          .\tools\v2\build-release-candidate.ps1
+          -ProjectRoot .
+          -BuildRoot .build\v2\full-windows
+          -ApprovedLicenseAudit docs\v2\approved-dependency-license-audit.json
+          -ReleaseRoot .build\v2\release-candidate
+
+      - name: Upload exact release bytes
+        uses: actions/upload-artifact@v4
+        with:
+          name: meccha-camouflage-v2.0.0-candidate
+          path: |
+            .build/v2/release-candidate/artifact/meccha-camouflage-v2.0.0.exe
+            .build/v2/release-candidate/evidence/meccha-camouflage-v2.0.0.exe.sha256
+          if-no-files-found: error
+
+      - name: Upload release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: meccha-camouflage-v2.0.0-evidence
+          path: .build/v2/release-candidate/evidence
+          if-no-files-found: error

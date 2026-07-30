@@ -449,6 +449,13 @@ Evidence:
     icon, licenses, and notices into the release EXE.
 - [ ] Build runtime and mod from the same trusted graph.
 - [ ] Complete secret-free PR CI and protected full-build/release CI.
+  - [x] Implement a manual, protected, fail-closed release-candidate workflow
+    that rebuilds the pinned graph, requires a separately approved dependency
+    audit, collects exact evidence, assembles the runtime/CAB/resources,
+    reruns all contracts, verifies one EXE, and uploads candidate bytes plus
+    evidence without publishing a GitHub Release.
+  - [ ] Commit the reviewed dependency audit and complete the protected
+    release-candidate run.
 - [ ] Add binary, provenance, payload, license, and forbidden-artifact checks.
   - [x] Implement a bounded dependency-free PE/resource verifier for exact x64
     GUI/manifest/icon/RCDATA contracts, memory protections, import allowlist,
@@ -460,6 +467,9 @@ Evidence:
 - [ ] Produce exactly one EXE and its SHA-256.
   - [x] Generate the canonical SHA-256 sidecar and release evidence only after
     the exact single-EXE directory passes all artifact checks.
+  - [x] Retain the approved audit, generated notices, dependency report,
+    source/binary provenance, payload manifest/layout, artifact report, and
+    checksum as one protected candidate evidence bundle.
   - [ ] Produce and retain the protected final artifact bytes.
 - [ ] DEFERRED — maintainer interaction required: complete real Steam/UAC/
   coexistence/update/remove checks.

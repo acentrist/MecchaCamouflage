@@ -3,10 +3,11 @@
 ## Current status
 
 Canonical payload-manifest generation, deterministic CAB assembly, bounded
-Win32 `RCDATA` loading, manifest-exact CAB consumption, and the native GUI
-launcher resource boundary are implemented. Final trusted runtime/resource
-assembly and exact release-artifact verification remain open. No launcher
-executable is considered releasable at this checkpoint.
+Win32 `RCDATA` loading, manifest-exact CAB consumption, the native GUI launcher
+resource boundary, and fail-closed protected release-candidate orchestration
+are implemented. The exact recursive license audit and a successful protected
+candidate run remain open. No launcher executable is considered releasable at
+this checkpoint.
 
 ## Canonical manifest generator
 
@@ -284,15 +285,52 @@ particular, the restricted UEPseudo graph and the 113-package locked
 fixture tests. Until exact evidence is produced and reviewed, this tool
 deliberately prevents final runtime assembly.
 
+## Protected release-candidate orchestration
+
+`.github/workflows/v2-release-candidate.yml` is a manual-only Windows workflow
+guarded to the upstream repository, reviewed rewrite/main/v2 tag refs, and the
+`ue4ss-full-build` protected environment. It checks out the complete pinned
+recursive graph with the protected UE4SS credential and requires the separately
+reviewed `docs/v2/approved-dependency-license-audit.json` before building. That
+file is intentionally absent until the protected dependency evidence has been
+reviewed; therefore the workflow currently stops before producing candidate
+bytes.
+
+`tools/v2/build-release-candidate.ps1` accepts one fresh release root and then,
+in order:
+
+1. verifies the protected mod, UE4SS, and proxy binaries and records their
+   provenance;
+2. resolves the target-filtered locked Cargo graph and collects exact
+   CMake/git/Cargo dependency evidence;
+3. requires exact agreement with the reviewed audit and builds the dependency
+   notice/report;
+4. assembles the trusted runtime and canonical payload layout;
+5. builds and round-trip verifies the deterministic CAB and manifest;
+6. reconfigures the same trusted build graph with that exact resource pair and
+   builds only the native launcher;
+7. reruns every registered contract test;
+8. copies exactly one versioned EXE into an otherwise empty artifact
+   directory; and
+9. verifies the final PE/resources/payload/provenance before publishing the
+   evidence report and SHA-256 sidecar.
+
+The evidence artifact retains the approved audit, generated notices,
+dependency-license report, dependency graph, binary provenance, payload
+manifest/layout, final artifact report, and checksum. A failed orchestration
+removes any candidate EXE from its newly created artifact directory. The
+workflow uploads candidate/evidence artifacts only; it has no GitHub Release
+publication permission or step.
+
 Portable target-validation coverage runs in the normal Linux graph and the
 Linux ASan/UBSan graph. The MakeCab determinism and round-trip case runs in the
 Windows MSVC Release graph.
 
 ## Remaining packaging work
 
-- Assemble and freeze the minimal trusted UE4SS runtime layout.
-- Audit the complete linked dependency notice bundle in the protected build.
-- Embed CAB, manifest, layout identity, localization, profiles, fonts, icon,
-  project/UE4SS/dependency licenses, and notices as Win32 resources.
-- Run the exact artifact verifier against the protected full-build EXE and
-  retain its report/checksum beside the release evidence.
+- Run the protected dependency collector and review/commit the exact audit.
+- Confirm and freeze the assembled runtime inventory and generated-path
+  allowlist against the live pinned runtime.
+- Run the protected candidate workflow and retain its exact artifact/evidence.
+- Publish only after the remaining runtime/UI/feature/live acceptance gates
+  have passed; candidate generation alone is not release authorization.

@@ -160,5 +160,10 @@ $ReportDirectory = Split-Path -Parent $ReportPath
 if ($ReportDirectory) {
     New-Item -ItemType Directory -Path $ReportDirectory -Force | Out-Null
 }
-$Report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $ReportPath -Encoding utf8NoBOM
+$EncodedReport = $Report | ConvertTo-Json -Depth 8
+[System.IO.File]::WriteAllText(
+    $ReportPath,
+    $EncodedReport,
+    [System.Text.UTF8Encoding]::new($false)
+)
 Write-Host "PASS full-build: main.dll and UE4SS.dll share the pinned x64 Shipping graph."
