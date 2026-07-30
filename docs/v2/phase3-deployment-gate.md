@@ -127,11 +127,13 @@ payload, so Phase 3 remains open.
 - Each owned shared install publishes a strict, root-scoped installed-file
   ledger through the same recoverable owned-file transaction. The ledger is
   canonicalized independently of manifest ordering and records the exact
-  product version, manifest hash, paths, roles, sizes, and hashes.
-- Updates preflight both current and ledger-only files, install the new
-  payload, remove only stale receipt-backed files, and publish the new ledger
-  last. An interruption therefore retains enough old-ledger evidence to finish
-  cleanup safely on the next run.
+  per-file product version, manifest hash, path, role, size, and content hash.
+- Updates preflight both current and ledger-only files, durably publish an
+  old/new union transition ledger before touching the mod, install the new
+  payload, remove only stale receipt-backed files, and publish the compact
+  final ledger last. Files newly added by an interrupted intermediate release
+  therefore remain discoverable even if a later release has already removed
+  them from its manifest.
 - Removal uses the union of current payload entries and the installed ledger,
   so a newer launcher can remove an older complete or partially updated mod.
   A missing, malformed, modified, unowned, or cross-root ledger never grants
@@ -177,6 +179,9 @@ removal after a runtime-owner update, manifest-removed file cleanup,
 new-launcher removal of an old install, ledger tampering, cross-root receipt
 rejection, payload tampering, foreign mod-path rejection, preservation of
 `Mods/mods.txt`, and a privilege-free target-directory junction fixture.
+The portable ledger suite additionally proves canonical ordering, strict
+round trips, duplicate rejection, per-file ownership retention, and old/new
+transition union semantics.
 
 Covered Windows directory cases:
 

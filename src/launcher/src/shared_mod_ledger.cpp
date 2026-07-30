@@ -16,6 +16,8 @@ namespace meccha::launcher::detail
 {
 struct RawSharedModLedgerFile
 {
+    std::string product_version{};
+    std::string manifest_sha256{};
     std::string path{};
     std::string role{};
     std::uint64_t size{};
@@ -46,13 +48,43 @@ auto error(std::string detail)
     });
 }
 
-auto valid_file(const ManifestFile& file) -> bool
+auto valid_file(const OwnershipRecord& record) -> bool
 {
-    return file.role == FileRole::Mod &&
+    const auto& file = record.file;
+    return !record.product_version.empty() &&
+           record.product_version.size() <= 128U &&
+           file.role == FileRole::Mod &&
            file.path.starts_with(ModPrefix) &&
            is_canonical_payload_path(file.path);
 }
 } // namespace
+
+auto make_shared_mod_transition_ledger(
+    const std::optional<SharedModLedger>& installed,
+    const SharedModLedger& current) -> SharedModLedger
+{
+    auto transition = current;
+    if (!installed)
+    {
+        return transition;
+    }
+    std::unordered_set<std::string> current_paths{};
+    current_paths.reserve(current.files.size());
+    for (const auto& record : current.files)
+    {
+        current_paths.insert(canonical_payload_path_key(
+            record.file.path));
+    }
+    for (const auto& record : installed->files)
+    {
+        if (!current_paths.contains(
+                canonical_payload_path_key(record.file.path)))
+        {
+            transition.files.push_back(record);
+        }
+    }
+    return transition;
+}
 
 auto serialize_shared_mod_ledger(
     const SharedModLedger& ledger)
@@ -70,8 +102,8 @@ auto serialize_shared_mod_ledger(
     std::ranges::sort(
         files,
         {},
-        [](const ManifestFile& file) {
-            return canonical_payload_path_key(file.path);
+        [](const OwnershipRecord& record) {
+            return canonical_payload_path_key(record.file.path);
         });
     RawSharedModLedger raw{
         build::SharedModLedgerSchemaVersion,
@@ -82,13 +114,14 @@ auto serialize_shared_mod_ledger(
     };
     raw.files.reserve(files.size());
     std::string previous_key{};
-    for (const auto& file : files)
+    for (const auto& record : files)
     {
-        if (!valid_file(file))
+        if (!valid_file(record))
         {
             return error(
                 "Shared mod ledger contains an invalid file.");
         }
+        const auto& file = record.file;
         const auto key = canonical_payload_path_key(file.path);
         if (key == previous_key)
         {
@@ -97,6 +130,8 @@ auto serialize_shared_mod_ledger(
         }
         previous_key = key;
         raw.files.push_back(RawSharedModLedgerFile{
+            record.product_version,
+            sha256_hex(record.manifest_sha256),
             file.path,
             "mod",
             file.size,
@@ -150,9 +185,14 @@ auto parse_shared_mod_ledger(
     unique_paths.reserve(raw.files.size());
     for (auto& file : raw.files)
     {
+        const auto file_manifest_sha256 =
+            parse_sha256_hex(file.manifest_sha256);
         const auto digest = parse_sha256_hex(file.sha256);
         const auto key = canonical_payload_path_key(file.path);
-        if (file.role != "mod" || !digest ||
+        if (file.product_version.empty() ||
+            file.product_version.size() > 128U ||
+            !file_manifest_sha256 ||
+            file.role != "mod" || !digest ||
             !file.path.starts_with(ModPrefix) ||
             !is_canonical_payload_path(file.path) ||
             !unique_paths.insert(key).second)
@@ -160,11 +200,15 @@ auto parse_shared_mod_ledger(
             return error(
                 "Shared mod ledger contains an invalid file.");
         }
-        ledger.files.push_back(ManifestFile{
-            std::move(file.path),
-            FileRole::Mod,
-            file.size,
-            *digest,
+        ledger.files.push_back(OwnershipRecord{
+            std::move(file.product_version),
+            *file_manifest_sha256,
+            ManifestFile{
+                std::move(file.path),
+                FileRole::Mod,
+                file.size,
+                *digest,
+            },
         });
     }
     return ledger;

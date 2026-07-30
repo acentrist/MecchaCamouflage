@@ -141,6 +141,26 @@ target_link_libraries(
 )
 add_test(NAME runtime_transaction COMMAND meccha_runtime_transaction_tests)
 
+add_executable(
+    meccha_shared_mod_ledger_tests
+    shared_mod_ledger_test.cpp
+)
+target_include_directories(
+    meccha_shared_mod_ledger_tests
+    PRIVATE
+        "${PROJECT_SOURCE_DIR}/src/launcher/src"
+)
+target_link_libraries(
+    meccha_shared_mod_ledger_tests
+    PRIVATE
+        MecchaCamouflage::LauncherCore
+        meccha_build_options
+)
+add_test(
+    NAME shared_mod_ledger
+    COMMAND meccha_shared_mod_ledger_tests
+)
+
 if(WIN32)
     add_executable(
         meccha_managed_loader_tests

@@ -229,8 +229,44 @@ struct PreparedLedger
     std::vector<std::byte> bytes{};
 };
 
-auto prepare_ledger(const SharedModMaterial& material)
+auto prepare_ledger(detail::SharedModLedger ledger)
     -> std::expected<PreparedLedger, SharedModError>
+{
+    auto serialized =
+        detail::serialize_shared_mod_ledger(ledger);
+    if (!serialized)
+    {
+        return std::unexpected(serialized.error());
+    }
+    const auto view =
+        std::as_bytes(std::span{*serialized});
+    std::vector<std::byte> bytes{
+        view.begin(),
+        view.end()};
+    const auto digest = sha256_bytes(bytes);
+    if (!digest)
+    {
+        return error(
+            SharedModErrorCode::Payload,
+            "Could not hash the shared mod ledger.");
+    }
+    return PreparedLedger{
+        OwnedFileExpectation{
+            ledger.product_version,
+            ledger.manifest_sha256,
+            ManifestFile{
+                std::string{LedgerManifestPath},
+                FileRole::Config,
+                bytes.size(),
+                *digest,
+            },
+        },
+        std::move(bytes),
+    };
+}
+
+auto final_ledger(const SharedModMaterial& material)
+    -> std::expected<detail::SharedModLedger, SharedModError>
 {
     if (material.files.empty())
     {
@@ -258,39 +294,13 @@ auto prepare_ledger(const SharedModMaterial& material)
                 "Shared mod material has inconsistent ownership "
                 "identity.");
         }
-        ledger.files.push_back(file.expectation.file);
+        ledger.files.push_back(OwnershipRecord{
+            file.expectation.product_version,
+            file.expectation.manifest_sha256,
+            file.expectation.file,
+        });
     }
-    auto serialized =
-        detail::serialize_shared_mod_ledger(ledger);
-    if (!serialized)
-    {
-        return std::unexpected(serialized.error());
-    }
-    const auto view =
-        std::as_bytes(std::span{*serialized});
-    std::vector<std::byte> bytes{
-        view.begin(),
-        view.end()};
-    const auto digest = sha256_bytes(bytes);
-    if (!digest)
-    {
-        return error(
-            SharedModErrorCode::Payload,
-            "Could not hash the shared mod ledger.");
-    }
-    return PreparedLedger{
-        OwnedFileExpectation{
-            first.product_version,
-            first.manifest_sha256,
-            ManifestFile{
-                std::string{LedgerManifestPath},
-                FileRole::Config,
-                bytes.size(),
-                *digest,
-            },
-        },
-        std::move(bytes),
-    };
+    return ledger;
 }
 
 struct LoadedLedger
@@ -366,14 +376,13 @@ auto load_ledger(const fs::path& ownership_scope)
 }
 
 auto old_file_material(
-    const detail::SharedModLedger& ledger,
-    const ManifestFile& file) -> SharedModFileMaterial
+    const OwnershipRecord& record) -> SharedModFileMaterial
 {
     return SharedModFileMaterial{
         OwnedFileExpectation{
-            ledger.product_version,
-            ledger.manifest_sha256,
-            file,
+            record.product_version,
+            record.manifest_sha256,
+            record.file,
         },
         {},
     };
@@ -397,13 +406,12 @@ auto stale_files(
     }
 
     std::vector<SharedModFileMaterial> result{};
-    for (const auto& file : installed->ledger.files)
+    for (const auto& record : installed->ledger.files)
     {
         if (!current_paths.contains(
-                canonical_payload_path_key(file.path)))
+                canonical_payload_path_key(record.file.path)))
         {
-            result.push_back(
-                old_file_material(installed->ledger, file));
+            result.push_back(old_file_material(record));
         }
     }
     return result;
@@ -537,19 +545,40 @@ auto apply_shared_mod_plan(
     {
         return std::unexpected(scope.error());
     }
-    auto next_ledger = prepare_ledger(material);
-    if (!next_ledger)
+    auto current_ledger = final_ledger(material);
+    if (!current_ledger)
     {
-        return std::unexpected(next_ledger.error());
+        return std::unexpected(current_ledger.error());
+    }
+    auto final_prepared = prepare_ledger(*current_ledger);
+    if (!final_prepared)
+    {
+        return std::unexpected(final_prepared.error());
     }
     auto installed_ledger = load_ledger(*scope);
     if (!installed_ledger)
     {
         return std::unexpected(installed_ledger.error());
     }
+    const auto previous_ledger =
+        *installed_ledger
+            ? std::optional{(**installed_ledger).ledger}
+            : std::nullopt;
+    auto transition_prepared = prepare_ledger(
+        detail::make_shared_mod_transition_ledger(
+            previous_ledger,
+            *current_ledger));
+    if (!transition_prepared)
+    {
+        return std::unexpected(transition_prepared.error());
+    }
     auto ledger_store = make_ledger_store(*scope);
-    auto ledger_state =
-        ledger_store.observe(next_ledger->expectation);
+    const auto& planned_ledger =
+        action == SharedModAction::Install
+            ? *transition_prepared
+            : *final_prepared;
+    auto ledger_state = ledger_store.observe(
+        planned_ledger.expectation);
     if (!ledger_state)
     {
         return store_error(
@@ -662,6 +691,18 @@ auto apply_shared_mod_plan(
     {
         return std::unexpected(compatible.error());
     }
+    if (action == SharedModAction::Install)
+    {
+        auto transition_installed = ledger_store.install(
+            transition_prepared->expectation,
+            transition_prepared->bytes);
+        if (!transition_installed)
+        {
+            return store_error(
+                LedgerManifestPath,
+                transition_installed.error());
+        }
+    }
 
     auto result = SharedModApplyResult{};
     for (std::size_t index = 0;
@@ -736,8 +777,8 @@ auto apply_shared_mod_plan(
     if (action == SharedModAction::Install)
     {
         auto ledger_installed = ledger_store.install(
-            next_ledger->expectation,
-            next_ledger->bytes);
+            final_prepared->expectation,
+            final_prepared->bytes);
         if (!ledger_installed)
         {
             return store_error(
@@ -803,16 +844,16 @@ auto apply_shared_mod_removal(
     }
     if (*installed_ledger)
     {
-        for (const auto& file :
+        for (const auto& record :
              (**installed_ledger).ledger.files)
         {
             if (tracked_paths.insert(
-                    canonical_payload_path_key(file.path))
+                    canonical_payload_path_key(
+                        record.file.path))
                     .second)
             {
-                tracked.push_back(old_file_material(
-                    (**installed_ledger).ledger,
-                    file));
+                tracked.push_back(
+                    old_file_material(record));
             }
         }
     }
