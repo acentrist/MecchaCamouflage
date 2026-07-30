@@ -11,6 +11,7 @@ add_library(
         src/image_composition_worker.cpp
         src/image_decode_worker.cpp
         src/image_decoder.cpp
+        src/image_editor_pipeline.cpp
         src/image_paint_job_coordinator.cpp
         src/image_paint_planning_worker.cpp
         src/image_project_codec.cpp

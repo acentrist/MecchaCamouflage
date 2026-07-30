@@ -4,10 +4,11 @@
 
 The canonical atlas compositor and bounded native image decoders are
 implemented and covered by focused contract tests. The compositor consumes
-validated immutable project/layer values and decoded RGBA buffers. An owned
-one-generation application worker runs composition off-thread. These modules
-do not create Unreal textures or drive the full editor/application state
-machine. Phase 9 therefore remains open.
+validated immutable project/layer values and decoded RGBA buffers. Owned
+application workers run decode and composition off-thread, and an editor
+pipeline connects them by exact project identity and revision. These modules
+do not create Unreal textures or drive the complete in-game editor lifecycle.
+Phase 9 therefore remains open.
 
 ## Native decoder boundary
 
@@ -48,6 +49,27 @@ exceptions become typed terminal results.
 ownership, one-generation admission, stale cancellation, ordered immutable
 success, malformed adapter output, aggregate decoded-memory rejection,
 exception containment, worker reuse, and terminal shutdown.
+
+## Editor pipeline
+
+`ImageEditorPipeline` is the single owner of derived-atlas readiness. A valid
+project submission receives a monotonic generation and enters decode, then
+composition. The pipeline publishes a ready project only when both worker
+results match the active generation, project ID, and revision and the resulting
+atlas passes the full project contract. Consumers must request readiness with
+the expected project ID and revision.
+
+A newer revision is accepted while decode or composition is active. Only the
+latest pending revision is retained, the active worker is cancelled, and its
+terminal result is collected before the replacement begins. Same-project
+revisions cannot move backward or repeat. Invalid submissions leave an
+existing ready project untouched. Decode/composition failures remain typed and
+no stale atlas is exposed. Shutdown cancels and joins both workers, discards
+pending and ready values, and permanently closes admission.
+
+`image_editor_pipeline_test` covers end-to-end decode/composition publication,
+exact ready lookup, invalid and stale submission isolation, replacement during
+decode and composition, typed decode failure, and terminal shutdown.
 
 ## Canonical composition contract
 

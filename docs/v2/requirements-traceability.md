@@ -103,7 +103,7 @@ inventory drift.
 | IMAGE-001 | Import PNG, JPEG, and WebP through bounded native decoders. | `Models.ImagePaintLayer`, Web UI decoder | WIC PNG/JPEG + pinned static libwebp adapter + `ImageProjectDecodeWorker` | T1, T3, T4 | Browser decoding/Base64 transport |
 | IMAGE-002 | Each source is `1..12 MiB`; all sources total at most `64 MiB`. | `Models` | Project model/codecs + `core/image_compositor` decoded bounds | T1 | C# validation |
 | IMAGE-003 | The canonical output is exactly 1024×512 RGBA. | `Models`, payload test | `core/image_compositor` + core mapping | T1, T2 | Browser canvas/Base64 |
-| IMAGE-004 | Multiple images preserve editable source bytes and explicit layer order. | `Web UI`, `Presets`, `Projects` | Project model/UI | T1, T4 | Browser layer state |
+| IMAGE-004 | Multiple images preserve editable source bytes and explicit layer order. | `Web UI`, `Presets`, `Projects` | Project model + `ImageEditorPipeline` + UI | T1, T4 | Browser layer state |
 | IMAGE-005 | Each layer preserves center, size, normalized crop, seam wrap, and front/back mirror. | `Models.ImagePaintLayer`, Web UI | Project model + `core/image_compositor` | T1, T4 | JavaScript transforms |
 | IMAGE-006 | Crop is finite, positive, normalized, and remains inside the source. | `Models.TryValidate` | `core/image_project` + `core/image_compositor` | T1 | C# validation |
 | IMAGE-007 | Placement preserves the existing fit/fill semantics. | `Models.Placement`, Web UI compositor | `core/image_compositor` + UI | T1, T4 | Browser canvas |

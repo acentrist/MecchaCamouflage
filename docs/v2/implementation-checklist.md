@@ -236,12 +236,15 @@ Evidence:
 - [ ] Implement the full editable layer and project model.
   - [x] Implement validated immutable project settings, ordered layer values,
     v2-only persistence, and content-addressed source ownership.
+  - [x] Connect project revisions to an owned decode/composition pipeline that
+    coalesces newer edits, cancels superseded work, rejects stale revisions,
+    and publishes only an exact project-ID/revision match.
   - [ ] Connect those values to the complete in-game editor lifecycle.
 - [x] Implement deterministic cancellable 1024×512 RGBA composition.
   - [x] Run composition on one owned worker with copied immutable inputs,
     one active generation, typed cancellation/failures, revision-tagged
     results, exception containment, and terminal shutdown.
-  - [ ] Reject stale project revisions in the application/editor owner.
+  - [x] Reject stale project revisions in the application/editor owner.
 - [ ] Implement versioned round/cube/fukuyoka guide overlays.
 - [ ] Implement game-thread preview texture lifetime.
 - [ ] Implement all profile mappings and reuse the accepted Paint dispatch.
