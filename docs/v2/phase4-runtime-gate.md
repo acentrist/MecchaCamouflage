@@ -25,6 +25,11 @@ open.
   stable identity does not repeat the bind.
 - A zero or incomplete frame identity fails closed before contract resolution,
   rebinding, or queued Unreal execution.
+- Compatibility failures use project-owned contract and failure-kind enums.
+  Unsupported game builds are classified separately from runtime contract
+  failures, and successful validation clears stale failure context.
+- Diagnostic entries preserve optional structured compatibility context in a
+  fixed-capacity oldest-first eviction history.
 - Shutdown closes scheduling, deterministically discards pending feature work,
   requires transient UI/preview/input restoration on the game thread, and
   refuses callback unregistration until restoration succeeds.
@@ -44,6 +49,8 @@ open.
 - an `on_update()` path with no executor calls;
 - invalid-identity rejection, initial resolution, controller replacement
   rebinding, and stable-frame dispatch;
+- compatibility classification, stale-failure clearing, and bounded structured
+  diagnostic eviction;
 - cancellation of queued work during shutdown;
 - restore-before-unregister ordering.
 
@@ -56,7 +63,6 @@ The test runs in both the Linux secret-free build and the Windows MSVC
   and the production `UnrealRuntimeAdapter` in one owned root.
 - Replace representative operation markers with the final typed runtime
   request/result contracts.
-- Add structured contract IDs and bounded diagnostic history.
 - Implement the pinned UE4SS callback registration adapter and prove exact
   callback unregistration against its real APIs.
 - Bind the project-owned World/controller/HUD/Canvas identity to validated

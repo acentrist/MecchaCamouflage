@@ -22,13 +22,61 @@ enum class CompatibilityStatus : std::uint8_t
     RuntimeError,
 };
 
+enum class RuntimeContractId : std::uint8_t
+{
+    RuntimeInitialization,
+    HudCallback,
+    World,
+    PlayerController,
+    Hud,
+    Canvas,
+    PaintAtUvWithBrush,
+    ImagePaintTexture,
+    TextureMutation,
+    InputControl,
+};
+
+enum class ContractFailureKind : std::uint8_t
+{
+    MissingObject,
+    WrongClass,
+    MissingProperty,
+    WrongPropertyKind,
+    MissingFunction,
+    ParameterSizeMismatch,
+    StaleObject,
+    CallbackFailure,
+    ExecutionFailure,
+    UnsupportedGameBuild,
+};
+
+struct CompatibilityFailure
+{
+    RuntimeContractId contract{};
+    ContractFailureKind kind{};
+    std::string message_key{};
+
+    auto operator==(const CompatibilityFailure&) const -> bool = default;
+};
+
 struct CompatibilitySnapshot
 {
     CompatibilityStatus status{CompatibilityStatus::Unknown};
-    std::string contract_id{};
-    std::string message_key{};
+    std::optional<CompatibilityFailure> failure{};
 
     auto operator==(const CompatibilitySnapshot&) const -> bool = default;
+};
+
+class CompatibilityState
+{
+public:
+    auto mark_compatible() -> void;
+    auto fail(CompatibilityFailure failure) -> void;
+
+    [[nodiscard]] auto snapshot() const -> CompatibilitySnapshot;
+
+private:
+    CompatibilitySnapshot snapshot_{};
 };
 
 enum class DiagnosticSeverity : std::uint8_t
@@ -44,6 +92,7 @@ struct DiagnosticEntry
     DiagnosticSeverity severity{};
     std::string message_key{};
     std::optional<CommandId> command_id{};
+    std::optional<CompatibilityFailure> compatibility_failure{};
 
     auto operator==(const DiagnosticEntry&) const -> bool = default;
 };
@@ -56,7 +105,9 @@ public:
     auto push(
         DiagnosticSeverity severity,
         std::string message_key,
-        std::optional<CommandId> command_id = std::nullopt) -> void;
+        std::optional<CommandId> command_id = std::nullopt,
+        std::optional<CompatibilityFailure> compatibility_failure =
+            std::nullopt) -> void;
 
     [[nodiscard]] auto entries() const -> std::vector<DiagnosticEntry>;
 

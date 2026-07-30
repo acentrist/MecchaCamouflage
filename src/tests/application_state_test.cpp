@@ -152,6 +152,38 @@ auto main() -> int
         "the internal typed command surface is incomplete");
 
     BoundedDiagnostics diagnostics{2U};
+    const auto canvas_failure = CompatibilityFailure{
+        RuntimeContractId::Canvas,
+        ContractFailureKind::WrongClass,
+        "runtime.canvas.wrong-class",
+    };
+    CompatibilityState compatibility{};
+    compatibility.fail(canvas_failure);
+    passed &= expect(
+        compatibility.snapshot() == CompatibilitySnapshot{
+            CompatibilityStatus::RuntimeError,
+            canvas_failure,
+        },
+        "a contract failure did not fail closed as a runtime error");
+    compatibility.fail(CompatibilityFailure{
+        RuntimeContractId::RuntimeInitialization,
+        ContractFailureKind::UnsupportedGameBuild,
+        "runtime.game.unsupported",
+    });
+    passed &= expect(
+        compatibility.snapshot().status ==
+                CompatibilityStatus::UnsupportedGame &&
+            compatibility.snapshot().failure->contract ==
+                RuntimeContractId::RuntimeInitialization,
+        "an unsupported game build was not classified separately");
+    compatibility.mark_compatible();
+    passed &= expect(
+        compatibility.snapshot() == CompatibilitySnapshot{
+            CompatibilityStatus::Compatible,
+            std::nullopt,
+        },
+        "a compatible runtime retained stale failure context");
+
     diagnostics.push(
         DiagnosticSeverity::Information,
         "runtime.ready");
@@ -162,18 +194,25 @@ auto main() -> int
     diagnostics.push(
         DiagnosticSeverity::Error,
         "runtime.contract",
-        102U);
+        102U,
+        canvas_failure);
     passed &= expect(
         diagnostics.entries().size() == 2U &&
             diagnostics.entries().front().sequence == 2U &&
-            diagnostics.entries().back().sequence == 3U,
-        "bounded diagnostics did not evict the oldest entry");
+            diagnostics.entries().back().sequence == 3U &&
+            diagnostics.entries().back().compatibility_failure ==
+                canvas_failure,
+        "bounded structured diagnostics did not preserve failure context");
 
     SnapshotPublisher snapshots{};
     auto first_snapshot = ApplicationSnapshot{};
     first_snapshot.ui_open = true;
     first_snapshot.job = jobs.snapshot();
     first_snapshot.preview = preview.snapshot();
+    first_snapshot.compatibility = CompatibilitySnapshot{
+        CompatibilityStatus::RuntimeError,
+        canvas_failure,
+    };
     first_snapshot.diagnostics = diagnostics.entries();
     snapshots.publish(first_snapshot);
     const auto immutable_first = snapshots.read();
@@ -183,8 +222,10 @@ auto main() -> int
     snapshots.publish(std::move(second_snapshot));
     const auto immutable_second = snapshots.read();
     passed &= expect(
-        immutable_first->revision == 1U &&
+            immutable_first->revision == 1U &&
             immutable_first->ui_open &&
+            immutable_first->compatibility.failure ==
+                canvas_failure &&
             immutable_second->revision == 2U &&
             !immutable_second->ui_open,
         "UI snapshots were mutable or not monotonically revisioned");

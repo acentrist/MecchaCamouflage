@@ -9,6 +9,31 @@
 
 namespace meccha::application
 {
+auto CompatibilityState::mark_compatible() -> void
+{
+    snapshot_ = CompatibilitySnapshot{
+        CompatibilityStatus::Compatible,
+        std::nullopt,
+    };
+}
+
+auto CompatibilityState::fail(CompatibilityFailure failure) -> void
+{
+    const auto status =
+        failure.kind == ContractFailureKind::UnsupportedGameBuild
+            ? CompatibilityStatus::UnsupportedGame
+            : CompatibilityStatus::RuntimeError;
+    snapshot_ = CompatibilitySnapshot{
+        status,
+        std::move(failure),
+    };
+}
+
+auto CompatibilityState::snapshot() const -> CompatibilitySnapshot
+{
+    return snapshot_;
+}
+
 BoundedDiagnostics::BoundedDiagnostics(std::size_t capacity)
     : capacity_{capacity}
 {
@@ -18,7 +43,8 @@ BoundedDiagnostics::BoundedDiagnostics(std::size_t capacity)
 auto BoundedDiagnostics::push(
     DiagnosticSeverity severity,
     std::string message_key,
-    std::optional<CommandId> command_id) -> void
+    std::optional<CommandId> command_id,
+    std::optional<CompatibilityFailure> compatibility_failure) -> void
 {
     if (capacity_ == 0U)
     {
@@ -33,6 +59,7 @@ auto BoundedDiagnostics::push(
         severity,
         std::move(message_key),
         command_id,
+        std::move(compatibility_failure),
     });
     if (next_sequence_ !=
         std::numeric_limits<std::uint64_t>::max())

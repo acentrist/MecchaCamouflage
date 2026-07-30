@@ -112,7 +112,7 @@ Evidence:
 - [x] Keep `on_update()` free of UObject and ProcessEvent access.
 - [x] Implement project-owned generation-checked
   World/controller/HUD/Canvas rebinding.
-- [ ] Implement structured compatibility failures and bounded diagnostics.
+- [x] Implement structured compatibility failures and bounded diagnostics.
 - [ ] Implement representative retained Paint and Image Paint runtime
   operations on the game-thread path.
 - [x] Implement restore-before-unregister explicit unload ordering.
