@@ -27,8 +27,8 @@ without weakening that contract.
 - [ ] Push `rewrite/ue4ss-v2`.
 - [ ] Open the public Draft PR with the locked title.
 - [ ] Add this phase checklist to the Draft PR.
-- [ ] Record the v1 source, test, submodule, build, and payload baseline.
-- [ ] Run every available v1 deterministic build/test check and record
+- [x] Record the v1 source, test, submodule, build, and payload baseline.
+- [x] Run every available v1 deterministic build/test check and record
   pre-existing failures separately.
 
 ## Phase 1 — v1 behavioral baseline and traceability
