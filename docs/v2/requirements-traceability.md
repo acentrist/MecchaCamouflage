@@ -107,11 +107,11 @@ inventory drift.
 | IMAGE-005 | Each layer preserves center, size, normalized crop, seam wrap, and front/back mirror. | `Models.ImagePaintLayer`, Web UI | Project model + `core/image_compositor` | T1, T4 | JavaScript transforms |
 | IMAGE-006 | Crop is finite, positive, normalized, and remains inside the source. | `Models.TryValidate` | `core/image_project` + `core/image_compositor` | T1 | C# validation |
 | IMAGE-007 | Placement preserves the existing fit/fill semantics. | `Models.Placement`, Web UI compositor | `core/image_compositor` + UI | T1, T4 | Browser canvas |
-| IMAGE-008 | Body type is round/cube/fukuyoka and profile selection follows the chosen body. | `Models`, Bridge image planner | Profile mapping | T1, T2, T4 | Bridge mapping |
-| IMAGE-009 | Four faces independently select Fill or Skip beneath opaque image pixels. | `Models`, payload/routing tests | Planner | T1, T2, T4 | Bridge image routing |
-| IMAGE-010 | Image material defaults M=0/R=1/E=0; brush defaults `5` in `[1,10]`; compression defaults `0` in `[0,10]`. | `Models` | Project model/planner | T1, T4 | C# model |
-| IMAGE-011 | Image Fill color/PBR belongs to the saved project and does not inherit mutable Paint-tab state. | `Models`, preset tests | Project model | T1, T4 | C# active state |
-| IMAGE-012 | Alpha skip/background behavior and background material encoding remain deterministic. | `Models`, image transparency tests | `core/image_compositor` + planner | T1, T2, T4 | Browser/Bridge encoding |
+| IMAGE-008 | Body type is round/cube/fukuyoka and profile selection follows the chosen body. | `Models`, Bridge image planner | Profile mapping + `core/image_paint_plan` identity gate | T1, T2, T4 | Bridge mapping |
+| IMAGE-009 | Four faces independently select Fill or Skip beneath opaque image pixels. | `Models`, payload/routing tests | `core/image_paint_plan` | T1, T2, T4 | Bridge image routing |
+| IMAGE-010 | Image material defaults M=0/R=1/E=0; brush defaults `5` in `[1,10]`; compression defaults `0` in `[0,10]`. | `Models` | Project model + `core/image_paint_plan` | T1, T4 | C# model |
+| IMAGE-011 | Image Fill color/PBR belongs to the saved project and does not inherit mutable Paint-tab state. | `Models`, preset tests | Project model + `core/image_paint_plan` | T1, T4 | C# active state |
+| IMAGE-012 | Alpha skip/background behavior and background material encoding remain deterministic. | `Models`, image transparency tests | `core/image_compositor` + `core/image_paint_plan` | T1, T2, T4 | Browser/Bridge encoding |
 | IMAGE-013 | Layer composition is cancellable off-thread and stale results cannot replace a newer edit. | Web UI behavior, PLAN concurrency contract | `ImageCompositionWorker` tags + application revision owner | T1, T2 | Browser rendering loop |
 | IMAGE-014 | Preview texture creation/mutation/destruction occurs only on the game thread. | Bridge preview path | Runtime adapter | T2, T4 | Texture import/chunk bridge |
 | IMAGE-015 | Preview/restore/cancel reuse the single preview/job ownership rules. | Session image commands | Application state machine | T1, T2, T4 | HostSession |
@@ -119,7 +119,7 @@ inventory drift.
 | IMAGE-017 | Save/load/rename/delete preserves project metadata, sources, transforms, atlas, and material settings. | `Presets`, `Projects`, Session | `IImageProjectStore` | T1, T3, T4 | C# stores |
 | IMAGE-018 | v2 active draft survives restart without placing image bytes/layers in `config.json`. | v1 active-state behavior; v2 PLAN ownership | `ActiveDraftPersistenceWorker`, project recovery/settings | T1, T3 | v1 config migration |
 | IMAGE-019 | `.mcpreset` remains a v2 product capability but v1 containers are rejected non-destructively. | `Presets` is format baseline; locked v2 break | Project store | T1, T3 | v1 preset migration |
-| IMAGE-020 | Image Paint uses the accepted `PaintAtUVWithBrush` dispatcher and satisfies representative multi-client visibility. | Bridge image planning/direct route | Image planner + Paint dispatcher | T2, T4, T6 | Bridge image sender |
+| IMAGE-020 | Image Paint uses the accepted `PaintAtUVWithBrush` dispatcher and satisfies representative multi-client visibility. | Bridge image planning/direct route | `core/image_paint_plan` output + Paint dispatcher | T2, T4, T6 | Bridge image sender |
 
 ## ESP
 

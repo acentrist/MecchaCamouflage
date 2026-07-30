@@ -92,6 +92,41 @@ admission, stale-generation cancellation, cancellation propagation, completion
 tags, immutable publication, worker reuse, exception containment, and terminal
 shutdown.
 
+## Paint-plan boundary
+
+`core/image_paint_plan` converts a canonical atlas and already mapped runtime
+capture samples into the same immutable `PaintPlan` used by normal Paint. It
+does not own reflection, UObjects, dispatch, or profile geometry loading.
+
+- Both raw and image-reference identities must be the frozen matching
+  round/cube/fukuyoka pair selected by the project body type.
+- Every captured sample carries validated paint UV/spatial data plus its
+  canonical atlas coordinate and Front/Right/Back/Left face.
+- Atlas sampling uses the frozen v1 nearest-pixel orientation, including the
+  vertical flip between projection coordinates and image rows.
+- Transparent pixels and the reserved Background marker do not emit image
+  strokes. The marker remains non-paintable even if the project alpha mode is
+  changed before the atlas is recomposed.
+- Fill candidates are built separately per face, so a face configured Skip
+  cannot acquire Fill merely because another face uses Fill.
+- The Fill and opaque-image candidate sets are planned separately and then
+  combined as one Fill-first adaptive plan. Fill keeps the project's Fill
+  color/material and fixed radius; image strokes keep the image material,
+  brush size, and optional color compression.
+- Output uses no scene-lighting or Auto Material path and is directly
+  compatible with the shared bounded Paint dispatcher.
+
+`image_paint_planner_test` covers independent four-face routing, transparent
+and Background-marker handling, Fill-first overwrite, color/material/radius
+selection, all three accepted profile identity pairs, profile mismatch,
+truncated atlas, malformed mapping values, unsafe-sample exclusion, and
+cancellation.
+
+The runtime adapter still needs to derive the canonical coordinates from the
+verified reference-profile geometry. Until that mapping and dispatcher
+integration are complete, this is a tested pure boundary rather than a
+production Image Paint path.
+
 ## Remaining work
 
 - Implement bounded WIC PNG/JPEG adapters.
@@ -102,8 +137,8 @@ shutdown.
 - Derive and version all three editor-only guide overlays.
 - Implement game-thread texture creation/update/release through the accepted
   runtime adapter.
-- Convert the atlas through all three image profiles into the accepted Paint
-  planner/dispatcher with face Fill/Skip and material routing.
+- Map captured triangles through all three canonical image-reference profiles
+  and connect the resulting shared Paint plan to the accepted dispatcher.
 - Build the complete UCanvas editor and pass fake-runtime and live checks.
 
 No decoder, runtime, or UI fallback is implied by this core milestone.

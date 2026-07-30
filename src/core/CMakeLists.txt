@@ -5,6 +5,7 @@ add_library(
         src/esp.cpp
         src/image_compositor.cpp
         src/image_mapping.cpp
+        src/image_paint_plan.cpp
         src/image_project.cpp
         src/mesh_profile.cpp
         src/paint.cpp
