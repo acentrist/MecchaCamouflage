@@ -15,7 +15,7 @@ a pass.
 | `meccha_build_options` | Interface build policy | Project warnings and C++23 only |
 | `meccha_build_identity` | Generated immutable contract | Product/schema/UE4SS identity; no platform headers |
 | `meccha_core` | Interface boundary pending Phase 6 sources | No UE4SS, Unreal, Windows UI, graphics, or launcher dependency |
-| `meccha_launcher_contract` | Artifact-free boundary pending Phase 3 | Depends on core/build identity; deliberately cannot ship a stub EXE |
+| `meccha_launcher_core` | Static Phase 3 deployment-policy module | Depends on core/build identity and pinned Glaze; contains no persistent UI |
 | `meccha_mod` | Windows x64 shared library when full build is enabled | Links the `UE4SS` target from the same configure graph and outputs `main.dll` |
 | `meccha_build_identity_test` | Secret-free executable test | Exercises the generated public build identity |
 
@@ -48,7 +48,7 @@ cmake --build --preset dev-linux
 ctest --preset dev-linux
 ```
 
-Result: 4/4 tests passed with GCC 13.3.0, CMake 3.28.3, and Ninja 1.13.2.
+Result: 5/5 tests passed with GCC 13.3.0, CMake 3.28.3, and Ninja 1.13.2.
 
 Windows secret-free build:
 
@@ -60,7 +60,7 @@ cmake --build .build/v2/windows-vs --config Release
 ctest --test-dir .build/v2/windows-vs -C Release --output-on-failure
 ```
 
-Result: 4/4 tests passed with MSVC 19.44.35228 and CMake 4.4.0.
+Result: 5/5 tests passed with MSVC 19.44.35228 and CMake 4.4.0.
 UNC-only MSBuild emitted path/case incremental-build warnings in this WSL
 workspace, so those warnings are recorded as host-path noise rather than
 product compiler warnings. GitHub CI uses a native local Windows workspace.

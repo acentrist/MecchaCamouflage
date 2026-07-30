@@ -9,6 +9,16 @@ target_link_libraries(
 )
 
 add_test(NAME build_identity COMMAND meccha_build_identity_test)
+
+add_executable(meccha_launcher_tests launcher_manifest_test.cpp)
+target_link_libraries(
+    meccha_launcher_tests
+    PRIVATE
+        MecchaCamouflage::LauncherCore
+        meccha_build_options
+)
+add_test(NAME launcher_manifest COMMAND meccha_launcher_tests)
+
 add_test(
     NAME phase1_contracts
     COMMAND

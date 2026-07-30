@@ -7,12 +7,6 @@ include(FetchContent)
 # direct fetch first so CMake's first-declaration-wins rule produces one
 # immutable source graph without patching UE4SS.
 set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
-
-FetchContent_Declare(
-    glaze
-    GIT_REPOSITORY https://github.com/stephenberry/glaze.git
-    GIT_TAG 3a850807501d98d23bab4bdc5af64d8d4e83e6bc
-)
 FetchContent_Declare(
     glfw
     GIT_REPOSITORY https://github.com/glfw/glfw.git

@@ -10,4 +10,6 @@ inline constexpr std::string_view ProductVersion{"@PROJECT_VERSION@"};
 inline constexpr std::string_view Ue4ssCommit{"@MECCHA_UE4SS_COMMIT@"};
 inline constexpr std::uint32_t ConfigSchemaVersion{@MECCHA_CONFIG_SCHEMA_VERSION@};
 inline constexpr std::uint32_t PresetSchemaVersion{@MECCHA_PRESET_SCHEMA_VERSION@};
+inline constexpr std::uint32_t PayloadManifestSchemaVersion{
+    @MECCHA_PAYLOAD_MANIFEST_SCHEMA_VERSION@};
 } // namespace meccha::build

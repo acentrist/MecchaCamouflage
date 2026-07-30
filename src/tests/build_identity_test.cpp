@@ -31,6 +31,8 @@ auto main() -> int
                      "unexpected configuration schema");
     passed &= expect(meccha::build::PresetSchemaVersion == 1,
                      "unexpected preset schema");
+    passed &= expect(meccha::build::PayloadManifestSchemaVersion == 1,
+                     "unexpected payload manifest schema");
 
     if (passed)
     {

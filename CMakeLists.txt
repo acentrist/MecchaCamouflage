@@ -18,11 +18,14 @@ set(MECCHA_UE4SS_COMMIT
 )
 set(MECCHA_CONFIG_SCHEMA_VERSION 1 CACHE STRING "v2 configuration schema")
 set(MECCHA_PRESET_SCHEMA_VERSION 1 CACHE STRING "v2 preset schema")
+set(MECCHA_PAYLOAD_MANIFEST_SCHEMA_VERSION 1 CACHE STRING "v2 payload manifest schema")
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+
+include(cmake/ProjectDependencies.cmake)
 
 add_library(meccha_build_options INTERFACE)
 target_compile_features(meccha_build_options INTERFACE cxx_std_23)

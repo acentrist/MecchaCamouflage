@@ -109,7 +109,10 @@ def verify_build_pin() -> None:
         fail("secret-free/full-build boundary option is missing")
     if "MECCHA_WITH_UE4SS requires Windows x64 with MSVC" not in cmake:
         fail("full-build compiler/platform guard is missing")
-    pins = (ROOT / "cmake/Ue4ssDependencyPins.cmake").read_text(encoding="utf-8")
+    pins = (
+        (ROOT / "cmake/ProjectDependencies.cmake").read_text(encoding="utf-8")
+        + (ROOT / "cmake/Ue4ssDependencyPins.cmake").read_text(encoding="utf-8")
+    )
     missing = sorted(
         f"{name}={commit}"
         for name, commit in DIRECT_FETCH_COMMITS.items()
