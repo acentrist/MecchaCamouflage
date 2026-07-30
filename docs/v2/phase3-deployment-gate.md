@@ -91,6 +91,17 @@ payload, so Phase 3 remains open.
   `Mods/MecchaCamouflage/enabled.txt` and loads
   `Mods/MecchaCamouflage/dlls/main.dll`. The launcher will not edit a shared
   `Mods/mods.txt`.
+- Managed loader material accepts exactly one manifest-owned `dwmapi.dll` and
+  generates `override.txt` from the already-published `active` directory. The
+  file has no BOM or trailing newline. Because the pinned proxy reads a narrow
+  string, the path must be ASCII or resolve to an ASCII Windows short path;
+  otherwise preparation fails closed instead of writing lossy text.
+- Non-elevated loader application recovers both ownership transactions and
+  revalidates both dispositions before changing either file. A stale plan
+  performs no mutation. Exact unowned proxy reuse remains unowned.
+- A plan marked for elevation performs no local mutation and returns an
+  explicit broker-required result. The broker protocol remains separate and
+  is not emulated by an unsafe fallback.
 
 ## Automated evidence
 
@@ -112,6 +123,10 @@ post-publish install recovery, post-delete removal recovery, and a
 privilege-free NTFS junction fixture. The optional file-symbolic-link variant
 is skipped on hosts where Windows developer-mode link creation is unavailable;
 the junction fixture remains mandatory and passes.
+
+The managed-loader suite covers payload and generated-override material,
+two-file creation, exact reuse, stale-plan preflight, exact-unowned proxy
+coexistence, payload tampering, and zero-mutation elevated handoff.
 
 Covered Windows directory cases:
 

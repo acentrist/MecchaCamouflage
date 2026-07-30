@@ -143,6 +143,18 @@ add_test(NAME runtime_transaction COMMAND meccha_runtime_transaction_tests)
 
 if(WIN32)
     add_executable(
+        meccha_managed_loader_tests
+        managed_loader_win32_test.cpp
+    )
+    target_link_libraries(
+        meccha_managed_loader_tests
+        PRIVATE
+            MecchaCamouflage::LauncherCore
+            meccha_build_options
+    )
+    add_test(NAME managed_loader COMMAND meccha_managed_loader_tests)
+
+    add_executable(
         meccha_owned_file_storage_tests
         owned_file_storage_win32_test.cpp
     )
