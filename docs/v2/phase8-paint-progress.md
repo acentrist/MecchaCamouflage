@@ -1,8 +1,8 @@
 # Phase 8 Paint Progress
 
-Phase 8 is open. Its pure immutable planning and generation-tagged dispatch
-boundaries are implemented and verified; production capture, preview, and
-UE4SS runtime integration remain.
+Phase 8 is open. Its pure immutable planning, owned planning worker, and
+generation-tagged dispatch boundaries are implemented and verified;
+production capture, preview, and UE4SS runtime integration remain.
 
 ## Immutable capture-to-plan contract
 
@@ -37,6 +37,24 @@ manual color and material.
 Planning accepts a `std::stop_token`. Replay construction, candidate
 validation, adaptive search, and final publication check cancellation without
 publishing a partial plan.
+
+## Owned planning worker
+
+`PaintPlanningWorker` receives a complete copied `PaintPlanRequest` and permits
+one active generation. It:
+
+- runs the project-owned core planner on one owned `std::jthread`;
+- propagates cancellation through the planner's `std::stop_token`;
+- refuses generation zero, concurrent work, and work after shutdown;
+- publishes exactly one immutable plan or typed planner failure tagged with the
+  originating job generation;
+- contains all planner exceptions at the worker boundary; and
+- requires completion collection before the worker can be reused, preventing a
+  late result from being confused with a newer generation.
+
+The worker never touches UObjects, UE4SS, the scheduler, job state, or the
+runtime adapter. The application coordinator still must compare the tagged
+completion with the active job before beginning dispatch.
 
 ## Dispatch prerequisites now enforced
 
@@ -96,14 +114,18 @@ priority and reserved control capacity over queued Paint work.
 `paint_dispatch` covers cadence, frame admission, backpressure, exact
 generation-tagged stroke conversion, queue observations, confirmation,
 completion, cancellation, selective discard, progress preservation, and stale
-generation rejection. All related tests pass on GCC and MSVC Release.
+generation rejection. `paint_planning_worker` covers immutable request
+ownership, bounded concurrency, cancellation, generation tagging, worker
+reuse, exception containment, and terminal shutdown. All related tests pass on
+GCC and MSVC Release. The secret-free Linux suite currently passes all 28
+registered tests.
 
 ## Remaining gate
 
 - Capture the live component/profile/source appearance and preview snapshot
   through validated reflected contracts on the game thread.
-- Run planning on the owned worker and reject stale command/generation
-  completions.
+- Connect worker completion to the active application job and reject stale
+  command/generation results.
 - Connect the dispatcher to `ApplicationRoot`, live game queue observers, and
   exact preview restoration.
 - Complete fake-runtime failures and the deferred single-/two-client live

@@ -179,6 +179,21 @@ target_link_libraries(
 )
 add_test(NAME paint_dispatch COMMAND meccha_paint_dispatch_tests)
 
+add_executable(
+    meccha_paint_planning_worker_tests
+    paint_planning_worker_test.cpp
+)
+target_link_libraries(
+    meccha_paint_planning_worker_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(
+    NAME paint_planning_worker
+    COMMAND meccha_paint_planning_worker_tests
+)
+
 add_executable(meccha_launcher_tests launcher_manifest_test.cpp)
 target_link_libraries(
     meccha_launcher_tests

@@ -183,6 +183,8 @@ Evidence:
 - [x] Validate round, cube, and fukuyoka profiles.
 - [x] Implement immutable planning for Paint/Fill/Skip, lighting, Auto Material,
   PBR, compression, and Fill-first ordering.
+- [x] Run Paint planning on one owned cancellable worker with immutable input,
+  generation-tagged results, and an exception boundary.
 - [ ] Implement exact preview capture/apply/restore ownership.
 - [ ] Dispatch only through game-owned `PaintAtUVWithBrush`.
 - [x] Implement bounded per-frame pacing, progress, cancellation, and terminal
