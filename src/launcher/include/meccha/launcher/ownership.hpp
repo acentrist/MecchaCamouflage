@@ -12,6 +12,7 @@ enum class ArtifactState : std::uint8_t
     Missing,
     ExactOwned,
     ExactUnowned,
+    OwnedPrevious,
     Conflict,
 };
 

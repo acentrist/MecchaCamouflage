@@ -12,24 +12,32 @@ auto classify_owned_file(
         return ArtifactState::Missing;
     }
 
-    const auto content_matches =
+    const auto current_matches_expected =
         current->size == expected.file.size &&
         current->sha256 == expected.file.sha256;
-    if (!content_matches)
-    {
-        return ArtifactState::Conflict;
-    }
     if (!record)
     {
-        return ArtifactState::ExactUnowned;
+        return current_matches_expected
+                   ? ArtifactState::ExactUnowned
+                   : ArtifactState::Conflict;
+    }
+
+    const auto current_matches_record =
+        current->size == record->file.size &&
+        current->sha256 == record->file.sha256;
+    if (!current_matches_record ||
+        record->file.path != expected.file.path ||
+        record->file.role != expected.file.role)
+    {
+        return ArtifactState::Conflict;
     }
 
     const auto record_matches =
         record->product_version == expected.product_version &&
         record->manifest_sha256 == expected.manifest_sha256 &&
-        record->file == expected.file &&
-        current->size == record->file.size &&
-        current->sha256 == record->file.sha256;
-    return record_matches ? ArtifactState::ExactOwned : ArtifactState::Conflict;
+        record->file == expected.file;
+    return record_matches && current_matches_expected
+               ? ArtifactState::ExactOwned
+               : ArtifactState::OwnedPrevious;
 }
 } // namespace meccha::launcher

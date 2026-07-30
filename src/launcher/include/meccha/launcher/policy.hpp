@@ -44,6 +44,7 @@ enum class ArtifactDisposition : std::uint8_t
     CreateOwned,
     ReuseOwned,
     ReuseUnowned,
+    ReplaceOwned,
 };
 
 enum class ConflictReason : std::uint8_t

@@ -25,6 +25,8 @@ auto managed_disposition(ArtifactState state) -> ArtifactDisposition
         return ArtifactDisposition::ReuseOwned;
     case ArtifactState::ExactUnowned:
         return ArtifactDisposition::ReuseUnowned;
+    case ArtifactState::OwnedPrevious:
+        return ArtifactDisposition::ReplaceOwned;
     case ArtifactState::Conflict:
         return ArtifactDisposition::None;
     }
@@ -41,10 +43,18 @@ auto shared_mod_disposition(ArtifactState state) -> ArtifactDisposition
         return ArtifactDisposition::ReuseOwned;
     case ArtifactState::ExactUnowned:
         return ArtifactDisposition::ReuseUnowned;
+    case ArtifactState::OwnedPrevious:
+        return ArtifactDisposition::ReplaceOwned;
     case ArtifactState::Conflict:
         return ArtifactDisposition::None;
     }
     return ArtifactDisposition::None;
+}
+
+auto is_managed_owned(ArtifactState state) -> bool
+{
+    return state == ArtifactState::ExactOwned ||
+           state == ArtifactState::OwnedPrevious;
 }
 } // namespace
 
@@ -110,7 +120,7 @@ auto select_deployment(const DeploymentObservation& observation)
     {
         if (observation.launch_option != LaunchOptionState::Absent ||
             observation.settings != SettingsState::Compatible ||
-            observation.override_file != ArtifactState::ExactOwned ||
+            !is_managed_owned(observation.override_file) ||
             observation.mod == ArtifactState::ExactUnowned)
         {
             return conflict(ConflictReason::Runtime);

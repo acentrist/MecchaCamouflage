@@ -59,8 +59,22 @@ auto main() -> int
     wrong_record.product_version = "1.6.7";
     passed &= expect(
         classify_owned_file(expected, matching_file, wrong_record) ==
-            ArtifactState::Conflict,
-        "a mismatched ownership record was trusted");
+            ArtifactState::OwnedPrevious,
+        "a verified previous ownership record could not be updated");
+
+    auto previous_record = matching_record;
+    previous_record.product_version = "1.9.0";
+    previous_record.manifest_sha256 = digest(std::byte{0x44});
+    previous_record.file.size = 900;
+    previous_record.file.sha256 = digest(std::byte{0x55});
+    const FileMeasurement previous_file{
+        previous_record.file.size,
+        previous_record.file.sha256,
+    };
+    passed &= expect(
+        classify_owned_file(expected, previous_file, previous_record) ==
+            ArtifactState::OwnedPrevious,
+        "verified previous content was confused with tampering");
 
     auto changed_file = matching_file;
     changed_file.sha256 = digest(std::byte{0x33});
@@ -68,6 +82,13 @@ auto main() -> int
         classify_owned_file(expected, changed_file, matching_record) ==
             ArtifactState::Conflict,
         "changed owned content was trusted");
+
+    auto changed_previous = previous_file;
+    changed_previous.sha256 = digest(std::byte{0x66});
+    passed &= expect(
+        classify_owned_file(expected, changed_previous, previous_record) ==
+            ArtifactState::Conflict,
+        "tampered previous content was accepted for replacement");
     passed &= expect(
         classify_owned_file(expected, std::nullopt, matching_record) ==
             ArtifactState::Missing,
@@ -164,6 +185,21 @@ auto main() -> int
             managed_existing.override_file == ArtifactDisposition::ReuseOwned &&
             managed_existing.mod == ArtifactDisposition::ReuseOwned,
         "an existing managed runtime was not reused");
+
+    auto managed_update = existing_managed;
+    managed_update.proxy = ArtifactState::OwnedPrevious;
+    managed_update.override_file = ArtifactState::OwnedPrevious;
+    managed_update.mod = ArtifactState::OwnedPrevious;
+    const auto managed_update_decision = select_deployment(managed_update);
+    passed &= expect(
+        managed_update_decision.mode == DeploymentMode::Managed &&
+            managed_update_decision.proxy ==
+                ArtifactDisposition::ReplaceOwned &&
+            managed_update_decision.override_file ==
+                ArtifactDisposition::ReplaceOwned &&
+            managed_update_decision.mod ==
+                ArtifactDisposition::ReplaceOwned,
+        "a verified managed installation could not be updated");
 
     auto unresolved_launch_option = clean;
     unresolved_launch_option.launch_option = LaunchOptionState::Unresolved;
