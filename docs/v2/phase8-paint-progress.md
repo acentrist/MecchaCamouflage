@@ -152,6 +152,14 @@ snapshot. It validates plan structure and channel dimensions before copying,
 uses checked arithmetic, stops above the hard stroke/pixel-operation budgets,
 and honors cancellation before and during scanline composition.
 
+`PaintPreviewBuildWorker` owns the asynchronous boundary around planning and
+composition. It accepts copied plan input plus shared immutable original
+channels, permits only one active nonzero generation, forwards one stop token
+through both algorithms, and publishes an immutable texture or a typed
+planner/composer failure tagged with the originating generation. Collection is
+required before reuse, and no planner exception can cross the worker boundary.
+It has no runtime adapter, UObject, scheduler, or preview-lease access.
+
 ## Automated evidence
 
 `paint_planner` passes on GCC and MSVC Release and covers:
@@ -177,7 +185,10 @@ ownership, bounded concurrency, cancellation, generation tagging, worker
 reuse, exception containment, and terminal shutdown. `paint_job_coordinator`
 covers planning-to-dispatch transition, planning cancellation, typed failure,
 confirmed terminal completion, and replacement-job isolation. All related
-tests pass on GCC and MSVC Release. `paint_preview_controller` covers
+tests pass on GCC and MSVC Release. `paint_preview_build_worker` covers copied
+request ownership, bounded concurrency, cancellation, generation tagging,
+typed planner/composer failures, immutable output, reuse, exception
+containment, and terminal shutdown. `paint_preview_controller` covers
 game-thread enforcement, capture reuse, replacement ordering, strict image
 bounds, wrong-component and repeat guards, apply recovery, retained recovery
 failure, shutdown restoration, malformed capture, and invalid-handle expiry.
@@ -186,7 +197,7 @@ dispatch, execution, observation, completion, command backpressure, and
 frame-owned UI/ESP path. `paint_preview_composer` adds Fill/Paint overwrite
 ordering, packed-PBR quantization, edge clipping, original immutability,
 invalid plan/buffer rejection, cancellation, and resource-limit evidence. The
-secret-free Linux suite currently passes all 33 registered tests.
+secret-free Linux suite currently passes all 34 registered tests.
 
 ## Remaining gate
 

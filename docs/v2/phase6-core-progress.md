@@ -34,6 +34,9 @@ not yet complete.
   packed-PBR channels, applies the immutable Fill-first plan in order, and
   enforces checked texture sizes, a 600,000-stroke bound, a 200,000,000 pixel
   candidate budget, and row-level cancellation.
+- The preview build worker owns one immutable plan request and original-channel
+  pair, serializes generations, forwards cancellation through planning and
+  composition, publishes immutable channel buffers, and contains exceptions.
 
 ### Image Paint
 
@@ -126,9 +129,12 @@ non-finite input rejection. Paint planning additionally covers Fill-first
 ordering, Skip/unsafe exclusion, independent Fill PBR, manual and resolved
 automatic appearance, scene-color selection, profile rejection, resource
 limits, and cancellation. `application_runtime_test` proves that control work
-preempts already-queued Paint work. `application_command_queue_test` covers
+preempts already-queued Paint work. `paint_preview_build_worker_test` covers
+copied inputs, bounded concurrency, generation-checked cancellation,
+planner/composer errors, immutable publication, worker reuse, exception
+containment, and terminal shutdown. `application_command_queue_test` covers
 hard capacity, invalid IDs, FIFO bounded drains, concurrent publication, and
-terminal close/discard. The secret-free Linux suite currently passes all 31
+terminal close/discard. The secret-free Linux suite currently passes all 34
 registered tests.
 
 ## Deliberate non-port

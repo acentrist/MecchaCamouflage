@@ -215,6 +215,21 @@ add_test(
     COMMAND meccha_paint_preview_composer_tests
 )
 
+add_executable(
+    meccha_paint_preview_build_worker_tests
+    paint_preview_build_worker_test.cpp
+)
+target_link_libraries(
+    meccha_paint_preview_build_worker_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(
+    NAME paint_preview_build_worker
+    COMMAND meccha_paint_preview_build_worker_tests
+)
+
 add_executable(meccha_paint_dispatch_tests paint_dispatch_test.cpp)
 target_link_libraries(
     meccha_paint_dispatch_tests

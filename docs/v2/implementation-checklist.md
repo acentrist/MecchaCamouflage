@@ -196,6 +196,9 @@ Evidence:
   ownership guards, apply recovery, replacement restore, and shutdown restore.
 - [x] Implement cancellable bounded Paint-plan composition over immutable
   original albedo/packed-PBR channels without mutating the restore snapshot.
+- [x] Run Paint preview planning and composition on one owned cancellable
+  worker with immutable input, generation-tagged results, typed failures, and
+  an exception boundary.
 - [x] Connect typed Start/Cancel Paint, capture, planning, dispatch, queue
   observation, progress, and terminal completion through `ApplicationRoot`.
 - [ ] Implement exact preview capture/apply/restore ownership.
