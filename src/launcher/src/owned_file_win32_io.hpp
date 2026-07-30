@@ -8,6 +8,7 @@
 #include <optional>
 #include <span>
 #include <string_view>
+#include <vector>
 
 namespace meccha::launcher::detail
 {
@@ -35,6 +36,13 @@ namespace meccha::launcher::detail
     const std::filesystem::path& path)
     -> std::expected<
         std::optional<FileMeasurement>,
+        OwnedFileStoreError>;
+
+[[nodiscard]] auto read_plain_file_bytes(
+    const std::filesystem::path& path,
+    std::size_t maximum_size)
+    -> std::expected<
+        std::optional<std::vector<std::byte>>,
         OwnedFileStoreError>;
 
 auto delete_plain_file(const std::filesystem::path& path)

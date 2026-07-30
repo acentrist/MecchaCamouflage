@@ -124,6 +124,18 @@ payload, so Phase 3 remains open.
   root. A receipt created for one compatible UE4SS tree cannot authorize
   replacement or removal in a different tree, even when its bytes happen to
   match.
+- Each owned shared install publishes a strict, root-scoped installed-file
+  ledger through the same recoverable owned-file transaction. The ledger is
+  canonicalized independently of manifest ordering and records the exact
+  product version, manifest hash, paths, roles, sizes, and hashes.
+- Updates preflight both current and ledger-only files, install the new
+  payload, remove only stale receipt-backed files, and publish the new ledger
+  last. An interruption therefore retains enough old-ledger evidence to finish
+  cleanup safely on the next run.
+- Removal uses the union of current payload entries and the installed ledger,
+  so a newer launcher can remove an older complete or partially updated mod.
+  A missing, malformed, modified, unowned, or cross-root ledger never grants
+  deletion authority.
 - Exact owned and exact unowned shared mods are reusable without rewriting or
   claiming content. Unknown, modified, stale-plan, and reparse targets fail
   closed before any mod payload is installed.
@@ -161,9 +173,10 @@ stale removal, ownership-safe removal, and zero-mutation elevated handoff.
 The shared-mod suite covers canonical material construction, fresh nested
 installation, exact-owned and exact-unowned reuse, all-file conflict preflight,
 receipt-only unchanged-file updates, changed-file replacement, hash-safe
-removal after a runtime-owner update, cross-root receipt rejection, payload
-tampering, foreign mod-path rejection, preservation of `Mods/mods.txt`, and a
-privilege-free target-directory junction fixture.
+removal after a runtime-owner update, manifest-removed file cleanup,
+new-launcher removal of an old install, ledger tampering, cross-root receipt
+rejection, payload tampering, foreign mod-path rejection, preservation of
+`Mods/mods.txt`, and a privilege-free target-directory junction fixture.
 
 Covered Windows directory cases:
 
@@ -194,10 +207,9 @@ without adding a test-only branch to production coordination.
   path.
 - Connect the validated preparation/removal plans to native side-effect
   orchestration.
-- Add a durable shared-mod installed-file ledger so a future manifest can
-  safely remove receipt-backed files that no longer exist in the new payload.
-  Current-manifest install, update, reuse, and removal are implemented; removed
-  paths must not be guessed or enumerated from an untrusted destination tree.
+- Add ownership-aware cleanup for empty MecchaCamouflage-only directories and
+  root-scoped receipt metadata after successful `--remove`; unknown generated
+  content must remain a conflict rather than being recursively deleted.
 - Validate Unicode and ANSI-round-trip behavior of the pinned proxy's
   narrow-string `override.txt` reader. Use a verified short path when
   available and fail closed if the stable runtime path cannot be represented;

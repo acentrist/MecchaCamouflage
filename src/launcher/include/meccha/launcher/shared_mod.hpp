@@ -48,6 +48,7 @@ struct SharedModApplyResult
     std::size_t reused_unowned{};
     std::size_t created{};
     std::size_t replaced{};
+    std::size_t removed_stale{};
 };
 
 struct SharedModRemovalResult

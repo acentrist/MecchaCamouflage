@@ -16,4 +16,6 @@ inline constexpr std::uint32_t RuntimeOwnershipSchemaVersion{
     @MECCHA_RUNTIME_OWNERSHIP_SCHEMA_VERSION@};
 inline constexpr std::uint32_t RuntimeTransactionSchemaVersion{
     @MECCHA_RUNTIME_TRANSACTION_SCHEMA_VERSION@};
+inline constexpr std::uint32_t SharedModLedgerSchemaVersion{
+    @MECCHA_SHARED_MOD_LEDGER_SCHEMA_VERSION@};
 } // namespace meccha::build

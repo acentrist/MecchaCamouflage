@@ -3,11 +3,14 @@
 #include <meccha/launcher/hash.hpp>
 
 #include "owned_file_win32_io.hpp"
+#include "shared_mod_ledger.hpp"
 
 #include <algorithm>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -22,6 +25,13 @@ constexpr std::string_view MainPath{
     "Mods/MecchaCamouflage/dlls/main.dll"};
 constexpr std::string_view EnabledPath{
     "Mods/MecchaCamouflage/enabled.txt"};
+constexpr std::string_view LedgerManifestPath{
+    "shared-mod/installed-files.json"};
+constexpr std::string_view LedgerFileName{
+    "installed-files.json"};
+constexpr std::string_view LedgerReceiptName{
+    "installed-files.owner.json"};
+constexpr std::size_t MaximumLedgerBytes = 4U * 1024U * 1024U;
 
 auto error(SharedModErrorCode code, std::string detail)
     -> std::unexpected<SharedModError>
@@ -201,6 +211,203 @@ auto validate_compatibility_files(
     }
     return {};
 }
+
+auto make_ledger_store(const fs::path& ownership_scope)
+    -> Win32OwnedFileStore
+{
+    return Win32OwnedFileStore{
+        ownership_scope / LedgerFileName,
+        ownership_scope / LedgerReceiptName,
+        std::string{LedgerManifestPath},
+        FileRole::Config,
+    };
+}
+
+struct PreparedLedger
+{
+    OwnedFileExpectation expectation{};
+    std::vector<std::byte> bytes{};
+};
+
+auto prepare_ledger(const SharedModMaterial& material)
+    -> std::expected<PreparedLedger, SharedModError>
+{
+    if (material.files.empty())
+    {
+        return error(
+            SharedModErrorCode::Manifest,
+            "The shared mod material is empty.");
+    }
+    const auto& first = material.files.front().expectation;
+    auto ledger = detail::SharedModLedger{
+        first.product_version,
+        first.manifest_sha256,
+        {},
+    };
+    ledger.files.reserve(material.files.size());
+    for (const auto& file : material.files)
+    {
+        if (file.expectation.product_version !=
+                ledger.product_version ||
+            file.expectation.manifest_sha256 !=
+                ledger.manifest_sha256 ||
+            file.expectation.file.role != FileRole::Mod)
+        {
+            return error(
+                SharedModErrorCode::Manifest,
+                "Shared mod material has inconsistent ownership "
+                "identity.");
+        }
+        ledger.files.push_back(file.expectation.file);
+    }
+    auto serialized =
+        detail::serialize_shared_mod_ledger(ledger);
+    if (!serialized)
+    {
+        return std::unexpected(serialized.error());
+    }
+    const auto view =
+        std::as_bytes(std::span{*serialized});
+    std::vector<std::byte> bytes{
+        view.begin(),
+        view.end()};
+    const auto digest = sha256_bytes(bytes);
+    if (!digest)
+    {
+        return error(
+            SharedModErrorCode::Payload,
+            "Could not hash the shared mod ledger.");
+    }
+    return PreparedLedger{
+        OwnedFileExpectation{
+            first.product_version,
+            first.manifest_sha256,
+            ManifestFile{
+                std::string{LedgerManifestPath},
+                FileRole::Config,
+                bytes.size(),
+                *digest,
+            },
+        },
+        std::move(bytes),
+    };
+}
+
+struct LoadedLedger
+{
+    detail::SharedModLedger ledger{};
+};
+
+auto load_ledger(const fs::path& ownership_scope)
+    -> std::expected<std::optional<LoadedLedger>, SharedModError>
+{
+    auto store = make_ledger_store(ownership_scope);
+    auto recovered = store.recover();
+    if (!recovered)
+    {
+        return store_error(
+            LedgerManifestPath,
+            recovered.error());
+    }
+    auto bytes = detail::read_plain_file_bytes(
+        ownership_scope / LedgerFileName,
+        MaximumLedgerBytes);
+    if (!bytes)
+    {
+        return store_error(
+            LedgerManifestPath,
+            bytes.error());
+    }
+    if (!*bytes)
+    {
+        return std::nullopt;
+    }
+    const auto text = std::string_view{
+        reinterpret_cast<const char*>((**bytes).data()),
+        (**bytes).size()};
+    auto ledger = detail::parse_shared_mod_ledger(text);
+    if (!ledger)
+    {
+        return std::unexpected(ledger.error());
+    }
+    const auto digest = sha256_bytes(**bytes);
+    if (!digest)
+    {
+        return error(
+            SharedModErrorCode::Payload,
+            "Could not hash the installed shared mod ledger.");
+    }
+    auto expectation = OwnedFileExpectation{
+        ledger->product_version,
+        ledger->manifest_sha256,
+        ManifestFile{
+            std::string{LedgerManifestPath},
+            FileRole::Config,
+            (**bytes).size(),
+            *digest,
+        },
+    };
+    auto state = store.observe(expectation);
+    if (!state)
+    {
+        return store_error(
+            LedgerManifestPath,
+            state.error());
+    }
+    if (*state != ArtifactState::ExactOwned)
+    {
+        return error(
+            SharedModErrorCode::Plan,
+            "The installed shared mod ledger is not exactly owned.");
+    }
+    return LoadedLedger{
+        std::move(*ledger),
+    };
+}
+
+auto old_file_material(
+    const detail::SharedModLedger& ledger,
+    const ManifestFile& file) -> SharedModFileMaterial
+{
+    return SharedModFileMaterial{
+        OwnedFileExpectation{
+            ledger.product_version,
+            ledger.manifest_sha256,
+            file,
+        },
+        {},
+    };
+}
+
+auto stale_files(
+    const std::optional<LoadedLedger>& installed,
+    const SharedModMaterial& current)
+    -> std::vector<SharedModFileMaterial>
+{
+    if (!installed)
+    {
+        return {};
+    }
+    std::unordered_set<std::string> current_paths{};
+    current_paths.reserve(current.files.size());
+    for (const auto& file : current.files)
+    {
+        current_paths.insert(canonical_payload_path_key(
+            file.expectation.file.path));
+    }
+
+    std::vector<SharedModFileMaterial> result{};
+    for (const auto& file : installed->ledger.files)
+    {
+        if (!current_paths.contains(
+                canonical_payload_path_key(file.path)))
+        {
+            result.push_back(
+                old_file_material(installed->ledger, file));
+        }
+    }
+    return result;
+}
 } // namespace
 
 auto build_shared_mod_material(
@@ -330,6 +537,37 @@ auto apply_shared_mod_plan(
     {
         return std::unexpected(scope.error());
     }
+    auto next_ledger = prepare_ledger(material);
+    if (!next_ledger)
+    {
+        return std::unexpected(next_ledger.error());
+    }
+    auto installed_ledger = load_ledger(*scope);
+    if (!installed_ledger)
+    {
+        return std::unexpected(installed_ledger.error());
+    }
+    auto ledger_store = make_ledger_store(*scope);
+    auto ledger_state =
+        ledger_store.observe(next_ledger->expectation);
+    if (!ledger_state)
+    {
+        return store_error(
+            LedgerManifestPath,
+            ledger_state.error());
+    }
+    const auto ledger_valid =
+        action == SharedModAction::Reuse
+            ? (*installed_ledger
+                   ? *ledger_state == ArtifactState::ExactOwned
+                   : *ledger_state == ArtifactState::Missing)
+            : is_installable(*ledger_state);
+    if (!ledger_valid)
+    {
+        return error(
+            SharedModErrorCode::Plan,
+            "The shared mod ledger changed after planning.");
+    }
 
     std::vector<ArtifactState> states{};
     states.reserve(material.files.size());
@@ -353,11 +591,12 @@ auto apply_shared_mod_plan(
                 file.expectation.file.path,
                 state.error());
         }
-        const auto valid =
-            action == SharedModAction::Reuse
-                ? *state == ArtifactState::ExactOwned ||
-                      *state == ArtifactState::ExactUnowned
-                : is_installable(*state);
+        const auto valid = action == SharedModAction::Reuse
+                               ? *state ==
+                                     (*installed_ledger
+                                          ? ArtifactState::ExactOwned
+                                          : ArtifactState::ExactUnowned)
+                               : is_installable(*state);
         if (!valid)
         {
             return error(
@@ -367,6 +606,54 @@ auto apply_shared_mod_plan(
                     file.expectation.file.path);
         }
         states.push_back(*state);
+    }
+    const auto stale = stale_files(
+        *installed_ledger,
+        material);
+    std::vector<bool> stale_removable{};
+    stale_removable.reserve(stale.size());
+    if (action == SharedModAction::Install)
+    {
+        for (const auto& file : stale)
+        {
+            auto store = make_store(
+                shared_runtime_directory,
+                *scope,
+                file);
+            auto recovered = store.recover();
+            if (!recovered)
+            {
+                return store_error(
+                    file.expectation.file.path,
+                    recovered.error());
+            }
+            auto removable = store.removable();
+            if (!removable)
+            {
+                return store_error(
+                    file.expectation.file.path,
+                    removable.error());
+            }
+            if (!*removable)
+            {
+                auto state = store.observe(file.expectation);
+                if (!state)
+                {
+                    return store_error(
+                        file.expectation.file.path,
+                        state.error());
+                }
+                if (*state != ArtifactState::Missing)
+                {
+                    return error(
+                        SharedModErrorCode::Plan,
+                        "A stale shared mod file is no longer "
+                        "safely removable: " +
+                            file.expectation.file.path);
+                }
+            }
+            stale_removable.push_back(*removable);
+        }
     }
     compatible = validate_compatibility_files(
         shared_runtime_directory,
@@ -421,6 +708,43 @@ auto apply_shared_mod_plan(
             ++result.reused_owned;
         }
     }
+    for (std::size_t reverse_index = stale.size();
+         reverse_index > 0;
+         --reverse_index)
+    {
+        const auto index = reverse_index - 1U;
+        if (!stale_removable[index])
+        {
+            continue;
+        }
+        auto store = make_store(
+            shared_runtime_directory,
+            *scope,
+            stale[index]);
+        auto removed = store.remove_owned();
+        if (!removed)
+        {
+            return store_error(
+                stale[index].expectation.file.path,
+                removed.error());
+        }
+        if (*removed)
+        {
+            ++result.removed_stale;
+        }
+    }
+    if (action == SharedModAction::Install)
+    {
+        auto ledger_installed = ledger_store.install(
+            next_ledger->expectation,
+            next_ledger->bytes);
+        if (!ledger_installed)
+        {
+            return store_error(
+                LedgerManifestPath,
+                ledger_installed.error());
+        }
+    }
     return result;
 }
 
@@ -460,10 +784,44 @@ auto apply_shared_mod_removal(
     {
         return std::unexpected(scope.error());
     }
-
-    std::vector<bool> removable{};
-    removable.reserve(material.files.size());
+    auto installed_ledger = load_ledger(*scope);
+    if (!installed_ledger)
+    {
+        return std::unexpected(installed_ledger.error());
+    }
+    std::vector<SharedModFileMaterial> tracked = material.files;
+    std::unordered_set<std::string> tracked_paths{};
+    tracked_paths.reserve(
+        material.files.size() +
+        (*installed_ledger
+             ? (**installed_ledger).ledger.files.size()
+             : 0U));
     for (const auto& file : material.files)
+    {
+        tracked_paths.insert(canonical_payload_path_key(
+            file.expectation.file.path));
+    }
+    if (*installed_ledger)
+    {
+        for (const auto& file :
+             (**installed_ledger).ledger.files)
+        {
+            if (tracked_paths.insert(
+                    canonical_payload_path_key(file.path))
+                    .second)
+            {
+                tracked.push_back(old_file_material(
+                    (**installed_ledger).ledger,
+                    file));
+            }
+        }
+    }
+
+    const auto requested =
+        plan.mod == RemovalAction::RemoveOwned;
+    std::vector<bool> removable{};
+    removable.reserve(tracked.size());
+    for (const auto& file : tracked)
     {
         auto store = make_store(
             shared_runtime_directory,
@@ -483,21 +841,48 @@ auto apply_shared_mod_removal(
                 file.expectation.file.path,
                 can_remove.error());
         }
+        if (!*can_remove)
+        {
+            auto state = store.observe(file.expectation);
+            if (!state)
+            {
+                return store_error(
+                    file.expectation.file.path,
+                    state.error());
+            }
+            const auto safely_absent =
+                *state == ArtifactState::Missing;
+            const auto safely_unowned =
+                !*installed_ledger &&
+                *state == ArtifactState::ExactUnowned;
+            if (!safely_absent &&
+                (!safely_unowned || requested))
+            {
+                return error(
+                    SharedModErrorCode::Plan,
+                    "A shared mod target is not safely removable: " +
+                        file.expectation.file.path);
+            }
+        }
         removable.push_back(*can_remove);
     }
 
-    const auto requested =
-        plan.mod == RemovalAction::RemoveOwned;
-    const auto all_removable =
-        std::ranges::all_of(removable, [](bool value) {
+    auto ledger_store = make_ledger_store(*scope);
+    auto ledger_removable = ledger_store.removable();
+    if (!ledger_removable)
+    {
+        return store_error(
+            LedgerManifestPath,
+            ledger_removable.error());
+    }
+    const auto any_removable =
+        std::ranges::any_of(removable, [](bool value) {
             return value;
         });
-    const auto none_removable =
-        std::ranges::none_of(removable, [](bool value) {
-            return value;
-        });
-    if ((requested && !all_removable) ||
-        (!requested && !none_removable))
+    if ((!requested &&
+         (any_removable || *ledger_removable)) ||
+        (requested && *installed_ledger &&
+         !*ledger_removable))
     {
         return error(
             SharedModErrorCode::Plan,
@@ -510,24 +895,45 @@ auto apply_shared_mod_removal(
     }
 
     auto result = SharedModRemovalResult{};
-    for (auto iterator = material.files.rbegin();
-         iterator != material.files.rend();
-         ++iterator)
+    for (std::size_t reverse_index = tracked.size();
+         reverse_index > 0;
+         --reverse_index)
     {
+        const auto index = reverse_index - 1U;
+        if (!removable[index])
+        {
+            continue;
+        }
         auto store = make_store(
             shared_runtime_directory,
             *scope,
-            *iterator);
+            tracked[index]);
         auto removed = store.remove_owned();
         if (!removed)
         {
             return store_error(
-                iterator->expectation.file.path,
+                tracked[index].expectation.file.path,
                 removed.error());
         }
         if (*removed)
         {
             ++result.removed;
+        }
+    }
+    if (*installed_ledger)
+    {
+        auto removed = ledger_store.remove_owned();
+        if (!removed)
+        {
+            return store_error(
+                LedgerManifestPath,
+                removed.error());
+        }
+        if (!*removed)
+        {
+            return error(
+                SharedModErrorCode::Plan,
+                "The shared mod ledger changed during removal.");
         }
     }
     return result;

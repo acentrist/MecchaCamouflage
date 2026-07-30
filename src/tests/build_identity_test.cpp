@@ -37,6 +37,8 @@ auto main() -> int
                      "unexpected runtime ownership schema");
     passed &= expect(meccha::build::RuntimeTransactionSchemaVersion == 1,
                      "unexpected runtime transaction schema");
+    passed &= expect(meccha::build::SharedModLedgerSchemaVersion == 1,
+                     "unexpected shared mod ledger schema");
 
     if (passed)
     {

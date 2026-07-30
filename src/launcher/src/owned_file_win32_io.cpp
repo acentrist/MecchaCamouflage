@@ -300,6 +300,75 @@ auto measure_plain_file(const fs::path& path)
     return FileMeasurement{measured->size, measured->sha256};
 }
 
+auto read_plain_file_bytes(
+    const fs::path& path,
+    std::size_t maximum_size)
+    -> std::expected<
+        std::optional<std::vector<std::byte>>,
+        OwnedFileStoreError>
+{
+    const auto value = attributes(path);
+    if (!value)
+    {
+        return std::unexpected(value.error());
+    }
+    if (!*value)
+    {
+        return std::nullopt;
+    }
+    if ((**value & FILE_ATTRIBUTE_DIRECTORY) ||
+        (**value & FILE_ATTRIBUTE_REPARSE_POINT))
+    {
+        return error(
+            OwnedFileStoreErrorCode::Conflict,
+            "Owned file is a directory or reparse point.");
+    }
+
+    FileHandle file{CreateFileW(
+        path.c_str(),
+        GENERIC_READ,
+        FILE_SHARE_READ,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+        nullptr)};
+    if (file.get() == INVALID_HANDLE_VALUE)
+    {
+        return windows_error("Could not open an owned file.");
+    }
+    LARGE_INTEGER size{};
+    if (!GetFileSizeEx(file.get(), &size) || size.QuadPart < 0 ||
+        static_cast<std::uint64_t>(size.QuadPart) > maximum_size)
+    {
+        return error(
+            OwnedFileStoreErrorCode::InvalidData,
+            "Owned-file size is invalid.");
+    }
+    std::vector<std::byte> result(
+        static_cast<std::size_t>(size.QuadPart));
+    auto remaining = std::span<std::byte>{result};
+    while (!remaining.empty())
+    {
+        const auto chunk = std::min(
+            remaining.size(),
+            static_cast<std::size_t>(
+                std::numeric_limits<DWORD>::max()));
+        DWORD read{};
+        if (!ReadFile(
+                file.get(),
+                remaining.data(),
+                static_cast<DWORD>(chunk),
+                &read,
+                nullptr) ||
+            read == 0)
+        {
+            return windows_error("Could not read an owned file.");
+        }
+        remaining = remaining.subspan(read);
+    }
+    return result;
+}
+
 auto delete_plain_file(const fs::path& path)
     -> std::expected<void, OwnedFileStoreError>
 {

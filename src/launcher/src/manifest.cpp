@@ -185,6 +185,16 @@ auto paths_overlap(std::string_view left, std::string_view right) -> bool
 }
 } // namespace
 
+auto is_canonical_payload_path(std::string_view path) -> bool
+{
+    return path_is_canonical(path);
+}
+
+auto canonical_payload_path_key(std::string_view path) -> std::string
+{
+    return canonical_path_key(path);
+}
+
 auto parse_payload_manifest_unbound(std::string_view json)
     -> std::expected<PayloadManifest, ManifestError>
 {

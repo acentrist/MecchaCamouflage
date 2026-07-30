@@ -10,6 +10,7 @@ add_library(
         src/owned_file_receipt.cpp
         src/policy.cpp
         src/preparation.cpp
+        src/shared_mod_ledger.cpp
         src/transaction.cpp
 )
 add_library(MecchaCamouflage::LauncherCore ALIAS meccha_launcher_core)

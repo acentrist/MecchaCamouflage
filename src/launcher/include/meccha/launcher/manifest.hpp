@@ -67,6 +67,12 @@ struct PayloadManifest
     auto operator==(const PayloadManifest&) const -> bool = default;
 };
 
+[[nodiscard]] auto is_canonical_payload_path(
+    std::string_view path) -> bool;
+
+[[nodiscard]] auto canonical_payload_path_key(
+    std::string_view path) -> std::string;
+
 [[nodiscard]] constexpr auto is_runtime_cache_role(
     FileRole role) noexcept -> bool
 {

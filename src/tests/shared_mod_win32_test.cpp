@@ -14,6 +14,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -199,7 +200,8 @@ auto add_mod_file(
 
 auto make_package(
     std::string version = "2.0.0",
-    std::string_view main_content = "main-v2") -> Package
+    std::string_view main_content = "main-v2",
+    bool include_resource = true) -> Package
 {
     Package package{};
     package.manifest.schema_version = 1;
@@ -224,10 +226,13 @@ auto make_package(
         package,
         "Mods/MecchaCamouflage/enabled.txt",
         "");
-    add_mod_file(
-        package,
-        "Mods/MecchaCamouflage/resources/catalog.bin",
-        "catalog");
+    if (include_resource)
+    {
+        add_mod_file(
+            package,
+            "Mods/MecchaCamouflage/resources/catalog.bin",
+            "catalog");
+    }
     package.manifest_sha256 = sha256_bytes(
         std::as_bytes(
             std::span{package.manifest.product_version}))
@@ -440,6 +445,132 @@ auto main() -> int
                 "MecchaCamouflage" / "dlls" / "main.dll") ==
                 "main-v2.1",
         "owned shared mod update was not applied safely");
+
+    TemporaryTree stale_cleanup{};
+    auto package_without_resource =
+        make_package("2.1.0", "main-v2.1", false);
+    const auto material_without_resource =
+        build_shared_mod_material(
+            package_without_resource.manifest,
+            package_without_resource.manifest_sha256,
+            package_without_resource.payload);
+    const auto stale_fixture_install = apply_shared_mod_plan(
+        SharedModAction::Install,
+        stale_cleanup.root / "shared",
+        stale_cleanup.root / "ownership",
+        *material);
+    const auto stale_cleanup_update = apply_shared_mod_plan(
+        SharedModAction::Install,
+        stale_cleanup.root / "shared",
+        stale_cleanup.root / "ownership",
+        *material_without_resource);
+    passed &= expect(
+        stale_fixture_install && stale_cleanup_update &&
+            stale_cleanup_update->removed_stale == 1 &&
+            !fs::exists(
+                stale_cleanup.root / "shared" / "Mods" /
+                "MecchaCamouflage" / "resources" /
+                "catalog.bin") &&
+            read_text(
+                stale_cleanup.root / "shared" / "Mods" /
+                "mods.txt") == "user-mods",
+        "owned file removed from the new manifest was left behind");
+
+    TemporaryTree stale_conflict{};
+    const auto stale_conflict_install = apply_shared_mod_plan(
+        SharedModAction::Install,
+        stale_conflict.root / "shared",
+        stale_conflict.root / "ownership",
+        *material);
+    TemporaryTree::write_text(
+        stale_conflict.root / "shared" / "Mods" /
+            "MecchaCamouflage" / "resources" / "catalog.bin",
+        "user-change");
+    const auto refused_stale_conflict =
+        apply_shared_mod_plan(
+            SharedModAction::Install,
+            stale_conflict.root / "shared",
+            stale_conflict.root / "ownership",
+            *material_without_resource);
+    passed &= expect(
+        stale_conflict_install && !refused_stale_conflict &&
+            refused_stale_conflict.error().code ==
+                SharedModErrorCode::Store &&
+            read_text(
+                stale_conflict.root / "shared" / "Mods" /
+                "MecchaCamouflage" / "dlls" / "main.dll") ==
+                "main-v2" &&
+            read_text(
+                stale_conflict.root / "shared" / "Mods" /
+                "MecchaCamouflage" / "resources" /
+                "catalog.bin") == "user-change",
+        "changed stale file allowed a partial shared mod update");
+
+    TemporaryTree cross_version_removal{};
+    const auto old_version_install = apply_shared_mod_plan(
+        SharedModAction::Install,
+        cross_version_removal.root / "shared",
+        cross_version_removal.root / "ownership",
+        *material);
+    const auto old_version_removed_by_new =
+        apply_shared_mod_removal(
+            RemovalPlan{
+                RemovalAction::None,
+                RemovalAction::None,
+                RemovalAction::None,
+                RemovalAction::RemoveOwned,
+                false,
+            },
+            cross_version_removal.root / "shared",
+            cross_version_removal.root / "ownership",
+            *material_without_resource);
+    passed &= expect(
+        old_version_install && old_version_removed_by_new &&
+            old_version_removed_by_new->removed == 3 &&
+            !fs::exists(
+                cross_version_removal.root / "shared" / "Mods" /
+                "MecchaCamouflage" / "resources" /
+                "catalog.bin"),
+        "new launcher material could not remove an older owned "
+        "shared mod");
+
+    TemporaryTree tampered_ledger{};
+    const auto tampered_ledger_install =
+        apply_shared_mod_plan(
+            SharedModAction::Install,
+            tampered_ledger.root / "shared",
+            tampered_ledger.root / "ownership",
+            *material);
+    std::optional<fs::path> ledger_path{};
+    for (const auto& entry : fs::recursive_directory_iterator{
+             tampered_ledger.root / "ownership"})
+    {
+        if (entry.path().filename() == "installed-files.json")
+        {
+            ledger_path = entry.path();
+            break;
+        }
+    }
+    if (ledger_path)
+    {
+        TemporaryTree::write_text(*ledger_path, "{}");
+    }
+    const auto refused_tampered_ledger =
+        apply_shared_mod_plan(
+            SharedModAction::Install,
+            tampered_ledger.root / "shared",
+            tampered_ledger.root / "ownership",
+            *updated_material);
+    passed &= expect(
+        tampered_ledger_install && ledger_path &&
+            !refused_tampered_ledger &&
+            refused_tampered_ledger.error().code ==
+                SharedModErrorCode::Store &&
+            read_text(
+                tampered_ledger.root / "shared" / "Mods" /
+                "MecchaCamouflage" / "dlls" / "main.dll") ==
+                "main-v2",
+        "tampered shared mod ledger allowed a payload mutation");
 
     const auto removed = apply_shared_mod_removal(
         RemovalPlan{
