@@ -184,6 +184,21 @@ add_test(
 )
 
 add_executable(
+    meccha_image_editor_session_tests
+    image_editor_session_test.cpp
+)
+target_link_libraries(
+    meccha_image_editor_session_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(
+    NAME image_editor_session
+    COMMAND meccha_image_editor_session_tests
+)
+
+add_executable(
     meccha_config_persistence_tests
     config_persistence_test.cpp
 )

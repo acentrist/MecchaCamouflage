@@ -103,7 +103,7 @@ inventory drift.
 | IMAGE-001 | Import PNG, JPEG, and WebP through bounded native decoders. | `Models.ImagePaintLayer`, Web UI decoder | WIC PNG/JPEG + pinned static libwebp adapter + `ImageProjectDecodeWorker` | T1, T3, T4 | Browser decoding/Base64 transport |
 | IMAGE-002 | Each source is `1..12 MiB`; all sources total at most `64 MiB`. | `Models` | Project model/codecs + `core/image_compositor` decoded bounds | T1 | C# validation |
 | IMAGE-003 | The canonical output is exactly 1024×512 RGBA. | `Models`, payload test | `core/image_compositor` + core mapping | T1, T2 | Browser canvas/Base64 |
-| IMAGE-004 | Multiple images preserve editable source bytes and explicit layer order. | `Web UI`, `Presets`, `Projects` | Project model + `ImageEditorPipeline` + UI | T1, T4 | Browser layer state |
+| IMAGE-004 | Multiple images preserve editable source bytes and explicit layer order. | `Web UI`, `Presets`, `Projects` | Project model + `ImageEditorSession`/pipeline + UI | T1, T4 | Browser layer state |
 | IMAGE-005 | Each layer preserves center, size, normalized crop, seam wrap, and front/back mirror. | `Models.ImagePaintLayer`, Web UI | Project model + `core/image_compositor` | T1, T4 | JavaScript transforms |
 | IMAGE-006 | Crop is finite, positive, normalized, and remains inside the source. | `Models.TryValidate` | `core/image_project` + `core/image_compositor` | T1 | C# validation |
 | IMAGE-007 | Placement preserves the existing fit/fill semantics. | `Models.Placement`, Web UI compositor | `core/image_compositor` + UI | T1, T4 | Browser canvas |
@@ -116,8 +116,8 @@ inventory drift.
 | IMAGE-014 | Preview texture creation/mutation/destruction occurs only on the game thread. | Bridge preview path | Runtime adapter | T2, T4 | Texture import/chunk bridge |
 | IMAGE-015 | Preview/restore/cancel reuse the single preview/job ownership rules. | Session image commands | Application state machine | T1, T2, T4 | HostSession |
 | IMAGE-016 | The three body guides align with the accepted profiles, remain above layers, and are excluded from the atlas. | Web UI guide tests, profile JSON | Profile guide/UI | T1, T2, T4 | Packaged browser guides |
-| IMAGE-017 | Save/load/rename/delete preserves project metadata, sources, transforms, atlas, and material settings. | `Presets`, `Projects`, Session | `ImageProjectStore` + `ImageProjectPersistenceCoordinator` + `ImageProjectIoWorker` | T1, T3, T4 | C# stores |
-| IMAGE-018 | v2 active draft survives restart without placing image bytes/layers in `config.json`. | v1 active-state behavior; v2 PLAN ownership | `ActiveDraftPersistenceWorker`, project recovery/settings | T1, T3 | v1 config migration |
+| IMAGE-017 | Save/load/rename/delete preserves project metadata, sources, transforms, atlas, and material settings. | `Presets`, `Projects`, Session | `ImageEditorSession` + project store/coordinator/I/O worker | T1, T3, T4 | C# stores |
+| IMAGE-018 | v2 active draft survives restart without placing image bytes/layers in `config.json`. | v1 active-state behavior; v2 PLAN ownership | `ImageEditorSession` + `ActiveDraftPersistenceWorker` + recovery | T1, T3 | v1 config migration |
 | IMAGE-019 | `.mcpreset` remains a v2 product capability but v1 containers are rejected non-destructively. | `Presets` is format baseline; locked v2 break | Project store | T1, T3 | v1 preset migration |
 | IMAGE-020 | Image Paint uses the accepted `PaintAtUVWithBrush` dispatcher and satisfies representative multi-client visibility. | Bridge image planning/direct route | `ApplicationRoot` + `ImagePaintGameRuntimePort` + `ImagePaintJobCoordinator` + shared Paint dispatcher | T2, T4, T6 | Bridge image sender |
 
@@ -166,8 +166,8 @@ inventory drift.
 | PERSIST-003 | Applying settings validates one complete candidate before publication. | Session atomic batch tests | Application/settings | T1 | HostSession mutation |
 | PERSIST-004 | Config/project/draft writes preserve the previous valid file on failure. | v1 atomic tests, PLAN | Stores/filesystem adapter | T1, T3 | Delete-then-move C# path |
 | PERSIST-005 | Project containers reject traversal, duplicate/case-collision, links, unknown schema, invalid sizes/hashes/UTF-8/transforms, and excessive expansion. | Preset corruption baseline, PLAN | Project store | T1, T3 | `ZipArchive` assumptions |
-| PERSIST-006 | Active draft is debounced off-thread and never serialized in a Canvas callback. | v2 ownership decision | `ActiveDraftPersistenceWorker`/application | T1, T2 | Browser active state |
-| PERSIST-007 | Named project publishes before the active project reference; load validates before activation; delete clears an active reference before removal; partial failure is recoverable. | v2 transaction decision | `ImageProjectPersistenceCoordinator` + `ImageProjectIoWorker` | T1, T3 | Cross-file HostSession save |
+| PERSIST-006 | Active draft is debounced off-thread and never serialized in a Canvas callback. | v2 ownership decision | `ImageEditorSession` + `ActiveDraftPersistenceWorker` | T1, T2 | Browser active state |
+| PERSIST-007 | Named project publishes before the active project reference; load validates before activation; delete drains draft writes and clears an active reference before removal; partial failure is recoverable. | v2 transaction decision | `ImageEditorSession` + persistence coordinator/I/O worker | T1, T3 | Cross-file HostSession save |
 | LAUNCH-001 | Distributed artifact is one native x64 EXE and runtime has no network/update/service/resident process. | v1 single EXE baseline, locked v2 behavior | Launcher/payload | T0, T3, T5 | .NET host/updater absence |
 | LAUNCH-002 | Launcher resolves App ID 4704690 and validates `Chameleon\\Binaries\\Win64`, with picker fallback. | v2 locked behavior | Launcher discovery | T1, T3, T5 | Process-name targeting |
 | LAUNCH-003 | Running game blocks every runtime/proxy update/removal. | v2 locked behavior | Launcher | T1, T3, T5 | Live injection |

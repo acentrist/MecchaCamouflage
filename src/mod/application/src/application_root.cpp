@@ -142,7 +142,7 @@ ApplicationRoot::ApplicationRoot(
     GameThreadContext& game_thread_context,
     PaintPreviewRuntimePort& paint_preview_runtime,
     ImagePaintGameRuntimePort& image_runtime,
-    ImageProjectReadinessPort& image_projects,
+    ImageEditorSessionPort& image_editor,
     std::size_t queue_capacity,
     std::size_t command_capacity,
     std::size_t diagnostic_capacity)
@@ -158,7 +158,7 @@ ApplicationRoot::ApplicationRoot(
           diagnostic_capacity}
 {
     image_paint_runtime_ = &image_runtime;
-    image_projects_ = &image_projects;
+    image_editor_ = &image_editor;
 }
 
 auto ApplicationRoot::initialize()
@@ -324,6 +324,11 @@ auto ApplicationRoot::finalize_shutdown()
         }
     }
 
+    if (image_editor_)
+    {
+        image_editor_->shutdown(true);
+    }
+
     const auto lock = std::scoped_lock{state_mutex_};
     runtime_initialized_ = false;
     phase_ = ApplicationRuntimePhase::Stopped;
@@ -446,6 +451,7 @@ auto ApplicationRoot::process_commands(std::uint64_t now_ms) noexcept
 {
     try
     {
+        advance_image_editor();
         for (auto& command :
              command_queue_->drain(CommandBudget))
         {
@@ -582,12 +588,113 @@ auto ApplicationRoot::process_command(
                 const auto lock = std::scoped_lock{state_mutex_};
                 settings_ = std::move(request.settings);
             }
+            else if constexpr (
+                std::is_same_v<Request, LoadImageProject>)
+            {
+                auto settings = core::ApplicationConfig{};
+                {
+                    const auto lock =
+                        std::scoped_lock{state_mutex_};
+                    settings = settings_;
+                }
+                if (!image_editor_ ||
+                    !image_editor_->load(
+                        request.id,
+                        std::move(request.project_id),
+                        std::move(settings)))
+                {
+                    record_command_error(request.id);
+                }
+            }
+            else if constexpr (
+                std::is_same_v<Request, SaveImageProject>)
+            {
+                auto settings = core::ApplicationConfig{};
+                {
+                    const auto lock =
+                        std::scoped_lock{state_mutex_};
+                    settings = settings_;
+                }
+                if (!image_editor_ ||
+                    !image_editor_->save(
+                        request.id,
+                        request.project_id,
+                        request.expected_revision,
+                        std::move(settings)))
+                {
+                    record_command_error(request.id);
+                }
+            }
+            else if constexpr (
+                std::is_same_v<Request, RenameImageProject>)
+            {
+                if (!image_editor_ ||
+                    !image_editor_->rename(
+                        request.id,
+                        request.project_id,
+                        request.expected_revision,
+                        std::move(request.new_name)))
+                {
+                    record_command_error(request.id);
+                }
+            }
+            else if constexpr (
+                std::is_same_v<Request, DeleteImageProject>)
+            {
+                auto settings = core::ApplicationConfig{};
+                {
+                    const auto lock =
+                        std::scoped_lock{state_mutex_};
+                    settings = settings_;
+                }
+                if (!image_editor_ ||
+                    !image_editor_->remove(
+                        request.id,
+                        std::move(request.project_id),
+                        std::move(settings)))
+                {
+                    record_command_error(request.id);
+                }
+            }
             else
             {
                 record_command_error(request.id);
             }
         },
         std::move(command));
+}
+
+auto ApplicationRoot::advance_image_editor() -> void
+{
+    if (!image_editor_)
+    {
+        return;
+    }
+    image_editor_->update();
+    while (auto completion =
+               image_editor_->poll_completion())
+    {
+        if (!completion->result)
+        {
+            if (completion->result.error().published_config)
+            {
+                const auto lock =
+                    std::scoped_lock{state_mutex_};
+                settings_ =
+                    *completion->result.error()
+                         .published_config;
+            }
+            record_command_error(completion->command_id);
+            continue;
+        }
+        if (completion->result->config)
+        {
+            const auto lock =
+                std::scoped_lock{state_mutex_};
+            settings_ =
+                *completion->result->config;
+        }
+    }
 }
 
 auto ApplicationRoot::begin_paint(
@@ -660,7 +767,7 @@ auto ApplicationRoot::begin_image_paint(
         return;
     }
     if (active_job(jobs_.snapshot().phase) ||
-        !image_paint_runtime_ || !image_projects_)
+        !image_paint_runtime_ || !image_editor_)
     {
         record_command_error(request.id);
         return;
@@ -678,7 +785,7 @@ auto ApplicationRoot::begin_image_paint(
         }
     }
 
-    const auto project = image_projects_->ready_project(
+    const auto project = image_editor_->ready_project(
         request.project_id,
         request.project_revision);
     if (!project)
@@ -954,7 +1061,7 @@ auto ApplicationRoot::advance_image_paint(
     {
         return;
     }
-    if (!image_paint_runtime_ || !image_projects_ ||
+    if (!image_paint_runtime_ || !image_editor_ ||
         !active_image_paint_component_)
     {
         record_command_error(job.command_id.value_or(0U));
@@ -978,7 +1085,7 @@ auto ApplicationRoot::advance_image_paint(
         observation = *observed;
     }
 
-    const auto project = image_projects_->snapshot();
+    const auto project = image_editor_->snapshot();
     const auto ticked = image_paint_jobs_.tick(
         now_ms,
         observation,
@@ -1083,6 +1190,8 @@ auto ApplicationRoot::advance_paint_preview(
 auto ApplicationRoot::advance_shutdown(
     std::uint64_t now_ms) -> void
 {
+    advance_image_editor();
+
     const auto job = jobs_.snapshot();
     if (active_job(job.phase))
     {
@@ -1094,7 +1203,7 @@ auto ApplicationRoot::advance_shutdown(
             (paint &&
              (!paint_runtime_ || !active_paint_component_)) ||
             (image &&
-             (!image_paint_runtime_ || !image_projects_ ||
+             (!image_paint_runtime_ || !image_editor_ ||
               !active_image_paint_component_)))
         {
             record_command_error(
@@ -1166,7 +1275,7 @@ auto ApplicationRoot::advance_shutdown(
             else
             {
                 const auto project =
-                    image_projects_->snapshot();
+                    image_editor_->snapshot();
                 ticked = static_cast<bool>(
                     image_paint_jobs_.tick(
                         now_ms,
@@ -1198,6 +1307,23 @@ auto ApplicationRoot::advance_shutdown(
             active_image_paint_component_.reset();
         }
         paint_shutdown_cancel_requested_ = false;
+    }
+
+    if (image_editor_)
+    {
+        const auto editor =
+            image_editor_->session_snapshot();
+        if (editor.persistence_command ||
+            editor.completion_pending ||
+            editor.active_draft.pending ||
+            editor.active_draft.in_flight ||
+            editor.pipeline.phase ==
+                ImageEditorPipelinePhase::Decoding ||
+            editor.pipeline.phase ==
+                ImageEditorPipelinePhase::Composing)
+        {
+            return;
+        }
     }
 
     if (active_paint_preview_generation_.load(
@@ -1273,9 +1399,9 @@ auto ApplicationRoot::publish_locked(
     snapshot.esp_enabled = esp_enabled_;
     snapshot.settings = settings_;
     snapshot.image_editor =
-        image_projects_
-            ? image_projects_->snapshot()
-            : ImageEditorPipelineSnapshot{};
+        image_editor_
+            ? image_editor_->session_snapshot()
+            : ImageEditorSessionSnapshot{};
     snapshot.job = jobs_.snapshot();
     snapshot.preview = preview_.snapshot();
     snapshot.command_queue =

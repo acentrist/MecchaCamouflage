@@ -32,7 +32,8 @@ struct ImageProjectSaveRequest
 struct ImageProjectRenameRequest
 {
     CommandId command_id{};
-    std::string project_id{};
+    std::shared_ptr<const core::ImageProject> project{};
+    std::uint64_t expected_revision{};
     std::string new_name{};
 };
 

@@ -293,6 +293,26 @@ auto main() -> int
         !pipeline.ready_project(ProjectId, 6U),
         "a ready project was returned for a stale revision");
 
+    const auto replaced = pipeline.replace(project(6U));
+    passed &= expect(
+        replaced.has_value() &&
+            wait_until_settled(pipeline) &&
+            pipeline.ready_project(ProjectId, 6U),
+        "an explicit project load could not replace a newer editor revision");
+    pipeline.clear();
+    passed &= expect(
+        pipeline.snapshot() == ImageEditorPipelineSnapshot{} &&
+            !pipeline.ready_project(ProjectId, 6U),
+        "clearing an idle editor retained its ready project");
+
+    const auto restored = pipeline.submit(project(7U));
+    passed &= expect(
+        restored.has_value() &&
+            wait_until_settled(pipeline),
+        "the cleared editor could not be reused");
+    const auto current_ready =
+        pipeline.ready_project(ProjectId, 7U);
+
     auto invalid = project(8U);
     invalid.canonical_atlas.reset();
     passed &= expect(
@@ -302,7 +322,8 @@ auto main() -> int
             pipeline.submit(project(7U)) ==
                 std::unexpected(
                     ImageEditorSubmitError::StaleRevision) &&
-            pipeline.ready_project(ProjectId, 7U) == ready,
+            pipeline.ready_project(ProjectId, 7U) ==
+                current_ready,
         "invalid or stale edits disturbed the ready project");
 
     auto superseded_decoder = SupersededDecoder{};
@@ -404,6 +425,33 @@ auto main() -> int
                 ImageDecodeError::MalformedImage &&
             !failing_pipeline.ready_project(ProjectId, 12U),
         "decode failure did not remain typed and fail closed");
+
+    auto clearing_decoder = SupersededDecoder{};
+    auto clearing_composer = TestComposer{};
+    auto clearing_pipeline =
+        meccha::application::ImageEditorPipeline{
+            clearing_decoder,
+            clearing_composer,
+        };
+    passed &= expect(
+        clearing_pipeline.submit(project(13U)).has_value() &&
+            clearing_decoder.wait_until_first_decode(),
+        "the clear-during-work fixture did not start");
+    clearing_pipeline.clear();
+    for (auto attempt = 0;
+         attempt < 1000 &&
+         clearing_pipeline.snapshot().phase !=
+             ImageEditorPipelinePhase::Empty;
+         ++attempt)
+    {
+        clearing_pipeline.update();
+        std::this_thread::sleep_for(1ms);
+    }
+    passed &= expect(
+        clearing_pipeline.snapshot() ==
+                ImageEditorPipelineSnapshot{} &&
+            !clearing_pipeline.ready_project(ProjectId, 13U),
+        "clear allowed cancelled editor work to publish");
 
     composition_pipeline.shutdown();
     passed &= expect(

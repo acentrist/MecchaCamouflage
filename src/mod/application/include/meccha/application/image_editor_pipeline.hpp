@@ -99,6 +99,10 @@ public:
     [[nodiscard]] auto submit(core::ImageProject project)
         -> std::expected<JobGeneration, ImageEditorSubmitError>;
 
+    [[nodiscard]] auto replace(core::ImageProject project)
+        -> std::expected<JobGeneration, ImageEditorSubmitError>;
+
+    auto clear() noexcept -> void;
     auto update() -> void;
     auto shutdown() noexcept -> void;
 
@@ -111,11 +115,16 @@ public:
         -> std::shared_ptr<const core::ImageProject> override;
 
 private:
+    [[nodiscard]] auto admit(
+        core::ImageProject project,
+        bool enforce_monotonic_revision)
+        -> std::expected<JobGeneration, ImageEditorSubmitError>;
     auto start(
         JobGeneration generation,
         std::shared_ptr<const core::ImageProject> project)
         -> bool;
     auto start_pending() -> bool;
+    auto clear_completed() noexcept -> void;
     auto fail(ImageEditorPipelineFailure failure) -> void;
 
     ImageProjectDecodeWorker decode_worker_;
@@ -130,6 +139,7 @@ private:
     ImageEditorPipelinePhase active_phase_{
         ImageEditorPipelinePhase::Empty};
     bool work_active_{};
+    bool clear_pending_{};
     bool stopped_{};
 };
 } // namespace meccha::application

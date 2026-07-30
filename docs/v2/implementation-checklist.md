@@ -183,6 +183,9 @@ Evidence:
 - [x] Run named project load/save/rename/delete on one owned I/O worker with
   copied immutable requests, typed results, exception containment, reuse, and
   terminal shutdown.
+- [x] Coordinate editor decode/composition, active-draft debounce, optimistic
+  named project operations, typed completions, and terminal shutdown through
+  one project-owned session wired to `ApplicationRoot`.
 - [x] Reject v1 presets with the explicit non-destructive legacy result.
 - [ ] Pass schema, corruption, hostile-container, fault-injection, recovery,
   determinism, and resource-limit tests.
@@ -242,6 +245,10 @@ Evidence:
   - [x] Connect project revisions to an owned decode/composition pipeline that
     coalesces newer edits, cancels superseded work, rejects stale revisions,
     and publishes only an exact project-ID/revision match.
+  - [x] Route typed load/save/rename/delete commands through the editor session,
+    publish persistence/draft pressure in immutable snapshots, preserve current
+    edits during rename, drain draft writes before delete, and close the
+    session only after runtime callbacks are unregistered.
   - [ ] Connect those values to the complete in-game editor lifecycle.
 - [x] Implement deterministic cancellable 1024×512 RGBA composition.
   - [x] Run composition on one owned worker with copied immutable inputs,
@@ -275,6 +282,9 @@ Evidence:
   - [ ] Implement the production UE4SS triangle-anchor capture and queue
     observation adapter.
 - [ ] Integrate v2 project/preset management.
+  - [x] Connect the v2-only project store and session transaction boundary to
+    the application command variant and composition root.
+  - [ ] Connect native picker/import and complete UCanvas project controls.
 - [ ] Pass decoder, layer, guide, atlas, mapping, preset, fake-runtime, and
   resource-limit tests.
 - [ ] DEFERRED — maintainer interaction required: complete the full Image Paint

@@ -25,6 +25,20 @@ ImageEditorPipeline::~ImageEditorPipeline()
 auto ImageEditorPipeline::submit(core::ImageProject project)
     -> std::expected<JobGeneration, ImageEditorSubmitError>
 {
+    return admit(std::move(project), true);
+}
+
+auto ImageEditorPipeline::replace(core::ImageProject project)
+    -> std::expected<JobGeneration, ImageEditorSubmitError>
+{
+    return admit(std::move(project), false);
+}
+
+auto ImageEditorPipeline::admit(
+    core::ImageProject project,
+    bool enforce_monotonic_revision)
+    -> std::expected<JobGeneration, ImageEditorSubmitError>
+{
     if (stopped_)
     {
         return std::unexpected(ImageEditorSubmitError::Stopped);
@@ -34,7 +48,8 @@ auto ImageEditorPipeline::submit(core::ImageProject project)
         return std::unexpected(
             ImageEditorSubmitError::InvalidProject);
     }
-    if (!snapshot_.project_id.empty() &&
+    if (enforce_monotonic_revision &&
+        !snapshot_.project_id.empty() &&
         snapshot_.project_id == project.project_id &&
         project.revision <= snapshot_.project_revision)
     {
@@ -64,6 +79,7 @@ auto ImageEditorPipeline::submit(core::ImageProject project)
     ready_project_.reset();
     if (work_active_)
     {
+        clear_pending_ = false;
         pending_project_ = std::move(submitted_project);
         pending_generation_ = generation;
         snapshot_ = ImageEditorPipelineSnapshot{
@@ -95,6 +111,41 @@ auto ImageEditorPipeline::submit(core::ImageProject project)
     return generation;
 }
 
+auto ImageEditorPipeline::clear() noexcept -> void
+{
+    if (stopped_)
+    {
+        return;
+    }
+
+    ready_project_.reset();
+    pending_project_.reset();
+    pending_generation_ = 0U;
+    snapshot_ = ImageEditorPipelineSnapshot{};
+    if (!work_active_)
+    {
+        active_project_.reset();
+        active_generation_ = 0U;
+        active_phase_ = ImageEditorPipelinePhase::Empty;
+        clear_pending_ = false;
+        return;
+    }
+
+    clear_pending_ = true;
+    if (active_phase_ == ImageEditorPipelinePhase::Decoding)
+    {
+        static_cast<void>(
+            decode_worker_.request_cancel(active_generation_));
+    }
+    else if (
+        active_phase_ == ImageEditorPipelinePhase::Composing)
+    {
+        static_cast<void>(
+            composition_worker_.request_cancel(
+                active_generation_));
+    }
+}
+
 auto ImageEditorPipeline::update() -> void
 {
     if (active_phase_ == ImageEditorPipelinePhase::Decoding)
@@ -102,6 +153,11 @@ auto ImageEditorPipeline::update() -> void
         auto completed = decode_worker_.poll();
         if (!completed)
         {
+            return;
+        }
+        if (clear_pending_)
+        {
+            clear_completed();
             return;
         }
         if (pending_project_)
@@ -161,6 +217,11 @@ auto ImageEditorPipeline::update() -> void
     {
         return;
     }
+    if (clear_pending_)
+    {
+        clear_completed();
+        return;
+    }
     if (pending_project_)
     {
         static_cast<void>(start_pending());
@@ -211,6 +272,7 @@ auto ImageEditorPipeline::update() -> void
     }
     ready_project_ = std::move(ready);
     work_active_ = false;
+    active_project_.reset();
     active_phase_ = ImageEditorPipelinePhase::Ready;
     snapshot_.phase = ImageEditorPipelinePhase::Ready;
     snapshot_.failure.reset();
@@ -231,6 +293,7 @@ auto ImageEditorPipeline::shutdown() noexcept -> void
     active_generation_ = 0U;
     pending_generation_ = 0U;
     work_active_ = false;
+    clear_pending_ = false;
     active_phase_ = ImageEditorPipelinePhase::Stopped;
     snapshot_.phase = ImageEditorPipelinePhase::Stopped;
     snapshot_.pending = false;
@@ -307,9 +370,23 @@ auto ImageEditorPipeline::start_pending() -> bool
     return start(generation, std::move(project));
 }
 
+auto ImageEditorPipeline::clear_completed() noexcept -> void
+{
+    active_project_.reset();
+    pending_project_.reset();
+    ready_project_.reset();
+    active_generation_ = 0U;
+    pending_generation_ = 0U;
+    work_active_ = false;
+    clear_pending_ = false;
+    active_phase_ = ImageEditorPipelinePhase::Empty;
+    snapshot_ = ImageEditorPipelineSnapshot{};
+}
+
 auto ImageEditorPipeline::fail(
     ImageEditorPipelineFailure failure) -> void
 {
+    active_project_.reset();
     ready_project_.reset();
     work_active_ = false;
     active_phase_ = ImageEditorPipelinePhase::Failed;

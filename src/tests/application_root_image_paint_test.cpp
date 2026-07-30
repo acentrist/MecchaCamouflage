@@ -230,7 +230,7 @@ public:
     }
 };
 
-class ReadyProject final : public ImageProjectReadinessPort
+class ReadyProject final : public ImageEditorSessionPort
 {
 public:
     ReadyProject()
@@ -267,9 +267,176 @@ public:
         current_revision_ = revision;
     }
 
+    auto load(
+        CommandId command_id,
+        std::string project_id,
+        core::ApplicationConfig config)
+        -> std::expected<
+            void,
+            ImageEditorSessionStartError> override
+    {
+        ++load_count;
+        config.active_image_project =
+            core::ActiveImageProjectReference{
+                core::ImageProjectReferenceKind::NamedProject,
+                project_id,
+            };
+        completion_ = ImageEditorSessionCompletion{
+            command_id,
+            ImageProjectIoOperation::Load,
+            ImageEditorSessionSuccess{
+                std::move(project_id),
+                current_revision_,
+                1U,
+                std::move(config),
+                false,
+            },
+        };
+        return {};
+    }
+
+    auto save(
+        CommandId command_id,
+        std::string_view project_id,
+        std::uint64_t expected_revision,
+        core::ApplicationConfig config)
+        -> std::expected<
+            void,
+            ImageEditorSessionStartError> override
+    {
+        ++save_count;
+        saved_expected_revision = expected_revision;
+        completion_ = ImageEditorSessionCompletion{
+            command_id,
+            ImageProjectIoOperation::Save,
+            ImageEditorSessionSuccess{
+                std::string{project_id},
+                current_revision_,
+                std::nullopt,
+                std::move(config),
+                false,
+            },
+        };
+        return {};
+    }
+
+    auto rename(
+        CommandId command_id,
+        std::string_view project_id,
+        std::uint64_t expected_revision,
+        std::string new_name)
+        -> std::expected<
+            void,
+            ImageEditorSessionStartError> override
+    {
+        ++rename_count;
+        renamed_expected_revision = expected_revision;
+        renamed_to = std::move(new_name);
+        completion_ = ImageEditorSessionCompletion{
+            command_id,
+            ImageProjectIoOperation::Rename,
+            ImageEditorSessionSuccess{
+                std::string{project_id},
+                current_revision_,
+            },
+        };
+        return {};
+    }
+
+    auto remove(
+        CommandId command_id,
+        std::string project_id,
+        core::ApplicationConfig config)
+        -> std::expected<
+            void,
+            ImageEditorSessionStartError> override
+    {
+        ++delete_count;
+        config.active_image_project.reset();
+        completion_ = ImageEditorSessionCompletion{
+            command_id,
+            ImageProjectIoOperation::Delete,
+            ImageEditorSessionSuccess{
+                std::move(project_id),
+                current_revision_,
+                std::nullopt,
+                std::move(config),
+                true,
+            },
+        };
+        return {};
+    }
+
+    auto update() -> void override
+    {
+    }
+
+    auto poll_completion()
+        -> std::optional<
+            ImageEditorSessionCompletion> override
+    {
+        auto completed = std::move(completion_);
+        completion_.reset();
+        return completed;
+    }
+
+    auto shutdown(bool) noexcept -> void override
+    {
+        stopped_ = true;
+    }
+
+    auto session_snapshot() const
+        -> ImageEditorSessionSnapshot override
+    {
+        auto value = ImageEditorSessionSnapshot{};
+        value.pipeline = snapshot();
+        value.stopped = stopped_;
+        return value;
+    }
+
+    [[nodiscard]] auto operation_counts() const
+        -> std::vector<std::size_t>
+    {
+        return {
+            load_count,
+            save_count,
+            rename_count,
+            delete_count,
+        };
+    }
+
+    [[nodiscard]] auto expected_revisions() const
+        -> std::pair<std::uint64_t, std::uint64_t>
+    {
+        return {
+            saved_expected_revision,
+            renamed_expected_revision,
+        };
+    }
+
+    [[nodiscard]] auto renamed_name() const
+        -> std::string_view
+    {
+        return renamed_to;
+    }
+
+    [[nodiscard]] auto stopped() const -> bool
+    {
+        return stopped_;
+    }
+
 private:
     std::shared_ptr<const core::ImageProject> project_{};
     std::uint64_t current_revision_{7U};
+    std::optional<ImageEditorSessionCompletion> completion_{};
+    std::size_t load_count{};
+    std::size_t save_count{};
+    std::size_t rename_count{};
+    std::size_t delete_count{};
+    std::uint64_t saved_expected_revision{};
+    std::uint64_t renamed_expected_revision{};
+    std::string renamed_to{};
+    bool stopped_{};
 };
 
 class FakeImageRuntime final : public ImagePaintGameRuntimePort
@@ -378,17 +545,61 @@ auto main() -> int
         8U,
     };
 
-    passed &= expect(
-        root.initialize().has_value() &&
-            root.enqueue_command(StartImagePaint{
-                301U,
-                std::string{ProjectId},
-                7U,
-            }) == CommandEnqueueResult::Accepted,
-        "the composition root rejected a typed Image Paint command");
-
     constexpr auto Frame =
         HudFrameIdentity{1U, 2U, 3U, 4U};
+    passed &= expect(
+        root.initialize().has_value(),
+        "the Image Paint composition root did not initialize");
+
+    const auto route = [&callbacks, &root, &Frame](
+                           ApplicationCommand command)
+    {
+        const auto enqueued =
+            root.enqueue_command(std::move(command));
+        callbacks.invoke(Frame);
+        callbacks.invoke(Frame);
+        return enqueued;
+    };
+    passed &= expect(
+        route(LoadImageProject{
+            251U,
+            std::string{ProjectId},
+        }) == CommandEnqueueResult::Accepted &&
+            root.snapshot()->settings.active_image_project &&
+            route(SaveImageProject{
+                252U,
+                std::string{ProjectId},
+                6U,
+            }) == CommandEnqueueResult::Accepted &&
+            route(RenameImageProject{
+                253U,
+                std::string{ProjectId},
+                7U,
+                "Renamed",
+            }) == CommandEnqueueResult::Accepted &&
+            route(DeleteImageProject{
+                254U,
+                std::string{ProjectId},
+            }) == CommandEnqueueResult::Accepted &&
+            !root.snapshot()->settings.active_image_project &&
+            projects.operation_counts() ==
+                std::vector<std::size_t>{1U, 1U, 1U, 1U} &&
+            projects.expected_revisions() ==
+                std::pair<std::uint64_t, std::uint64_t>{
+                    6U,
+                    7U,
+                } &&
+            projects.renamed_name() == "Renamed",
+        "typed Image project commands did not route through the editor session");
+
+    passed &= expect(
+        root.enqueue_command(StartImagePaint{
+            301U,
+            std::string{ProjectId},
+            7U,
+        }) == CommandEnqueueResult::Accepted,
+        "the composition root rejected a typed Image Paint command");
+
     for (auto attempt = 0; attempt < 1000; ++attempt)
     {
         callbacks.invoke(Frame);
@@ -413,10 +624,12 @@ auto main() -> int
         completed->job.phase == JobPhase::Completed &&
             completed->job.feature == Feature::ImagePaint &&
             completed->job.command_id == 301U &&
-            completed->image_editor.phase ==
+            completed->image_editor.pipeline.phase ==
                 ImageEditorPipelinePhase::Ready &&
-            completed->image_editor.project_id == ProjectId &&
-            completed->image_editor.project_revision == 7U &&
+            completed->image_editor.pipeline.project_id ==
+                ProjectId &&
+            completed->image_editor.pipeline.project_revision ==
+                7U &&
             completed->job.progress.total == 1U &&
             completed->job.progress.submitted == 1U &&
             image.capture_count == 1U &&
@@ -544,7 +757,8 @@ auto main() -> int
         "shutdown did not terminally cancel Image Paint");
     callbacks.invoke(Frame);
     passed &= expect(
-        root.finalize_shutdown().has_value(),
+        root.finalize_shutdown().has_value() &&
+            projects.stopped(),
         "Image Paint cancellation did not release final shutdown");
 
     if (passed)

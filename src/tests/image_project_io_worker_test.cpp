@@ -277,7 +277,8 @@ auto main() -> int
     passed &= expect(
         worker.start(ImageProjectRenameRequest{
             202U,
-            std::string{ProjectId},
+            next,
+            2U,
             "Renamed",
         }).has_value(),
         "the named project did not enter off-thread rename");

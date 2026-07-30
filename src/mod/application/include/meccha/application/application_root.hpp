@@ -3,7 +3,7 @@
 #include <meccha/application/application_command_queue.hpp>
 #include <meccha/application/application_snapshot.hpp>
 #include <meccha/application/config_store.hpp>
-#include <meccha/application/image_editor_pipeline.hpp>
+#include <meccha/application/image_editor_session.hpp>
 #include <meccha/application/image_paint_game_runtime.hpp>
 #include <meccha/application/image_paint_job_coordinator.hpp>
 #include <meccha/application/paint_game_runtime.hpp>
@@ -58,7 +58,7 @@ public:
         GameThreadContext& game_thread_context,
         PaintPreviewRuntimePort& paint_preview_runtime,
         ImagePaintGameRuntimePort& image_runtime,
-        ImageProjectReadinessPort& image_projects,
+        ImageEditorSessionPort& image_editor,
         std::size_t queue_capacity,
         std::size_t command_capacity,
         std::size_t diagnostic_capacity);
@@ -101,6 +101,7 @@ private:
         const PaintPreviewError& error,
         std::optional<CommandId> command_id) -> void;
     auto record_command_error(CommandId command_id) -> void;
+    auto advance_image_editor() -> void;
     auto process_commands(std::uint64_t now_ms) noexcept -> void;
     auto process_command(
         ApplicationCommand command,
@@ -146,7 +147,7 @@ private:
     ImagePaintJobCoordinator image_paint_jobs_;
     PaintGameRuntimePort* paint_runtime_{};
     ImagePaintGameRuntimePort* image_paint_runtime_{};
-    ImageProjectReadinessPort* image_projects_{};
+    ImageEditorSessionPort* image_editor_{};
     std::unique_ptr<ApplicationCommandQueue> command_queue_{};
     std::unique_ptr<PaintPreviewController> paint_previews_{};
     std::optional<RuntimeObjectHandle> active_paint_component_{};

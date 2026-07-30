@@ -136,6 +136,9 @@ struct ActiveDraftPersistenceSnapshot
     bool in_flight{};
     bool stopped{};
     std::optional<ImageProjectStoreError> last_error{};
+
+    auto operator==(const ActiveDraftPersistenceSnapshot&) const
+        -> bool = default;
 };
 
 class ActiveDraftPersistenceWorker

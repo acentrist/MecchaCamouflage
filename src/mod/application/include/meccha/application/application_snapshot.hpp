@@ -3,7 +3,7 @@
 #include <meccha/application/application_command_queue.hpp>
 #include <meccha/application/compatibility.hpp>
 #include <meccha/application/game_thread_scheduler.hpp>
-#include <meccha/application/image_editor_pipeline.hpp>
+#include <meccha/application/image_editor_session.hpp>
 #include <meccha/application/job_state.hpp>
 #include <meccha/core/config.hpp>
 
@@ -74,7 +74,7 @@ struct ApplicationSnapshot
     bool ui_open{};
     bool esp_enabled{true};
     core::ApplicationConfig settings{};
-    ImageEditorPipelineSnapshot image_editor{};
+    ImageEditorSessionSnapshot image_editor{};
     JobSnapshot job{};
     PreviewLeaseSnapshot preview{};
     CommandQueueSnapshot command_queue{};

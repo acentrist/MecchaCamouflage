@@ -1,6 +1,7 @@
 #include <meccha/application/image_project_io_worker.hpp>
 
 #include <expected>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string_view>
@@ -76,8 +77,11 @@ auto valid(const ImageProjectIoRequest& request) -> bool
             }
             else
             {
-                return core::valid_image_project_id(
-                           value.project_id) &&
+                return value.project &&
+                       core::validate(*value.project).empty() &&
+                       value.project->revision <
+                           std::numeric_limits<
+                               std::uint64_t>::max() &&
                        !value.new_name.empty();
             }
         },
@@ -154,16 +158,20 @@ auto execute(
             else if constexpr (
                 std::is_same_v<Request, ImageProjectRenameRequest>)
             {
-                auto renamed = projects.rename_named(
-                    value.project_id,
-                    std::move(value.new_name));
-                if (!renamed)
+                auto renamed = *value.project;
+                renamed.display_name =
+                    std::move(value.new_name);
+                ++renamed.revision;
+                auto saved = projects.save_named(
+                    renamed,
+                    value.expected_revision);
+                if (!saved)
                 {
                     return project_failure(
-                        std::move(renamed.error()));
+                        std::move(saved.error()));
                 }
                 return ImageProjectIoValue{
-                    std::move(*renamed),
+                    std::move(renamed),
                 };
             }
             else

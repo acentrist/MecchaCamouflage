@@ -4,8 +4,10 @@ Phase 7 is open. The strict configuration codec, atomic Windows `config.json`
 path, localization catalog boundary, immutable project model, and v2-only
 preset codec, project coordinator, and shared atomic Win32 file adapter are
 implemented. The active-project recovery transaction and bounded off-thread
-active-draft debounce worker are also implemented. Named project commands now
-have an owned off-thread I/O worker. Final composition-root integration and
+active-draft debounce worker are also implemented. Named project commands have
+an owned off-thread I/O worker, and one editor session now coordinates those
+operations with decode/composition, draft persistence, immutable snapshots,
+and `ApplicationRoot`. Production startup recovery, UCanvas controls, and
 glyph coverage are not yet complete.
 
 ## Configuration contract
@@ -174,6 +176,34 @@ command and operation; contains escaping filesystem/codec exceptions; joins
 before reuse; and permanently closes on shutdown. Atomic operations are
 allowed to finish during shutdown rather than being interrupted midway.
 
+`ImageEditorSession` is the project-owned lifetime boundary over the editor
+pipeline, named I/O worker, and active-draft worker. It:
+
+- admits one persistence command at a time and exposes its command/operation
+  pressure in the immutable application snapshot;
+- schedules only a newly ready editor generation for debounced draft storage;
+- loads an explicitly selected named project as a replacement even when its
+  revision is older than the current in-memory edit;
+- saves only an exact ready project, and renames by copying the current ready
+  value, advancing its revision, and publishing it optimistically so unsaved
+  settings/layers are not replaced by an older stored value;
+- drains pending/in-flight draft publication before deleting that identity,
+  preventing the draft worker from recreating a deleted project;
+- returns typed command completions and applies a published config back to the
+  root snapshot;
+- clears deleted editor state and cancels any derived work before stale output
+  can publish; and
+- finishes accepted atomic persistence, flushes the active draft, cancels
+  derived workers, and closes permanently during final shutdown.
+
+`ApplicationRoot` routes the four typed project commands through this narrow
+session port on HUD frames. It never performs project codec or filesystem work
+on the game thread. Session progress is advanced while shutting down, and the
+root retains callbacks until accepted persistence, active derived composition,
+and the final debounced draft are settled. The session is then closed only
+after lifecycle callback unregistration, so callback code cannot race
+destroyed editor state.
+
 `image_project_persistence` verifies missing-reference recovery,
 newer-draft precedence, corrupt-draft isolation, the named-project-first
 partial-failure case, load-before-activate, reference-before-delete,
@@ -182,12 +212,17 @@ coalescing, off-caller-thread publication, failure visibility, and shutdown
 rejection. `image_project_io_worker` covers single-operation admission,
 off-thread load/activate, save, rename revision advance, active delete,
 missing-project failure, exception containment, reuse, and terminal shutdown.
+`image_editor_session` covers load/activate, exact ready-save, draft debounce,
+rename without losing current edits, delete-after-draft-drain, immutable
+pressure, reuse, and terminal shutdown. `application_root_image_paint` verifies
+all four typed project commands, config publication, editor snapshot routing,
+and close-after-lifecycle ordering.
 The portable suite passes on Linux and Windows MSVC Release.
 
 ## Remaining gate
 
-- The application composition root must wire the persistence coordinator and
-  debounce worker to the final Image Paint editor lifecycle.
+- Production composition must run startup recovery and construct the accepted
+  session with the Win32 stores, native decoders, and final UCanvas editor.
 - The final v2-only UI key set and game/OFL fallback glyph coverage remain.
 - Complete per-step fault injection, power-loss/antivirus-lock simulation, and
   native file-picker coverage before Phase 7 closes.

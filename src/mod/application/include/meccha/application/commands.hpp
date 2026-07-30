@@ -90,6 +90,7 @@ struct RenameImageProject
 {
     CommandId id{};
     std::string project_id{};
+    std::uint64_t expected_revision{};
     std::string new_name{};
 };
 

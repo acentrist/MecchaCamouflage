@@ -6,8 +6,10 @@ The canonical atlas compositor and bounded native image decoders are
 implemented and covered by focused contract tests. The compositor consumes
 validated immutable project/layer values and decoded RGBA buffers. Owned
 application workers run decode and composition off-thread, and an editor
-pipeline connects them by exact project identity and revision. These modules
-do not create Unreal textures or drive the complete in-game editor lifecycle.
+pipeline connects them by exact project identity and revision. An editor
+session now coordinates the derived pipeline, active draft, typed project
+operations, and application root. These modules do not create Unreal textures
+or drive the complete in-game editor lifecycle.
 Phase 9 therefore remains open.
 
 ## Native decoder boundary
@@ -67,9 +69,15 @@ existing ready project untouched. Decode/composition failures remain typed and
 no stale atlas is exposed. Shutdown cancels and joins both workers, discards
 pending and ready values, and permanently closes admission.
 
+An explicit load may replace a newer in-memory revision because it represents
+a deliberate user project selection rather than an edit. Clear cancels active
+derived work and returns to an empty editor only after the cancelled result is
+collected; it cannot publish a late atlas.
+
 `image_editor_pipeline_test` covers end-to-end decode/composition publication,
 exact ready lookup, invalid and stale submission isolation, replacement during
-decode and composition, typed decode failure, and terminal shutdown.
+decode and composition, explicit replacement, clear during active work, typed
+decode failure, and terminal shutdown.
 
 ## Canonical composition contract
 
@@ -219,8 +227,8 @@ discard/drain, and typed planner failure.
 
 ## Application root boundary
 
-`ApplicationRoot` now consumes an exact project-ID/revision readiness port and
-a narrow game-thread `ImagePaintGameRuntimePort`. A typed Start command cannot
+`ApplicationRoot` now consumes the `ImageEditorSessionPort` and a narrow
+game-thread `ImagePaintGameRuntimePort`. A typed Start command cannot
 reach game capture until the requested derived atlas is ready. The runtime
 port supplies only the validated raw/reference profiles, triangle/barycentric
 samples, component handle, and pacing; project settings and the atlas remain
@@ -233,11 +241,23 @@ dispatcher with Paint. Typed Cancel, a newer editor revision, and shutdown all
 stop admission and retain ownership until the observed queue drain is
 terminal. No second sender or dispatch policy was introduced.
 
+The session routes typed Load, Save, Rename, and Delete commands to one
+off-thread persistence worker. Ready revisions are debounced to the active
+draft, rename preserves the current editor value rather than reloading older
+stored content, and delete waits for draft publication to become idle before
+clearing the draft and named file. Persistence command identity, operation,
+completion pressure, draft pressure/error, and the derived pipeline are
+published together as immutable application state. Final root shutdown closes
+the session only after active derived work and draft persistence settle and
+runtime callbacks are unregistered.
+
 `application_root_image_paint_test` covers exact ready lookup, body/profile
 capture, planning through final drain, the shared `PaintAtUvWithBrush`
 operation, stale command rejection before capture, typed cancellation under
 queue pressure, edit invalidation during dispatch, immutable snapshot state,
-and cancel-before-lifecycle shutdown.
+cancel-before-lifecycle shutdown, all four project command routes, config
+publication, and editor close ordering. `image_editor_session_test` covers the
+full fake-store load/edit/draft/save/rename/delete lifecycle.
 
 The production runtime adapter still needs to capture validated
 triangle/barycentric anchors and real queue observations from reflected game
@@ -246,7 +266,7 @@ a live production path.
 
 ## Remaining work
 
-- Connect project persistence and editing commands to the application root.
+- Construct the production session from Win32 stores and run startup recovery.
 - Derive and version all three editor-only guide overlays.
 - Implement game-thread texture creation/update/release through the accepted
   runtime adapter.
