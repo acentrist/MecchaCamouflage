@@ -498,6 +498,17 @@ Evidence:
   - [ ] Connect every production Canvas widget/editor activation to that
     product-action boundary and enqueue its typed result.
 - [ ] Complete all editor interactions and body-guide behavior.
+  - [x] Bind an exact project/revision-tagged opaque atlas texture and optional
+    profile-tagged guide overlay into the portable Image Paint section without
+    transferring texture ownership into application or UI state.
+  - [x] Integrate retained topmost selection and move/resize gestures through a
+    local draft that freezes section scrolling, cancels without mutation, and
+    emits one asset-guarded layer replacement only on release.
+  - [x] Reject stale texture bindings, unavailable edit ownership, duplicate
+    gestures while awaiting the published project revision, and reset the
+    local draft on exact revision replacement or panel close.
+  - [ ] Connect ordering, crop, seam wrap, front/back mirror, import/removal,
+    and body-guide generation/lifetime through the product panel.
 - [ ] Complete F9 and configurable F1–F8 hotkey behavior.
   - [x] Implement a bounded application-owned F1–F24 command router with the
     F9/F1–F8 defaults, validated remapping, physical-key repeat suppression
@@ -535,6 +546,10 @@ Evidence:
     field, emit one snapshot-revision-bound project mutation, remain disabled
     without edit ownership, retain compact scrolling, and reject divergent
     document/presentation state.
+  - [x] Prove Image Paint atlas binding, local move/release/cancel behavior,
+    gesture-time scroll exclusion, asset-guarded mutation, stale-asset refusal,
+    edit-availability refusal, revision acknowledgement, and duplicate-action
+    suppression.
 - [ ] DEFERRED — maintainer interaction required: complete the full in-game UI
   walkthrough across languages/resolutions/DPI.
 

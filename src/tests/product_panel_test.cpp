@@ -53,11 +53,33 @@ auto ready_model() -> meccha::application::ProductUiModel
         "Current project",
         9U,
         meccha::core::ImageProjectSettings{},
-        {},
+        {
+            meccha::core::ImageLayer{
+                "source-image",
+                "source.png",
+                meccha::core::ImageMime::Png,
+                128U,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                {},
+                false,
+                false,
+            },
+        },
     };
     model.image_paint.settings =
         model.image_paint.document->settings;
     model.image_paint.project.edit = true;
+    model.image_paint.pipeline = ImageEditorPipelineSnapshot{
+        ImageEditorPipelinePhase::Ready,
+        JobGeneration{3U},
+        model.image_paint.document->project_id,
+        model.image_paint.document->revision,
+        false,
+        std::nullopt,
+    };
     model.esp.enabled = true;
     model.esp.can_toggle = true;
     model.settings.config = meccha::core::ApplicationConfig{};
@@ -166,12 +188,232 @@ auto main(int argc, char** argv) -> int
         return 1;
     }
 
+    auto atlas_input = default_input();
+    atlas_input.image_editor = ImageEditorFrameAssets{
+        model.image_paint.document->project_id,
+        model.image_paint.document->revision,
+        ui::CanvasTextureHandle{700U},
+        std::nullopt,
+    };
+    const auto atlas_frame = compose_product_panel(
+        model,
+        image_tab->state,
+        atlas_input,
+        english);
+    const auto atlas_drawn =
+        atlas_frame &&
+        std::ranges::any_of(
+            atlas_frame->frame.primitives,
+            [](const ui::CanvasPrimitive& primitive)
+            {
+                const auto* texture =
+                    std::get_if<ui::CanvasTexturePrimitive>(
+                        &primitive);
+                return texture &&
+                       texture->texture ==
+                           ui::CanvasTextureHandle{700U};
+            });
+    passed &= expect(
+        atlas_drawn,
+        "exact project/revision atlas assets were not composed");
+
+    const auto atlas_width = std::min(
+        image_tab->layout->content.width,
+        600.0 * image_tab->layout->effective_scale);
+    const auto atlas_rect = ui::CanvasRect{
+        image_tab->layout->content.x +
+            (image_tab->layout->content.width - atlas_width) *
+                0.5,
+        image_tab->layout->content.y + 46.0,
+        atlas_width,
+        atlas_width * 0.5,
+    };
+    auto atlas_press_input = atlas_input;
+    atlas_press_input.pointer = ui::PointerFrame{
+        center(atlas_rect),
+        true,
+        true,
+        false,
+        0.0,
+    };
+    const auto atlas_press = compose_product_panel(
+        model,
+        image_tab->state,
+        atlas_press_input,
+        english);
+    passed &= expect(
+        atlas_press &&
+            atlas_press->state.image_editor.interaction.gesture &&
+            atlas_press->state.image_editor.interaction
+                    .selected_layer ==
+                0U &&
+            !atlas_press->action,
+        "Image Paint atlas press did not retain a local gesture");
+    if (!atlas_press)
+    {
+        return 1;
+    }
+
+    auto atlas_move_input = atlas_input;
+    atlas_move_input.pointer = ui::PointerFrame{
+        {
+            center(atlas_rect).x + atlas_rect.width * 0.1,
+            center(atlas_rect).y,
+        },
+        false,
+        true,
+        false,
+        -3.0,
+    };
+    const auto atlas_move = compose_product_panel(
+        model,
+        atlas_press->state,
+        atlas_move_input,
+        english);
+    passed &= expect(
+        atlas_move && atlas_move->state.image_editor.draft &&
+            atlas_move->state.image_editor.draft->layer_index ==
+                0U &&
+            atlas_move->state.image_editor.draft->layer.center_x >
+                model.image_paint.document->layers[0U].center_x &&
+            atlas_move->state.section_scroll[1U].offset_y == 0.0 &&
+            !atlas_move->action,
+        "Image Paint atlas move did not remain local or froze scrolling");
+    if (!atlas_move)
+    {
+        return 1;
+    }
+
+    auto atlas_release_input = atlas_input;
+    atlas_release_input.pointer = ui::PointerFrame{
+        atlas_move_input.pointer.position,
+        false,
+        false,
+        true,
+        0.0,
+    };
+    const auto atlas_release = compose_product_panel(
+        model,
+        atlas_move->state,
+        atlas_release_input,
+        english);
+    const auto* atlas_release_mutation =
+        atlas_release && atlas_release->action
+            ? std::get_if<UiMutateCurrentImageProject>(
+                  &atlas_release->action->action)
+            : nullptr;
+    const auto* atlas_layer_mutation =
+        atlas_release_mutation
+            ? std::get_if<ReplaceImageLayerMutation>(
+                  &atlas_release_mutation->mutation)
+            : nullptr;
+    passed &= expect(
+        atlas_layer_mutation &&
+            atlas_layer_mutation->layer_index == 0U &&
+            atlas_layer_mutation->expected_asset_id ==
+                "source-image" &&
+            atlas_layer_mutation->layer.center_x >
+                model.image_paint.document->layers[0U].center_x &&
+            atlas_release->action->expected_snapshot_revision ==
+                model.source_revision &&
+            atlas_release->state.image_editor.awaiting_revision &&
+            !atlas_release->state.image_editor.interaction.gesture,
+        "Image Paint atlas release did not emit one guarded layer mutation");
+    if (!atlas_release || !atlas_layer_mutation)
+    {
+        return 1;
+    }
+
+    const auto awaiting_atlas = compose_product_panel(
+        model,
+        atlas_release->state,
+        atlas_press_input,
+        english);
+    passed &= expect(
+        awaiting_atlas &&
+            awaiting_atlas->state.image_editor.awaiting_revision &&
+            !awaiting_atlas->state.image_editor.interaction.gesture &&
+            !awaiting_atlas->action,
+        "an atlas awaiting project revision admitted another gesture");
+
+    auto revised_model = model;
+    revised_model.source_revision += 1U;
+    revised_model.image_paint.document->revision += 1U;
+    revised_model.image_paint.document->layers[0U] =
+        atlas_layer_mutation->layer;
+    revised_model.image_paint.pipeline.project_revision += 1U;
+    auto revised_atlas_input = atlas_input;
+    revised_atlas_input.image_editor->project_revision += 1U;
+    const auto revised_atlas = compose_product_panel(
+        revised_model,
+        atlas_release->state,
+        revised_atlas_input,
+        english);
+    passed &= expect(
+        revised_atlas &&
+            revised_atlas->state.image_editor.project_revision ==
+                revised_model.image_paint.document->revision &&
+            !revised_atlas->state.image_editor.awaiting_revision &&
+            !revised_atlas->state.image_editor.draft,
+        "a published project revision did not retire the local atlas draft");
+
+    auto atlas_cancel_input = atlas_input;
+    atlas_cancel_input.keyboard.cancel_pressed = true;
+    const auto atlas_cancel = compose_product_panel(
+        model,
+        atlas_move->state,
+        atlas_cancel_input,
+        english);
+    passed &= expect(
+        atlas_cancel &&
+            !atlas_cancel->state.image_editor.draft &&
+            !atlas_cancel->state.image_editor.interaction.gesture &&
+            !atlas_cancel->action,
+        "Image Paint atlas cancel did not discard the local draft");
+
+    auto closed_atlas_model = model;
+    closed_atlas_model.ui_open = false;
+    const auto closed_atlas = compose_product_panel(
+        closed_atlas_model,
+        atlas_move->state,
+        default_input(),
+        english);
+    passed &= expect(
+        closed_atlas &&
+            closed_atlas->state.image_editor ==
+                ImageEditorPanelState{} &&
+            !closed_atlas->action,
+        "panel close retained an Image Paint local gesture/draft");
+
+    auto stale_atlas_input = atlas_input;
+    stale_atlas_input.image_editor->project_revision += 1U;
+    const auto stale_atlas = compose_product_panel(
+        model,
+        image_tab->state,
+        stale_atlas_input,
+        english);
+    passed &= expect(
+        !stale_atlas &&
+            std::holds_alternative<ProductPanelValidationError>(
+                stale_atlas.error()) &&
+            std::get<ProductPanelValidationError>(
+                stale_atlas.error()) ==
+                ProductPanelValidationError::InvalidImageAssets,
+        "stale Image Paint atlas assets entered the Canvas frame");
+
     auto image_settings_input = default_input();
+    const auto image_editor_inset =
+        std::min(
+            image_tab->layout->content.width,
+            600.0 * image_tab->layout->effective_scale) *
+            0.5 +
+        12.0 * image_tab->layout->effective_scale;
     image_settings_input.pointer = ui::PointerFrame{
         {
             image_tab->layout->content.x +
                 image_tab->layout->content.width * 0.75,
-            image_tab->layout->content.y + 68.0,
+            image_tab->layout->content.y + 46.0 +
+                image_editor_inset + 22.0,
         },
         true,
         false,
@@ -217,9 +459,11 @@ auto main(int argc, char** argv) -> int
         const auto maximum_offset =
             std::max(
                 0.0,
-                RowCount * RowHeight - viewport_height);
+                image_editor_inset + RowCount * RowHeight -
+                    viewport_height);
         const auto offset = std::clamp(
-            static_cast<double>(row) * RowHeight -
+            image_editor_inset +
+                static_cast<double>(row) * RowHeight -
                 viewport_height * 0.5,
             0.0,
             maximum_offset);
@@ -237,6 +481,7 @@ auto main(int argc, char** argv) -> int
                 control_x +
                     control_width * horizontal_fraction,
                 image_tab->layout->content.y + ActionInset +
+                    image_editor_inset +
                     static_cast<double>(row) * RowHeight -
                     offset + vertical_in_row,
             },
@@ -503,6 +748,16 @@ auto main(int argc, char** argv) -> int
         unavailable_image_settings &&
             !unavailable_image_settings->action,
         "unavailable Image Paint settings emitted a mutation");
+    const auto unavailable_atlas = compose_product_panel(
+        model,
+        image_tab->state,
+        atlas_press_input,
+        english);
+    passed &= expect(
+        unavailable_atlas &&
+            !unavailable_atlas->state.image_editor.interaction.gesture &&
+            !unavailable_atlas->action,
+        "unavailable Image Paint editor admitted an atlas gesture");
     model.image_paint.project.edit = true;
 
     auto start_input = default_input();

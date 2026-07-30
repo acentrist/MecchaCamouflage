@@ -134,10 +134,47 @@ auto model_valid(const application::ProductUiModel& model) -> bool
 
 auto state_valid(const ProductPanelState& state) -> bool
 {
-    return std::ranges::find(
-               application::ProductUiSections,
-               state.selected) !=
-           application::ProductUiSections.end();
+    const auto section_valid =
+        std::ranges::find(
+            application::ProductUiSections,
+            state.selected) !=
+        application::ProductUiSections.end();
+    const auto editor_identity_valid =
+        (state.image_editor.project_id.empty() &&
+         state.image_editor.project_revision == 0U) ||
+        (core::valid_image_project_id(
+             state.image_editor.project_id) &&
+         state.image_editor.project_revision != 0U);
+    return section_valid && editor_identity_valid &&
+           (!state.image_editor.draft ||
+            core::validate(
+                state.image_editor.draft->layer)
+                .empty());
+}
+
+auto image_assets_valid(
+    const application::ProductUiModel& model,
+    const ProductPanelInput& input) -> bool
+{
+    if (!input.image_editor)
+    {
+        return true;
+    }
+    if (!model.image_paint.document)
+    {
+        return false;
+    }
+    const auto& assets = *input.image_editor;
+    const auto& document = *model.image_paint.document;
+    const auto& pipeline = model.image_paint.pipeline;
+    return assets.atlas_texture.identity != 0U &&
+           assets.project_id == document.project_id &&
+           assets.project_revision == document.revision &&
+           pipeline.phase ==
+               application::ImageEditorPipelinePhase::Ready &&
+           pipeline.project_id == document.project_id &&
+           pipeline.project_revision == document.revision &&
+           !pipeline.pending && !pipeline.failure;
 }
 
 auto accent(const core::Rgb8& color) -> ui::CanvasColor
@@ -441,6 +478,11 @@ auto compose_product_panel(
         return std::unexpected(ProductPanelError{
             ProductPanelValidationError::InvalidLabels});
     }
+    if (!image_assets_valid(model, input))
+    {
+        return std::unexpected(ProductPanelError{
+            ProductPanelValidationError::InvalidImageAssets});
+    }
 
     auto canvas = ui::CanvasFrameBuilder{input.viewport};
     auto interaction = ui::InteractionFrame{
@@ -466,6 +508,7 @@ auto compose_product_panel(
                 ProductPanelError{frame.error()});
         }
         previous.interaction = *next_interaction;
+        previous.image_editor = {};
         return ProductPanelOutput{
             std::move(*frame),
             std::nullopt,

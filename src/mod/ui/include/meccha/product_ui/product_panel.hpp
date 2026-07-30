@@ -3,6 +3,7 @@
 #include <meccha/application/localization.hpp>
 #include <meccha/application/product_ui_actions.hpp>
 #include <meccha/application/product_ui_model.hpp>
+#include <meccha/ui/image_editor.hpp>
 #include <meccha/ui/interaction.hpp>
 #include <meccha/ui/layout.hpp>
 #include <meccha/ui/scroll.hpp>
@@ -45,6 +46,17 @@ struct ProductPanelLabels
     auto operator==(const ProductPanelLabels&) const -> bool = default;
 };
 
+struct ImageEditorPanelState
+{
+    std::string project_id{};
+    std::uint64_t project_revision{};
+    ui::ImageEditorInteractionState interaction{};
+    std::optional<ui::ImageLayerEdit> draft{};
+    bool awaiting_revision{};
+
+    auto operator==(const ImageEditorPanelState&) const -> bool = default;
+};
+
 struct ProductPanelState
 {
     application::ProductUiSection selected{
@@ -52,8 +64,19 @@ struct ProductPanelState
     ui::InteractionState interaction{};
     std::array<ui::ScrollState, application::ProductUiSections.size()>
         section_scroll{};
+    ImageEditorPanelState image_editor{};
 
     auto operator==(const ProductPanelState&) const -> bool = default;
+};
+
+struct ImageEditorFrameAssets
+{
+    std::string project_id{};
+    std::uint64_t project_revision{};
+    ui::CanvasTextureHandle atlas_texture{};
+    std::optional<ui::ImageGuideOverlay> guide{};
+
+    auto operator==(const ImageEditorFrameAssets&) const -> bool = default;
 };
 
 struct ProductPanelInput
@@ -62,6 +85,7 @@ struct ProductPanelInput
     ui::CanvasInsets safe_area{};
     ui::PointerFrame pointer{};
     ui::KeyboardNavigationFrame keyboard{};
+    std::optional<ImageEditorFrameAssets> image_editor{};
 
     auto operator==(const ProductPanelInput&) const -> bool = default;
 };
@@ -79,6 +103,7 @@ enum class ProductPanelValidationError : std::uint8_t
     InvalidModel,
     InvalidState,
     InvalidLabels,
+    InvalidImageAssets,
 };
 
 using ProductPanelError = std::variant<
@@ -87,7 +112,9 @@ using ProductPanelError = std::variant<
     ui::CanvasError,
     ui::InteractionError,
     ui::ScrollError,
-    ui::WidgetError>;
+    ui::WidgetError,
+    ui::ImageEditorInteractionError,
+    ui::ImageEditorDrawError>;
 
 [[nodiscard]] auto build_product_panel_labels(
     const application::LocalizationCatalog& catalog,

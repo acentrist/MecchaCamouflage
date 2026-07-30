@@ -2,13 +2,16 @@
 
 #include <meccha/core/config.hpp>
 
+#include <algorithm>
 #include <array>
 #include <expected>
 #include <iomanip>
+#include <span>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace meccha::product_ui::detail
 {
@@ -118,6 +121,54 @@ auto publish_settings(
     return {};
 }
 
+auto publish_layer_edit(
+    const ui::ImageLayerEdit& edit,
+    const application::ProductUiModel& model,
+    std::optional<application::ProductUiActionEnvelope>& action)
+    -> std::expected<void, ProductPanelError>
+{
+    if (!model.image_paint.document ||
+        edit.layer_index >=
+            model.image_paint.document->layers.size() ||
+        !core::validate(edit.layer).empty())
+    {
+        return std::unexpected(ProductPanelError{
+            ProductPanelValidationError::InvalidModel});
+    }
+    const auto& original =
+        model.image_paint.document->layers[edit.layer_index];
+    if (edit.layer.asset_id != original.asset_id ||
+        edit.layer == original)
+    {
+        return std::unexpected(ProductPanelError{
+            ProductPanelValidationError::InvalidModel});
+    }
+    if (!action)
+    {
+        action = application::ProductUiActionEnvelope{
+            model.source_revision,
+            application::UiMutateCurrentImageProject{
+                application::ReplaceImageLayerMutation{
+                    edit.layer_index,
+                    original.asset_id,
+                    edit.layer,
+                },
+            },
+        };
+    }
+    return {};
+}
+
+auto contains(
+    const ui::CanvasRect& rect,
+    const ui::CanvasPoint& point) -> bool
+{
+    return point.x >= rect.x &&
+           point.x < rect.x + rect.width &&
+           point.y >= rect.y &&
+           point.y < rect.y + rect.height;
+}
+
 auto body_index(core::BodyProfile profile) -> std::size_t
 {
     switch (profile)
@@ -205,14 +256,31 @@ auto compose_image_settings_section(
         layout.content.height - action_height - action_gap,
     };
     const auto row_height = 44.0 * layout.effective_scale;
+    const auto editor_gap = 12.0 * layout.effective_scale;
+    const auto atlas_width = model.image_paint.document
+                                 ? std::min(
+                                       viewport.width,
+                                       600.0 *
+                                           layout.effective_scale)
+                                 : 0.0;
+    const auto atlas_height = atlas_width * 0.5;
+    const auto editor_inset = model.image_paint.document
+                                  ? atlas_height + editor_gap
+                                  : 0.0;
+    auto scroll_pointer = input.pointer;
+    if (state.image_editor.interaction.gesture)
+    {
+        scroll_pointer.wheel_delta = 0.0;
+    }
     const auto scroll = ui::update_scroll_container(
         state.section_scroll[ImageScrollIndex],
         ui::ScrollContainerInput{
             viewport,
             layout.content,
-            row_height * static_cast<double>(ImageRowCount),
+            editor_inset +
+                row_height * static_cast<double>(ImageRowCount),
             row_height,
-            input.pointer,
+            scroll_pointer,
         });
     if (!scroll)
     {
@@ -221,13 +289,185 @@ auto compose_image_settings_section(
     }
     state.section_scroll[ImageScrollIndex] = scroll->state;
 
+    const auto atlas_rect = ui::CanvasRect{
+        viewport.x + (viewport.width - atlas_width) * 0.5,
+        scroll->content_origin_y,
+        atlas_width,
+        atlas_height,
+    };
+    const auto settings_origin_y =
+        scroll->content_origin_y + editor_inset;
+    if (model.image_paint.document)
+    {
+        const auto& document = *model.image_paint.document;
+        if (state.image_editor.project_id !=
+                document.project_id ||
+            state.image_editor.project_revision !=
+                document.revision)
+        {
+            state.image_editor = ImageEditorPanelState{
+                document.project_id,
+                document.revision,
+            };
+        }
+        if (state.image_editor.draft)
+        {
+            const auto& draft = *state.image_editor.draft;
+            if (draft.layer_index >= document.layers.size() ||
+                draft.layer.asset_id !=
+                    document.layers[draft.layer_index].asset_id)
+            {
+                return std::unexpected(ProductPanelError{
+                    ProductPanelValidationError::InvalidState});
+            }
+        }
+
+        auto working_layers = document.layers;
+        if (state.image_editor.draft)
+        {
+            working_layers[state.image_editor.draft->layer_index] =
+                state.image_editor.draft->layer;
+        }
+
+        if (!input.image_editor ||
+            !model.image_paint.project.edit)
+        {
+            state.image_editor.interaction.gesture.reset();
+            state.image_editor.draft.reset();
+            working_layers = document.layers;
+        }
+
+        if (input.image_editor &&
+            model.image_paint.project.edit &&
+            !state.image_editor.awaiting_revision)
+        {
+            auto events =
+                std::array<ui::ImageEditorPointerEvent, 2U>{};
+            auto event_count = std::size_t{};
+            const auto visible_pointer =
+                contains(viewport, input.pointer.position) &&
+                contains(atlas_rect, input.pointer.position);
+            if (input.keyboard.cancel_pressed &&
+                state.image_editor.interaction.gesture)
+            {
+                events[event_count++] = {
+                    ui::ImageEditorPointerEventKind::Cancel,
+                    input.pointer.position,
+                };
+            }
+            else
+            {
+                if (input.pointer.primary_pressed &&
+                    (visible_pointer ||
+                     state.image_editor.interaction.gesture))
+                {
+                    events[event_count++] = {
+                        ui::ImageEditorPointerEventKind::Press,
+                        input.pointer.position,
+                    };
+                }
+                if (input.pointer.primary_released &&
+                    (visible_pointer ||
+                     state.image_editor.interaction.gesture))
+                {
+                    events[event_count++] = {
+                        ui::ImageEditorPointerEventKind::Release,
+                        input.pointer.position,
+                    };
+                }
+                else if (
+                    input.pointer.primary_down &&
+                    state.image_editor.interaction.gesture)
+                {
+                    events[event_count++] = {
+                        ui::ImageEditorPointerEventKind::Move,
+                        input.pointer.position,
+                    };
+                }
+            }
+
+            const auto update =
+                ui::update_image_editor_interaction(
+                    std::move(
+                        state.image_editor.interaction),
+                    working_layers,
+                    atlas_rect,
+                    std::span{events}.first(event_count));
+            if (!update)
+            {
+                return std::unexpected(
+                    ProductPanelError{update.error()});
+            }
+            state.image_editor.interaction =
+                update->state;
+            if (update->cancelled)
+            {
+                state.image_editor.draft.reset();
+                working_layers = document.layers;
+            }
+            else if (update->edit && update->changed)
+            {
+                state.image_editor.draft = update->edit;
+                working_layers[update->edit->layer_index] =
+                    update->edit->layer;
+            }
+            if (update->committed &&
+                state.image_editor.draft)
+            {
+                if (state.image_editor.draft->layer !=
+                    document.layers[
+                        state.image_editor.draft->layer_index])
+                {
+                    const auto published = publish_layer_edit(
+                        *state.image_editor.draft,
+                        model,
+                        action);
+                    if (!published)
+                    {
+                        return published;
+                    }
+                    state.image_editor.awaiting_revision = true;
+                }
+                else
+                {
+                    state.image_editor.draft.reset();
+                }
+            }
+        }
+
+        if (input.image_editor)
+        {
+            const auto drawn = ui::draw_image_editor(
+                canvas,
+                atlas_rect,
+                viewport,
+                ui::ImageEditorView{
+                    model.image_paint.settings.body,
+                    input.image_editor->atlas_texture,
+                    working_layers,
+                    state.image_editor.interaction.selected_layer,
+                    input.image_editor->guide,
+                    model.image_paint.project.edit,
+                });
+            if (!drawn)
+            {
+                return std::unexpected(
+                    ProductPanelError{drawn.error()});
+            }
+        }
+    }
+    else
+    {
+        state.image_editor = {};
+    }
+
     const auto label_width = viewport.width * 0.42;
     const auto gap = 8.0 * layout.effective_scale;
     const auto control = [&](std::size_t row)
     {
         return ui::CanvasRect{
             viewport.x + label_width + gap,
-            scroll->content_origin_y +
+            settings_origin_y +
                 static_cast<double>(row) * row_height +
                 3.0 * layout.effective_scale,
             viewport.width - label_width - gap,
@@ -238,6 +478,7 @@ auto compose_image_settings_section(
     {
         return model.image_paint.project.edit &&
                model.image_paint.document.has_value() &&
+               !state.image_editor.awaiting_revision &&
                intersects(control(row), viewport);
     };
     const auto label = [&](
@@ -250,7 +491,7 @@ auto compose_image_settings_section(
             viewport,
             {
                 viewport.x,
-                scroll->content_origin_y +
+                settings_origin_y +
                     static_cast<double>(row) * row_height +
                     14.0 * layout.effective_scale,
             },

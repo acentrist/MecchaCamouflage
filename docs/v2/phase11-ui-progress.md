@@ -232,18 +232,42 @@ interaction. Portable tests exercise every mapping/face/brush/material/color
 field, exact field isolation, validation, revision binding, unavailable edits,
 compact scrolling, and divergent-document refusal.
 
+## Revision-safe Image Paint atlas integration
+
+The product panel accepts an optional opaque atlas texture and guide overlay
+tagged with the exact current project ID and revision. The binding is accepted
+only while the immutable editor pipeline reports the same ready revision.
+Texture creation, lifetime, and destruction remain outside the portable
+application/UI libraries; stale, zero, pending, failed, or mismatched bindings
+fail before Canvas composition.
+
+The retained 2:1 atlas view now participates in the Image Paint section's
+bounded scroll content. Pointer press/move/resize updates only a panel-local
+draft, freezes wheel scrolling for the gesture, and renders that draft over the
+current atlas. Release emits exactly one snapshot-revision-bound,
+index/asset-guarded `ReplaceImageLayerMutation`; it does not restart worker
+composition on every pointer move. Cancel discards the draft without a
+command. The panel suppresses another gesture until a new immutable project
+revision acknowledges the edit, then resets the transient draft.
+
+Changing edit availability, losing the exact texture binding, switching
+project/revision, or closing the panel clears transient gesture state without
+mutating the project. Portable tests cover exact drawing, move/release/cancel,
+scroll exclusion, stale-asset refusal, edit refusal, duplicate suppression,
+and revision acknowledgement.
+
 This remains a partial product UI milestone. The Image Paint atlas interaction
-and project file operations, direct hotkey capture UX, localized
+toolbar and project file operations, direct hotkey capture UX, localized
 progress/compatibility/diagnostics formatting, and the production UCanvas
 adapter remain open.
 
 ## Remaining work
 
-- Compose the Image Paint atlas editor/project operations and the complete
-  Diagnostics Canvas section from the implemented shell and immutable
-  presentation values.
-- Connect Image Paint layer gestures and project operations to the implemented
-  typed product-action router without direct runtime mutation.
+- Compose Image Paint ordering/crop/wrap/mirror/import/removal/project
+  operations and the complete Diagnostics Canvas section from the implemented
+  shell and immutable presentation values.
+- Connect the remaining Image Paint operations to the implemented typed
+  product-action router without direct runtime mutation.
 - Enqueue the returned product action through the production callback boundary.
 - Connect the production UE4SS key callbacks and input lease.
 - Implement game-font/OFL fallback selection and runtime texture lifetime.
