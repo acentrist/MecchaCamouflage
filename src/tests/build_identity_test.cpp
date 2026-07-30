@@ -33,6 +33,10 @@ auto main() -> int
                      "unexpected preset schema");
     passed &= expect(meccha::build::PayloadManifestSchemaVersion == 1,
                      "unexpected payload manifest schema");
+    passed &= expect(meccha::build::RuntimeOwnershipSchemaVersion == 1,
+                     "unexpected runtime ownership schema");
+    passed &= expect(meccha::build::RuntimeTransactionSchemaVersion == 1,
+                     "unexpected runtime transaction schema");
 
     if (passed)
     {

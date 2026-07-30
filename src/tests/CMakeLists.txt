@@ -46,6 +46,20 @@ target_link_libraries(
 )
 add_test(NAME runtime_transaction COMMAND meccha_runtime_transaction_tests)
 
+if(WIN32)
+    add_executable(
+        meccha_runtime_storage_tests
+        runtime_storage_win32_test.cpp
+    )
+    target_link_libraries(
+        meccha_runtime_storage_tests
+        PRIVATE
+            MecchaCamouflage::LauncherCore
+            meccha_build_options
+    )
+    add_test(NAME runtime_storage COMMAND meccha_runtime_storage_tests)
+endif()
+
 add_test(
     NAME phase1_contracts
     COMMAND

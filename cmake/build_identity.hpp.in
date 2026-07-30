@@ -12,4 +12,8 @@ inline constexpr std::uint32_t ConfigSchemaVersion{@MECCHA_CONFIG_SCHEMA_VERSION
 inline constexpr std::uint32_t PresetSchemaVersion{@MECCHA_PRESET_SCHEMA_VERSION@};
 inline constexpr std::uint32_t PayloadManifestSchemaVersion{
     @MECCHA_PAYLOAD_MANIFEST_SCHEMA_VERSION@};
+inline constexpr std::uint32_t RuntimeOwnershipSchemaVersion{
+    @MECCHA_RUNTIME_OWNERSHIP_SCHEMA_VERSION@};
+inline constexpr std::uint32_t RuntimeTransactionSchemaVersion{
+    @MECCHA_RUNTIME_TRANSACTION_SCHEMA_VERSION@};
 } // namespace meccha::build

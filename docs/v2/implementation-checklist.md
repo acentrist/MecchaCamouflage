@@ -83,7 +83,7 @@ Evidence:
 ## Phase 3 — Safe isolated deployment and loading gate
 
 - [x] Implement manifest, hashing, ownership, and conflict primitives.
-- [ ] Implement the journaled staging/rollback/recovery transaction.
+- [x] Implement the journaled staging/rollback/recovery transaction.
 - [ ] Implement Steam/folder discovery and running-game rejection.
 - [ ] Resolve effective `--ue4ss-path`, override, conventional, and proxy
   loader identity.
@@ -98,6 +98,10 @@ Evidence:
   elevation-required managed preparation.
 - [ ] DEFERRED — maintainer interaction required: verify exact shared UE4SS
   coexistence without modifying unrelated content.
+
+Evidence:
+
+- [`phase3-deployment-gate.md`](phase3-deployment-gate.md)
 
 ## Phase 4 — Runtime lifecycle and teardown gate
 

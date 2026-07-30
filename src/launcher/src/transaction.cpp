@@ -1,5 +1,7 @@
 #include <meccha/launcher/transaction.hpp>
 
+#include <meccha/build_identity.hpp>
+
 #include <algorithm>
 #include <optional>
 #include <string>
@@ -9,7 +11,8 @@ namespace meccha::launcher
 {
 namespace
 {
-constexpr std::uint32_t JournalSchemaVersion = 1;
+constexpr std::uint32_t JournalSchemaVersion =
+    build::RuntimeTransactionSchemaVersion;
 constexpr std::string_view ActiveName{"active"};
 constexpr std::string_view RollbackName{"rollback"};
 constexpr std::string_view StagingPrefix{"staging-"};
@@ -23,7 +26,11 @@ auto transaction_error(RuntimeTransactionErrorCode code, std::string detail)
 auto storage_error(const RuntimeStorageError& error)
     -> std::unexpected<RuntimeTransactionError>
 {
-    return transaction_error(RuntimeTransactionErrorCode::Storage, error.detail);
+    return transaction_error(
+        error.code == RuntimeStorageErrorCode::Io
+            ? RuntimeTransactionErrorCode::Storage
+            : RuntimeTransactionErrorCode::Conflict,
+        error.detail);
 }
 
 auto valid_nonce(std::string_view nonce) -> bool
@@ -232,7 +239,7 @@ auto recover_runtime(RuntimeStorage& storage)
 
     const auto active = identify(storage, ActiveName);
     const auto rollback = identify(storage, RollbackName);
-    const auto staging = identify(storage, journal.staging_name);
+    auto staging = identify(storage, journal.staging_name);
     if (!active || !rollback || !staging)
     {
         if (!active)
@@ -245,6 +252,21 @@ auto recover_runtime(RuntimeStorage& storage)
         }
         return std::unexpected(staging.error());
     }
+    if (staging->state == GenerationState::OwnedPartial &&
+        staging->manifest_sha256 == journal.next_manifest_sha256 &&
+        matches(*active, journal.next_manifest_sha256))
+    {
+        auto removed = remove_generation(
+            storage,
+            journal.staging_name,
+            journal.next_manifest_sha256);
+        if (!removed)
+        {
+            return std::unexpected(removed.error());
+        }
+        staging = GenerationIdentity{GenerationState::Missing, {}};
+    }
+
     for (const auto& [identity, name] : {
              std::pair{*active, ActiveName},
              std::pair{*rollback, RollbackName},

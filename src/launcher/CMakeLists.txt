@@ -26,6 +26,11 @@ target_link_libraries(
 )
 
 if(WIN32)
-    target_sources(meccha_launcher_core PRIVATE src/hash_win32.cpp)
+    target_sources(
+        meccha_launcher_core
+        PRIVATE
+            src/hash_win32.cpp
+            src/runtime_storage_win32.cpp
+    )
     target_link_libraries(meccha_launcher_core PRIVATE bcrypt)
 endif()

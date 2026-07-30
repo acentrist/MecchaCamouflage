@@ -34,6 +34,7 @@ enum class ManifestErrorCode : std::uint8_t
     Role,
     Hash,
     TotalSize,
+    GeneratedPath,
 };
 
 struct ManifestError
@@ -60,11 +61,15 @@ struct PayloadManifest
     std::string product_version{};
     std::string ue4ss_commit{};
     std::vector<ManifestFile> files{};
+    std::vector<std::string> generated_paths{};
     std::uint64_t total_size{};
 
     auto operator==(const PayloadManifest&) const -> bool = default;
 };
 
 [[nodiscard]] auto parse_payload_manifest(std::string_view json)
+    -> std::expected<PayloadManifest, ManifestError>;
+
+[[nodiscard]] auto parse_payload_manifest_unbound(std::string_view json)
     -> std::expected<PayloadManifest, ManifestError>;
 } // namespace meccha::launcher

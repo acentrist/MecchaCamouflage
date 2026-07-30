@@ -7,6 +7,7 @@
 #include <bcrypt.h>
 
 #include <algorithm>
+#include <array>
 #include <limits>
 #include <string>
 #include <utility>
@@ -74,19 +75,51 @@ private:
     BCRYPT_HASH_HANDLE value_{};
 };
 
+class FileHandle
+{
+public:
+    explicit FileHandle(HANDLE value) : value_(value) {}
+    FileHandle(const FileHandle&) = delete;
+    auto operator=(const FileHandle&) -> FileHandle& = delete;
+
+    ~FileHandle()
+    {
+        if (value_ != INVALID_HANDLE_VALUE)
+        {
+            static_cast<void>(CloseHandle(value_));
+        }
+    }
+
+    [[nodiscard]] auto get() const noexcept -> HANDLE
+    {
+        return value_;
+    }
+
+private:
+    HANDLE value_{INVALID_HANDLE_VALUE};
+};
+
 [[nodiscard]] auto succeeded(NTSTATUS status) noexcept -> bool
 {
     return status >= 0;
 }
 
-auto error(HashErrorCode code, NTSTATUS status, std::string detail)
-    -> std::unexpected<HashError>
+auto error(
+    HashErrorCode code,
+    std::int32_t native_status,
+    std::string detail) -> std::unexpected<HashError>
 {
     return std::unexpected(HashError{
         code,
-        static_cast<std::int32_t>(status),
+        native_status,
         std::move(detail),
     });
+}
+
+auto bcrypt_error(HashErrorCode code, NTSTATUS status, std::string detail)
+    -> std::unexpected<HashError>
+{
+    return error(code, static_cast<std::int32_t>(status), std::move(detail));
 }
 
 auto read_u32_property(
@@ -103,9 +136,9 @@ auto read_u32_property(
         &bytes_written,
         0);
 }
-} // namespace
 
-auto sha256_bytes(std::span<const std::byte> bytes)
+template <typename Feed>
+auto compute_sha256(Feed&& feed)
     -> std::expected<Sha256Digest, HashError>
 {
     AlgorithmHandle algorithm{};
@@ -116,24 +149,29 @@ auto sha256_bytes(std::span<const std::byte> bytes)
         0);
     if (!succeeded(status))
     {
-        return error(HashErrorCode::Provider, status, "BCrypt could not open SHA-256.");
+        return bcrypt_error(
+            HashErrorCode::Provider,
+            status,
+            "BCrypt could not open SHA-256.");
     }
 
     std::uint32_t object_size{};
-    status = read_u32_property(algorithm.get(), BCRYPT_OBJECT_LENGTH, object_size);
+    status =
+        read_u32_property(algorithm.get(), BCRYPT_OBJECT_LENGTH, object_size);
     if (!succeeded(status))
     {
-        return error(
+        return bcrypt_error(
             HashErrorCode::AlgorithmProperty,
             status,
             "BCrypt could not read the SHA-256 object size.");
     }
 
     std::uint32_t digest_size{};
-    status = read_u32_property(algorithm.get(), BCRYPT_HASH_LENGTH, digest_size);
+    status =
+        read_u32_property(algorithm.get(), BCRYPT_HASH_LENGTH, digest_size);
     if (!succeeded(status))
     {
-        return error(
+        return bcrypt_error(
             HashErrorCode::AlgorithmProperty,
             status,
             "BCrypt could not read the SHA-256 digest size.");
@@ -158,26 +196,44 @@ auto sha256_bytes(std::span<const std::byte> bytes)
         0);
     if (!succeeded(status))
     {
-        return error(HashErrorCode::HashObject, status, "BCrypt could not create SHA-256 state.");
+        return error(
+            HashErrorCode::HashObject,
+            status,
+            "BCrypt could not create SHA-256 state.");
     }
 
-    auto remaining = bytes;
-    while (!remaining.empty())
-    {
-        const auto chunk_size = std::min(
-            remaining.size(),
-            static_cast<std::size_t>(std::numeric_limits<ULONG>::max()));
-        status = BCryptHashData(
-            hash.get(),
-            reinterpret_cast<PUCHAR>(
-                const_cast<std::byte*>(remaining.data())),
-            static_cast<ULONG>(chunk_size),
-            0);
-        if (!succeeded(status))
+    const auto update =
+        [&hash](std::span<const std::byte> bytes)
+        -> std::expected<void, HashError> {
+        auto remaining = bytes;
+        while (!remaining.empty())
         {
-            return error(HashErrorCode::Update, status, "BCrypt could not update SHA-256 state.");
+            const auto chunk_size = std::min(
+                remaining.size(),
+                static_cast<std::size_t>(
+                    std::numeric_limits<ULONG>::max()));
+            const auto update_status = BCryptHashData(
+                hash.get(),
+                reinterpret_cast<PUCHAR>(
+                    const_cast<std::byte*>(remaining.data())),
+                static_cast<ULONG>(chunk_size),
+                0);
+            if (!succeeded(update_status))
+            {
+                return bcrypt_error(
+                    HashErrorCode::Update,
+                    update_status,
+                    "BCrypt could not update SHA-256 state.");
+            }
+            remaining = remaining.subspan(chunk_size);
         }
-        remaining = remaining.subspan(chunk_size);
+        return {};
+    };
+
+    auto fed = std::forward<Feed>(feed)(update);
+    if (!fed)
+    {
+        return std::unexpected(fed.error());
     }
 
     Sha256Digest digest{};
@@ -188,8 +244,94 @@ auto sha256_bytes(std::span<const std::byte> bytes)
         0);
     if (!succeeded(status))
     {
-        return error(HashErrorCode::Finish, status, "BCrypt could not finish SHA-256.");
+        return bcrypt_error(
+            HashErrorCode::Finish,
+            status,
+            "BCrypt could not finish SHA-256.");
     }
     return digest;
+}
+} // namespace
+
+auto sha256_bytes(std::span<const std::byte> bytes)
+    -> std::expected<Sha256Digest, HashError>
+{
+    return compute_sha256(
+        [bytes](const auto& update) -> std::expected<void, HashError> {
+            return update(bytes);
+        });
+}
+
+auto sha256_file(const std::filesystem::path& path)
+    -> std::expected<FileHash, HashError>
+{
+    FileHandle file{CreateFileW(
+        path.c_str(),
+        GENERIC_READ,
+        FILE_SHARE_READ,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN |
+            FILE_FLAG_OPEN_REPARSE_POINT,
+        nullptr)};
+    if (file.get() == INVALID_HANDLE_VALUE)
+    {
+        return error(
+            HashErrorCode::FileOpen,
+            static_cast<std::int32_t>(GetLastError()),
+            "Windows could not open the file for hashing.");
+    }
+
+    LARGE_INTEGER file_size{};
+    if (!GetFileSizeEx(file.get(), &file_size) || file_size.QuadPart < 0)
+    {
+        return error(
+            HashErrorCode::FileSize,
+            static_cast<std::int32_t>(GetLastError()),
+            "Windows could not read the file size.");
+    }
+
+    auto digest = compute_sha256(
+        [&file](const auto& update)
+        -> std::expected<void, HashError> {
+            std::array<std::byte, 64U * 1024U> buffer{};
+            while (true)
+            {
+                DWORD bytes_read{};
+                if (!ReadFile(
+                        file.get(),
+                        buffer.data(),
+                        static_cast<DWORD>(buffer.size()),
+                        &bytes_read,
+                        nullptr))
+                {
+                    return error(
+                        HashErrorCode::FileRead,
+                        static_cast<std::int32_t>(GetLastError()),
+                        "Windows could not read the file for hashing.");
+                }
+                if (bytes_read == 0)
+                {
+                    break;
+                }
+                auto updated = update(
+                    std::span<const std::byte>{
+                        buffer.data(),
+                        static_cast<std::size_t>(bytes_read)});
+                if (!updated)
+                {
+                    return std::unexpected(updated.error());
+                }
+            }
+            return {};
+        });
+    if (!digest)
+    {
+        return std::unexpected(digest.error());
+    }
+    return FileHash{
+        static_cast<std::uint64_t>(file_size.QuadPart),
+        *digest,
+    };
 }
 } // namespace meccha::launcher

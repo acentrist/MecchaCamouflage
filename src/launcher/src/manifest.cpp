@@ -30,6 +30,7 @@ struct RawPayloadManifest
     std::uint32_t schema_version{};
     std::string product_version{};
     std::string ue4ss_commit{};
+    std::vector<std::string> generated_paths{};
     std::vector<RawManifestFile> files{};
 };
 } // namespace detail
@@ -38,6 +39,7 @@ namespace
 {
 constexpr std::size_t MaximumManifestBytes = 4U * 1024U * 1024U;
 constexpr std::size_t MaximumManifestFiles = 4096U;
+constexpr std::size_t MaximumGeneratedPaths = 64U;
 constexpr std::size_t MaximumRelativePathBytes = 1024U;
 
 auto error(ManifestErrorCode code, std::string detail)
@@ -85,40 +87,6 @@ auto parse_role(std::string_view value) -> std::optional<FileRole>
         return FileRole::License;
     }
     return std::nullopt;
-}
-
-auto hex_nibble(char value) -> std::optional<std::byte>
-{
-    if (value >= '0' && value <= '9')
-    {
-        return static_cast<std::byte>(value - '0');
-    }
-    if (value >= 'a' && value <= 'f')
-    {
-        return static_cast<std::byte>(value - 'a' + 10);
-    }
-    return std::nullopt;
-}
-
-auto parse_sha256(std::string_view value) -> std::optional<Sha256Digest>
-{
-    if (value.size() != 64)
-    {
-        return std::nullopt;
-    }
-
-    Sha256Digest digest{};
-    for (std::size_t index = 0; index < digest.bytes.size(); ++index)
-    {
-        const auto high = hex_nibble(value[index * 2]);
-        const auto low = hex_nibble(value[index * 2 + 1]);
-        if (!high || !low)
-        {
-            return std::nullopt;
-        }
-        digest.bytes[index] = (*high << 4) | *low;
-    }
-    return digest;
 }
 
 auto segment_is_windows_safe(std::string_view segment) -> bool
@@ -202,9 +170,22 @@ auto canonical_path_key(std::string_view path) -> std::string
     });
     return key;
 }
+
+auto paths_overlap(std::string_view left, std::string_view right) -> bool
+{
+    const auto left_key = canonical_path_key(left);
+    const auto right_key = canonical_path_key(right);
+    return left_key == right_key ||
+           (left_key.size() > right_key.size() &&
+            left_key.starts_with(right_key) &&
+            left_key[right_key.size()] == '/') ||
+           (right_key.size() > left_key.size() &&
+            right_key.starts_with(left_key) &&
+            right_key[left_key.size()] == '/');
+}
 } // namespace
 
-auto parse_payload_manifest(std::string_view json)
+auto parse_payload_manifest_unbound(std::string_view json)
     -> std::expected<PayloadManifest, ManifestError>
 {
     if (json.empty() || json.size() > MaximumManifestBytes)
@@ -226,14 +207,6 @@ auto parse_payload_manifest(std::string_view json)
     {
         return error(ManifestErrorCode::Schema, "Unsupported payload manifest schema.");
     }
-    if (raw.product_version != build::ProductVersion)
-    {
-        return error(ManifestErrorCode::ProductVersion, "Payload product version does not match the launcher.");
-    }
-    if (raw.ue4ss_commit != build::Ue4ssCommit)
-    {
-        return error(ManifestErrorCode::Ue4ssCommit, "Payload UE4SS commit does not match the launcher.");
-    }
     if (raw.files.empty() || raw.files.size() > MaximumManifestFiles)
     {
         return error(ManifestErrorCode::FileCount, "Payload manifest file count is outside the supported range.");
@@ -243,6 +216,7 @@ auto parse_payload_manifest(std::string_view json)
         raw.schema_version,
         std::move(raw.product_version),
         std::move(raw.ue4ss_commit),
+        {},
         {},
         0,
     };
@@ -260,7 +234,7 @@ auto parse_payload_manifest(std::string_view json)
         {
             return error(ManifestErrorCode::Role, "Unknown payload role: " + raw_file.role);
         }
-        const auto digest = parse_sha256(raw_file.sha256);
+        const auto digest = parse_sha256_hex(raw_file.sha256);
         if (!digest)
         {
             return error(ManifestErrorCode::Hash, "Payload SHA-256 is not canonical lowercase hex.");
@@ -281,6 +255,64 @@ auto parse_payload_manifest(std::string_view json)
                 raw_file.size,
                 *digest,
             });
+    }
+
+    if (raw.generated_paths.size() > MaximumGeneratedPaths)
+    {
+        return error(
+            ManifestErrorCode::GeneratedPath,
+            "Payload generated-path count exceeds the supported range.");
+    }
+    manifest.generated_paths.reserve(raw.generated_paths.size());
+    for (auto& generated_path : raw.generated_paths)
+    {
+        if (!path_is_canonical(generated_path))
+        {
+            return error(
+                ManifestErrorCode::GeneratedPath,
+                "Generated path is not canonical: " + generated_path);
+        }
+        const auto overlaps_file = std::ranges::any_of(
+            manifest.files,
+            [&generated_path](const ManifestFile& file) {
+                return paths_overlap(generated_path, file.path);
+            });
+        const auto overlaps_generated = std::ranges::any_of(
+            manifest.generated_paths,
+            [&generated_path](const std::string& existing) {
+                return paths_overlap(generated_path, existing);
+            });
+        if (overlaps_file || overlaps_generated)
+        {
+            return error(
+                ManifestErrorCode::GeneratedPath,
+                "Generated path overlaps another manifest path: " +
+                    generated_path);
+        }
+        manifest.generated_paths.push_back(std::move(generated_path));
+    }
+    return manifest;
+}
+
+auto parse_payload_manifest(std::string_view json)
+    -> std::expected<PayloadManifest, ManifestError>
+{
+    auto manifest = parse_payload_manifest_unbound(json);
+    if (!manifest)
+    {
+        return std::unexpected(manifest.error());
+    }
+    if (manifest->product_version != build::ProductVersion)
+    {
+        return error(
+            ManifestErrorCode::ProductVersion,
+            "Payload product version does not match the launcher.");
+    }
+    if (manifest->ue4ss_commit != build::Ue4ssCommit)
+    {
+        return error(
+            ManifestErrorCode::Ue4ssCommit,
+            "Payload UE4SS commit does not match the launcher.");
     }
     return manifest;
 }

@@ -6,6 +6,8 @@
 
 #include <array>
 #include <cstddef>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <span>
 #include <string>
@@ -18,6 +20,7 @@ constexpr std::string_view ValidManifest = R"json({
   "schema_version": 1,
   "product_version": "2.0.0",
   "ue4ss_commit": "6c26f038751b3d96059d4a9148f5d093012d55ad",
+  "generated_paths": [],
   "files": [
     {
       "path": "Mods/MecchaCamouflage/dlls/main.dll",
@@ -152,6 +155,34 @@ auto main() -> int
         std::move(overflowing_manifest),
         meccha::launcher::ManifestErrorCode::TotalSize);
 
+    const auto generated = meccha::launcher::parse_payload_manifest(
+        manifest_with_replacement(
+            "\"generated_paths\": []",
+            "\"generated_paths\": [\"Logs\", \"Cache\"]"));
+    passed &= expect(
+        generated && generated->generated_paths.size() == 2,
+        "valid generated paths were rejected");
+    passed &= expect_error(
+        "overlapping generated path",
+        manifest_with_replacement(
+            "\"generated_paths\": []",
+            "\"generated_paths\": [\"Mods\"]"),
+        meccha::launcher::ManifestErrorCode::GeneratedPath);
+    passed &= expect_error(
+        "case-colliding generated paths",
+        manifest_with_replacement(
+            "\"generated_paths\": []",
+            "\"generated_paths\": [\"Logs\", \"logs\"]"),
+        meccha::launcher::ManifestErrorCode::GeneratedPath);
+
+    const auto historical = meccha::launcher::parse_payload_manifest_unbound(
+        manifest_with_replacement(
+            "\"product_version\": \"2.0.0\"",
+            "\"product_version\": \"2.1.0\""));
+    passed &= expect(
+        historical && historical->product_version == "2.1.0",
+        "unbound ownership parsing rejected a historical product version");
+
     const auto duplicate = meccha::launcher::parse_payload_manifest(
         manifest_with_second_path("mods/mecchacamouflage/DLLS/MAIN.DLL"));
     passed &= expect(!duplicate.has_value(),
@@ -214,6 +245,23 @@ auto main() -> int
                 "b00361a396177a9cb410ff61f20015ad",
             "Windows SHA-256 abc vector changed");
     }
+
+    const auto hash_path =
+        std::filesystem::temp_directory_path() /
+        "meccha-camouflage-sha256-vector.bin";
+    {
+        std::ofstream output{hash_path, std::ios::binary | std::ios::trunc};
+        output.write("abc", 3);
+    }
+    const auto file_hash = meccha::launcher::sha256_file(hash_path);
+    std::error_code remove_error{};
+    std::filesystem::remove(hash_path, remove_error);
+    passed &= expect(
+        file_hash && file_hash->size == 3 &&
+            meccha::launcher::sha256_hex(file_hash->sha256) ==
+                "ba7816bf8f01cfea414140de5dae2223"
+                "b00361a396177a9cb410ff61f20015ad",
+        "Windows streaming SHA-256 file vector changed");
 #else
     const auto unsupported_hash = meccha::launcher::sha256_bytes({});
     passed &= expect(!unsupported_hash.has_value(), "non-Windows hashing was accepted");
@@ -224,6 +272,13 @@ auto main() -> int
                 meccha::launcher::HashErrorCode::PlatformUnsupported,
             "non-Windows hashing reported the wrong error");
     }
+    const auto unsupported_file_hash =
+        meccha::launcher::sha256_file("unsupported");
+    passed &= expect(
+        !unsupported_file_hash &&
+            unsupported_file_hash.error().code ==
+                meccha::launcher::HashErrorCode::PlatformUnsupported,
+        "non-Windows file hashing reported the wrong error");
 #endif
 
     if (passed)

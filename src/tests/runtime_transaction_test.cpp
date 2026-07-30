@@ -119,7 +119,9 @@ public:
         if (source == generations.end() ||
             generations.contains(std::string{to}))
         {
-            return std::unexpected(RuntimeStorageError{"invalid fake rename"});
+            return std::unexpected(RuntimeStorageError{
+                RuntimeStorageErrorCode::Io,
+                "invalid fake rename"});
         }
         generations[std::string{to}] = source->second;
         generations.erase(source);
@@ -143,7 +145,9 @@ public:
             (found->second.state != GenerationState::OwnedExact &&
              found->second.state != GenerationState::OwnedPartial))
         {
-            return std::unexpected(RuntimeStorageError{"unsafe fake removal"});
+            return std::unexpected(RuntimeStorageError{
+                RuntimeStorageErrorCode::Conflict,
+                "unsafe fake removal"});
         }
         generations.erase(found);
         mutations.emplace_back("remove " + std::string{name});
@@ -188,6 +192,7 @@ private:
             if (seen_failures == failure_occurrence)
             {
                 return RuntimeStorageError{
+                    RuntimeStorageErrorCode::Io,
                     "injected failure at " + std::string{operation}};
             }
         }
@@ -270,6 +275,10 @@ auto main() -> int
     FakeRuntimeStorage promoted_crash{};
     promoted_crash.generations["active"] = exact(new_manifest);
     promoted_crash.generations["rollback"] = exact(old_manifest);
+    promoted_crash.generations[std::string{Staging}] = {
+        GenerationState::OwnedPartial,
+        new_manifest,
+    };
     promoted_crash.journal = RuntimeTransactionJournal{
         1,
         TransactionPhase::Prepared,

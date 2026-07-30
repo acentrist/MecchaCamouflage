@@ -44,8 +44,16 @@ struct RuntimeTransactionJournal
     auto operator==(const RuntimeTransactionJournal&) const -> bool = default;
 };
 
+enum class RuntimeStorageErrorCode : std::uint8_t
+{
+    Io,
+    InvalidData,
+    Conflict,
+};
+
 struct RuntimeStorageError
 {
+    RuntimeStorageErrorCode code{};
     std::string detail{};
 
     auto operator==(const RuntimeStorageError&) const -> bool = default;
