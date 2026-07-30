@@ -54,6 +54,7 @@ ImageEditorSession::ImageEditorSession(
     ImageProjectPersistenceCoordinator& persistence,
     std::chrono::milliseconds draft_debounce)
     : pipeline_{decoder, composer},
+      persistence_{persistence},
       persistence_worker_{projects, persistence},
       draft_worker_{projects, draft_debounce}
 {
@@ -62,6 +63,64 @@ ImageEditorSession::ImageEditorSession(
 ImageEditorSession::~ImageEditorSession()
 {
     shutdown(true);
+}
+
+auto ImageEditorSession::recover_startup(
+    const core::ApplicationConfig& config)
+    -> std::expected<
+        ImageEditorStartupSnapshot,
+        ImageEditorStartupError>
+{
+    if (stopped_)
+    {
+        return std::unexpected(
+            ImageEditorStartupError::Stopped);
+    }
+    if (startup_.attempted)
+    {
+        return std::unexpected(
+            ImageEditorStartupError::AlreadyAttempted);
+    }
+    if (active_operation_ || completion_ ||
+        pipeline_.snapshot().phase !=
+            ImageEditorPipelinePhase::Empty)
+    {
+        return std::unexpected(
+            ImageEditorStartupError::Busy);
+    }
+
+    startup_.attempted = true;
+    auto recovered = ImageProjectRecoveryResult{};
+    try
+    {
+        recovered = persistence_.recover(config);
+    }
+    catch (...)
+    {
+        startup_.failure =
+            ImageEditorStartupError::PersistenceException;
+        return std::unexpected(*startup_.failure);
+    }
+
+    startup_.source = recovered.source;
+    startup_.diagnostics =
+        std::move(recovered.diagnostics);
+    if (!recovered.project)
+    {
+        return startup_;
+    }
+
+    auto submitted =
+        pipeline_.replace(std::move(*recovered.project));
+    if (!submitted)
+    {
+        startup_.failure =
+            ImageEditorStartupError::Pipeline;
+        startup_.pipeline_error = submitted.error();
+        return std::unexpected(*startup_.failure);
+    }
+    startup_.pipeline_generation = *submitted;
+    return startup_;
 }
 
 auto ImageEditorSession::submit_edit(core::ImageProject project)
@@ -497,6 +556,7 @@ auto ImageEditorSession::session_snapshot() const
                   : std::nullopt;
     return ImageEditorSessionSnapshot{
         pipeline_.snapshot(),
+        startup_,
         command,
         operation,
         completion_.has_value(),

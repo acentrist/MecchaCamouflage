@@ -275,6 +275,37 @@ auto main() -> int
         projects.save_named(original, 0U).has_value(),
         "the named fixture did not save");
 
+    auto startup_config = core::ApplicationConfig{};
+    startup_config.active_image_project =
+        core::ActiveImageProjectReference{
+            core::ImageProjectReferenceKind::NamedProject,
+            std::string{ProjectId},
+        };
+    {
+        auto recovered_session = ImageEditorSession{
+            decoder,
+            composer,
+            projects,
+            persistence,
+            1ms,
+        };
+        const auto recovered =
+            recovered_session.recover_startup(startup_config);
+        passed &= expect(
+            recovered &&
+                recovered->attempted &&
+                recovered->source ==
+                    RecoveredImageProjectSource::NamedProject &&
+                recovered->pipeline_generation &&
+                recovered->diagnostics.empty() &&
+                wait_until_ready(recovered_session, 1U) &&
+                recovered_session.recover_startup(startup_config) ==
+                    std::unexpected(
+                        ImageEditorStartupError::AlreadyAttempted),
+            "startup recovery did not publish the named project exactly once");
+        recovered_session.shutdown(false);
+    }
+
     auto session = ImageEditorSession{
         decoder,
         composer,

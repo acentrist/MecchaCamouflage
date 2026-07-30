@@ -11,6 +11,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace meccha::application
 {
@@ -59,6 +60,29 @@ using ImageEditorSessionResult = std::expected<
     ImageEditorSessionSuccess,
     ImageEditorSessionFailure>;
 
+enum class ImageEditorStartupError : std::uint8_t
+{
+    AlreadyAttempted,
+    Busy,
+    Stopped,
+    PersistenceException,
+    Pipeline,
+};
+
+struct ImageEditorStartupSnapshot
+{
+    bool attempted{};
+    RecoveredImageProjectSource source{
+        RecoveredImageProjectSource::Blank};
+    std::optional<JobGeneration> pipeline_generation{};
+    std::vector<ImageProjectRecoveryDiagnostic> diagnostics{};
+    std::optional<ImageEditorStartupError> failure{};
+    std::optional<ImageEditorSubmitError> pipeline_error{};
+
+    auto operator==(const ImageEditorStartupSnapshot&) const
+        -> bool = default;
+};
+
 struct ImageEditorSessionCompletion
 {
     CommandId command_id{};
@@ -70,6 +94,7 @@ struct ImageEditorSessionCompletion
 struct ImageEditorSessionSnapshot
 {
     ImageEditorPipelineSnapshot pipeline{};
+    ImageEditorStartupSnapshot startup{};
     std::optional<CommandId> persistence_command{};
     std::optional<ImageProjectIoOperation> persistence_operation{};
     bool completion_pending{};
@@ -89,6 +114,12 @@ public:
     auto operator=(const ImageEditorSessionPort&)
         -> ImageEditorSessionPort& = delete;
     ~ImageEditorSessionPort() override = default;
+
+    [[nodiscard]] virtual auto recover_startup(
+        const core::ApplicationConfig& config)
+        -> std::expected<
+            ImageEditorStartupSnapshot,
+            ImageEditorStartupError> = 0;
 
     [[nodiscard]] virtual auto load(
         CommandId command_id,
@@ -141,6 +172,12 @@ public:
     auto operator=(const ImageEditorSession&)
         -> ImageEditorSession& = delete;
     ~ImageEditorSession();
+
+    [[nodiscard]] auto recover_startup(
+        const core::ApplicationConfig& config)
+        -> std::expected<
+            ImageEditorStartupSnapshot,
+            ImageEditorStartupError> override;
 
     [[nodiscard]] auto submit_edit(core::ImageProject project)
         -> std::expected<JobGeneration, ImageEditorSubmitError>;
@@ -213,10 +250,12 @@ private:
         ImageEditorSessionFailure failure) -> void;
 
     ImageEditorPipeline pipeline_;
+    ImageProjectPersistenceCoordinator& persistence_;
     ImageProjectIoWorker persistence_worker_;
     ActiveDraftPersistenceWorker draft_worker_;
     std::optional<ActivePersistenceOperation> active_operation_{};
     std::optional<ImageEditorSessionCompletion> completion_{};
+    ImageEditorStartupSnapshot startup_{};
     JobGeneration scheduled_draft_generation_{};
     std::optional<ActiveDraftScheduleError>
         draft_schedule_error_{};

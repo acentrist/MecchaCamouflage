@@ -262,6 +262,26 @@ public:
                    : nullptr;
     }
 
+    [[nodiscard]] auto recover_startup(
+        const core::ApplicationConfig& config)
+        -> std::expected<
+            ImageEditorStartupSnapshot,
+            ImageEditorStartupError> override
+    {
+        ++recovery_count;
+        recovered_config = config;
+        if (fail_recovery)
+        {
+            return std::unexpected(
+                ImageEditorStartupError::PersistenceException);
+        }
+        startup_.attempted = true;
+        startup_.source =
+            RecoveredImageProjectSource::NamedProject;
+        startup_.pipeline_generation = 1U;
+        return startup_;
+    }
+
     auto set_current_revision(std::uint64_t revision) -> void
     {
         current_revision_ = revision;
@@ -390,6 +410,7 @@ public:
     {
         auto value = ImageEditorSessionSnapshot{};
         value.pipeline = snapshot();
+        value.startup = startup_;
         value.stopped = stopped_;
         return value;
     }
@@ -425,6 +446,17 @@ public:
         return stopped_;
     }
 
+    [[nodiscard]] auto recovery_counts() const
+        -> std::size_t
+    {
+        return recovery_count;
+    }
+
+    auto inject_recovery_failure() -> void
+    {
+        fail_recovery = true;
+    }
+
 private:
     std::shared_ptr<const core::ImageProject> project_{};
     std::uint64_t current_revision_{7U};
@@ -436,6 +468,10 @@ private:
     std::uint64_t saved_expected_revision{};
     std::uint64_t renamed_expected_revision{};
     std::string renamed_to{};
+    core::ApplicationConfig recovered_config{};
+    ImageEditorStartupSnapshot startup_{};
+    std::size_t recovery_count{};
+    bool fail_recovery{};
     bool stopped_{};
 };
 
@@ -597,6 +633,10 @@ auto main() -> int
     passed &= expect(
         root.initialize().has_value(),
         "the Image Paint composition root did not initialize");
+    passed &= expect(
+        projects.recovery_counts() == 1U &&
+            root.snapshot()->image_editor.startup.attempted,
+        "the composition root did not perform editor startup recovery");
 
     const auto route = [&callbacks, &root, &Frame](
                            ApplicationCommand command)
@@ -851,6 +891,41 @@ auto main() -> int
         root.finalize_shutdown().has_value() &&
             projects.stopped(),
         "Image Paint cancellation did not release final shutdown");
+
+    auto failed_storage = FakeStorage{};
+    auto failed_callbacks = FakeCallbacks{};
+    auto failed_executor = RecordingExecutor{};
+    auto failed_thread = FakeThreadContext{};
+    auto failed_preview = FakePreviewRuntime{};
+    auto failed_paint = UnusedPaintRuntime{};
+    auto failed_projects = ReadyProject{};
+    auto failed_image = FakeImageRuntime{};
+    auto failed_esp = FakeEspRuntime{};
+    failed_projects.inject_recovery_failure();
+    auto failed_root = ApplicationRoot{
+        failed_callbacks,
+        failed_executor,
+        failed_storage,
+        failed_paint,
+        failed_thread,
+        failed_preview,
+        failed_image,
+        failed_projects,
+        failed_esp,
+        4U,
+        2U,
+        8U,
+    };
+    const auto failed_initialization =
+        failed_root.initialize();
+    passed &= expect(
+        !failed_initialization &&
+            failed_initialization.error() ==
+                ApplicationRootError::ImageEditorRecovery &&
+            failed_callbacks.callback == nullptr &&
+            failed_root.snapshot()->runtime_phase ==
+                ApplicationRuntimePhase::Incompatible,
+        "editor recovery failure registered runtime callbacks or lost its root state");
 
     if (passed)
     {

@@ -27,6 +27,7 @@ enum class ApplicationRootError : std::uint8_t
 {
     InvalidState,
     ConfigurationLoad,
+    ImageEditorRecovery,
     RuntimeInitialization,
     PendingGameThreadRestore,
     RuntimeShutdown,

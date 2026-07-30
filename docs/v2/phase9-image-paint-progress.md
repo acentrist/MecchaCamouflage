@@ -266,7 +266,8 @@ a live production path.
 
 ## Remaining work
 
-- Construct the production session from Win32 stores and run startup recovery.
+- Construct the production session from the Win32 stores; root-owned startup
+  recovery is already connected.
 - Derive and version all three editor-only guide overlays.
 - Implement game-thread texture creation/update/release through the accepted
   runtime adapter.

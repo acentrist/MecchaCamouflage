@@ -224,6 +224,32 @@ auto ApplicationRoot::initialize()
         publish_locked();
     }
 
+    if (image_editor_)
+    {
+        const auto recovered =
+            image_editor_->recover_startup(settings_);
+        if (!recovered)
+        {
+            const auto lock = std::scoped_lock{state_mutex_};
+            fail_locked(CompatibilityFailure{
+                RuntimeContractId::RuntimeInitialization,
+                ContractFailureKind::ExecutionFailure,
+                GenericFailureMessage,
+            });
+            publish_locked();
+            return std::unexpected(
+                ApplicationRootError::ImageEditorRecovery);
+        }
+        if (!recovered->diagnostics.empty())
+        {
+            const auto lock = std::scoped_lock{state_mutex_};
+            diagnostics_.push(
+                DiagnosticSeverity::Warning,
+                GenericFailureMessage);
+            publish_locked();
+        }
+    }
+
     const auto initialized = lifecycle_.initialize();
     if (!initialized)
     {

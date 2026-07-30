@@ -189,6 +189,10 @@ Evidence:
 - [x] Coordinate editor decode/composition, active-draft debounce, optimistic
   named project operations, typed completions, and terminal shutdown through
   one project-owned session wired to `ApplicationRoot`.
+- [x] Run startup recovery before runtime callback registration, submit the
+  recovered named/draft project to the derived pipeline exactly once, publish
+  its source/diagnostics in the immutable session snapshot, and fail root
+  initialization closed when recovery cannot start.
 - [x] Reject v1 presets with the explicit non-destructive legacy result.
 - [ ] Pass schema, corruption, hostile-container, fault-injection, recovery,
   determinism, and resource-limit tests.
@@ -287,6 +291,8 @@ Evidence:
 - [ ] Integrate v2 project/preset management.
   - [x] Connect the v2-only project store and session transaction boundary to
     the application command variant and composition root.
+  - [x] Connect persisted startup recovery to the root initialization boundary
+    before UE4SS callback registration.
   - [ ] Connect native picker/import and complete UCanvas project controls.
 - [ ] Pass decoder, layer, guide, atlas, mapping, preset, fake-runtime, and
   resource-limit tests.

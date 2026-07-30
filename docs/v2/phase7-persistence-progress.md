@@ -7,8 +7,9 @@ implemented. The active-project recovery transaction and bounded off-thread
 active-draft debounce worker are also implemented. Named project commands have
 an owned off-thread I/O worker, and one editor session now coordinates those
 operations with decode/composition, draft persistence, immutable snapshots,
-and `ApplicationRoot`. Production startup recovery, UCanvas controls, and
-glyph coverage are not yet complete.
+and `ApplicationRoot`. Startup recovery is now part of root initialization.
+Production Win32 composition construction, UCanvas controls, and glyph
+coverage are not yet complete.
 
 ## Configuration contract
 
@@ -179,6 +180,11 @@ allowed to finish during shutdown rather than being interrupted midway.
 `ImageEditorSession` is the project-owned lifetime boundary over the editor
 pipeline, named I/O worker, and active-draft worker. It:
 
+- runs the persistence coordinator's bounded startup recovery exactly once,
+  before normal editor or persistence admission, then submits a recovered
+  named/draft project to the existing decode/composition pipeline;
+- publishes the recovery source, pipeline generation, typed diagnostics, and
+  terminal recovery failure in its immutable session snapshot;
 - admits one persistence command at a time and exposes its command/operation
   pressure in the immutable application snapshot;
 - schedules only a newly ready editor generation for debounced draft storage;
@@ -198,11 +204,16 @@ pipeline, named I/O worker, and active-draft worker. It:
 
 `ApplicationRoot` routes the four typed project commands through this narrow
 session port on HUD frames. It never performs project codec or filesystem work
-on the game thread. Session progress is advanced while shutting down, and the
-root retains callbacks until accepted persistence, active derived composition,
-and the final debounced draft are settled. The session is then closed only
-after lifecycle callback unregistration, so callback code cannot race
-destroyed editor state.
+on a HUD/Canvas callback. During initialization it passes the validated loaded
+configuration through startup recovery before registering the runtime
+callback. A recovery admission or worker-boundary failure leaves the root
+incompatible and registers no callback. Recovery diagnostics remain bounded
+and visible without making missing/corrupt optional editor state fatal.
+Session progress is advanced while shutting down, and the root retains
+callbacks until accepted persistence, active derived composition, and the
+final debounced draft are settled. The session is then closed only after
+lifecycle callback unregistration, so callback code cannot race destroyed
+editor state.
 
 `image_project_persistence` verifies missing-reference recovery,
 newer-draft precedence, corrupt-draft isolation, the named-project-first
@@ -212,17 +223,19 @@ coalescing, off-caller-thread publication, failure visibility, and shutdown
 rejection. `image_project_io_worker` covers single-operation admission,
 off-thread load/activate, save, rename revision advance, active delete,
 missing-project failure, exception containment, reuse, and terminal shutdown.
-`image_editor_session` covers load/activate, exact ready-save, draft debounce,
-rename without losing current edits, delete-after-draft-drain, immutable
-pressure, reuse, and terminal shutdown. `application_root_image_paint` verifies
-all four typed project commands, config publication, editor snapshot routing,
-and close-after-lifecycle ordering.
+`image_editor_session` covers exact-once named startup recovery, load/activate,
+exact ready-save, draft debounce, rename without losing current edits,
+delete-after-draft-drain, immutable pressure, reuse, and terminal shutdown.
+`application_root_image_paint` verifies root-owned startup recovery before
+callback registration, fail-closed recovery, all four typed project commands,
+config publication, editor snapshot routing, and close-after-lifecycle
+ordering.
 The portable suite passes on Linux and Windows MSVC Release.
 
 ## Remaining gate
 
-- Production composition must run startup recovery and construct the accepted
-  session with the Win32 stores, native decoders, and final UCanvas editor.
+- Production composition must construct the accepted session with the Win32
+  stores, native decoders, and final UCanvas editor.
 - The final v2-only UI key set and game/OFL fallback glyph coverage remain.
 - Complete per-step fault injection, power-loss/antivirus-lock simulation, and
   native file-picker coverage before Phase 7 closes.
