@@ -3,10 +3,11 @@
 ## Current status
 
 The manifest, ownership, loader-policy, recoverable transaction, native
-Windows managed-runtime storage, and side-effect-free preparation/removal
-planning foundations are implemented. The managed runtime is not yet connected
-to game-directory mutation, elevation, Steam launch, or the final embedded
-payload, so Phase 3 remains open.
+Windows managed-runtime storage, side-effect-free preparation/removal
+planning, concrete normal/shared execution backend, and Steam launch effect
+are implemented. The native observation/material composition root, production
+elevated broker, and final embedded-resource binding remain open, so Phase 3
+remains open.
 
 ## Implemented contracts
 
@@ -194,7 +195,15 @@ payload, so Phase 3 remains open.
   orders paths deterministically, and publishes through atomic replacement.
   Deterministic MakeCab assembly normalizes an isolated staging snapshot,
   expands the result, and requires exact manifest equivalence before
-  publication. Embedded payload binding remains open.
+  publication.
+- The Win32 embedded-payload boundary reads exact `RCDATA` bytes from the
+  current executable and accepts only a bounded single CAB whose file set,
+  canonical paths, declared sizes, and SHA-256 values exactly match the
+  already-validated manifest. CAB extraction uses a GUID-named private
+  workspace below a caller-approved plain directory, rejects multi-cabinet,
+  undeclared, duplicate, non-canonical, oversized, and corrupt input, copies
+  verified files into memory, and removes the workspace before returning.
+  Final release-resource binding remains open.
 
 ## Automated evidence
 
@@ -282,8 +291,8 @@ without adding a test-only branch to production coordination.
 - Add the minimal elevated two-file broker and alternate-credential contract.
 - Extend the passing owned-file junction fixture to the managed runtime
   generation adapter.
-- Connect the embedded payload source and final runtime generated-path
-  allowlist.
+- Bind the final embedded CAB/manifest resources through the verified payload
+  source and freeze the runtime generated-path allowlist.
 - Run the deferred live managed/shared/UAC/launch checks after the game is
   stopped and a complete trusted UE4SS build exists.
 

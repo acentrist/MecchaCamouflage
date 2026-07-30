@@ -89,9 +89,9 @@ Evidence:
 - [x] Implement Steam/folder discovery and running-game rejection.
 - [x] Resolve effective `--ue4ss-path`, override, conventional, and proxy
   loader identity.
-- [ ] Implement managed, exact shared, and conflict modes.
+- [x] Implement managed, exact shared, and conflict modes.
 - [ ] Implement original-user preparation and minimal elevated broker.
-- [ ] Implement safe reuse, repair, update, cleanup, and `--remove`.
+- [x] Implement safe reuse, repair, update, cleanup, and `--remove`.
 - [ ] Pass temporary-tree, hostile-path, reparse, interrupted-transaction,
   shared-isolation, and alternate-credential tests.
 - [ ] DEFERRED — maintainer interaction required: prepare and launch on a
@@ -364,6 +364,10 @@ Evidence:
   - [x] Generate a deterministic CAB and verify its round trip against the
     canonical manifest.
 - [ ] Embed payload, resources, licenses, and notices.
+  - [x] Implement bounded Win32 `RCDATA` loading and a manifest-exact,
+    in-memory CAB payload source with private extraction and cleanup.
+  - [ ] Bind the final trusted CAB, manifest, profiles, localization, fonts,
+    icon, licenses, and notices into the release EXE.
 - [ ] Build runtime and mod from the same trusted graph.
 - [ ] Complete secret-free PR CI and protected full-build/release CI.
 - [ ] Add binary, provenance, payload, license, and forbidden-artifact checks.

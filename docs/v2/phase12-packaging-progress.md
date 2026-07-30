@@ -2,11 +2,10 @@
 
 ## Current status
 
-Canonical payload-manifest generation and deterministic CAB assembly are
-implemented and registered in the secret-free test graph. Win32 resource
-embedding, the final payload reader, and exact release-artifact verification
-remain open. No launcher executable is considered releasable at this
-checkpoint.
+Canonical payload-manifest generation, deterministic CAB assembly, bounded
+Win32 `RCDATA` loading, and manifest-exact CAB consumption are implemented.
+Final release-resource binding and exact release-artifact verification remain
+open. No launcher executable is considered releasable at this checkpoint.
 
 ## Canonical manifest generator
 
@@ -91,6 +90,33 @@ python tools/v2/build_payload_cab.py \
   --ue4ss-commit 6c26f038751b3d96059d4a9148f5d093012d55ad
 ```
 
+## Win32 embedded payload source
+
+`read_current_module_rcdata` uses the documented
+[`FindResource`/`LoadResource` resource path](https://learn.microsoft.com/windows/win32/menurc/finding-and-loading-resources)
+to copy an exact bounded resource from the current executable.
+`Win32CabPayloadSource` then stages those CAB bytes only in a GUID-named
+workspace below a caller-approved plain directory and enumerates the cabinet
+with
+[`SetupIterateCabinetW`](https://learn.microsoft.com/windows/win32/api/setupapi/nf-setupapi-setupiteratecabinetw).
+
+The source fails closed for:
+
+- empty or oversized resources, payloads, and individual files;
+- multi-cabinet input;
+- non-canonical, undeclared, duplicate, missing, or overlong paths;
+- manifest total-size inconsistencies;
+- file-size or SHA-256 mismatches;
+- corrupt/truncated CAB data; and
+- a reparse or non-directory scratch root.
+
+Every extracted file is reopened without following a reparse point, measured,
+hashed, and copied into source-owned memory. The extraction tree and staged CAB
+must be removed before a successful `open()` returns. Later `read_file()` calls
+accept only canonical manifest paths and return caller-owned byte copies. No
+extracted packaging workspace survives a successful source; rejected inputs
+use the same RAII cleanup path.
+
 ## Automated evidence
 
 `payload_manifest_tool` covers:
@@ -113,6 +139,11 @@ python tools/v2/build_payload_cab.py \
 - a truncated CAB fails verification; and
 - unsafe overlapping output targets are rejected before tool execution.
 
+`embedded_payload` additionally proves exact `RCDATA` reads, root and nested
+CAB files including an empty UE4SS enable marker, workspace cleanup, and
+refusal of missing resources, wrong hashes, undeclared files, duplicate
+manifest paths, hostile lookups, and truncated CAB data.
+
 Portable target-validation coverage runs in the normal Linux graph and the
 Linux ASan/UBSan graph. The MakeCab determinism and round-trip case runs in the
 Windows MSVC Release graph.
@@ -122,7 +153,7 @@ Windows MSVC Release graph.
 - Assemble and freeze the minimal trusted UE4SS runtime layout.
 - Embed CAB, manifest, layout identity, localization, profiles, fonts, icon,
   project/UE4SS/dependency licenses, and notices as Win32 resources.
-- Implement the read-only embedded resource source and bind it to launcher
-  preparation.
+- Bind the read-only resource/CAB source to final launcher material
+  construction.
 - Add final binary, provenance, import/export, license, forbidden-artifact, and
   one-EXE checks.

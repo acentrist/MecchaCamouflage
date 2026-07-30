@@ -606,6 +606,22 @@ add_test(
 
 if(WIN32)
     add_executable(
+        meccha_embedded_payload_tests
+        embedded_payload_win32_test.cpp
+        embedded_payload_test.rc
+    )
+    target_link_libraries(
+        meccha_embedded_payload_tests
+        PRIVATE
+            MecchaCamouflage::LauncherCore
+            meccha_build_options
+    )
+    add_test(
+        NAME embedded_payload
+        COMMAND meccha_embedded_payload_tests
+    )
+
+    add_executable(
         meccha_single_instance_tests
         single_instance_win32_test.cpp
     )

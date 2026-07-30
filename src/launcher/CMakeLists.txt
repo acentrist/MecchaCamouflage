@@ -36,6 +36,7 @@ if(WIN32)
     target_sources(
         meccha_launcher_core
         PRIVATE
+            src/embedded_payload_win32.cpp
             src/execution_win32.cpp
             src/game_discovery_win32.cpp
             src/loader_observation_win32.cpp
@@ -51,6 +52,7 @@ if(WIN32)
         PRIVATE
             advapi32
             ole32
+            setupapi
             shell32
             uuid
     )

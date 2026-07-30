@@ -7,6 +7,10 @@ project(
     LANGUAGES CXX
 )
 
+if(WIN32)
+    enable_language(RC)
+endif()
+
 option(MECCHA_WITH_UE4SS "Build the UE4SS runtime and MecchaCamouflage mod" OFF)
 option(MECCHA_BUILD_TESTS "Build the secret-free v2 test suite" ON)
 option(MECCHA_WARNINGS_AS_ERRORS "Treat project warnings as errors" ON)
