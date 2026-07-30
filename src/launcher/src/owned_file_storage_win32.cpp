@@ -43,6 +43,14 @@ auto complete_receipt(const OwnershipRecord& record) -> Receipt
     };
 }
 
+auto measurement(const OwnershipRecord& record) -> FileMeasurement
+{
+    return FileMeasurement{
+        record.file.size,
+        record.file.sha256,
+    };
+}
+
 auto validate_store_identity(
     const fs::path& target,
     const fs::path& ownership_record,
@@ -509,6 +517,179 @@ auto Win32OwnedFileStore::install(
                : OwnedFileInstallResult::Replaced;
 }
 
+auto Win32OwnedFileStore::prepare_external_install(
+    const OwnedFileExpectation& expected)
+    -> std::expected<
+        OwnedFileExternalInstallIntent,
+        OwnedFileStoreError>
+{
+    if (expected.file.path != manifest_path_ ||
+        expected.file.role != role_)
+    {
+        return error(
+            OwnedFileStoreErrorCode::InvalidRequest,
+            "External owned-file expectation does not match the "
+            "store identity.");
+    }
+    auto recovered = recover();
+    if (!recovered)
+    {
+        return std::unexpected(recovered.error());
+    }
+    const auto state = observe(expected);
+    if (!state)
+    {
+        return std::unexpected(state.error());
+    }
+    const auto next = OwnershipRecord{
+        expected.product_version,
+        expected.manifest_sha256,
+        expected.file,
+    };
+    const auto desired = measurement(next);
+    if (*state == ArtifactState::ExactOwned)
+    {
+        return OwnedFileExternalInstallIntent{
+            OwnedFileInstallResult::Reused,
+            false,
+            desired,
+            desired,
+        };
+    }
+    if (*state != ArtifactState::Missing &&
+        *state != ArtifactState::OwnedPrevious)
+    {
+        return error(
+            OwnedFileStoreErrorCode::Conflict,
+            "Owned-file target is not safe for an external create "
+            "or replacement.");
+    }
+
+    const auto target_parent =
+        detail::inspect_plain_directory_tree(
+            target_.parent_path());
+    if (!target_parent)
+    {
+        return std::unexpected(target_parent.error());
+    }
+    if (!*target_parent)
+    {
+        return error(
+            OwnedFileStoreErrorCode::InvalidRequest,
+            "External owned-file publication requires an existing "
+            "plain target directory.");
+    }
+    auto receipt_parent = detail::ensure_plain_directory_tree(
+        ownership_record_.parent_path());
+    if (!receipt_parent)
+    {
+        return std::unexpected(receipt_parent.error());
+    }
+    auto current_receipt = detail::read_owned_file_receipt(
+        ownership_record_,
+        manifest_path_,
+        role_,
+        false);
+    if (!current_receipt)
+    {
+        return std::unexpected(current_receipt.error());
+    }
+    std::optional<OwnershipRecord> previous{};
+    if (*current_receipt)
+    {
+        previous = (**current_receipt).next;
+    }
+    auto current = detail::measure_plain_file(target_);
+    if (!current)
+    {
+        return std::unexpected(current.error());
+    }
+    const auto still_safe =
+        *state == ArtifactState::Missing
+            ? !*current && !previous
+            : previous && matches(*current, *previous);
+    if (!still_safe)
+    {
+        return error(
+            OwnedFileStoreErrorCode::Conflict,
+            "Owned-file target changed before external "
+            "installation intent.");
+    }
+
+    if (previous && matches(*current, next))
+    {
+        auto completed = detail::write_owned_file_receipt(
+            ownership_record_,
+            complete_receipt(next));
+        if (!completed)
+        {
+            return std::unexpected(completed.error());
+        }
+        return OwnedFileExternalInstallIntent{
+            OwnedFileInstallResult::Reused,
+            false,
+            **current,
+            desired,
+        };
+    }
+
+    auto installing = detail::write_owned_file_receipt(
+        ownership_record_,
+        Receipt{
+            ReceiptPhase::Installing,
+            next,
+            previous,
+        });
+    if (!installing)
+    {
+        return std::unexpected(installing.error());
+    }
+    auto remeasured = detail::measure_plain_file(target_);
+    if (!remeasured)
+    {
+        return std::unexpected(remeasured.error());
+    }
+    if (*remeasured != *current)
+    {
+        return error(
+            OwnedFileStoreErrorCode::Conflict,
+            "Owned-file target changed while recording the "
+            "external installation intent.");
+    }
+    return OwnedFileExternalInstallIntent{
+        *state == ArtifactState::Missing
+            ? OwnedFileInstallResult::Created
+            : OwnedFileInstallResult::Replaced,
+        true,
+        *current,
+        desired,
+    };
+}
+
+auto Win32OwnedFileStore::finalize_external_install(
+    const OwnedFileExpectation& expected)
+    -> std::expected<void, OwnedFileStoreError>
+{
+    auto recovered = recover();
+    if (!recovered)
+    {
+        return std::unexpected(recovered.error());
+    }
+    const auto state = observe(expected);
+    if (!state)
+    {
+        return std::unexpected(state.error());
+    }
+    if (*state != ArtifactState::ExactOwned)
+    {
+        return error(
+            OwnedFileStoreErrorCode::Conflict,
+            "The externally published owned file did not reach "
+            "its expected final identity.");
+    }
+    return {};
+}
+
 auto Win32OwnedFileStore::remove_owned()
     -> std::expected<bool, OwnedFileStoreError>
 {
@@ -569,6 +750,104 @@ auto Win32OwnedFileStore::remove_owned()
         return std::unexpected(receipt_removed.error());
     }
     return true;
+}
+
+auto Win32OwnedFileStore::prepare_external_remove()
+    -> std::expected<
+        std::optional<OwnedFileExternalRemoveIntent>,
+        OwnedFileStoreError>
+{
+    auto recovered = recover();
+    if (!recovered)
+    {
+        return std::unexpected(recovered.error());
+    }
+    const auto can_remove = removable();
+    if (!can_remove)
+    {
+        return std::unexpected(can_remove.error());
+    }
+    if (!*can_remove)
+    {
+        return std::nullopt;
+    }
+    auto receipt = detail::read_owned_file_receipt(
+        ownership_record_,
+        manifest_path_,
+        role_,
+        false);
+    if (!receipt)
+    {
+        return std::unexpected(receipt.error());
+    }
+    auto current = detail::measure_plain_file(target_);
+    if (!current)
+    {
+        return std::unexpected(current.error());
+    }
+    if (!*receipt || !*current ||
+        !matches(*current, (**receipt).next))
+    {
+        return error(
+            OwnedFileStoreErrorCode::Conflict,
+            "Owned-file content changed before external removal.");
+    }
+    auto removing = detail::write_owned_file_receipt(
+        ownership_record_,
+        Receipt{
+            ReceiptPhase::Removing,
+            (**receipt).next,
+            std::nullopt,
+        });
+    if (!removing)
+    {
+        return std::unexpected(removing.error());
+    }
+    auto remeasured = detail::measure_plain_file(target_);
+    if (!remeasured)
+    {
+        return std::unexpected(remeasured.error());
+    }
+    if (*remeasured != *current)
+    {
+        return error(
+            OwnedFileStoreErrorCode::Conflict,
+            "Owned-file target changed while recording the "
+            "external removal intent.");
+    }
+    return OwnedFileExternalRemoveIntent{**current};
+}
+
+auto Win32OwnedFileStore::finalize_external_remove()
+    -> std::expected<void, OwnedFileStoreError>
+{
+    auto recovered = recover();
+    if (!recovered)
+    {
+        return std::unexpected(recovered.error());
+    }
+    auto current = detail::measure_plain_file(target_);
+    if (!current)
+    {
+        return std::unexpected(current.error());
+    }
+    const auto receipt = detail::read_owned_file_receipt(
+        ownership_record_,
+        manifest_path_,
+        role_,
+        true);
+    if (!receipt)
+    {
+        return std::unexpected(receipt.error());
+    }
+    if (*current || *receipt)
+    {
+        return error(
+            OwnedFileStoreErrorCode::Conflict,
+            "The externally removed owned file is still present or "
+            "owned.");
+    }
+    return {};
 }
 
 auto Win32OwnedFileStore::removable()

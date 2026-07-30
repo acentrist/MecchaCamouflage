@@ -34,6 +34,25 @@ struct OwnedFileStoreError
 };
 
 #ifdef _WIN32
+struct OwnedFileExternalInstallIntent
+{
+    OwnedFileInstallResult result{};
+    bool mutation_required{};
+    std::optional<FileMeasurement> expected_current{};
+    FileMeasurement desired{};
+
+    auto operator==(const OwnedFileExternalInstallIntent&) const
+        -> bool = default;
+};
+
+struct OwnedFileExternalRemoveIntent
+{
+    FileMeasurement expected_current{};
+
+    auto operator==(const OwnedFileExternalRemoveIntent&) const
+        -> bool = default;
+};
+
 class Win32OwnedFileStore
 {
 public:
@@ -53,11 +72,29 @@ public:
         std::span<const std::byte> payload)
         -> std::expected<OwnedFileInstallResult, OwnedFileStoreError>;
 
+    auto prepare_external_install(
+        const OwnedFileExpectation& expected)
+        -> std::expected<
+            OwnedFileExternalInstallIntent,
+            OwnedFileStoreError>;
+
+    auto finalize_external_install(
+        const OwnedFileExpectation& expected)
+        -> std::expected<void, OwnedFileStoreError>;
+
     [[nodiscard]] auto removable()
         -> std::expected<bool, OwnedFileStoreError>;
 
     auto remove_owned()
         -> std::expected<bool, OwnedFileStoreError>;
+
+    auto prepare_external_remove()
+        -> std::expected<
+            std::optional<OwnedFileExternalRemoveIntent>,
+            OwnedFileStoreError>;
+
+    auto finalize_external_remove()
+        -> std::expected<void, OwnedFileStoreError>;
 
 private:
     std::filesystem::path target_{};

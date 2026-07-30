@@ -276,6 +276,119 @@ auto main() -> int
         removed_again && !*removed_again,
         "idempotent removal reported a mutation");
 
+    TemporaryTree external_create_tree{};
+    const auto external_create_target =
+        external_create_tree.root / "game" / "dwmapi.dll";
+    const auto external_create_record =
+        external_create_tree.root / "ownership" /
+        "dwmapi.owner.json";
+    Win32OwnedFileStore external_create_store{
+        external_create_target,
+        external_create_record,
+        "dwmapi.dll",
+        FileRole::Proxy};
+    const auto external_create =
+        external_create_store.prepare_external_install(
+            first_expectation);
+    passed &= expect(
+        external_create &&
+            external_create->result ==
+                OwnedFileInstallResult::Created &&
+            external_create->mutation_required &&
+            !external_create->expected_current &&
+            external_create->desired ==
+                FileMeasurement{
+                    first_expectation.file.size,
+                    first_expectation.file.sha256,
+                } &&
+            !fs::exists(external_create_target) &&
+            fs::exists(external_create_record),
+        "external create intent did not remain LocalAppData-only");
+    write_bytes(external_create_target, "proxy-one");
+    const auto external_create_finalized =
+        external_create_store.finalize_external_install(
+            first_expectation);
+    const auto external_create_owned =
+        external_create_store.observe(first_expectation);
+    passed &= expect(
+        external_create_finalized &&
+            external_create_owned &&
+            *external_create_owned == ArtifactState::ExactOwned,
+        "external create was not finalized after target publication");
+
+    const auto external_second_expectation =
+        expectation("2.0.0", "proxy-two");
+    const auto external_replace =
+        external_create_store.prepare_external_install(
+            external_second_expectation);
+    passed &= expect(
+        external_replace &&
+            external_replace->result ==
+                OwnedFileInstallResult::Replaced &&
+            external_replace->mutation_required &&
+            external_replace->expected_current ==
+                FileMeasurement{
+                    first_expectation.file.size,
+                    first_expectation.file.sha256,
+                } &&
+            read_text(external_create_target) == "proxy-one",
+        "external replace intent changed the target or lost its precondition");
+    write_bytes(external_create_target, "proxy-two");
+    const auto external_replace_finalized =
+        external_create_store.finalize_external_install(
+            external_second_expectation);
+    passed &= expect(
+        external_replace_finalized &&
+            read_text(external_create_target) == "proxy-two",
+        "external replacement was not finalized");
+
+    const auto external_remove =
+        external_create_store.prepare_external_remove();
+    passed &= expect(
+        external_remove &&
+            external_remove->has_value() &&
+            (**external_remove).expected_current ==
+                FileMeasurement{
+                    external_second_expectation.file.size,
+                    external_second_expectation.file.sha256,
+                } &&
+            fs::exists(external_create_target) &&
+            fs::exists(external_create_record),
+        "external remove intent changed the target before elevation");
+    fs::remove(external_create_target);
+    const auto external_remove_finalized =
+        external_create_store.finalize_external_remove();
+    passed &= expect(
+        external_remove_finalized &&
+            !fs::exists(external_create_target) &&
+            !fs::exists(external_create_record),
+        "external removal was not finalized");
+
+    TemporaryTree external_abort_tree{};
+    const auto external_abort_record =
+        external_abort_tree.root / "ownership" /
+        "dwmapi.owner.json";
+    Win32OwnedFileStore external_abort_store{
+        external_abort_tree.root / "game" / "dwmapi.dll",
+        external_abort_record,
+        "dwmapi.dll",
+        FileRole::Proxy};
+    const auto external_aborted =
+        external_abort_store.prepare_external_install(
+            first_expectation);
+    const auto external_abort_recovered =
+        external_abort_store.recover();
+    const auto external_abort_state =
+        external_abort_store.observe(first_expectation);
+    passed &= expect(
+        external_aborted &&
+            external_aborted->mutation_required &&
+            external_abort_recovered &&
+            external_abort_state &&
+            *external_abort_state == ArtifactState::Missing &&
+            !fs::exists(external_abort_record),
+        "aborted external install did not roll back its receipt intent");
+
     TemporaryTree exact_unowned_tree{};
     const auto unowned_target =
         exact_unowned_tree.root / "game" / "dwmapi.dll";

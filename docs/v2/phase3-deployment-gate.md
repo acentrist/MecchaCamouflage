@@ -216,6 +216,13 @@ open.
   lowercase hexadecimal characters. Package sources receive the invocation
   mode and bounded runtime scratch parent, while the application rejects a
   missing payload-source object before entering composition.
+- Owned-file transactions expose a narrow external-mutation split for the
+  elevated path. The original-user process revalidates state and durably writes
+  an `installing` or `removing` receipt intent in LocalAppData; a privileged
+  process may then change only the game-directory target; the original-user
+  process recovers/finalizes the receipt from the measured result. An absent
+  privileged mutation rolls the intent back, while a completed mutation is
+  finalized after interruption.
 - Native writability observation walks only absolute normalized plain
   directory components, rejects reparses, opens the nearest existing directory
   with the exact create/delete-child access needed by publication, and treats
@@ -302,7 +309,9 @@ non-clean conflict states.
 The MSVC Release owned-file suite covers create, no-op reuse, owned update,
 idempotent removal, exact-unowned refusal, post-install tampering, payload
 hash mismatch, read-only observation, interrupted receipt publication,
-post-publish install recovery, post-delete removal recovery, and a
+post-publish install recovery, post-delete removal recovery, external
+create/replace/remove intent finalization, no-target-change preparation, and
+aborted external-intent rollback, plus a
 privilege-free NTFS junction fixture. The optional file-symbolic-link variant
 is skipped on hosts where Windows developer-mode link creation is unavailable;
 the junction fixture remains mandatory and passes.
