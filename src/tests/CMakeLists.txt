@@ -22,6 +22,18 @@ target_link_libraries(
 )
 add_test(NAME application_runtime COMMAND meccha_application_runtime_tests)
 
+add_executable(
+    meccha_application_state_tests
+    application_state_test.cpp
+)
+target_link_libraries(
+    meccha_application_state_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(NAME application_state COMMAND meccha_application_state_tests)
+
 add_executable(meccha_core_contract_tests core_contract_test.cpp)
 target_link_libraries(
     meccha_core_contract_tests

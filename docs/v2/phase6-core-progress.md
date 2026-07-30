@@ -3,8 +3,9 @@
 ## Current status
 
 The first frozen domain contracts have moved from the v1 mixed runtime header
-and C# models into focused, dependency-free C++ modules. Phase 6 remains open:
-profile validation, adaptive color compression, application state machines,
+and C# models into focused, dependency-free C++ modules. Typed application
+commands, immutable snapshots, and the job/preview state machines are also in
+place. Phase 6 remains open: profile validation, adaptive color compression,
 properties, sanitizers, and the remainder of the retained algorithms are not
 yet complete.
 
@@ -36,9 +37,37 @@ yet complete.
 - Spectator-safe geometry capabilities.
 - Bounds expansion and projection-scale calibration.
 
+### Configuration boundary
+
+- The v2 configuration type contains only UI, hotkey, Paint, Image Paint, and
+  ESP settings.
+- The exact 16-locale inventory and F1–F24 mapping are validated.
+- The nine UI/action keys must be unique.
+- UI scale and all Paint/Image material/range values are validated as one
+  candidate.
+- No window geometry, opacity, always-on-top, process, WebView, bridge, or
+  injector field exists in the v2 type.
+
+### Application state
+
+- One typed `ApplicationCommand` variant covers all retained Paint, Image
+  Paint, UI/ESP, settings, and image-project actions.
+- Paint and Image Paint share one generation-counted job arbiter and cannot run
+  concurrently.
+- Late planning results cannot mutate a newer job.
+- Cancellation remains non-terminal while native admission or either observed
+  queue remains active.
+- Normal completion requires all work submitted, zero visual/outgoing queue,
+  and visual confirmation.
+- One preview state machine owns the cross-feature lease, guards component
+  identity, and makes restore exactly-once.
+- Snapshots are immutable shared values with monotonic revisions. Diagnostic
+  history has a hard capacity and stable sequence numbers.
+
 ## Evidence
 
-`core_contract_test` ports representative cases from:
+`core_contract_test` and `application_state_test` port representative cases
+from:
 
 - `src/tests/fixtures/v1/paint-domain.json`;
 - `src/tests/fixtures/v1/runtime-pacing.json`;

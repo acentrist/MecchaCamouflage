@@ -1,3 +1,4 @@
+#include <meccha/core/config.hpp>
 #include <meccha/core/esp.hpp>
 #include <meccha/core/image_mapping.hpp>
 #include <meccha/core/image_project.hpp>
@@ -317,6 +318,41 @@ auto main() -> int
             projection_scale_from_sample(960.0, 960.5, 961.0) ==
                 -1.0,
         "ESP geometry/projection contracts drifted");
+
+    const ApplicationConfig config_defaults{};
+    passed &= expect(
+        validate(config_defaults).empty() &&
+            SupportedLocales.size() == 16U &&
+            config_defaults.ui.language == "en" &&
+            config_defaults.ui.scale == 1.0 &&
+            config_defaults.ui.hotkeys.toggle_ui ==
+                FunctionKey::F9 &&
+            config_defaults.esp == EspSettings{},
+        "configuration defaults or locale inventory drifted");
+
+    auto duplicate_hotkey = config_defaults;
+    duplicate_hotkey.ui.hotkeys.image_cancel =
+        FunctionKey::F1;
+    passed &= expect(
+        validate(duplicate_hotkey) ==
+            std::vector{ConfigurationField::DuplicateHotkey},
+        "duplicate action hotkeys were accepted");
+
+    auto invalid_config = config_defaults;
+    invalid_config.schema_version = 2U;
+    invalid_config.ui.language = "en-US";
+    invalid_config.ui.scale = 2.01;
+    invalid_config.ui.hotkeys.toggle_ui =
+        static_cast<FunctionKey>(0U);
+    passed &= expect(
+        validate(invalid_config) ==
+            std::vector{
+                ConfigurationField::SchemaVersion,
+                ConfigurationField::Language,
+                ConfigurationField::UiScale,
+                ConfigurationField::HotkeyRange,
+            },
+        "configuration validation errors are incomplete or unstable");
 
     if (passed)
     {

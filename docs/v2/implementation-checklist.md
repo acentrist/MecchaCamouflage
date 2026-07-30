@@ -144,8 +144,8 @@ Evidence:
 - [ ] Port retained value types and validation to focused C++ modules.
 - [ ] Port profile, region, color/PBR, atlas-mapping, pacing, compression, ESP,
   and timing algorithms.
-- [ ] Implement typed commands and immutable revisioned snapshots.
-- [ ] Implement job arbitration, cancellation generations, preview ownership,
+- [x] Implement typed commands and immutable revisioned snapshots.
+- [x] Implement job arbitration, cancellation generations, preview ownership,
   queue pressure, terminal drain, and shutdown coordination.
 - [ ] Add checked arithmetic and resource limits.
 - [ ] Pass unit, property, golden, state-machine, dependency-boundary, and

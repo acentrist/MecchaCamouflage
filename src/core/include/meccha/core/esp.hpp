@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+#include <meccha/core/paint.hpp>
+
 namespace meccha::core
 {
 enum class EspRole : std::uint8_t
@@ -23,6 +25,21 @@ enum class EspPawnSource : std::uint8_t
 {
     PlayerArray,
     RoleRoster,
+};
+
+struct EspSettings
+{
+    bool enabled{true};
+    EspScope scope{EspScope::All};
+    bool boxes{true};
+    bool skeletons{true};
+    bool names{true};
+    bool distance{true};
+    bool snaplines{true};
+    Rgb8 hider_color{0U, 255U, 136U};
+    Rgb8 hunter_color{255U, 0U, 0U};
+
+    auto operator==(const EspSettings&) const -> bool = default;
 };
 
 [[nodiscard]] auto esp_scope_matches(EspScope scope, EspRole role) -> bool;

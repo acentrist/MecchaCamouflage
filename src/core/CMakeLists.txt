@@ -1,6 +1,7 @@
 add_library(
     meccha_core
     STATIC
+        src/config.cpp
         src/esp.cpp
         src/image_mapping.cpp
         src/image_project.cpp
