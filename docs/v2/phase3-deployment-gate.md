@@ -36,6 +36,15 @@ files, elevation, or the final embedded payload, so Phase 3 remains open.
   and enumerates validated entries before deletion.
 - Unknown or modified content is preserved and reported as a conflict. It is
   never repaired or removed.
+- Steam discovery reads bounded Valve VDF data, resolves App ID `4704690`
+  across default and non-default libraries, validates the app manifest and
+  exact `Chameleon/Binaries/Win64` executable shape, and rejects ambiguous
+  installs.
+- Explicit game-directory selection accepts only the validated installation
+  root or its exact `Win64` directory. Windows registry discovery is isolated
+  behind the native adapter.
+- Running-game detection enumerates process image names through Toolhelp and
+  never opens or attaches to the game process.
 
 ## Automated evidence
 
@@ -53,6 +62,11 @@ Covered Windows directory cases:
 - interrupted partial extraction and retry;
 - unknown content inside `active`;
 - unknown content at the managed runtime root.
+- default and non-default Steam libraries;
+- current and legacy library VDF forms;
+- malformed manifests, traversal install names, missing folder shapes, and
+  ambiguous installations;
+- Windows process enumeration against the calling test executable.
 
 The semantic transaction fake injects failures at every rename boundary
 without adding a test-only branch to production coordination.
@@ -61,9 +75,9 @@ without adding a test-only branch to production coordination.
 
 - Parse and validate Steam launch options and filesystem paths into the loader
   resolver observations.
-- Discover App ID `4704690` across Steam libraries and validate the exact game
-  executable shape, with a folder-picker fallback.
-- Reject prepare/remove while the game is running.
+- Connect the native folder-picker fallback to the validated explicit-directory
+  path.
+- Connect running-game rejection to prepare and remove orchestration.
 - Implement compatible shared-tree observation and mod-only installation.
 - Implement the managed `dwmapi.dll` and `override.txt` mutation set,
   ownership persistence, exact-match reuse, and removal.
