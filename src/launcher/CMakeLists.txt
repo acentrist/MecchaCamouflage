@@ -38,6 +38,7 @@ if(WIN32)
     target_sources(
         meccha_launcher_core
         PRIVATE
+            src/application_win32.cpp
             src/composition_win32.cpp
             src/embedded_payload_win32.cpp
             src/execution_win32.cpp

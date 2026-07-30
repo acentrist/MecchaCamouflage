@@ -114,6 +114,10 @@ Evidence:
   - [x] Compose verified manifest identity, running-game preflight, startup
     recovery, material/observation/execution adapters, and the typed launcher
     workflow behind one synchronous native boundary.
+  - [x] Compose the public CLI, single-instance guard, explicit/automatic game
+    selection with folder-picker fallback, invoking-user LocalAppData paths,
+    running-game-before-package preflight, nonce generation, and execution
+    composition behind a testable native application boundary.
   - [ ] Implement the minimal elevated two-file broker.
 - [x] Implement safe reuse, repair, update, cleanup, and `--remove`.
 - [ ] Pass temporary-tree, hostile-path, reparse, interrupted-transaction,

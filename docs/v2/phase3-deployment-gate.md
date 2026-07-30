@@ -8,8 +8,9 @@ planning, portable observation-to-plan workflow, concrete normal/shared
 execution backend, read-only runtime/shared-state classification, and Steam
 launch effect are implemented. The native original-user observation source is
 also implemented and bound to the execution workflow through a synchronous
-native composition root. The outer launcher entry point, production elevated
-broker, and final embedded-resource binding remain open, so Phase 3 remains
+native composition root. A native application coordinator now owns the public
+CLI-to-composition order. The final GUI entry point/error UI, production
+elevated broker, and embedded-resource binding remain open, so Phase 3 remains
 open.
 
 ## Implemented contracts
@@ -204,6 +205,17 @@ open.
   material, original-user observation, and execution adapters for exactly one
   typed workflow invocation. Invalid manifest identity cannot create the data
   root or read payload bytes.
+- The native application coordinator holds the fixed launcher mutex for the
+  full synchronous invocation, parses only the public switches, selects an
+  explicitly validated UTF-8 game path or automatic Steam discovery with the
+  native folder-picker fallback, derives the stable v2 paths from the invoking
+  user's LocalAppData known folder, and rejects a running game before nonce or
+  package acquisition. Composition rechecks the game immediately before
+  recovery to close the package-loading race.
+- Runtime staging nonces come from a Windows GUID encoded as exactly 32
+  lowercase hexadecimal characters. Package sources receive the invocation
+  mode and bounded runtime scratch parent, while the application rejects a
+  missing payload-source object before entering composition.
 - Native writability observation walks only absolute normalized plain
   directory components, rejects reparses, opens the nearest existing directory
   with the exact create/delete-child access needed by publication, and treats
@@ -341,6 +353,11 @@ The Win32 composition suite proves clean managed publication of the complete
 runtime and two loader files, unchanged no-op reuse with exactly one runtime
 generation, ownership-safe managed removal, and zero recovery/payload effects
 for a running game or mismatched manifest identity.
+The Win32 application suite proves explicit UTF-8 selection, automatic
+discovery-to-picker fallback, invoking-user LocalAppData path derivation,
+native GUID nonce shape, full prepare-only composition, second-instance
+refusal before bootstrap, and running-game refusal before package acquisition
+or filesystem mutation.
 The command-line and Windows single-instance suites prove the exact public
 switch grammar, conflicting/hostile input rejection, concurrent-instance
 refusal, and deterministic guard release.
@@ -370,10 +387,9 @@ without adding a test-only branch to production coordination.
 
 ## Remaining Phase 3 work
 
-- Build the outer native launcher entry point around the existing public CLI,
-  single-instance guard, Steam/folder discovery, LocalAppData path resolution,
-  concrete Steam URI launcher, and bounded error UI.
-- Invoke the native folder-picker fallback from automatic discovery failures.
+- Bind wide-process arguments, the verified embedded package source, concrete
+  Steam URI launcher, production elevated broker, and bounded TaskDialog/log
+  reporting in the final GUI entry point.
 - Validate Unicode and ANSI-round-trip behavior of the pinned proxy's
   narrow-string `override.txt` reader. Use a verified short path when
   available and fail closed if the stable runtime path cannot be represented;
