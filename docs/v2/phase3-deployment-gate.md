@@ -307,6 +307,12 @@ open.
   generated override uses the direct ASCII path or an equivalent existing
   short-path prefix plus ASCII unpublished suffix. Full material construction
   still revalidates that `active` exists after publication.
+- The source-graph gate locks the pinned proxy's exact override contract:
+  narrow `std::ifstream`/`std::string` line input is converted to its native
+  filesystem path, `UE4SS.dll` is appended, and the resulting wide native path
+  is passed to `LoadLibrary`. The launcher therefore emits ASCII only, proves
+  that an existing non-ASCII directory resolves through an equivalent ASCII
+  short path when available, and otherwise fails closed.
 - Active Steam launch options are resolved from the calling user's HKCU
   `SteamPath` and `ActiveProcess/ActiveUser`, then read from that exact
   `userdata/<account>/config/localconfig.vdf` through the bounded VDF reader.
@@ -370,6 +376,11 @@ aborted external-intent rollback, plus a
 privilege-free NTFS junction fixture. The optional file-symbolic-link variant
 is skipped on hosts where Windows developer-mode link creation is unavailable;
 the junction fixture remains mandatory and passes.
+
+The runtime-storage suite additionally replaces the managed `active`
+generation with a privilege-free NTFS junction to an external empty
+directory. Preparation classifies it as a conflict and neither follows nor
+modifies the external target.
 
 The managed-loader suite covers payload and generated-override material,
 read-only prepublication expectations, missing/exact-owned observation without
@@ -472,12 +483,6 @@ without adding a test-only branch to production coordination.
 
 ## Remaining Phase 3 work
 
-- Validate Unicode and ANSI-round-trip behavior of the pinned proxy's
-  narrow-string `override.txt` reader. Use a verified short path when
-  available and fail closed if the stable runtime path cannot be represented;
-  do not patch the proxy without architecture review.
-- Extend the passing owned-file junction fixture to the managed runtime
-  generation adapter.
 - Bind the final trusted CAB/manifest resources through the verified payload
   source, freeze the runtime generated-path allowlist, and complete
   alternate-credential/UAC live verification.

@@ -123,6 +123,34 @@ def verify_build_pin() -> None:
         fail(f"direct FetchContent graph is not immutable: {missing}")
 
 
+def verify_proxy_override_contract() -> None:
+    source_path = (
+        ROOT
+        / UE4SS_PATH
+        / "UE4SS/proxy_generator/main.cpp"
+    )
+    source = source_path.read_text(encoding="utf-8")
+    required_fragments = {
+        'currentPath / \\"override.txt\\"',
+        "std::ifstream overrideFile(overrideFilePath)",
+        "std::string overridePath",
+        "std::getline(overrideFile, overridePath)",
+        "fs::path ue4ssOverridePath = overridePath",
+        'ue4ssOverridePath = ue4ssOverridePath / \\"UE4SS.dll\\"',
+        "LoadLibrary(ue4ssOverridePath.c_str())",
+    }
+    missing = sorted(
+        fragment
+        for fragment in required_fragments
+        if fragment not in source
+    )
+    if missing:
+        fail(
+            "pinned proxy override contract changed; architecture "
+            f"review is required: {missing}"
+        )
+
+
 def verify_dependency_record() -> None:
     path = ROOT / "docs/v2/dependency-lock.md"
     if not path.exists():
@@ -157,6 +185,7 @@ def main() -> int:
         verify_root_gitlink()
         verify_nested_gitlinks()
         verify_build_pin()
+        verify_proxy_override_contract()
         verify_dependency_record()
     except (RuntimeError, OSError, configparser.Error) as error:
         print(f"FAIL source_graph: {error}", file=sys.stderr)
@@ -164,7 +193,8 @@ def main() -> int:
     print(
         "PASS source_graph: "
         f"ue4ss={UE4SS_COMMIT}, uepseudo={UEPSEUDO_COMMIT}, "
-        f"patternsleuth={PATTERNSLEUTH_COMMIT}, patches=0"
+        f"patternsleuth={PATTERNSLEUTH_COMMIT}, "
+        "proxy_override=narrow-line-to-native-path, patches=0"
     )
     return 0
 

@@ -147,8 +147,10 @@ Evidence:
       point, exact UAC scope explanation, bounded TaskDialog/log reporting,
       and `asInvoker` manifest without adding an always-elevated launcher.
 - [x] Implement safe reuse, repair, update, cleanup, and `--remove`.
-- [ ] Pass temporary-tree, hostile-path, reparse, interrupted-transaction,
-  shared-isolation, and alternate-credential tests.
+- [x] Pass automated temporary-tree, hostile-path, reparse,
+  interrupted-transaction, and shared-isolation tests.
+- [ ] DEFERRED — maintainer interaction required: verify the authenticated
+  original-user LocalAppData contract with alternate UAC credentials.
 - [ ] DEFERRED — maintainer interaction required: prepare and launch on a
   supported live Windows host after stopping the currently running game.
 - [ ] DEFERRED — maintainer interaction required: observe writable and

@@ -4,11 +4,14 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <winioctl.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <map>
 #include <span>
 #include <string>
@@ -20,6 +23,84 @@ namespace
 {
 using namespace meccha::launcher;
 namespace fs = std::filesystem;
+
+struct JunctionBuffer
+{
+    DWORD reparse_tag{};
+    WORD reparse_data_length{};
+    WORD reserved{};
+    WORD substitute_name_offset{};
+    WORD substitute_name_length{};
+    WORD print_name_offset{};
+    WORD print_name_length{};
+    WCHAR path_buffer[4096]{};
+};
+
+auto create_junction(
+    const fs::path& link,
+    const fs::path& target) -> bool
+{
+    if (!fs::create_directory(link))
+    {
+        return false;
+    }
+    const auto absolute_target =
+        fs::absolute(target).lexically_normal().wstring();
+    const auto substitute = L"\\??\\" + absolute_target;
+    if (substitute.size() + absolute_target.size() + 2U >
+        std::size(JunctionBuffer{}.path_buffer))
+    {
+        return false;
+    }
+
+    JunctionBuffer buffer{};
+    buffer.reparse_tag = IO_REPARSE_TAG_MOUNT_POINT;
+    buffer.substitute_name_length = static_cast<WORD>(
+        substitute.size() * sizeof(WCHAR));
+    buffer.print_name_offset = static_cast<WORD>(
+        buffer.substitute_name_length + sizeof(WCHAR));
+    buffer.print_name_length = static_cast<WORD>(
+        absolute_target.size() * sizeof(WCHAR));
+    buffer.reparse_data_length = static_cast<WORD>(
+        8U + buffer.substitute_name_length + sizeof(WCHAR) +
+        buffer.print_name_length + sizeof(WCHAR));
+    std::ranges::copy(substitute, buffer.path_buffer);
+    std::ranges::copy(
+        absolute_target,
+        buffer.path_buffer + substitute.size() + 1U);
+
+    const auto handle = CreateFileW(
+        link.c_str(),
+        GENERIC_WRITE,
+        0,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_FLAG_OPEN_REPARSE_POINT |
+            FILE_FLAG_BACKUP_SEMANTICS,
+        nullptr);
+    if (handle == INVALID_HANDLE_VALUE)
+    {
+        fs::remove(link);
+        return false;
+    }
+    DWORD returned{};
+    const auto created = DeviceIoControl(
+        handle,
+        FSCTL_SET_REPARSE_POINT,
+        &buffer,
+        8U + buffer.reparse_data_length,
+        nullptr,
+        0,
+        &returned,
+        nullptr);
+    static_cast<void>(CloseHandle(handle));
+    if (!created)
+    {
+        fs::remove(link);
+        return false;
+    }
+    return true;
+}
 
 auto bytes(std::string_view value) -> std::vector<std::byte>
 {
@@ -296,6 +377,43 @@ auto main() -> int
                 RuntimeTransactionErrorCode::Conflict &&
             fs::exists(unknown_root.root / "unowned.txt"),
         "unknown runtime-root content was modified");
+
+    TemporaryTree junction_tree{};
+    const auto external_generation =
+        junction_tree.root / "external-generation";
+    const auto active_junction =
+        junction_tree.root / "managed" / "active";
+    fs::create_directories(external_generation);
+    fs::create_directories(active_junction.parent_path());
+    const auto junction_created =
+        create_junction(
+            active_junction,
+            external_generation);
+    auto junction_package = make_package("junction");
+    Win32RuntimeStorage junction_storage{
+        active_junction.parent_path(),
+        junction_package.manifest_json,
+        junction_package.manifest_sha256,
+        junction_package.payload};
+    const auto junction_result =
+        junction_created
+            ? prepare_runtime(
+                  junction_storage,
+                  junction_package.manifest_sha256,
+                  Nonce)
+            : std::expected<
+                  RuntimePrepareResult,
+                  RuntimeTransactionError>{
+                  std::unexpected(RuntimeTransactionError{
+                      RuntimeTransactionErrorCode::Storage,
+                      "junction fixture creation failed",
+                  })};
+    passed &= expect(
+        junction_created && !junction_result &&
+            junction_result.error().code ==
+                RuntimeTransactionErrorCode::Conflict &&
+            fs::is_empty(external_generation),
+        "active runtime junction was followed or modified");
 
     if (passed)
     {
