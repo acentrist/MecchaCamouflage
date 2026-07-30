@@ -88,6 +88,7 @@ auto main() -> int
             ready->image_paint.project.remove &&
             ready->esp.enabled &&
             ready->esp.can_toggle &&
+            ready->settings.config == ready_snapshot().settings &&
             ready->settings.can_apply &&
             ready->diagnostics.command_queue.utilization ==
                 0.25 &&

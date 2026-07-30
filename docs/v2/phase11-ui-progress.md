@@ -135,11 +135,11 @@ bounded `CanvasFrame`, the responsive layout, the next local UI state, and at
 most one revision-bound product action.
 
 The shell currently renders all five localized section tabs, Paint and Image
-Paint Start/Preview/Restore/Cancel rows, an ESP toggle, the current Settings
-locale, and a language-neutral completed/total and command-queue summary. It
-applies viewport/DPI/configured scale, safe-area fitting, clipping, and the
-configured theme accent. Disabled presentation actions cannot emit commands.
-Tab switching changes only local panel state.
+Paint Start/Preview/Restore/Cancel rows, an ESP toggle, the complete portable
+Settings controls, and a language-neutral completed/total and command-queue
+summary. It applies viewport/DPI/configured scale, safe-area fitting, clipping,
+and the configured theme accent. Disabled presentation actions cannot emit
+commands. Tab switching changes only local panel state.
 
 Closing the panel emits an empty frame, releases pointer capture and keyboard
 focus, preserves the selected section, and does not mutate the model's ESP,
@@ -149,17 +149,39 @@ The panel test composes every shipped locale and covers pointer section
 switching, typed revision-bound actions, disabled controls, panel close, and
 invalid input refusal.
 
-This is deliberately a shell milestone. Paint/ESP settings editors, the full
-Image Paint canvas integration, project file operations, Settings draft/apply,
-localized progress/compatibility/diagnostics formatting, scrolling, and the
+## Complete portable Settings section
+
+`SettingsPanelModel` now carries the exact validated complete
+`ApplicationConfig`, not a partial UI subset. This prevents the Canvas layer
+from inventing Paint, Image Paint, ESP, active-project, schema, or hotkey
+values when it submits a settings edit.
+
+The section exposes the 16-language selection, 75–200 percent UI scale, RGB
+theme color, panel-toggle mapping, and all eight Paint/Image Paint mappings.
+Each activation starts from the immutable complete config, changes exactly one
+field, validates the result, and emits one `UiApplySettings` action bound to
+the rendered snapshot revision. Function-key controls cycle through F1–F24
+while skipping all keys owned by the other eight mappings, so an intermediate
+duplicate config is never published.
+
+Settings rows use retained section-local wheel scrolling on constrained
+viewports. Fully clipped controls are removed from focus and action admission.
+Invalid model/config divergence fails closed before drawing. Portable tests
+cover exact config copying, language, scale bounds, isolated RGB edits,
+duplicate-free hotkeys, unavailable actions, compact scrolling, all catalogs,
+and divergent-model refusal.
+
+This remains a partial product UI milestone. Paint/ESP settings editors, the
+full Image Paint canvas integration, project file operations, direct hotkey
+capture UX, localized progress/compatibility/diagnostics formatting, and the
 production UCanvas adapter remain open.
 
 ## Remaining work
 
 - Compose the five complete Paint, Image Paint, ESP, Settings, and Diagnostics
   Canvas sections from the implemented shell and immutable presentation values.
-- Connect the Image Paint editor, project operations, and settings drafts to
-  the implemented typed product-action router without direct runtime mutation.
+- Connect the Image Paint editor and project operations to the implemented
+  typed product-action router without direct runtime mutation.
 - Enqueue the returned product action through the production callback boundary.
 - Connect the production UE4SS key callbacks and input lease.
 - Implement game-font/OFL fallback selection and runtime texture lifetime.

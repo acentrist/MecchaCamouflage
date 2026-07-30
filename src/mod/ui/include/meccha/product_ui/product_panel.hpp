@@ -5,6 +5,7 @@
 #include <meccha/application/product_ui_model.hpp>
 #include <meccha/ui/interaction.hpp>
 #include <meccha/ui/layout.hpp>
+#include <meccha/ui/scroll.hpp>
 #include <meccha/ui/widgets.hpp>
 
 #include <array>
@@ -28,6 +29,9 @@ struct ProductPanelLabels
     std::string preview{};
     std::string restore{};
     std::string cancel{};
+    std::string language{};
+    std::string theme_color{};
+    std::array<std::string, 9U> hotkey_labels{};
 
     auto operator==(const ProductPanelLabels&) const -> bool = default;
 };
@@ -37,6 +41,8 @@ struct ProductPanelState
     application::ProductUiSection selected{
         application::ProductUiSection::Paint};
     ui::InteractionState interaction{};
+    std::array<ui::ScrollState, application::ProductUiSections.size()>
+        section_scroll{};
 
     auto operator==(const ProductPanelState&) const -> bool = default;
 };
@@ -71,6 +77,7 @@ using ProductPanelError = std::variant<
     ui::PanelLayoutError,
     ui::CanvasError,
     ui::InteractionError,
+    ui::ScrollError,
     ui::WidgetError>;
 
 [[nodiscard]] auto build_product_panel_labels(

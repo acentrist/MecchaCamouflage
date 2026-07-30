@@ -1,5 +1,7 @@
 #include <meccha/product_ui/product_panel.hpp>
 
+#include "product_panel_settings.hpp"
+
 #include <meccha/core/utf8.hpp>
 
 #include <algorithm>
@@ -61,12 +63,24 @@ auto labels_valid(const ProductPanelLabels& labels) -> bool
            valid_label(labels.start) &&
            valid_label(labels.preview) &&
            valid_label(labels.restore) &&
-           valid_label(labels.cancel);
+           valid_label(labels.cancel) &&
+           valid_label(labels.language) &&
+           valid_label(labels.theme_color) &&
+           std::ranges::all_of(
+               labels.hotkey_labels,
+               valid_label);
 }
 
 auto model_valid(const application::ProductUiModel& model) -> bool
 {
-    return model.sections == application::ProductUiSections;
+    return model.sections == application::ProductUiSections &&
+           core::validate(model.settings.config).empty() &&
+           model.paint.settings ==
+               model.settings.config.paint &&
+           model.esp.settings ==
+               model.settings.config.esp &&
+           model.esp.enabled ==
+               model.settings.config.esp.enabled;
 }
 
 auto state_valid(const ProductPanelState& state) -> bool
@@ -242,6 +256,26 @@ auto build_product_panel_labels(
         std::string{catalog.text(locale, "button.preview")},
         std::string{catalog.text(locale, "button.unpreview")},
         std::string{catalog.text(locale, "button.stop")},
+        std::string{catalog.text(locale, "language")},
+        std::string{catalog.text(locale, "theme.color")},
+        {
+            std::string{catalog.text(locale, "app.title")},
+            std::string{catalog.text(locale, "start.hotkey")},
+            std::string{catalog.text(locale, "preview.hotkey")},
+            std::string{
+                catalog.text(locale, "unpreview.hotkey")},
+            std::string{catalog.text(locale, "stop.hotkey")},
+            std::string{
+                catalog.text(locale, "hotkey.image.paint")},
+            std::string{
+                catalog.text(locale, "hotkey.image.preview")},
+            std::string{
+                catalog.text(
+                    locale,
+                    "hotkey.image.unpreview")},
+            std::string{
+                catalog.text(locale, "hotkey.image.stop")},
+        },
     };
 }
 
@@ -303,7 +337,7 @@ auto compose_product_panel(
     const auto layout = ui::build_panel_layout({
         input.viewport,
         input.safe_area,
-        model.settings.settings.scale,
+        model.settings.config.ui.scale,
     });
     if (!layout)
     {
@@ -327,7 +361,7 @@ auto compose_product_panel(
         canvas,
         interaction,
         ui::default_widget_palette(
-            accent(model.settings.settings.theme_color)),
+            accent(model.settings.config.ui.theme_color)),
         layout->effective_scale,
     };
 
@@ -422,15 +456,16 @@ auto compose_product_panel(
         previous.selected ==
         application::ProductUiSection::Settings)
     {
-        const auto result = add_text(
+        const auto result = detail::compose_settings_section(
             canvas,
-            {
-                layout->content.x,
-                layout->content.y,
-            },
-            model.settings.settings.language,
-            StatusText,
-            layout->effective_scale);
+            interaction,
+            widgets,
+            *layout,
+            model,
+            labels,
+            input,
+            previous,
+            action);
         if (!result)
         {
             return std::unexpected(result.error());

@@ -224,7 +224,7 @@ auto build_product_ui_model(
         snapshot.esp,
     };
     model.settings = {
-        snapshot.settings.ui,
+        snapshot.settings,
         runtime_ready && !job_is_active,
     };
     model.diagnostics.runtime_phase =

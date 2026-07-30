@@ -112,7 +112,7 @@ struct EspPanelModel
 
 struct SettingsPanelModel
 {
-    core::UiSettings settings{};
+    core::ApplicationConfig config{};
     bool can_apply{};
 
     auto operator==(const SettingsPanelModel&) const -> bool = default;

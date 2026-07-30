@@ -48,8 +48,8 @@ auto ready_model() -> meccha::application::ProductUiModel
     model.image_paint.actions = {true, true, false, false};
     model.esp.enabled = true;
     model.esp.can_toggle = true;
-    model.settings.settings.language = "en";
-    model.settings.settings.scale = 1.0;
+    model.settings.config = meccha::core::ApplicationConfig{};
+    model.settings.can_apply = true;
     model.diagnostics.command_queue = {2U, 8U, 0.25, true};
     model.diagnostics.runtime_queue = {3U, 12U, 0.25, true};
     model.progress = {4U, 10U, 0.4, 0.5, 1'200U, 800U};
@@ -101,7 +101,7 @@ auto main(int argc, char** argv) -> int
     auto model = ready_model();
     for (const auto locale : core::SupportedLocales)
     {
-        model.settings.settings.language = locale;
+        model.settings.config.ui.language = locale;
         const auto localized = compose_product_panel(
             model,
             ProductPanelState{},
@@ -111,7 +111,7 @@ auto main(int argc, char** argv) -> int
             localized && !localized->frame.primitives.empty(),
             "a shipped locale did not compose through the panel boundary");
     }
-    model.settings.settings.language = "en";
+    model.settings.config.ui.language = "en";
 
     auto state = ProductPanelState{};
     const auto initial = compose_product_panel(
@@ -224,6 +224,177 @@ auto main(int argc, char** argv) -> int
                 esp_toggle->action->action),
         "ESP toggle did not emit its typed action");
 
+    auto settings_state = initial->state;
+    settings_state.selected = ProductUiSection::Settings;
+    const auto settings_shell = compose_product_panel(
+        model,
+        settings_state,
+        default_input(),
+        english);
+    if (!settings_shell || !settings_shell->layout)
+    {
+        return 1;
+    }
+    constexpr auto SettingsRowHeight = 44.0;
+    auto settings_input = default_input();
+    settings_input.pointer = ui::PointerFrame{
+        {
+            settings_shell->layout->content.x +
+                settings_shell->layout->content.width * 0.75,
+            settings_shell->layout->content.y +
+                SettingsRowHeight * 0.5,
+        },
+        true,
+        false,
+        true,
+        0.0,
+    };
+    const auto language = compose_product_panel(
+        model,
+        settings_shell->state,
+        settings_input,
+        english);
+    const auto* language_action =
+        language && language->action
+            ? std::get_if<UiApplySettings>(
+                  &language->action->action)
+            : nullptr;
+    passed &= expect(
+        language_action &&
+            language_action->settings.ui.language == "id" &&
+            language_action->settings.paint ==
+                model.settings.config.paint &&
+            language_action->settings.active_image_project ==
+                model.settings.config.active_image_project,
+        "language control did not copy and change exactly one config field");
+
+    settings_input.pointer.position.y += SettingsRowHeight;
+    const auto scale = compose_product_panel(
+        model,
+        settings_shell->state,
+        settings_input,
+        english);
+    const auto* scale_action =
+        scale && scale->action
+            ? std::get_if<UiApplySettings>(
+                  &scale->action->action)
+            : nullptr;
+    passed &= expect(
+        scale_action &&
+            scale_action->settings.ui.scale >=
+                ui::MinimumUiScale &&
+            scale_action->settings.ui.scale <=
+                ui::MaximumUiScale &&
+            scale_action->settings.ui.scale !=
+                model.settings.config.ui.scale,
+        "scale control did not emit a bounded complete config");
+
+    const auto theme_control_x =
+        settings_shell->layout->content.x +
+        settings_shell->layout->content.width * 0.42 +
+        8.0;
+    const auto theme_control_width =
+        settings_shell->layout->content.width * 0.58 -
+        8.0;
+    const auto theme_channel_x =
+        theme_control_x + 52.0;
+    const auto theme_channel_width =
+        theme_control_x + theme_control_width -
+        theme_channel_x;
+    settings_input.pointer.position = {
+        theme_channel_x + theme_channel_width * 0.25,
+        settings_shell->layout->content.y +
+            2.0 * SettingsRowHeight + 8.0,
+    };
+    const auto theme = compose_product_panel(
+        model,
+        settings_shell->state,
+        settings_input,
+        english);
+    const auto* theme_action =
+        theme && theme->action
+            ? std::get_if<UiApplySettings>(
+                  &theme->action->action)
+            : nullptr;
+    passed &= expect(
+        theme_action &&
+            theme_action->settings.ui.theme_color.red <
+                model.settings.config.ui.theme_color.red &&
+            theme_action->settings.ui.theme_color.green ==
+                model.settings.config.ui.theme_color.green &&
+            theme_action->settings.ui.theme_color.blue ==
+                model.settings.config.ui.theme_color.blue,
+        "theme control did not isolate the selected RGB channel");
+
+    settings_input.pointer.position = {
+        settings_shell->layout->content.x +
+            settings_shell->layout->content.width * 0.75,
+        settings_shell->layout->content.y +
+            3.0 * SettingsRowHeight +
+            SettingsRowHeight * 0.5,
+    };
+    const auto hotkey = compose_product_panel(
+        model,
+        settings_shell->state,
+        settings_input,
+        english);
+    const auto* hotkey_action =
+        hotkey && hotkey->action
+            ? std::get_if<UiApplySettings>(
+                  &hotkey->action->action)
+            : nullptr;
+    passed &= expect(
+        hotkey_action &&
+            hotkey_action->settings.ui.hotkeys.toggle_ui ==
+                core::FunctionKey::F10 &&
+            hotkey_action->settings.ui.hotkeys.paint_start ==
+                core::FunctionKey::F1 &&
+            core::validate(hotkey_action->settings).empty(),
+        "hotkey control introduced a duplicate or changed another mapping");
+
+    model.settings.can_apply = false;
+    const auto unavailable_settings = compose_product_panel(
+        model,
+        settings_shell->state,
+        settings_input,
+        english);
+    passed &= expect(
+        unavailable_settings && !unavailable_settings->action,
+        "unavailable Settings controls emitted a config action");
+    model.settings.can_apply = true;
+
+    auto compact_input = ProductPanelInput{
+        ui::CanvasViewport{640.0, 360.0, 1.0},
+        ui::CanvasInsets{},
+        {},
+        {},
+    };
+    const auto compact = compose_product_panel(
+        model,
+        settings_state,
+        compact_input,
+        english);
+    if (!compact || !compact->layout)
+    {
+        return 1;
+    }
+    compact_input.pointer = ui::PointerFrame{
+        center(compact->layout->content),
+        false,
+        false,
+        false,
+        -3.0,
+    };
+    const auto scrolled = compose_product_panel(
+        model,
+        compact->state,
+        compact_input,
+        english);
+    passed &= expect(
+        scrolled &&
+            scrolled->state.section_scroll[3U].offset_y > 0.0,
+        "compact Settings content did not retain section-local scrolling");
+
     model.ui_open = false;
     const auto closed = compose_product_panel(
         model,
@@ -279,6 +450,22 @@ auto main(int argc, char** argv) -> int
                 invalid_state.error()) ==
                 ProductPanelValidationError::InvalidState,
         "an unknown selected section entered the Canvas boundary");
+
+    auto incoherent_model = model;
+    incoherent_model.paint.settings.brush_size_texels = 6.0;
+    const auto incoherent = compose_product_panel(
+        incoherent_model,
+        ProductPanelState{},
+        default_input(),
+        english);
+    passed &= expect(
+        !incoherent &&
+            std::holds_alternative<ProductPanelValidationError>(
+                incoherent.error()) &&
+            std::get<ProductPanelValidationError>(
+                incoherent.error()) ==
+                ProductPanelValidationError::InvalidModel,
+        "divergent presentation/config settings entered the panel");
 
     if (passed)
     {

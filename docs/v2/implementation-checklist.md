@@ -462,6 +462,9 @@ Evidence:
   - [x] Compose a responsive localized five-tab Canvas shell with Paint/Image
     action rows, ESP toggle, and bounded status output in a separate
     application-to-UI target without changing the Core-only UI primitives.
+  - [x] Compose the complete portable Settings section for language, UI scale,
+    RGB theme color, and all nine F1–F24 mappings with section-local scrolling
+    and duplicate-free remapping.
   - [ ] Render and interact with every complete section through the production
     UCanvas adapter.
 - [ ] Bind UI only to typed commands and immutable snapshots.
@@ -472,6 +475,9 @@ Evidence:
     the same thread-safe monotonic command-ID owner used by hotkeys.
   - [x] Convert portable Paint/Image button and ESP toggle activations into one
     revision-bound product action per immutable Canvas frame.
+  - [x] Copy the exact immutable complete config for every Settings edit,
+    mutate only the selected field, validate it, and emit one revision-bound
+    `UiApplySettings` action without reconstructing omitted state.
   - [ ] Connect every production Canvas widget/editor activation to that
     product-action boundary and enqueue its typed result.
 - [ ] Complete all editor interactions and body-guide behavior.
@@ -481,6 +487,8 @@ Evidence:
     until release, immutable snapshot capture, unavailable-project rejection,
     one command-ID sequence shared with Canvas actions, concurrent admission,
     input-loss release, and terminal shutdown.
+  - [x] Expose all nine current mappings as localized, duplicate-free portable
+    Settings controls while preserving a complete validated config.
   - [ ] Register all supported keys once and connect the production UE4SS input
     callbacks to the router.
 - [ ] Complete progress, backpressure, compatibility, and diagnostics display.
@@ -494,6 +502,8 @@ Evidence:
   - [x] Apply safe-area, viewport, DPI, configured scale, clipping, and theme
     accent to the portable panel shell and compose its labels for every one of
     the 16 shipped catalogs.
+  - [x] Retain bounded per-section scroll state and exclude clipped Settings
+    controls from keyboard focus/action admission.
 - [x] Ensure panel close preserves ESP and active jobs.
 - [ ] Pass UI action/state, gesture, hotkey, layout, and localization tests.
   - [x] Pass portable panel tests for all shipped locales, section switching,
