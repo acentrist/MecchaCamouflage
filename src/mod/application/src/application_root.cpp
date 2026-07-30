@@ -634,8 +634,20 @@ auto ApplicationRoot::process_command(
             }
             else if constexpr (std::is_same_v<Request, ToggleEsp>)
             {
+                auto settings = core::ApplicationConfig{};
+                {
+                    const auto lock =
+                        std::scoped_lock{state_mutex_};
+                    settings = settings_;
+                }
+                settings.esp.enabled = !settings.esp.enabled;
+                if (!config_store_.save(settings))
+                {
+                    record_command_error(request.id);
+                    return;
+                }
                 const auto lock = std::scoped_lock{state_mutex_};
-                esp_enabled_ = !esp_enabled_;
+                settings_ = std::move(settings);
             }
             else if constexpr (
                 std::is_same_v<Request, ApplyValidatedSettings>)
@@ -783,7 +795,7 @@ auto ApplicationRoot::advance_esp(
     {
         const auto lock = std::scoped_lock{state_mutex_};
         settings = settings_.esp;
-        enabled = esp_enabled_;
+        enabled = settings.enabled;
     }
 
     const auto previous = esp_frames_->snapshot();
@@ -1507,7 +1519,7 @@ auto ApplicationRoot::publish_locked(
     auto snapshot = ApplicationSnapshot{};
     snapshot.runtime_phase = phase_;
     snapshot.ui_open = ui_open_;
-    snapshot.esp_enabled = esp_enabled_;
+    snapshot.esp_enabled = settings_.esp.enabled;
     snapshot.esp =
         esp_frames_
             ? esp_frames_->snapshot()

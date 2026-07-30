@@ -185,6 +185,5 @@ private:
     bool lifecycle_shutdown_requested_{};
     bool paint_shutdown_cancel_requested_{};
     bool ui_open_{};
-    bool esp_enabled_{true};
 };
 } // namespace meccha::application

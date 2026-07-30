@@ -29,6 +29,10 @@ coverage are not yet complete.
 - Image sources, layer collections, canonical atlas bytes, draft state, window
   geometry, WebView, bridge, injector, and process fields have no
   representation in the configuration type.
+- `esp.enabled` is the single owner of both persisted and active ESP
+  enablement. Startup uses the loaded value; a typed toggle atomically saves a
+  complete validated config before publishing the new value, and a failed save
+  leaves capture/draw enablement unchanged with a command diagnostic.
 - `active_image_project` contains only a validated internal 32-character
   lowercase hexadecimal project ID and a `named` or `draft` discriminator.
   It never contains an editor revision, image byte, or layer.

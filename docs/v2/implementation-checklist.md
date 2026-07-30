@@ -277,6 +277,9 @@ Evidence:
 ## Phase 7 — Configuration, localization, and persistence
 
 - [x] Specify and implement the strict v2 config schema.
+- [x] Use `ApplicationConfig::esp.enabled` as the single persisted and runtime
+  ESP enablement owner; toggles publish only after atomic config save and fail
+  closed without changing capture/draw state.
 - [x] Keep image bytes and layer collections out of `config.json`.
 - [x] Implement atomic config and active-draft persistence.
 - [ ] Port all 16 localization catalogs and validate placeholders/glyphs.

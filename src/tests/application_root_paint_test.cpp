@@ -53,17 +53,31 @@ public:
         -> std::expected<std::optional<std::string>, TextStorageError>
         override
     {
-        return std::nullopt;
+        return text;
     }
 
-    auto write_text_atomic(std::string_view, std::string_view)
+    auto write_text_atomic(
+        std::string_view,
+        std::string_view value)
         -> std::expected<void, TextStorageError> override
     {
+        ++write_attempts;
+        if (fail_writes)
+        {
+            return std::unexpected(TextStorageError{
+                TextStorageErrorCode::Io,
+                "injected write failure",
+            });
+        }
+        text = value;
         ++writes;
         return {};
     }
 
+    std::optional<std::string> text{};
+    std::size_t write_attempts{};
     std::size_t writes{};
+    bool fail_writes{};
 };
 
 class FakeCallbacks final : public RuntimeCallbackPort
@@ -272,6 +286,14 @@ auto main() -> int
 
     auto passed = true;
     auto storage = FakeStorage{};
+    auto initial_config = core::ApplicationConfig{};
+    initial_config.esp.enabled = false;
+    const auto initial_json = encode_config(initial_config);
+    if (!initial_json)
+    {
+        return 1;
+    }
+    storage.text = *initial_json;
     auto callbacks = FakeCallbacks{};
     auto executor = RecordingExecutor{};
     auto thread = FakeThreadContext{};
@@ -293,11 +315,17 @@ auto main() -> int
     };
 
     passed &= expect(
-        root.initialize().has_value() &&
-            root.enqueue_command(StartPaint{
-                101U,
-                core::PaintSettings{},
-            }) == CommandEnqueueResult::Accepted &&
+        root.initialize().has_value(),
+        "the composition root did not initialize");
+    passed &= expect(
+        !root.snapshot()->esp_enabled &&
+            !root.snapshot()->settings.esp.enabled,
+        "persisted ESP enablement did not initialize runtime state");
+    passed &= expect(
+        root.enqueue_command(StartPaint{
+            101U,
+            core::PaintSettings{},
+        }) == CommandEnqueueResult::Accepted &&
             root.snapshot()->command_queue.queued == 1U,
         "the composition root did not accept a typed Paint command");
 
@@ -354,9 +382,26 @@ auto main() -> int
     callbacks.invoke(Frame);
     passed &= expect(
         root.snapshot()->ui_open &&
-            !root.snapshot()->esp_enabled &&
+            root.snapshot()->esp_enabled &&
+            root.snapshot()->settings.esp.enabled &&
+            storage.writes == 1U &&
             root.snapshot()->command_queue.queued == 0U,
-        "UI/ESP commands did not mutate only frame-owned state");
+        "ESP config ownership or durable toggle handling diverged");
+
+    storage.fail_writes = true;
+    passed &= expect(
+        root.enqueue_command(ToggleEsp{150U}) ==
+            CommandEnqueueResult::Accepted,
+        "the ESP persistence failure fixture was rejected");
+    callbacks.invoke(Frame);
+    passed &= expect(
+        root.snapshot()->esp_enabled &&
+            root.snapshot()->settings.esp.enabled &&
+            storage.write_attempts == 2U &&
+            storage.writes == 1U &&
+            root.snapshot()->diagnostics.back().command_id == 150U,
+        "a failed ESP save changed state or lost its command diagnostic");
+    storage.fail_writes = false;
 
     passed &= expect(
         root.enqueue_command(PreviewPaint{
