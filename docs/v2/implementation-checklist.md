@@ -158,6 +158,10 @@ Evidence:
 - [x] Implement job arbitration, cancellation generations, preview ownership,
   queue pressure, terminal drain, and shutdown coordination.
 - [ ] Add checked arithmetic and resource limits.
+  - [x] Bound decoded Image Paint dimensions/bytes, layer/source counts, and
+    canonical-atlas composition work before allocation or pixel traversal.
+  - [ ] Complete the remaining cross-feature checked-arithmetic and
+    resource-limit audit.
 - [ ] Pass unit, property, golden, state-machine, dependency-boundary, and
   supported sanitizer/static-analysis checks.
 
@@ -223,7 +227,10 @@ Evidence:
 - [ ] Implement bounded WIC PNG/JPEG decoding.
 - [ ] Select, pin, license, and implement a bounded WebP decoder.
 - [ ] Implement the full editable layer and project model.
-- [ ] Implement deterministic cancellable 1024×512 RGBA composition.
+  - [x] Implement validated immutable project settings, ordered layer values,
+    v2-only persistence, and content-addressed source ownership.
+  - [ ] Connect those values to the complete in-game editor lifecycle.
+- [x] Implement deterministic cancellable 1024×512 RGBA composition.
 - [ ] Implement versioned round/cube/fukuyoka guide overlays.
 - [ ] Implement game-thread preview texture lifetime.
 - [ ] Implement all profile mappings and reuse the accepted Paint dispatch.
@@ -232,6 +239,10 @@ Evidence:
   resource-limit tests.
 - [ ] DEFERRED — maintainer interaction required: complete the full Image Paint
   visual/editor/live-paint checklist.
+
+Evidence:
+
+- [`phase9-image-paint-progress.md`](phase9-image-paint-progress.md)
 
 ## Phase 10 — ESP
 

@@ -3,6 +3,7 @@ add_library(
     STATIC
         src/config.cpp
         src/esp.cpp
+        src/image_compositor.cpp
         src/image_mapping.cpp
         src/image_project.cpp
         src/mesh_profile.cpp

@@ -47,6 +47,15 @@ not yet complete.
 - Per-source 12 MiB and per-project 64 MiB limits with checked accumulation.
 - Frozen body, placement, face, brush, compression, material, and layer
   defaults.
+- Deterministic 1024×512 RGBA composition with explicit bottom-to-top layer
+  order, premultiplied bilinear sampling, source-over alpha, normalized crop,
+  Fit/Fill placement, seam copies, front/back mirroring, and the reserved
+  background Fill marker.
+- Decoded inputs are immutable and validated for identity, dimensions, exact
+  RGBA length, per-image/project memory, and exact layer/source membership.
+  Candidate pixel work is preflighted against a hard budget before allocating
+  or traversing the atlas, and composition honors cancellation per layer and
+  row.
 
 ### Mesh profiles
 
@@ -134,7 +143,7 @@ copied inputs, bounded concurrency, generation-checked cancellation,
 planner/composer errors, immutable publication, worker reuse, exception
 containment, and terminal shutdown. `application_command_queue_test` covers
 hard capacity, invalid IDs, FIFO bounded drains, concurrent publication, and
-terminal close/discard. The secret-free Linux suite currently passes all 34
+terminal close/discard. The secret-free Linux suite currently passes all 35
 registered tests.
 
 ## Deliberate non-port

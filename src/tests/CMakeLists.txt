@@ -191,6 +191,18 @@ target_link_libraries(
 )
 add_test(NAME core_contract COMMAND meccha_core_contract_tests)
 
+add_executable(
+    meccha_image_compositor_tests
+    image_compositor_test.cpp
+)
+target_link_libraries(
+    meccha_image_compositor_tests
+    PRIVATE
+        MecchaCamouflage::Core
+        meccha_build_options
+)
+add_test(NAME image_compositor COMMAND meccha_image_compositor_tests)
+
 add_executable(meccha_paint_planner_tests paint_planner_test.cpp)
 target_link_libraries(
     meccha_paint_planner_tests
