@@ -78,7 +78,7 @@ auto RuntimeLifecycle::on_update() noexcept -> void
 }
 
 auto RuntimeLifecycle::on_hud_frame(
-    std::uint64_t world_generation,
+    const HudFrameIdentity& identity,
     std::size_t operation_budget)
     -> std::expected<std::size_t, RuntimeLifecycleError>
 {
@@ -86,6 +86,12 @@ auto RuntimeLifecycle::on_hud_frame(
     if (!lease)
     {
         return std::size_t{};
+    }
+    if (!identity.valid())
+    {
+        remember_error(RuntimeLifecycleError::InvalidFrameIdentity);
+        return std::unexpected(
+            RuntimeLifecycleError::InvalidFrameIdentity);
     }
     if (!executor_.is_game_thread())
     {
@@ -95,7 +101,7 @@ auto RuntimeLifecycle::on_hud_frame(
 
     auto phase = RuntimePhase::Cold;
     auto resolve_contracts = false;
-    auto rebind_world = false;
+    auto rebind_frame = false;
     auto restore = false;
     auto shutdown_generation = std::uint64_t{};
     {
@@ -104,9 +110,9 @@ auto RuntimeLifecycle::on_hud_frame(
         if (phase == RuntimePhase::Running)
         {
             resolve_contracts = !initial_contracts_resolved_;
-            rebind_world =
-                resolve_contracts || !world_generation_ ||
-                *world_generation_ != world_generation;
+            rebind_frame =
+                resolve_contracts || !frame_identity_ ||
+                *frame_identity_ != identity;
         }
         else if (phase == RuntimePhase::Quiescing)
         {
@@ -132,10 +138,10 @@ auto RuntimeLifecycle::on_hud_frame(
         const auto lock = std::scoped_lock{state_mutex_};
         initial_contracts_resolved_ = true;
     }
-    if (rebind_world)
+    if (rebind_frame)
     {
         const auto result =
-            executor_.execute(RebindHudFrame{world_generation});
+            executor_.execute(RebindHudFrame{identity});
         if (!result)
         {
             remember_error(RuntimeLifecycleError::ExecutionFailed);
@@ -143,7 +149,7 @@ auto RuntimeLifecycle::on_hud_frame(
                 RuntimeLifecycleError::ExecutionFailed);
         }
         const auto lock = std::scoped_lock{state_mutex_};
-        world_generation_ = world_generation;
+        frame_identity_ = identity;
     }
     if (restore)
     {
@@ -254,7 +260,7 @@ auto RuntimeLifecycle::snapshot() const -> RuntimeLifecycleSnapshot
     return RuntimeLifecycleSnapshot{
         phase_,
         update_ticks_.load(std::memory_order_relaxed),
-        world_generation_,
+        frame_identity_,
         scheduler_.snapshot(),
         last_error_,
     };
@@ -262,14 +268,14 @@ auto RuntimeLifecycle::snapshot() const -> RuntimeLifecycleSnapshot
 
 auto RuntimeLifecycle::hud_trampoline(
     void* context,
-    std::uint64_t world_generation) -> void
+    const HudFrameIdentity& identity) -> void
 {
     if (context == nullptr)
     {
         return;
     }
     auto& lifecycle = *static_cast<RuntimeLifecycle*>(context);
-    static_cast<void>(lifecycle.on_hud_frame(world_generation, 64U));
+    static_cast<void>(lifecycle.on_hud_frame(identity, 64U));
 }
 
 auto RuntimeLifecycle::remember_error(RuntimeLifecycleError error) -> void

@@ -110,7 +110,8 @@ Evidence:
   unregistration.
 - [x] Implement the bounded game-thread scheduler.
 - [x] Keep `on_update()` free of UObject and ProcessEvent access.
-- [ ] Implement generation-checked World/controller/HUD/Canvas rebinding.
+- [x] Implement project-owned generation-checked
+  World/controller/HUD/Canvas rebinding.
 - [ ] Implement structured compatibility failures and bounded diagnostics.
 - [ ] Implement representative retained Paint and Image Paint runtime
   operations on the game-thread path.

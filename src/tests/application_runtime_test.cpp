@@ -79,11 +79,11 @@ public:
         return {};
     }
 
-    auto invoke(std::uint64_t world_generation) -> void
+    auto invoke(const HudFrameIdentity& identity) -> void
     {
         if (callback != nullptr)
         {
-            callback(context, world_generation);
+            callback(context, identity);
         }
     }
 
@@ -151,7 +151,8 @@ auto main() -> int
         "the closed scheduler accepted new work");
 
     GameThreadScheduler discarded{3U};
-    static_cast<void>(discarded.schedule(RebindHudFrame{7U}));
+    static_cast<void>(discarded.schedule(RebindHudFrame{
+        HudFrameIdentity{1U, 2U, 3U, 4U}}));
     static_cast<void>(discarded.schedule(RestoreTransientState{8U}));
     passed &= expect(
         discarded.discard() == 2U &&
@@ -197,6 +198,18 @@ auto main() -> int
             lifecycle.snapshot().phase == RuntimePhase::Running,
         "the runtime lifecycle did not register its HUD callback");
 
+    const auto invalid_frame = lifecycle.on_hud_frame(
+        HudFrameIdentity{100U, 0U, 300U, 400U},
+        4U);
+    passed &= expect(
+        !invalid_frame &&
+            invalid_frame.error() ==
+                RuntimeLifecycleError::InvalidFrameIdentity &&
+            lifecycle_executor.operations.empty() &&
+            lifecycle.snapshot().last_error ==
+                RuntimeLifecycleError::InvalidFrameIdentity,
+        "an incomplete HUD frame identity reached Unreal execution");
+
     lifecycle.on_update();
     lifecycle.on_update();
     passed &= expect(
@@ -204,23 +217,44 @@ auto main() -> int
             lifecycle_executor.operations.empty(),
         "on_update touched the Unreal executor");
 
-    callbacks.invoke(100U);
+    constexpr auto FirstFrame = HudFrameIdentity{
+        100U,
+        200U,
+        300U,
+        400U,
+    };
+    callbacks.invoke(FirstFrame);
     passed &= expect(
         lifecycle_executor.operations ==
             std::vector<GameThreadOperation>{
                 ResolveInitialContracts{},
-                RebindHudFrame{100U},
+                RebindHudFrame{FirstFrame},
             },
         "the first HUD frame did not resolve then bind on the game thread");
 
     static_cast<void>(
         lifecycle.schedule(RepresentativePaintCall{70U}));
-    callbacks.invoke(100U);
+    callbacks.invoke(FirstFrame);
     passed &= expect(
         lifecycle_executor.operations.back() ==
                 GameThreadOperation{RepresentativePaintCall{70U}} &&
             lifecycle_executor.operations.size() == 3U,
         "a stable-world HUD frame did not drain scheduled work");
+
+    const auto replaced_controller = HudFrameIdentity{
+        FirstFrame.world,
+        201U,
+        FirstFrame.hud,
+        FirstFrame.canvas,
+    };
+    callbacks.invoke(replaced_controller);
+    passed &= expect(
+        lifecycle_executor.operations.back() ==
+                GameThreadOperation{
+                    RebindHudFrame{replaced_controller}} &&
+            lifecycle.snapshot().frame_identity ==
+                replaced_controller,
+        "a controller replacement did not invalidate the HUD binding");
 
     static_cast<void>(
         lifecycle.schedule(RepresentativeImagePaintCall{71U}));
@@ -237,7 +271,7 @@ auto main() -> int
                 RuntimeLifecycleError::PendingGameThreadRestore,
         "callbacks were unregistered before game-thread restoration");
 
-    callbacks.invoke(100U);
+    callbacks.invoke(replaced_controller);
     passed &= expect(
         lifecycle_executor.operations.back() ==
             GameThreadOperation{RestoreTransientState{9U}},

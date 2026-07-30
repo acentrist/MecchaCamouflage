@@ -9,6 +9,22 @@
 
 namespace meccha::application
 {
+struct HudFrameIdentity
+{
+    std::uint64_t world{};
+    std::uint64_t controller{};
+    std::uint64_t hud{};
+    std::uint64_t canvas{};
+
+    [[nodiscard]] constexpr auto valid() const noexcept -> bool
+    {
+        return world != 0U && controller != 0U && hud != 0U &&
+               canvas != 0U;
+    }
+
+    auto operator==(const HudFrameIdentity&) const -> bool = default;
+};
+
 struct ResolveInitialContracts
 {
     auto operator==(const ResolveInitialContracts&) const -> bool = default;
@@ -16,7 +32,7 @@ struct ResolveInitialContracts
 
 struct RebindHudFrame
 {
-    std::uint64_t world_generation{};
+    HudFrameIdentity identity{};
 
     auto operator==(const RebindHudFrame&) const -> bool = default;
 };

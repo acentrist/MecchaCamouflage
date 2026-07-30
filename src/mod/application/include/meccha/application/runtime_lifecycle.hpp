@@ -13,7 +13,9 @@
 namespace meccha::application
 {
 using CallbackId = std::uint64_t;
-using HudCallback = void (*)(void* context, std::uint64_t world_generation);
+using HudCallback = void (*)(
+    void* context,
+    const HudFrameIdentity& identity);
 
 enum class CallbackPortError : std::uint8_t
 {
@@ -53,6 +55,7 @@ enum class RuntimePhase : std::uint8_t
 enum class RuntimeLifecycleError : std::uint8_t
 {
     InvalidState,
+    InvalidFrameIdentity,
     CallbackRegistration,
     CallbackUnregistration,
     WrongThread,
@@ -64,7 +67,7 @@ struct RuntimeLifecycleSnapshot
 {
     RuntimePhase phase{};
     std::uint64_t update_ticks{};
-    std::optional<std::uint64_t> world_generation{};
+    std::optional<HudFrameIdentity> frame_identity{};
     QueueSnapshot queue{};
     std::optional<RuntimeLifecycleError> last_error{};
 
@@ -88,7 +91,7 @@ public:
     auto on_update() noexcept -> void;
 
     auto on_hud_frame(
-        std::uint64_t world_generation,
+        const HudFrameIdentity& identity,
         std::size_t operation_budget)
         -> std::expected<std::size_t, RuntimeLifecycleError>;
 
@@ -106,7 +109,7 @@ public:
 private:
     static auto hud_trampoline(
         void* context,
-        std::uint64_t world_generation) -> void;
+        const HudFrameIdentity& identity) -> void;
 
     auto remember_error(RuntimeLifecycleError error) -> void;
 
@@ -117,7 +120,7 @@ private:
     mutable std::mutex state_mutex_{};
     RuntimePhase phase_{RuntimePhase::Cold};
     std::optional<CallbackId> hud_callback_{};
-    std::optional<std::uint64_t> world_generation_{};
+    std::optional<HudFrameIdentity> frame_identity_{};
     std::optional<RuntimeLifecycleError> last_error_{};
     std::uint64_t shutdown_generation_{};
     bool initial_contracts_resolved_{};

@@ -18,10 +18,13 @@ open.
 - A non-game thread cannot execute or consume scheduled Unreal work.
 - `RuntimeLifecycle::on_update()` changes only an atomic heartbeat and has no
   runtime-adapter reference or UObject operation.
-- The first HUD frame resolves initial contracts and then binds the current
-  world generation through the game-thread executor.
-- A changed generation is rebound before queued feature work. A stable
-  generation does not repeat the bind.
+- The first valid HUD frame resolves initial contracts and then binds one
+  project-owned identity containing World, controller, HUD, and Canvas
+  generations through the game-thread executor.
+- A change to any identity member is rebound before queued feature work. A
+  stable identity does not repeat the bind.
+- A zero or incomplete frame identity fails closed before contract resolution,
+  rebinding, or queued Unreal execution.
 - Shutdown closes scheduling, deterministically discards pending feature work,
   requires transient UI/preview/input restoration on the game thread, and
   refuses callback unregistration until restoration succeeds.
@@ -39,7 +42,8 @@ open.
 - concurrent callback close/drain;
 - registration and exact callback ID removal;
 - an `on_update()` path with no executor calls;
-- initial resolution, generation rebind, and stable-frame dispatch;
+- invalid-identity rejection, initial resolution, controller replacement
+  rebinding, and stable-frame dispatch;
 - cancellation of queued work during shutdown;
 - restore-before-unregister ordering.
 
@@ -55,8 +59,8 @@ The test runs in both the Linux secret-free build and the Windows MSVC
 - Add structured contract IDs and bounded diagnostic history.
 - Implement the pinned UE4SS callback registration adapter and prove exact
   callback unregistration against its real APIs.
-- Prove World/controller/HUD/Canvas object-generation invalidation in the live
-  UE 5.6 game.
+- Bind the project-owned World/controller/HUD/Canvas identity to validated
+  UE4SS object generations and prove invalidation in the live UE 5.6 game.
 - Add complete lifecycle fault injection, concurrent uninstall, and repeated
   initialize/unload tests.
 - Run the deferred live load, travel, HUD replacement, freecam, spectator,
