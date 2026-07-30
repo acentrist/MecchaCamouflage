@@ -45,6 +45,16 @@ files, elevation, or the final embedded payload, so Phase 3 remains open.
   behind the native adapter.
 - Running-game detection enumerates process image names through Toolhelp and
   never opens or attaches to the game process.
+- Steam `LaunchOptions` are read through the same bounded VDF parser. The
+  Windows command line is tokenized with the platform parser; missing,
+  duplicate, disabled, or malformed UE4SS arguments fail closed.
+- `override.txt` is a bounded, single-line, no-BOM directory directive matching
+  the pinned proxy implementation. Relative command and override paths resolve
+  from the game executable directory.
+- The filesystem observer hashes the resolved command-line, override,
+  `ue4ss/UE4SS.dll`, and root `UE4SS.dll` candidates. A configured missing
+  target or any incompatible fallback remains a conflict instead of silently
+  falling through.
 
 ## Automated evidence
 
@@ -67,14 +77,16 @@ Covered Windows directory cases:
 - malformed manifests, traversal install names, missing folder shapes, and
   ambiguous installations;
 - Windows process enumeration against the calling test executable.
+- Steam launch-option extraction and Windows command-line tokenization;
+- relative override resolution, exact runtime hashing, missing candidates, and
+  incompatible lower-priority candidates.
 
 The semantic transaction fake injects failures at every rename boundary
 without adding a test-only branch to production coordination.
 
 ## Remaining Phase 3 work
 
-- Parse and validate Steam launch options and filesystem paths into the loader
-  resolver observations.
+- Connect active Steam-user `localconfig.vdf` lookup to launcher orchestration.
 - Connect the native folder-picker fallback to the validated explicit-directory
   path.
 - Connect running-game rejection to prepare and remove orchestration.

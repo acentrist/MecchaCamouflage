@@ -570,6 +570,40 @@ auto parse_app_install_directory(std::string_view vdf)
     return *install_directory;
 }
 
+auto parse_steam_launch_options(std::string_view vdf)
+    -> std::expected<std::optional<std::string>, GameDiscoveryError>
+{
+    const auto flat = parse_vdf(vdf);
+    if (!flat)
+    {
+        return std::unexpected(flat.error());
+    }
+
+    auto launch_options = std::optional<std::string>{};
+    for (const auto& item : *flat)
+    {
+        if (item.path.size() != 7U ||
+            !ascii_equal(item.path[0], "userlocalconfigstore") ||
+            !ascii_equal(item.path[1], "software") ||
+            !ascii_equal(item.path[2], "valve") ||
+            !ascii_equal(item.path[3], "steam") ||
+            !ascii_equal(item.path[4], "apps") ||
+            item.path[5] != TargetSteamAppId ||
+            !ascii_equal(item.path[6], "launchoptions"))
+        {
+            continue;
+        }
+        if (launch_options)
+        {
+            return error(
+                GameDiscoveryErrorCode::InvalidAppManifest,
+                "Steam localconfig contains duplicate LaunchOptions");
+        }
+        launch_options = item.value;
+    }
+    return launch_options;
+}
+
 auto discover_game_installation(std::span<const fs::path> steam_roots)
     -> std::expected<GameInstallation, GameDiscoveryError>
 {

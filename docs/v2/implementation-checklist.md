@@ -85,7 +85,7 @@ Evidence:
 - [x] Implement manifest, hashing, ownership, and conflict primitives.
 - [x] Implement the journaled staging/rollback/recovery transaction.
 - [x] Implement Steam/folder discovery and running-game rejection.
-- [ ] Resolve effective `--ue4ss-path`, override, conventional, and proxy
+- [x] Resolve effective `--ue4ss-path`, override, conventional, and proxy
   loader identity.
 - [ ] Implement managed, exact shared, and conflict modes.
 - [ ] Implement original-user preparation and minimal elevated broker.

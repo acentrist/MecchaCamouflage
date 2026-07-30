@@ -37,6 +37,18 @@ target_link_libraries(
 )
 add_test(NAME loader_resolution COMMAND meccha_loader_resolution_tests)
 
+add_executable(
+    meccha_loader_observation_tests
+    loader_observation_test.cpp
+)
+target_link_libraries(
+    meccha_loader_observation_tests
+    PRIVATE
+        MecchaCamouflage::LauncherCore
+        meccha_build_options
+)
+add_test(NAME loader_observation COMMAND meccha_loader_observation_tests)
+
 add_executable(meccha_game_discovery_tests game_discovery_test.cpp)
 target_link_libraries(
     meccha_game_discovery_tests

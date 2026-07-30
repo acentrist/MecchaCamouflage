@@ -4,6 +4,7 @@ add_library(
         src/game_discovery.cpp
         src/hash.cpp
         src/loader.cpp
+        src/loader_observation.cpp
         src/manifest.cpp
         src/ownership.cpp
         src/policy.cpp
@@ -32,7 +33,14 @@ if(WIN32)
         PRIVATE
             src/game_discovery_win32.cpp
             src/hash_win32.cpp
+            src/loader_observation_win32.cpp
             src/runtime_storage_win32.cpp
     )
-    target_link_libraries(meccha_launcher_core PRIVATE advapi32 bcrypt)
+    target_link_libraries(
+        meccha_launcher_core
+        PRIVATE
+            advapi32
+            bcrypt
+            shell32
+    )
 endif()

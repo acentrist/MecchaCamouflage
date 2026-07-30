@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <expected>
 #include <filesystem>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -49,6 +50,9 @@ struct GameInstallation
 
 [[nodiscard]] auto parse_app_install_directory(std::string_view vdf)
     -> std::expected<std::string, GameDiscoveryError>;
+
+[[nodiscard]] auto parse_steam_launch_options(std::string_view vdf)
+    -> std::expected<std::optional<std::string>, GameDiscoveryError>;
 
 [[nodiscard]] auto discover_game_installation(
     std::span<const std::filesystem::path> steam_roots)
