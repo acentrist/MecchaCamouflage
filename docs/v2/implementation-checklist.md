@@ -82,7 +82,7 @@ Evidence:
 
 ## Phase 3 — Safe isolated deployment and loading gate
 
-- [ ] Implement manifest, hashing, ownership, and conflict primitives.
+- [x] Implement manifest, hashing, ownership, and conflict primitives.
 - [ ] Implement the journaled staging/rollback/recovery transaction.
 - [ ] Implement Steam/folder discovery and running-game rejection.
 - [ ] Resolve effective `--ue4ss-path`, override, conventional, and proxy

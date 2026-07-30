@@ -19,6 +19,24 @@ target_link_libraries(
 )
 add_test(NAME launcher_manifest COMMAND meccha_launcher_tests)
 
+add_executable(meccha_launcher_policy_tests launcher_policy_test.cpp)
+target_link_libraries(
+    meccha_launcher_policy_tests
+    PRIVATE
+        MecchaCamouflage::LauncherCore
+        meccha_build_options
+)
+add_test(NAME launcher_policy COMMAND meccha_launcher_policy_tests)
+
+add_executable(meccha_loader_resolution_tests loader_resolution_test.cpp)
+target_link_libraries(
+    meccha_loader_resolution_tests
+    PRIVATE
+        MecchaCamouflage::LauncherCore
+        meccha_build_options
+)
+add_test(NAME loader_resolution COMMAND meccha_loader_resolution_tests)
+
 add_test(
     NAME phase1_contracts
     COMMAND

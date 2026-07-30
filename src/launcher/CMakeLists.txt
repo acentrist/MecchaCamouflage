@@ -2,7 +2,10 @@ add_library(
     meccha_launcher_core
     STATIC
         src/hash.cpp
+        src/loader.cpp
         src/manifest.cpp
+        src/ownership.cpp
+        src/policy.cpp
 )
 add_library(MecchaCamouflage::LauncherCore ALIAS meccha_launcher_core)
 
