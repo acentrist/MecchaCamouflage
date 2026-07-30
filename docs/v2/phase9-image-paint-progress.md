@@ -2,12 +2,38 @@
 
 ## Current status
 
-The dependency-free canonical atlas compositor is implemented and covered by a
-focused contract test. It consumes validated immutable project/layer values and
-decoded RGBA buffers. An owned one-generation application worker now runs that
-composition off-thread. Neither module decodes files, creates Unreal textures,
-drives the full application state machine, or dispatches paint. Phase 9
-therefore remains open.
+The canonical atlas compositor and bounded native image decoders are
+implemented and covered by focused contract tests. The compositor consumes
+validated immutable project/layer values and decoded RGBA buffers. An owned
+one-generation application worker runs composition off-thread. These modules
+do not create Unreal textures or drive the full editor/application state
+machine. Phase 9 therefore remains open.
+
+## Native decoder boundary
+
+`NativeImageSourceDecoder` accepts only a validated 64-character content
+identity, declared PNG/JPEG/WebP codec, and `1..12 MiB` immutable encoded byte
+span. It checks the encoded signature against the declared codec before
+entering either native decoder.
+
+- Windows PNG/JPEG uses WIC from an in-memory bounded stream, verifies the WIC
+  container GUID and single frame, reads dimensions before allocation,
+  converts only to straight `32bppRGBA`, and copies into a project-owned
+  buffer.
+- WebP uses libwebp `v1.6.0` at exact commit
+  `4fa21912338357f89e4fd51cf2368325b59e9bd9`. Only the static decoder target is
+  linked. Features and dimensions are parsed before allocation, animated
+  content is rejected, and `WebPDecodeRGBAInto` writes only to the exact
+  caller-owned buffer.
+- Both paths cap either dimension at `8192`, cap one decoded RGBA image at
+  `64 MiB`, use checked multiplication, and contain allocation/native
+  exceptions as typed failures.
+
+`image_decoder_test` covers shared decoded bounds, content identity, declared
+container mismatch, truncation, encoded-size limits, and an exact lossless WebP
+decode on Linux and Windows. The Windows run additionally decodes real PNG and
+baseline JPEG fixtures through WIC. The upstream license is preserved at
+`resources/licenses/libwebp-COPYING.txt`.
 
 ## Canonical composition contract
 
@@ -163,8 +189,6 @@ path.
 
 ## Remaining work
 
-- Implement bounded WIC PNG/JPEG adapters.
-- Select, pin, license, and implement the bounded native WebP adapter.
 - Connect the worker and reject stale revisions in the application/editor
   owner.
 - Connect project persistence and editing commands to the application root.

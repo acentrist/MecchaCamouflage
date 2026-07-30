@@ -168,7 +168,7 @@ copied inputs, bounded concurrency, generation-checked cancellation,
 planner/composer errors, immutable publication, worker reuse, exception
 containment, and terminal shutdown. `application_command_queue_test` covers
 hard capacity, invalid IDs, FIFO bounded drains, concurrent publication, and
-terminal close/discard. The secret-free Linux suite currently passes all 40
+terminal close/discard. The secret-free Linux suite currently passes all 41
 registered tests.
 
 ## Deliberate non-port

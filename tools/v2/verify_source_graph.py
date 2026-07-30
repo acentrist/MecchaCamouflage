@@ -17,6 +17,7 @@ UEPSEUDO_COMMIT = "b2e876da82b17254c04304746341c8fde0ddb37c"
 PATTERNSLEUTH_COMMIT = "da8bfe4c5a464be0ef225c2c9a6ccaa2d9284018"
 DIRECT_FETCH_COMMITS = {
     "glaze": "3a850807501d98d23bab4bdc5af64d8d4e83e6bc",
+    "libwebp": "4fa21912338357f89e4fd51cf2368325b59e9bd9",
     "glfw": "e2c92645460f680fd272fd2eed591efb2be7dc31",
     "imgui": "5d4126876bc10396d4c6511853ff10964414c776",
     "imgui-text-edit": "6d943aba9f7cef05da80b86dbb0253b63818f95c",
@@ -140,6 +141,15 @@ def verify_dependency_record() -> None:
     missing = sorted(fragment for fragment in required_fragments if fragment not in text)
     if missing:
         fail(f"dependency lock lacks: {missing}")
+    webp_license = ROOT / "resources/licenses/libwebp-COPYING.txt"
+    if not webp_license.exists():
+        fail("packaged libwebp license is missing")
+    license_text = webp_license.read_text(encoding="utf-8")
+    if (
+        "Copyright (c) 2010, Google Inc." not in license_text
+        or "Redistribution and use in source and binary forms" not in license_text
+    ):
+        fail("packaged libwebp license is incomplete")
 
 
 def main() -> int:

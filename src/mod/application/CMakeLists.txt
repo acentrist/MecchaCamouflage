@@ -9,6 +9,7 @@ add_library(
         src/config_store.cpp
         src/game_thread_scheduler.cpp
         src/image_composition_worker.cpp
+        src/image_decoder.cpp
         src/image_paint_job_coordinator.cpp
         src/image_paint_planning_worker.cpp
         src/image_project_codec.cpp
@@ -31,6 +32,8 @@ target_include_directories(
     meccha_application
     PUBLIC
         "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+    SYSTEM PRIVATE
+        "$<BUILD_INTERFACE:${libwebp_SOURCE_DIR}/src>"
 )
 target_link_libraries(
     meccha_application
@@ -40,6 +43,7 @@ target_link_libraries(
     PRIVATE
         glaze::glaze
         meccha_build_options
+        webpdecoder
 )
 
 if(WIN32)
@@ -48,6 +52,7 @@ if(WIN32)
         PRIVATE
             src/atomic_file_win32.cpp
             src/config_storage_win32.cpp
+            src/image_decoder_wic.cpp
             src/image_project_storage_win32.cpp
     )
     target_link_libraries(
@@ -55,5 +60,6 @@ if(WIN32)
         PRIVATE
             ole32
             shell32
+            windowscodecs
     )
 endif()

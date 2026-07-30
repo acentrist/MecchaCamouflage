@@ -66,6 +66,19 @@ No UE4SS source patch is present. MecchaCamouflage may:
 Any edit inside the UE4SS gitlink, change to a locked commit, or additional
 patch command stops the architecture gate for review.
 
+## Project-native decoder lock
+
+| Component | Upstream release | Accepted commit | Linked surface | License evidence |
+| --- | --- | --- | --- | --- |
+| libwebp | `v1.6.0` | `4fa21912338357f89e4fd51cf2368325b59e9bd9` | static `webpdecoder` only | BSD-3-Clause-compatible upstream `COPYING`, preserved at `resources/licenses/libwebp-COPYING.txt` |
+
+The build disables libwebp tools, animation utilities, muxers, viewers,
+JavaScript, fuzz targets, extras, and decoder threading. Encoder, demux, and
+SharpYUV targets are excluded from the default build graph; only the static
+decoder and its decoder-only object targets remain. No libwebp source patch is
+applied. The runtime accepts still WebP only; an animation feature bit fails
+closed before decoded allocation.
+
 ## Protected full-build completion
 
 The following evidence is intentionally deferred because it requires a

@@ -224,8 +224,11 @@ Evidence:
 
 ## Phase 9 — Image Paint
 
-- [ ] Implement bounded WIC PNG/JPEG decoding.
-- [ ] Select, pin, license, and implement a bounded WebP decoder.
+- [x] Implement bounded WIC PNG/JPEG decoding with declared-container
+  verification and caller-owned RGBA output.
+- [x] Select, pin, license, and implement the static libwebp `v1.6.0`
+  decoder, rejecting animation and decoding into a pre-bounded caller-owned
+  RGBA buffer.
 - [ ] Implement the full editable layer and project model.
   - [x] Implement validated immutable project settings, ordered layer values,
     v2-only persistence, and content-addressed source ownership.
