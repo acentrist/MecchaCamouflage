@@ -4,6 +4,8 @@
 #include <meccha/launcher/execution_win32.hpp>
 
 #include <expected>
+#include <memory>
+#include <optional>
 #include <string>
 
 namespace meccha::launcher
@@ -60,6 +62,27 @@ public:
             LauncherEffectError> override;
 };
 
+class ElevatedLoaderBrokerProvider
+{
+public:
+    ElevatedLoaderBrokerProvider() = default;
+    ElevatedLoaderBrokerProvider(
+        const ElevatedLoaderBrokerProvider&) = delete;
+    auto operator=(const ElevatedLoaderBrokerProvider&)
+        -> ElevatedLoaderBrokerProvider& = delete;
+    ElevatedLoaderBrokerProvider(
+        ElevatedLoaderBrokerProvider&&) = delete;
+    auto operator=(ElevatedLoaderBrokerProvider&&)
+        -> ElevatedLoaderBrokerProvider& = delete;
+    virtual ~ElevatedLoaderBrokerProvider() = default;
+
+    virtual auto bind(
+        const Sha256Digest& accepted_manifest_sha256)
+        -> std::expected<
+            ElevatedLoaderBroker*,
+            LauncherEffectError> = 0;
+};
+
 class Win32OriginalUserElevatedLoaderBroker final
     : public ElevatedLoaderBroker
 {
@@ -86,6 +109,28 @@ private:
     Sha256Digest accepted_manifest_sha256_{};
     ElevatedBrokerNonceSource& nonce_source_;
     ElevatedLoaderMutationClient& client_;
+};
+
+class Win32ElevatedLoaderBrokerProvider final
+    : public ElevatedLoaderBrokerProvider
+{
+public:
+    Win32ElevatedLoaderBrokerProvider(
+        ElevatedBrokerNonceSource& nonce_source,
+        ElevatedLoaderMutationClient& client);
+
+    auto bind(
+        const Sha256Digest& accepted_manifest_sha256)
+        -> std::expected<
+            ElevatedLoaderBroker*,
+            LauncherEffectError> override;
+
+private:
+    ElevatedBrokerNonceSource& nonce_source_;
+    ElevatedLoaderMutationClient& client_;
+    std::unique_ptr<
+        Win32OriginalUserElevatedLoaderBroker> broker_{};
+    std::optional<Sha256Digest> bound_manifest_sha256_{};
 };
 #endif
 } // namespace meccha::launcher

@@ -419,6 +419,27 @@ auto main() -> int
             reuse_nonce.calls == 0U,
         "exact reuse requested an unnecessary privileged client");
 
+    auto provider_nonce = FixedNonceSource{};
+    auto provider_client =
+        FailingClient{FailureMode::BeforeMutation};
+    auto provider = Win32ElevatedLoaderBrokerProvider{
+        provider_nonce,
+        provider_client,
+    };
+    const auto first_binding =
+        provider.bind(material.manifest_sha256);
+    const auto repeated_binding =
+        provider.bind(material.manifest_sha256);
+    auto other_manifest = material.manifest_sha256;
+    other_manifest.bytes.front() ^= std::byte{0xff};
+    const auto changed_binding =
+        provider.bind(other_manifest);
+    passed &= expect(
+        first_binding && repeated_binding &&
+            *first_binding == *repeated_binding &&
+            !changed_binding,
+        "manifest-bound broker provider was rebound or recreated");
+
     if (passed)
     {
         std::cout << "PASS elevated_broker_win32\n";

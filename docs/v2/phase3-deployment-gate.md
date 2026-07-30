@@ -257,6 +257,24 @@ open.
   Only the nonce and parent PID cross the internal command line; the mutation
   request, game path, measurements, and payload never do, and the internal
   grammar is separate from the three public launcher switches.
+- The original-user application binds the parsed embedded manifest hash into
+  the broker provider only after package validation. The elevated child
+  authenticates its parent before independently reopening the same embedded
+  manifest and CAB, comparing the exact manifest hash from the request, and
+  constructing loader material. For installation it reopens the authenticated
+  parent process token, verifies the retained SID and session, and resolves
+  that user's LocalAppData so alternate UAC credentials cannot redirect
+  `override.txt` to the elevated account. Removal does not resolve or access
+  original-user runtime data because the restricted executor needs no payload
+  bytes for deletion.
+- The native `wWinMain` composition selects the nonce/PID-only internal child
+  mode before public argument conversion. Normal operation runs as the
+  invoking user, holds the launcher mutex, composes the embedded package,
+  observer, manifest-bound broker, and Steam effects, and reports bounded
+  failures through TaskDialog plus
+  `%LOCALAPPDATA%\MecchaCamouflage\v2\logs\launcher.log`. Before `runas`, a
+  cancellable TaskDialog names the exact game directory and the planned action
+  for only `dwmapi.dll` and `override.txt`.
 - Native writability observation walks only absolute normalized plain
   directory components, rejects reparses, opens the nearest existing directory
   with the exact create/delete-child access needed by publication, and treats
@@ -322,7 +340,10 @@ open.
   workspace below a caller-approved plain directory, rejects multi-cabinet,
   undeclared, duplicate, non-canonical, oversized, and corrupt input, copies
   verified files into memory, and removes the workspace before returning.
-  Final release-resource binding remains open.
+  The Windows GUI target conditionally embeds resource IDs 101 and 102 only
+  when both a verified manifest and CAB are configured, refuses a partial
+  pair, and uses one explicit `asInvoker` manifest. The final trusted runtime,
+  profiles, localization, fonts, icon, licenses, and notices remain open.
 
 ## Automated evidence
 
@@ -451,18 +472,15 @@ without adding a test-only branch to production coordination.
 
 ## Remaining Phase 3 work
 
-- Bind wide-process arguments, the verified embedded package source, concrete
-  Steam URI launcher, production elevated broker, and bounded TaskDialog/log
-  reporting in the final GUI entry point.
 - Validate Unicode and ANSI-round-trip behavior of the pinned proxy's
   narrow-string `override.txt` reader. Use a verified short path when
   available and fail closed if the stable runtime path cannot be represented;
   do not patch the proxy without architecture review.
-- Add the minimal elevated two-file broker and alternate-credential contract.
 - Extend the passing owned-file junction fixture to the managed runtime
   generation adapter.
-- Bind the final embedded CAB/manifest resources through the verified payload
-  source and freeze the runtime generated-path allowlist.
+- Bind the final trusted CAB/manifest resources through the verified payload
+  source, freeze the runtime generated-path allowlist, and complete
+  alternate-credential/UAC live verification.
 - Run the deferred live managed/shared/UAC/launch checks after the game is
   stopped and a complete trusted UE4SS build exists.
 

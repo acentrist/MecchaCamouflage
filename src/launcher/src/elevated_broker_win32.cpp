@@ -387,6 +387,43 @@ auto Win32ElevatedBrokerNonceSource::next_nonce()
     return result;
 }
 
+Win32ElevatedLoaderBrokerProvider::
+    Win32ElevatedLoaderBrokerProvider(
+        ElevatedBrokerNonceSource& nonce_source,
+        ElevatedLoaderMutationClient& client)
+    : nonce_source_(nonce_source),
+      client_(client)
+{
+}
+
+auto Win32ElevatedLoaderBrokerProvider::bind(
+    const Sha256Digest& accepted_manifest_sha256)
+    -> std::expected<
+        ElevatedLoaderBroker*,
+        LauncherEffectError>
+{
+    if (bound_manifest_sha256_ &&
+        *bound_manifest_sha256_ !=
+            accepted_manifest_sha256)
+    {
+        return std::unexpected(LauncherEffectError{
+            "Elevated loader broker: a provider instance cannot "
+            "be rebound to a different payload manifest.",
+        });
+    }
+    if (!broker_)
+    {
+        broker_ = std::make_unique<
+            Win32OriginalUserElevatedLoaderBroker>(
+            accepted_manifest_sha256,
+            nonce_source_,
+            client_);
+        bound_manifest_sha256_ =
+            accepted_manifest_sha256;
+    }
+    return broker_.get();
+}
+
 Win32OriginalUserElevatedLoaderBroker::
     Win32OriginalUserElevatedLoaderBroker(
         Sha256Digest accepted_manifest_sha256,

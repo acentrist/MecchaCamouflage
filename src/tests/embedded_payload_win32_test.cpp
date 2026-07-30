@@ -1,4 +1,5 @@
 #include <meccha/launcher/embedded_payload.hpp>
+#include <meccha/launcher/embedded_package.hpp>
 #include <meccha/launcher/hash.hpp>
 
 #define WIN32_LEAN_AND_MEAN
@@ -214,6 +215,47 @@ int main()
         runtime_bytes.size() + mod_bytes.size(),
     };
     const auto cab_bytes = read_bytes(cab_path);
+    const auto entry = [](const ManifestFile& file)
+    {
+        return std::string{R"json({"path":")json"} +
+               file.path + R"json(","role":")json" +
+               (file.role == FileRole::Runtime
+                    ? "runtime"
+                    : "mod") +
+               R"json(","size":)json" +
+               std::to_string(file.size) +
+               R"json(,"sha256":")json" +
+               sha256_hex(file.sha256) + R"json("})json";
+    };
+    const auto manifest_json =
+        std::string{
+            R"json({"schema_version":1,"product_version":"2.0.0",)json"} +
+        R"json("ue4ss_commit":"6c26f038751b3d96059d4a9148f5d093012d55ad",)json" +
+        R"json("generated_paths":["Logs"],"files":[)json" +
+        entry(manifest.files[0]) + "," +
+        entry(manifest.files[1]) + "," +
+        entry(manifest.files[2]) + "]}";
+    const auto loaded_package =
+        load_embedded_launcher_package(
+            std::as_bytes(std::span{manifest_json}),
+            cab_bytes,
+            tree.root / "scratch");
+    ok &= expect(
+        loaded_package &&
+            loaded_package->manifest == manifest &&
+            loaded_package->manifest_json ==
+                manifest_json &&
+            loaded_package->manifest_sha256 ==
+                sha256_bytes(
+                    std::as_bytes(
+                        std::span{manifest_json}))
+                    .value() &&
+            loaded_package->payload_source &&
+            loaded_package->payload_source
+                    ->read_file("UE4SS.dll") ==
+                runtime_bytes,
+        "verified embedded launcher package was not assembled");
+
     auto source = Win32CabPayloadSource::open(
         cab_bytes,
         manifest,

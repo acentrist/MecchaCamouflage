@@ -326,6 +326,19 @@ auto run_win32_launcher_application(
             "The launcher package source returned no payload source.",
         });
     }
+    const auto elevated_loader_broker =
+        inputs.elevated_loader_broker_provider.bind(
+            package->manifest_sha256);
+    if (!elevated_loader_broker ||
+        *elevated_loader_broker == nullptr)
+    {
+        return application_error(RuntimePayloadError{
+            elevated_loader_broker
+                ? "The elevated loader broker provider returned "
+                  "no broker."
+                : elevated_loader_broker.error().detail,
+        });
+    }
 
     auto composition = run_win32_launcher_composition(
         Win32LauncherCompositionInputs{
@@ -339,7 +352,7 @@ auto run_win32_launcher_application(
             paths->ownership_directory,
             *runtime_nonce,
             inputs.observation_platform,
-            inputs.elevated_loader_broker,
+            **elevated_loader_broker,
             inputs.steam_launcher,
         });
     if (!composition)

@@ -90,7 +90,7 @@ Evidence:
 - [x] Resolve effective `--ue4ss-path`, override, conventional, and proxy
   loader identity.
 - [x] Implement managed, exact shared, and conflict modes.
-- [ ] Implement original-user preparation and minimal elevated broker.
+- [x] Implement original-user preparation and minimal elevated broker.
   - [x] Compose immutable observation, deployment policy, preparation/removal
     planning, and ordered execution behind one portable typed workflow.
   - [x] Derive and observe managed proxy/override expectations before runtime
@@ -134,7 +134,18 @@ Evidence:
     PID checks, same-executable and same-session validation, elevated-child
     token validation, parent SID capture, peer-exit/timeout handling, and an
     internal nonce/PID-only `runas` child mode kept outside the public CLI.
-  - [ ] Implement the minimal elevated two-file broker.
+  - [x] Implement the minimal elevated two-file broker.
+    - [x] Bind one accepted manifest hash into the original-user broker only
+      after the embedded package has been parsed and verified.
+    - [x] Independently reload and verify the embedded package in the
+      authenticated elevated child before resolving original-user data or
+      mutating loader files.
+    - [x] Resolve the stable runtime path from the authenticated parent's
+      token, rebuild proxy/override material in the child, and expose only the
+      restricted two-file mutation platform.
+    - [x] Compose the public native GUI entry point, internal child entry
+      point, exact UAC scope explanation, bounded TaskDialog/log reporting,
+      and `asInvoker` manifest without adding an always-elevated launcher.
 - [x] Implement safe reuse, repair, update, cleanup, and `--remove`.
 - [ ] Pass temporary-tree, hostile-path, reparse, interrupted-transaction,
   shared-isolation, and alternate-credential tests.
@@ -410,6 +421,9 @@ Evidence:
 - [ ] Embed payload, resources, licenses, and notices.
   - [x] Implement bounded Win32 `RCDATA` loading and a manifest-exact,
     in-memory CAB payload source with private extraction and cleanup.
+  - [x] Bind an exact manifest/CAB pair conditionally as `RCDATA` resources
+    and build the native x64 Windows GUI EXE with an explicit `asInvoker`
+    manifest; configuration refuses a partial resource pair.
   - [ ] Bind the final trusted CAB, manifest, profiles, localization, fonts,
     icon, licenses, and notices into the release EXE.
 - [ ] Build runtime and mod from the same trusted graph.

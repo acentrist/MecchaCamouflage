@@ -3,9 +3,10 @@
 ## Current status
 
 Canonical payload-manifest generation, deterministic CAB assembly, bounded
-Win32 `RCDATA` loading, and manifest-exact CAB consumption are implemented.
-Final release-resource binding and exact release-artifact verification remain
-open. No launcher executable is considered releasable at this checkpoint.
+Win32 `RCDATA` loading, manifest-exact CAB consumption, and the native GUI
+launcher resource boundary are implemented. Final trusted runtime/resource
+assembly and exact release-artifact verification remain open. No launcher
+executable is considered releasable at this checkpoint.
 
 ## Canonical manifest generator
 
@@ -117,6 +118,23 @@ accept only canonical manifest paths and return caller-owned byte copies. No
 extracted packaging workspace survives a successful source; rejected inputs
 use the same RAII cleanup path.
 
+## Native launcher resource boundary
+
+The Windows build produces one native x64 GUI target named
+`meccha-camouflage-v2.0.0.exe`. Its explicit manifest is `asInvoker`, declares
+Windows 10 compatibility, and opts into Common Controls v6. The root build
+accepts `MECCHA_PAYLOAD_MANIFEST` and `MECCHA_PAYLOAD_CAB` only as an exact
+pair. Supplying one without the other or naming a missing file is a configure
+error; supplying both adds them as `RCDATA` resource IDs 101 and 102.
+
+The normal entry point loads and validates that resource pair before binding
+the accepted manifest hash to the original-user elevated broker. The internal
+nonce/PID-only entry point independently reloads the same resources after
+authenticating its pipe parent. It cannot accept payload bytes, game paths, or
+loader material through the command line. Development builds may omit the
+resource pair to compile and test the native shell, but such an executable
+fails closed at package loading and is not a release artifact.
+
 ## Automated evidence
 
 `payload_manifest_tool` covers:
@@ -153,7 +171,5 @@ Windows MSVC Release graph.
 - Assemble and freeze the minimal trusted UE4SS runtime layout.
 - Embed CAB, manifest, layout identity, localization, profiles, fonts, icon,
   project/UE4SS/dependency licenses, and notices as Win32 resources.
-- Bind the read-only resource/CAB source to final launcher material
-  construction.
 - Add final binary, provenance, import/export, license, forbidden-artifact, and
   one-EXE checks.

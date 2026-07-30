@@ -40,10 +40,12 @@ if(WIN32)
         PRIVATE
             src/application_win32.cpp
             src/composition_win32.cpp
+            src/elevated_child_win32.cpp
             src/elevated_broker_win32.cpp
             src/elevated_loader_win32.cpp
             src/elevated_protocol_win32.cpp
             src/elevated_transport_win32.cpp
+            src/embedded_package_win32.cpp
             src/embedded_payload_win32.cpp
             src/execution_win32.cpp
             src/game_discovery_win32.cpp
@@ -60,9 +62,83 @@ if(WIN32)
         meccha_launcher_core
         PRIVATE
             advapi32
+            comctl32
             ole32
             setupapi
             shell32
             uuid
     )
+
+    add_executable(
+        meccha_camouflage_launcher
+        WIN32
+            src/main_win32.cpp
+            resources/launcher_base.rc
+    )
+    target_link_libraries(
+        meccha_camouflage_launcher
+        PRIVATE
+            MecchaCamouflage::LauncherCore
+            meccha_build_options
+            comctl32
+            ole32
+            shell32
+    )
+    target_link_options(
+        meccha_camouflage_launcher
+        PRIVATE
+            /MANIFEST:NO
+    )
+    set_target_properties(
+        meccha_camouflage_launcher
+        PROPERTIES
+            OUTPUT_NAME
+                "meccha-camouflage-v${PROJECT_VERSION}"
+            RUNTIME_OUTPUT_DIRECTORY
+                "${CMAKE_BINARY_DIR}/package"
+    )
+
+    if(
+        (MECCHA_PAYLOAD_MANIFEST AND NOT MECCHA_PAYLOAD_CAB)
+        OR
+        (MECCHA_PAYLOAD_CAB AND NOT MECCHA_PAYLOAD_MANIFEST)
+    )
+        message(
+            FATAL_ERROR
+            "MECCHA_PAYLOAD_MANIFEST and MECCHA_PAYLOAD_CAB must "
+            "be provided together."
+        )
+    endif()
+    if(MECCHA_PAYLOAD_MANIFEST AND MECCHA_PAYLOAD_CAB)
+        if(
+            NOT EXISTS "${MECCHA_PAYLOAD_MANIFEST}"
+            OR
+            NOT EXISTS "${MECCHA_PAYLOAD_CAB}"
+        )
+            message(
+                FATAL_ERROR
+                "The configured launcher payload resources do not exist."
+            )
+        endif()
+        file(
+            TO_CMAKE_PATH
+            "${MECCHA_PAYLOAD_MANIFEST}"
+            MECCHA_PAYLOAD_MANIFEST_RESOURCE
+        )
+        file(
+            TO_CMAKE_PATH
+            "${MECCHA_PAYLOAD_CAB}"
+            MECCHA_PAYLOAD_CAB_RESOURCE
+        )
+        configure_file(
+            resources/launcher_payload.rc.in
+            "${CMAKE_CURRENT_BINARY_DIR}/launcher_payload.rc"
+            @ONLY
+        )
+        target_sources(
+            meccha_camouflage_launcher
+            PRIVATE
+                "${CMAKE_CURRENT_BINARY_DIR}/launcher_payload.rc"
+        )
+    endif()
 endif()

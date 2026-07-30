@@ -334,6 +334,30 @@ public:
     bool called{};
 };
 
+class FixedBrokerProvider final
+    : public ElevatedLoaderBrokerProvider
+{
+public:
+    explicit FixedBrokerProvider(ElevatedLoaderBroker& broker)
+        : broker_(broker)
+    {
+    }
+
+    auto bind(const Sha256Digest& manifest_sha256)
+        -> std::expected<
+            ElevatedLoaderBroker*,
+            LauncherEffectError> override
+    {
+        ++bind_calls;
+        bound_manifest = manifest_sha256;
+        return &broker_;
+    }
+
+    ElevatedLoaderBroker& broker_;
+    std::size_t bind_calls{};
+    Sha256Digest bound_manifest{};
+};
+
 class UnexpectedSteam final : public SteamGameLauncher
 {
 public:
@@ -353,7 +377,7 @@ auto application_inputs(
     LauncherBootstrapPlatform& bootstrap,
     LauncherPackageSource& package,
     OriginalUserObservationPlatform& observation,
-    ElevatedLoaderBroker& broker,
+    ElevatedLoaderBrokerProvider& broker_provider,
     SteamGameLauncher& steam)
     -> Win32LauncherApplicationInputs
 {
@@ -362,7 +386,7 @@ auto application_inputs(
         bootstrap,
         package,
         observation,
-        broker,
+        broker_provider,
         steam,
     };
 }
@@ -379,6 +403,7 @@ auto main() -> int
     FakePackageSource explicit_package{package};
     FakeObservationPlatform explicit_observation{};
     UnexpectedBroker broker{};
+    FixedBrokerProvider broker_provider{broker};
     UnexpectedSteam steam{};
     constexpr std::string_view explicit_arguments[]{
         "--game-dir",
@@ -391,7 +416,7 @@ auto main() -> int
             explicit_bootstrap,
             explicit_package,
             explicit_observation,
-            broker,
+            broker_provider,
             steam));
     const auto expected_root =
         explicit_tree.root / "local" /
@@ -417,6 +442,9 @@ auto main() -> int
                 expected_root / "runtime" &&
             explicit_package.observed_mode ==
                 LauncherInvocationMode::PrepareOnly &&
+            broker_provider.bind_calls == 1U &&
+            broker_provider.bound_manifest ==
+                package.manifest_sha256 &&
             explicit_observation.game_checks == 3U &&
             explicit_observation.launch_option_reads == 1U &&
             fs::exists(
@@ -454,7 +482,7 @@ auto main() -> int
             running_bootstrap,
             running_package,
             running_observation,
-            broker,
+            broker_provider,
             steam));
     passed &= expect(
         !running &&
@@ -462,6 +490,7 @@ auto main() -> int
                 running.error()) &&
             running_bootstrap.nonce_calls == 0U &&
             running_package.load_count == 0U &&
+            broker_provider.bind_calls == 1U &&
             running_observation.game_checks == 1U &&
             !fs::exists(
                 running_tree.root / "local" /
@@ -480,7 +509,7 @@ auto main() -> int
             blocked_bootstrap,
             blocked_package,
             blocked_observation,
-            broker,
+            broker_provider,
             steam));
     passed &= expect(
         !blocked &&
@@ -489,6 +518,7 @@ auto main() -> int
             blocked_bootstrap.discovery_calls == 0U &&
             blocked_bootstrap.local_data_calls == 0U &&
             blocked_package.load_count == 0U &&
+            broker_provider.bind_calls == 1U &&
             blocked_observation.game_checks == 0U,
         "second instance reached launcher bootstrap effects");
 

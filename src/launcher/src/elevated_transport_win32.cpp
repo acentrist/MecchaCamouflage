@@ -3,6 +3,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <commctrl.h>
 #include <sddl.h>
 #include <shellapi.h>
 
@@ -724,6 +725,71 @@ auto native_handle(const ElevatedBrokerChildProcess& process)
     return reinterpret_cast<HANDLE>(value);
 }
 
+auto action_label(
+    ElevatedLoaderFileAction action) -> std::wstring_view
+{
+    switch (action)
+    {
+    case ElevatedLoaderFileAction::Ignore:
+        return L"leave unchanged";
+    case ElevatedLoaderFileAction::Verify:
+        return L"verify only";
+    case ElevatedLoaderFileAction::Install:
+        return L"create or replace after hash checks";
+    case ElevatedLoaderFileAction::Remove:
+        return L"remove only after ownership/hash checks";
+    }
+    return L"invalid";
+}
+
+auto confirm_elevation(
+    const ElevatedBrokerChildLaunchRequest& request)
+    -> std::expected<void, ElevatedLoaderMutationError>
+{
+    if (!request.game_directory.is_absolute() ||
+        request.game_directory.lexically_normal() !=
+            request.game_directory)
+    {
+        return invalid_transport(
+            "The UAC explanation has an invalid game directory.");
+    }
+    auto content =
+        std::wstring{
+            L"MecchaCamouflage needs administrator permission "
+            L"because this game directory is not writable:\n\n"} +
+        request.game_directory.native() +
+        L"\n\nOnly these two game-directory files are in scope:\n"
+        L"• dwmapi.dll — " +
+        std::wstring{action_label(request.proxy_action)} +
+        L"\n• override.txt — " +
+        std::wstring{action_label(request.override_action)} +
+        L"\n\nThe elevated process revalidates the game, embedded "
+        L"payload, current hashes, and request nonce. It does not "
+        L"change Windows Defender, the firewall, Steam, or any "
+        L"unrelated game file.";
+    int selected{};
+    const auto dialog = TaskDialog(
+        nullptr,
+        nullptr,
+        L"MecchaCamouflage",
+        L"Administrator permission is required",
+        content.c_str(),
+        TDCBF_OK_BUTTON | TDCBF_CANCEL_BUTTON,
+        TD_INFORMATION_ICON,
+        &selected);
+    if (FAILED(dialog))
+    {
+        return invalid_transport(
+            "The UAC scope explanation could not be displayed.");
+    }
+    if (selected != IDOK)
+    {
+        return transport_error(
+            "The UAC request was cancelled.");
+    }
+    return {};
+}
+
 class NativeElevatedBrokerChildProcess final
     : public ElevatedBrokerChildProcess
 {
@@ -777,6 +843,42 @@ public:
 private:
     HANDLE pipe_{};
 };
+
+class RestrictedMutationRequestExecutor final
+    : public ElevatedBrokerRequestExecutor
+{
+public:
+    RestrictedMutationRequestExecutor(
+        Sha256Digest accepted_manifest_sha256,
+        const ManagedLoaderMaterial* material,
+        ElevatedLoaderMutationPlatform& mutation_platform)
+        : accepted_manifest_sha256_(
+              accepted_manifest_sha256),
+          material_(material),
+          mutation_platform_(mutation_platform)
+    {
+    }
+
+    auto execute(
+        const ElevatedLoaderMutationRequest& request,
+        const ElevatedBrokerParentIdentity& parent_identity)
+        -> std::expected<
+            ElevatedLoaderMutationResult,
+            ElevatedLoaderMutationError> override
+    {
+        static_cast<void>(parent_identity);
+        return execute_elevated_loader_mutation(
+            request,
+            accepted_manifest_sha256_,
+            material_,
+            mutation_platform_);
+    }
+
+private:
+    Sha256Digest accepted_manifest_sha256_{};
+    const ManagedLoaderMaterial* material_{};
+    ElevatedLoaderMutationPlatform& mutation_platform_;
+};
 } // namespace
 
 auto Win32RunAsElevatedBrokerChildLauncher::launch(
@@ -785,6 +887,11 @@ auto Win32RunAsElevatedBrokerChildLauncher::launch(
         std::unique_ptr<ElevatedBrokerChildProcess>,
         ElevatedLoaderMutationError>
 {
+    const auto confirmed = confirm_elevation(request);
+    if (!confirmed)
+    {
+        return std::unexpected(confirmed.error());
+    }
     const auto parameters =
         format_elevated_broker_child_parameters(
             request.invocation);
@@ -997,6 +1104,10 @@ auto Win32NamedPipeElevatedLoaderMutationClient::execute(
                 request.request_nonce,
                 parent_process_id,
             },
+            request.game_directory,
+            request.operation,
+            request.proxy.action,
+            request.override_file.action,
         });
     if (!child || !*child)
     {
@@ -1169,9 +1280,7 @@ auto format_elevated_broker_child_parameters(
 
 auto run_elevated_broker_child(
     const ElevatedBrokerChildInvocation& invocation,
-    const Sha256Digest& accepted_manifest_sha256,
-    const ManagedLoaderMaterial* material,
-    ElevatedLoaderMutationPlatform& mutation_platform,
+    ElevatedBrokerRequestExecutor& request_executor,
     ElevatedBrokerPeerValidator& peer_validator)
     -> std::expected<
         ElevatedBrokerParentIdentity,
@@ -1244,11 +1353,9 @@ auto run_elevated_broker_child(
     if (request &&
         request->request_nonce == invocation.request_nonce)
     {
-        outcome = execute_elevated_loader_mutation(
+        outcome = request_executor.execute(
             *request,
-            accepted_manifest_sha256,
-            material,
-            mutation_platform);
+            *parent_identity);
     }
     const auto response =
         encode_elevated_loader_response(
@@ -1269,5 +1376,26 @@ auto run_elevated_broker_child(
         return std::unexpected(wrote.error());
     }
     return *parent_identity;
+}
+
+auto run_elevated_broker_child(
+    const ElevatedBrokerChildInvocation& invocation,
+    const Sha256Digest& accepted_manifest_sha256,
+    const ManagedLoaderMaterial* material,
+    ElevatedLoaderMutationPlatform& mutation_platform,
+    ElevatedBrokerPeerValidator& peer_validator)
+    -> std::expected<
+        ElevatedBrokerParentIdentity,
+        ElevatedLoaderMutationError>
+{
+    auto executor = RestrictedMutationRequestExecutor{
+        accepted_manifest_sha256,
+        material,
+        mutation_platform,
+    };
+    return run_elevated_broker_child(
+        invocation,
+        executor,
+        peer_validator);
 }
 } // namespace meccha::launcher

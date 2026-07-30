@@ -14,6 +14,18 @@ endif()
 option(MECCHA_WITH_UE4SS "Build the UE4SS runtime and MecchaCamouflage mod" OFF)
 option(MECCHA_BUILD_TESTS "Build the secret-free v2 test suite" ON)
 option(MECCHA_WARNINGS_AS_ERRORS "Treat project warnings as errors" ON)
+set(
+    MECCHA_PAYLOAD_MANIFEST
+    ""
+    CACHE FILEPATH
+    "Canonical payload manifest to embed in the Windows launcher"
+)
+set(
+    MECCHA_PAYLOAD_CAB
+    ""
+    CACHE FILEPATH
+    "Verified payload CAB to embed in the Windows launcher"
+)
 option(
     MECCHA_ENABLE_SANITIZERS
     "Enable AddressSanitizer and UndefinedBehaviorSanitizer"

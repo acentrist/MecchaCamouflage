@@ -2,6 +2,7 @@
 
 #include <meccha/launcher/command_line.hpp>
 #include <meccha/launcher/composition_win32.hpp>
+#include <meccha/launcher/elevated_broker.hpp>
 #include <meccha/launcher/game_discovery.hpp>
 #include <meccha/launcher/single_instance.hpp>
 
@@ -145,7 +146,7 @@ struct Win32LauncherApplicationInputs
     LauncherBootstrapPlatform& bootstrap_platform;
     LauncherPackageSource& package_source;
     OriginalUserObservationPlatform& observation_platform;
-    ElevatedLoaderBroker& elevated_loader_broker;
+    ElevatedLoaderBrokerProvider& elevated_loader_broker_provider;
     SteamGameLauncher& steam_launcher;
 };
 

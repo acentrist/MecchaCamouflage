@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <expected>
+#include <filesystem>
 #include <memory>
 #include <span>
 #include <string>
@@ -34,6 +35,10 @@ struct ElevatedBrokerChildInvocation
 struct ElevatedBrokerChildLaunchRequest
 {
     ElevatedBrokerChildInvocation invocation{};
+    std::filesystem::path game_directory{};
+    ElevatedLoaderOperation operation{};
+    ElevatedLoaderFileAction proxy_action{};
+    ElevatedLoaderFileAction override_action{};
 };
 
 class ElevatedBrokerChildProcess
@@ -118,6 +123,28 @@ public:
             ElevatedLoaderMutationError> = 0;
 };
 
+class ElevatedBrokerRequestExecutor
+{
+public:
+    ElevatedBrokerRequestExecutor() = default;
+    ElevatedBrokerRequestExecutor(
+        const ElevatedBrokerRequestExecutor&) = delete;
+    auto operator=(const ElevatedBrokerRequestExecutor&)
+        -> ElevatedBrokerRequestExecutor& = delete;
+    ElevatedBrokerRequestExecutor(
+        ElevatedBrokerRequestExecutor&&) = delete;
+    auto operator=(ElevatedBrokerRequestExecutor&&)
+        -> ElevatedBrokerRequestExecutor& = delete;
+    virtual ~ElevatedBrokerRequestExecutor() = default;
+
+    virtual auto execute(
+        const ElevatedLoaderMutationRequest& request,
+        const ElevatedBrokerParentIdentity& parent_identity)
+        -> std::expected<
+            ElevatedLoaderMutationResult,
+            ElevatedLoaderMutationError> = 0;
+};
+
 class Win32ElevatedBrokerPeerValidator final
     : public ElevatedBrokerPeerValidator
 {
@@ -169,6 +196,14 @@ private:
     const ElevatedBrokerChildInvocation& invocation)
     -> std::expected<
         std::wstring,
+        ElevatedLoaderMutationError>;
+
+[[nodiscard]] auto run_elevated_broker_child(
+    const ElevatedBrokerChildInvocation& invocation,
+    ElevatedBrokerRequestExecutor& request_executor,
+    ElevatedBrokerPeerValidator& peer_validator)
+    -> std::expected<
+        ElevatedBrokerParentIdentity,
         ElevatedLoaderMutationError>;
 
 [[nodiscard]] auto run_elevated_broker_child(
