@@ -123,6 +123,9 @@ Evidence:
   - [x] Constrain the privileged mutation executor to preflighted
     verify/install/remove actions for only `dwmapi.dll` and `override.txt`,
     with no ownership or LocalAppData capability.
+  - [x] Coordinate original-user receipt intents, privileged-client results,
+    exact result verification, finalization, and partial/failure recovery
+    without requesting a client for exact reuse.
   - [ ] Implement the minimal elevated two-file broker.
 - [x] Implement safe reuse, repair, update, cleanup, and `--remove`.
 - [ ] Pass temporary-tree, hostile-path, reparse, interrupted-transaction,

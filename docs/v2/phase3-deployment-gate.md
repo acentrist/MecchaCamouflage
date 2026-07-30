@@ -230,6 +230,13 @@ open.
   rebuilt material mismatches, reparses, staging residue, and changed
   preconditions before changing either target. Verify-only actions never
   rewrite exact files.
+- The original-user elevated coordinator rechecks both planned artifact states
+  before creating either receipt intent, sends only the fixed-file mutation
+  request to an injected privileged client, verifies the returned mutation set,
+  and finalizes both receipts from measured targets. Client failure, partial
+  privileged success, false success, nonce failure, and finalization failure
+  all run deterministic receipt recovery. Exact reuse never acquires a nonce or
+  calls the privileged client.
 - Native writability observation walks only absolute normalized plain
   directory components, rejects reparses, opens the nearest existing directory
   with the exact create/delete-child access needed by publication, and treats
@@ -379,6 +386,11 @@ exact proxy verification without rewrite, owned replacement, exact removal,
 full preflight before either mutation, changed-target refusal, running-game
 refusal, malformed-request refusal, and absence of any ownership-directory
 effect.
+The original-user broker-coordinator suite proves end-to-end apply/remove
+receipt coordination with the restricted executor, rollback after a
+pre-mutation client failure, deterministic ownership after proxy-only partial
+success, refusal of false client success, and zero privileged-client/nonce
+calls for exact reuse.
 The command-line and Windows single-instance suites prove the exact public
 switch grammar, conflicting/hostile input rejection, concurrent-instance
 refusal, and deterministic guard release.
