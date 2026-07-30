@@ -214,7 +214,7 @@ Evidence:
     close/shutdown, rolls back failed acquisition, and retains failed restore
     state for bounded retry.
   - [ ] Implement and live-verify the production Unreal input-state port.
-- [ ] Implement responsive viewport/DPI scaling.
+- [x] Implement responsive viewport/DPI scaling.
 - [ ] Implement localized game-font and packaged OFL fallback-glyph paths.
 - [ ] Render representative ESP primitives while the panel is closed.
 - [ ] Complete the retained two-layer Image Paint editor vertical slice.
@@ -223,6 +223,8 @@ Evidence:
   texture-lifetime tests.
   - [x] Pass portable Canvas clipping/resource and input-lease rollback/retry/
     shutdown contract tests.
+  - [x] Pass portable safe-area/DPI layout, clipped hit-test, exclusive pointer
+    capture, focus, disabled-control, duplicate-ID, and same-frame click tests.
 - [ ] DEFERRED — maintainer interaction required: verify the complete Canvas
   viability checklist in the live game.
 

@@ -3,6 +3,8 @@ add_library(
     STATIC
         src/canvas.cpp
         src/input_lease.cpp
+        src/interaction.cpp
+        src/layout.cpp
 )
 add_library(MecchaCamouflage::Ui ALIAS meccha_ui)
 

@@ -2,11 +2,12 @@
 
 ## Current status
 
-The project-owned, secret-free Canvas command boundary and exact input-lease
-state machine are implemented. They do not prove that the pinned UE4SS/runtime
-can register the required live HUD callback or that the game's UCanvas and
-input objects satisfy the complete product interaction contract. Phase 5
-therefore remains open and the approved architecture stop gate is unchanged.
+The project-owned, secret-free Canvas command boundary, responsive layout,
+pointer interaction frame, and exact input-lease state machine are
+implemented. They do not prove that the pinned UE4SS/runtime can register the
+required live HUD callback or that the game's UCanvas and input objects
+satisfy the complete product interaction contract. Phase 5 therefore remains
+open and the approved architecture stop gate is unchanged.
 
 ## Canvas frame boundary
 
@@ -37,6 +38,30 @@ An out-of-clip primitive is a successful no-op. A rejected primitive never
 partially changes the frame. Texture handles are project-owned integers; no
 UE4SS, UObject, UCanvas, D3D, DXGI, or custom-render type crosses this
 boundary.
+
+## Responsive layout and pointer interaction
+
+`build_panel_layout` validates the Canvas viewport, platform-provided safe-area
+insets, and the product's `[0.75, 2.0]` user-scale contract. Its effective
+pixel scale combines the user multiplier with DPI and caps that result only
+when required to keep the minimum logical interaction surface inside the safe
+area. The deterministic result contains:
+
+- safe, panel, tab-strip, content, and status rectangles;
+- five exact section-tab partitions for Paint, Image Paint, ESP, Settings, and
+  Diagnostics;
+- compact-tab state derived from the available panel width; and
+- positive clipped content at the minimum accepted safe-area size.
+
+`InteractionFrame` consumes one copied prior state and one frame of pointer
+edges. Controls use nonzero project-owned IDs and explicit geometry plus clip
+rectangles. A press is captured by at most one enabled control, a captured
+release activates only when it remains inside the clipped control, and focus
+changes only on successful activation or an unclaimed background press.
+Same-frame press/release is deterministic. Closing the panel releases capture
+and focus. Duplicate/zero IDs, invalid geometry, non-finite input, and more
+than 2,048 controls fail the complete interaction frame; the caller never
+receives partially committed state.
 
 ## Exact input lease
 
@@ -69,13 +94,20 @@ rejection, and clip-balance refusal.
 apply rollback, failed rollback/restore retention and retry, invalid captured
 state refusal, shutdown restoration, and exception containment.
 
-Both tests run in the normal Linux graph, the mandatory ASan/UBSan graph, and
-the Windows MSVC x64 Release graph.
+`ui_layout` covers normal, constrained high-DPI, safe-area, compact-tab, and
+ultrawide geometry plus invalid scale/inset refusal. `ui_interaction` covers
+exclusive capture, clipped hit testing, inside/outside release, focus,
+disabled controls, duplicate IDs, panel close, same-frame clicks, and invalid
+pointer refusal.
+
+All four tests run in the normal Linux graph, the mandatory ASan/UBSan graph,
+and the Windows MSVC x64 Release graph.
 
 ## Remaining feasibility work
 
-- Implement responsive layout, hit testing, controls, editor gestures, body
-  guides, and immutable command/snapshot binding above this protocol.
+- Implement scroll containers, controls, keyboard focus, text editing, editor
+  gestures, body guides, and immutable command/snapshot binding above this
+  protocol.
 - Implement the validated UCanvas and Unreal input adapters only after the
   protected UE4SS graph compiles the exact interfaces.
 - Prove localized font/text, texture creation/lifetime, clipping, mouse input,

@@ -127,6 +127,27 @@ target_link_libraries(
 )
 add_test(NAME ui_input_lease COMMAND meccha_ui_input_lease_tests)
 
+add_executable(meccha_ui_layout_tests ui_layout_test.cpp)
+target_link_libraries(
+    meccha_ui_layout_tests
+    PRIVATE
+        MecchaCamouflage::Ui
+        meccha_build_options
+)
+add_test(NAME ui_layout COMMAND meccha_ui_layout_tests)
+
+add_executable(
+    meccha_ui_interaction_tests
+    ui_interaction_test.cpp
+)
+target_link_libraries(
+    meccha_ui_interaction_tests
+    PRIVATE
+        MecchaCamouflage::Ui
+        meccha_build_options
+)
+add_test(NAME ui_interaction COMMAND meccha_ui_interaction_tests)
+
 add_executable(
     meccha_mesh_profile_codec_tests
     mesh_profile_codec_test.cpp
