@@ -192,7 +192,9 @@ payload, so Phase 3 remains open.
 - Canonical manifest generation consumes a separately declared exact layout,
   measures every payload file, rejects extra/missing/hostile/reparse entries,
   orders paths deterministically, and publishes through atomic replacement.
-  CAB creation and embedded payload binding remain open.
+  Deterministic MakeCab assembly normalizes an isolated staging snapshot,
+  expands the result, and requires exact manifest equivalence before
+  publication. Embedded payload binding remains open.
 
 ## Automated evidence
 

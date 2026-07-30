@@ -738,3 +738,9 @@ add_test(
         "${Python3_EXECUTABLE}"
         "${PROJECT_SOURCE_DIR}/tools/v2/test_generate_payload_manifest.py"
 )
+add_test(
+    NAME payload_cab_tool
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tools/v2/test_build_payload_cab.py"
+)

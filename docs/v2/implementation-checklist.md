@@ -357,11 +357,11 @@ Evidence:
 
 - [ ] Complete launcher switches and every managed/shared lifecycle.
 - [ ] Assemble the minimal release UE4SS configuration.
-- [ ] Generate canonical manifest and deterministic CAB.
+- [x] Generate canonical manifest and deterministic CAB.
   - [x] Generate the manifest from an exact declared layout with canonical
     ordering, SHA-256/size binding, strict hostile-path rejection, exact tree
     coverage, reparse refusal, and atomic output publication.
-  - [ ] Generate a deterministic CAB and verify its round trip against the
+  - [x] Generate a deterministic CAB and verify its round trip against the
     canonical manifest.
 - [ ] Embed payload, resources, licenses, and notices.
 - [ ] Build runtime and mod from the same trusted graph.
