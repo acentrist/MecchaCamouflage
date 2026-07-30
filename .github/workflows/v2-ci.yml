@@ -1,0 +1,50 @@
+name: V2 Secret-free CI
+
+on:
+  push:
+    branches:
+      - rewrite/ue4ss-v2
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout without restricted dependencies
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Checkout the public UE4SS root only
+        shell: powershell
+        run: |
+          git submodule update --init third_party/RE-UE4SS
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure secret-free graph
+        shell: powershell
+        run: >
+          cmake -S . -B .build/v2/ci-windows
+          -G "Visual Studio 17 2022" -A x64
+          -DMECCHA_WITH_UE4SS=OFF
+          -DMECCHA_BUILD_TESTS=ON
+          -DMECCHA_WARNINGS_AS_ERRORS=ON
+
+      - name: Build secret-free graph
+        shell: powershell
+        run: cmake --build .build/v2/ci-windows --config Release
+
+      - name: Test secret-free graph
+        shell: powershell
+        run: >
+          ctest --test-dir .build/v2/ci-windows
+          -C Release --output-on-failure

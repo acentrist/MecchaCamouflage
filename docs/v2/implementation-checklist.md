@@ -57,19 +57,28 @@ Evidence:
 
 ## Phase 2 — C++ build graph and pinned UE4SS source gate
 
-- [ ] Add the root CMake target graph and enforce dependency boundaries.
-- [ ] Add public dependency checkout that does not require restricted recursive
+- [x] Add the root CMake target graph and enforce dependency boundaries.
+- [x] Add public dependency checkout that does not require restricted recursive
   UE4SS dependencies.
-- [ ] Pin `third_party/RE-UE4SS` to
+- [x] Pin `third_party/RE-UE4SS` to
   `6c26f038751b3d96059d4a9148f5d093012d55ad`.
 - [ ] Record the exact recursive source graph and licenses.
-- [ ] Add secret-free fork CI with `MECCHA_WITH_UE4SS=OFF`.
-- [ ] Add the maintainer-approved protected-ref full-build workflow.
+- [x] Add secret-free fork CI with `MECCHA_WITH_UE4SS=OFF`.
+- [x] Add the maintainer-approved protected-ref full-build workflow.
 - [ ] Build UE4SS and the minimal mod from the same source/configuration.
 - [ ] Verify x64 Release ABI, imports, exports, runtime library, and provenance.
 - [ ] Confirm no UE4SS source patch is required.
 - [ ] DEFERRED — maintainer interaction required: confirm a clean full source
   build with the required Epic-linked GitHub access.
+
+Evidence:
+
+- [`dependency-lock.md`](dependency-lock.md)
+- [`phase2-build-gate.md`](phase2-build-gate.md)
+- `.github/workflows/v2-ci.yml`
+- `.github/workflows/v2-full-build.yml`
+- `tools/v2/verify_source_graph.py`
+- `tools/v2/verify-full-build.ps1`
 
 ## Phase 3 — Safe isolated deployment and loading gate
 

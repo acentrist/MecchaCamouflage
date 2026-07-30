@@ -1,0 +1,83 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 28,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/.build/v2/${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "MECCHA_BUILD_TESTS": "ON",
+        "MECCHA_WARNINGS_AS_ERRORS": "ON"
+      }
+    },
+    {
+      "name": "dev-linux",
+      "displayName": "Secret-free Linux development",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "MECCHA_WITH_UE4SS": "OFF"
+      }
+    },
+    {
+      "name": "ci-windows",
+      "displayName": "Secret-free Windows CI",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "MECCHA_WITH_UE4SS": "OFF"
+      }
+    },
+    {
+      "name": "full-windows",
+      "displayName": "Trusted UE4SS and mod build",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Game__Shipping__Win64",
+        "MECCHA_WITH_UE4SS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "dev-linux",
+      "configurePreset": "dev-linux"
+    },
+    {
+      "name": "ci-windows",
+      "configurePreset": "ci-windows"
+    },
+    {
+      "name": "full-windows",
+      "configurePreset": "full-windows",
+      "targets": [
+        "UE4SS",
+        "meccha_mod",
+        "meccha_build_identity_test"
+      ]
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "dev-linux",
+      "configurePreset": "dev-linux",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "ci-windows",
+      "configurePreset": "ci-windows",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

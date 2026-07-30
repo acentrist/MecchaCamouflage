@@ -7,3 +7,6 @@
 [submodule "third_party/minhook"]
 	path = third_party/minhook
 	url = https://github.com/TsudaKageyu/minhook.git
+[submodule "third_party/RE-UE4SS"]
+	path = third_party/RE-UE4SS
+	url = https://github.com/UE4SS-RE/RE-UE4SS.git

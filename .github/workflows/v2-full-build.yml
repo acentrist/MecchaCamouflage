@@ -1,0 +1,71 @@
+name: V2 Trusted Full Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full-build:
+    if: >-
+      github.repository == 'acentrist/MecchaCamouflage' &&
+      (github.ref == 'refs/heads/rewrite/ue4ss-v2' ||
+       github.ref == 'refs/heads/main' ||
+       startsWith(github.ref, 'refs/tags/v2.'))
+    environment: ue4ss-full-build
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout reviewed ref
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+
+      - name: Checkout complete pinned UE4SS graph
+        shell: powershell
+        env:
+          UE4SS_GITHUB_TOKEN: ${{ secrets.UE4SS_GITHUB_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:UE4SS_GITHUB_TOKEN)) {
+            throw "UE4SS_GITHUB_TOKEN is required for the protected full build."
+          }
+          git -c "url.https://x-access-token:$env:UE4SS_GITHUB_TOKEN@github.com/.insteadOf=git@github.com:" submodule update --init --recursive third_party/RE-UE4SS
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/v2/verify_source_graph.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure trusted graph
+        shell: powershell
+        run: cmake --preset full-windows
+
+      - name: Build UE4SS and mod together
+        shell: powershell
+        run: cmake --build --preset full-windows
+
+      - name: Verify full-build binaries and provenance
+        shell: powershell
+        run: >
+          .\tools\v2\verify-full-build.ps1
+          -BuildRoot .build\v2\full-windows
+          -ReportPath .build\v2\full-windows\phase2-provenance.json
+
+      - name: Test project contracts
+        shell: powershell
+        run: >
+          ctest --test-dir .build/v2/full-windows
+          --output-on-failure
+
+      - name: Upload provenance report
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-phase2-provenance
+          path: .build/v2/full-windows/phase2-provenance.json
+          if-no-files-found: error
