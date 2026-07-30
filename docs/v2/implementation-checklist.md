@@ -185,6 +185,8 @@ Evidence:
   PBR, compression, and Fill-first ordering.
 - [x] Run Paint planning on one owned cancellable worker with immutable input,
   generation-tagged results, and an exception boundary.
+- [x] Coordinate planning, dispatch, drain, planning cancellation, typed
+  failure, and stale-result rejection through the shared job generation.
 - [ ] Implement exact preview capture/apply/restore ownership.
 - [ ] Dispatch only through game-owned `PaintAtUVWithBrush`.
 - [x] Implement bounded per-frame pacing, progress, cancellation, and terminal

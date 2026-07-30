@@ -194,6 +194,21 @@ add_test(
     COMMAND meccha_paint_planning_worker_tests
 )
 
+add_executable(
+    meccha_paint_job_coordinator_tests
+    paint_job_coordinator_test.cpp
+)
+target_link_libraries(
+    meccha_paint_job_coordinator_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(
+    NAME paint_job_coordinator
+    COMMAND meccha_paint_job_coordinator_tests
+)
+
 add_executable(meccha_launcher_tests launcher_manifest_test.cpp)
 target_link_libraries(
     meccha_launcher_tests

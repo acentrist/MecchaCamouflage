@@ -53,8 +53,22 @@ one active generation. It:
   late result from being confused with a newer generation.
 
 The worker never touches UObjects, UE4SS, the scheduler, job state, or the
-runtime adapter. The application coordinator still must compare the tagged
-completion with the active job before beginning dispatch.
+runtime adapter.
+
+`PaintJobCoordinator` is the sole planning-to-dispatch transition. It compares
+every completion with both its owned generation and the current shared job
+generation before it can mutate job state or begin dispatch. It also:
+
+- atomically claims the shared Paint job before starting worker work;
+- carries the captured component, pacing plan, and start time with that
+  generation;
+- converts planner rejection or dispatch admission failure into a terminal
+  typed job failure;
+- cancels planning without admitting a stroke and acknowledges cancellation
+  only after the worker has stopped;
+- delegates dispatch cancellation to the generation-selective dispatcher; and
+- collects but ignores a late result when the shared job has already been
+  replaced, leaving the replacement snapshot byte-for-byte unchanged.
 
 ## Dispatch prerequisites now enforced
 
@@ -116,17 +130,17 @@ generation-tagged stroke conversion, queue observations, confirmation,
 completion, cancellation, selective discard, progress preservation, and stale
 generation rejection. `paint_planning_worker` covers immutable request
 ownership, bounded concurrency, cancellation, generation tagging, worker
-reuse, exception containment, and terminal shutdown. All related tests pass on
-GCC and MSVC Release. The secret-free Linux suite currently passes all 28
-registered tests.
+reuse, exception containment, and terminal shutdown. `paint_job_coordinator`
+covers planning-to-dispatch transition, planning cancellation, typed failure,
+confirmed terminal completion, and replacement-job isolation. All related
+tests pass on GCC and MSVC Release. The secret-free Linux suite currently
+passes all 29 registered tests.
 
 ## Remaining gate
 
 - Capture the live component/profile/source appearance and preview snapshot
   through validated reflected contracts on the game thread.
-- Connect worker completion to the active application job and reject stale
-  command/generation results.
-- Connect the dispatcher to `ApplicationRoot`, live game queue observers, and
+- Connect the coordinator to `ApplicationRoot`, live game queue observers, and
   exact preview restoration.
 - Complete fake-runtime failures and the deferred single-/two-client live
   matrix before Phase 8 can close.
