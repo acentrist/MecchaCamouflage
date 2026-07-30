@@ -6,9 +6,12 @@
 #include <meccha/core/image_project.hpp>
 #include <meccha/core/paint.hpp>
 
+#include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <variant>
+#include <vector>
 
 namespace meccha::application
 {
@@ -80,6 +83,12 @@ struct LoadImageProject
     std::string project_id{};
 };
 
+struct ImportImageProject
+{
+    CommandId id{};
+    std::shared_ptr<const std::vector<std::byte>> bytes{};
+};
+
 struct SaveImageProject
 {
     CommandId id{};
@@ -122,6 +131,7 @@ using ApplicationCommand = std::variant<
     ToggleEsp,
     ApplyValidatedSettings,
     LoadImageProject,
+    ImportImageProject,
     SaveImageProject,
     RenameImageProject,
     DeleteImageProject,

@@ -680,6 +680,24 @@ auto ApplicationRoot::process_command(
                 }
             }
             else if constexpr (
+                std::is_same_v<Request, ImportImageProject>)
+            {
+                auto settings = core::ApplicationConfig{};
+                {
+                    const auto lock =
+                        std::scoped_lock{state_mutex_};
+                    settings = settings_;
+                }
+                if (!image_editor_ ||
+                    !image_editor_->import_project(
+                        request.id,
+                        std::move(request.bytes),
+                        std::move(settings)))
+                {
+                    record_command_error(request.id);
+                }
+            }
+            else if constexpr (
                 std::is_same_v<Request, SaveImageProject>)
             {
                 auto settings = core::ApplicationConfig{};

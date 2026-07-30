@@ -88,6 +88,19 @@ struct ApplicationSnapshot
     auto operator==(const ApplicationSnapshot&) const -> bool = default;
 };
 
+class ApplicationSnapshotPort
+{
+public:
+    ApplicationSnapshotPort() = default;
+    ApplicationSnapshotPort(const ApplicationSnapshotPort&) = delete;
+    auto operator=(const ApplicationSnapshotPort&)
+        -> ApplicationSnapshotPort& = delete;
+    virtual ~ApplicationSnapshotPort() = default;
+
+    [[nodiscard]] virtual auto snapshot() const
+        -> std::shared_ptr<const ApplicationSnapshot> = 0;
+};
+
 class SnapshotPublisher
 {
 public:

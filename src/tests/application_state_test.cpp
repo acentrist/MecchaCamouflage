@@ -153,7 +153,7 @@ auto main() -> int
     passed &= expect(
         std::holds_alternative<MutateImageProject>(
             typed_command) &&
-            std::variant_size_v<ApplicationCommand> == 16U,
+            std::variant_size_v<ApplicationCommand> == 17U,
         "the internal typed command surface is incomplete");
 
     BoundedDiagnostics diagnostics{2U};

@@ -25,6 +25,8 @@ using namespace std::chrono_literals;
 
 constexpr auto ProjectId =
     std::string_view{"0123456789abcdef0123456789abcdef"};
+constexpr auto ImportedProjectId =
+    std::string_view{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"};
 
 auto expect(bool condition, std::string_view message) -> bool
 {
@@ -522,6 +524,73 @@ auto main() -> int
                     ImageEditorMutationError::InvalidProject),
             "image import accepted a layer without an owned source");
         import_session.shutdown(false);
+    }
+    {
+        auto preset_session = ImageEditorSession{
+            decoder,
+            composer,
+            projects,
+            persistence,
+            1ms,
+        };
+        auto preset_project = project(hasher, 12U);
+        preset_project.project_id =
+            std::string{ImportedProjectId};
+        preset_project.display_name = "Imported project";
+        const auto encoded = encode_image_project(
+            preset_project,
+            hasher);
+        auto immutable =
+            std::make_shared<const std::vector<std::byte>>(
+                encoded.value());
+        passed &= expect(
+            preset_session.import_project(
+                90U,
+                immutable,
+                core::ApplicationConfig{}).has_value() &&
+                preset_session.import_project(
+                    91U,
+                    immutable,
+                    core::ApplicationConfig{}) ==
+                    std::unexpected(
+                        ImageEditorSessionStartError::Busy),
+            "preset import did not retain one persistence owner");
+        const auto imported =
+            wait_for_completion(preset_session);
+        const auto imported_config =
+            imported && imported->result &&
+                    imported->result->config
+                ? *imported->result->config
+                : core::ApplicationConfig{};
+        passed &= expect(
+            imported &&
+                imported->operation ==
+                    ImageProjectIoOperation::Import &&
+                imported->result &&
+                imported->result->project_id ==
+                    ImportedProjectId &&
+                imported->result->project_revision == 12U &&
+                imported->result->pipeline_generation &&
+                imported_config.active_image_project &&
+                imported_config.active_image_project
+                        ->project_id ==
+                    ImportedProjectId &&
+                wait_until_ready(preset_session, 12U),
+            "preset import did not activate and prepare its decoded project");
+        const auto imported_document =
+            preset_session.session_snapshot().document;
+        passed &= expect(
+            imported_document &&
+                imported_document->project_id ==
+                    ImportedProjectId &&
+                imported_document->display_name ==
+                    "Imported project" &&
+                imported_document->revision == 12U &&
+                projects.load_named(ImportedProjectId)
+                    .value()
+                    .has_value(),
+            "preset import lost decoded identity or named persistence");
+        preset_session.shutdown(false);
     }
 
     auto session = ImageEditorSession{

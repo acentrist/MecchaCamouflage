@@ -256,6 +256,14 @@ auto valid_action(
                     request.project_id);
             }
             else if constexpr (
+                std::is_same_v<Request, UiImportImageProject>)
+            {
+                return request.bytes &&
+                       !request.bytes->empty() &&
+                       request.bytes->size() <=
+                           MaximumPresetContainerBytes;
+            }
+            else if constexpr (
                 std::is_same_v<
                     Request,
                     UiRenameCurrentImageProject>)
@@ -342,7 +350,8 @@ auto action_available(
                 return model.settings.can_apply;
             }
             else if constexpr (
-                std::is_same_v<Request, UiLoadImageProject>)
+                std::is_same_v<Request, UiLoadImageProject> ||
+                std::is_same_v<Request, UiImportImageProject>)
             {
                 return model.image_paint.project.load;
             }
@@ -462,6 +471,14 @@ auto make_command(
                 return LoadImageProject{
                     command_id,
                     request.project_id,
+                };
+            }
+            else if constexpr (
+                std::is_same_v<Request, UiImportImageProject>)
+            {
+                return ImportImageProject{
+                    command_id,
+                    request.bytes,
                 };
             }
             else if constexpr (

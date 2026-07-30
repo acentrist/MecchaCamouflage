@@ -33,7 +33,9 @@ enum class ApplicationRootError : std::uint8_t
     RuntimeShutdown,
 };
 
-class ApplicationRoot final : private RuntimeLifecycleObserver
+class ApplicationRoot final
+    : public ApplicationSnapshotPort,
+      private RuntimeLifecycleObserver
 {
 public:
     ApplicationRoot(
@@ -93,7 +95,7 @@ public:
         -> std::expected<void, ApplicationRootError>;
 
     [[nodiscard]] auto snapshot() const
-        -> std::shared_ptr<const ApplicationSnapshot>;
+        -> std::shared_ptr<const ApplicationSnapshot> override;
 
 private:
     struct ActivePaintPreviewBuild

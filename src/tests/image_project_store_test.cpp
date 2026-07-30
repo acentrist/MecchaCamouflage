@@ -1,5 +1,6 @@
 #include <meccha/application/image_project_store.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -277,6 +278,59 @@ auto main() -> int
                 application::ImageProjectCodecErrorCode::InvalidProject &&
             storage.writes.size() == writes_before_invalid_name,
         "an invalid project name reached storage");
+
+    const auto imported_project = make_project(
+        hasher,
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    const auto imported_bytes =
+        application::encode_image_project(
+            imported_project,
+            hasher);
+    const auto writes_before_import = storage.writes.size();
+    const auto imported =
+        store.import_named(imported_bytes.value());
+    const auto imported_again =
+        store.import_named(imported_bytes.value());
+    passed &= expect(
+        imported_bytes && imported && imported->created &&
+            imported->project == imported_project &&
+            imported_again && !imported_again->created &&
+            imported_again->project == imported_project &&
+            storage.writes.size() ==
+                writes_before_import + 1U,
+        "preset import did not publish once and reuse an exact project");
+
+    auto conflicting_project = imported_project;
+    conflicting_project.display_name = "Conflicting project";
+    const auto conflicting_bytes =
+        application::encode_image_project(
+            conflicting_project,
+            hasher);
+    const auto writes_before_conflict = storage.writes.size();
+    const auto conflicting_import =
+        store.import_named(conflicting_bytes.value());
+    const auto retained_import =
+        store.load_named(imported_project.project_id);
+    passed &= expect(
+        conflicting_bytes && !conflicting_import &&
+            conflicting_import.error().code ==
+                application::ImageProjectStoreErrorCode::
+                    ImportConflict &&
+            retained_import && *retained_import &&
+            **retained_import == imported_project &&
+            storage.writes.size() == writes_before_conflict,
+        "preset import overwrote a conflicting stored project");
+
+    const auto corrupt_import = store.import_named(
+        std::array{
+            std::byte{0x01},
+            std::byte{0x02},
+        });
+    passed &= expect(
+        !corrupt_import &&
+            corrupt_import.error().code ==
+                application::ImageProjectStoreErrorCode::Codec,
+        "corrupt preset bytes entered named project storage");
 
     const auto draft_save = store.save_active_draft(*renamed);
     const auto draft_load = store.load_active_draft();

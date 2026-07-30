@@ -547,9 +547,12 @@ Evidence:
     - [x] Implement hash-derived source identity, existing/new source
       deduplication, layer/source/byte-limit refusal, and one atomic
       `AddImageLayersMutation` through the router/session/pipeline boundary.
-    - [ ] Execute picker effects outside frame composition, revalidate the
+    - [x] Execute picker effects outside frame composition, revalidate the
       latest immutable snapshot after the modal dialog, and enqueue the
       resulting typed image/preset operation.
+    - [x] Decode, publish, and activate selected v2 presets on the persistence
+      worker, reuse an exact existing project, and refuse a differing project
+      with the same ID without overwriting it.
     - [ ] Implement body-guide generation and production texture lifetime.
 - [ ] Complete F9 and configurable F1–F8 hotkey behavior.
   - [x] Implement a bounded application-owned F1–F24 command router with the
@@ -625,6 +628,10 @@ Evidence:
     unavailable-control suppression, exact project/revision capture, source
     deduplication, source-byte/layer limits, hash/collision failure, immutable
     mutation bytes, and atomic editor revision publication.
+  - [x] Prove pre-dialog and post-dialog snapshot validation, cancellation,
+    latest-revision action binding, immutable preset bytes, off-thread preset
+    import/activation, exact-project reuse, same-ID conflict refusal, busy
+    exclusion, and root command routing.
 - [ ] DEFERRED — maintainer interaction required: complete the full in-game UI
   walkthrough across languages/resolutions/DPI.
 

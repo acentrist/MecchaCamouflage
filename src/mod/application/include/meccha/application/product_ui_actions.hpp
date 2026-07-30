@@ -51,6 +51,11 @@ struct UiLoadImageProject
     std::string project_id{};
 };
 
+struct UiImportImageProject
+{
+    std::shared_ptr<const std::vector<std::byte>> bytes{};
+};
+
 struct UiSaveCurrentImageProject
 {
 };
@@ -76,6 +81,7 @@ using ProductUiAction = std::variant<
     UiToggleEsp,
     UiApplySettings,
     UiLoadImageProject,
+    UiImportImageProject,
     UiSaveCurrentImageProject,
     UiRenameCurrentImageProject,
     UiDeleteCurrentImageProject,

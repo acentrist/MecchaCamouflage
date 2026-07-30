@@ -306,6 +306,41 @@ auto main() -> int
                 import_bytes,
         "image import did not retain immutable bytes and project guards");
 
+    const auto preset_bytes =
+        std::make_shared<const std::vector<std::byte>>(
+            std::initializer_list<std::byte>{
+                std::byte{0x55},
+            });
+    auto preset_router = InputCommandRouter{650U};
+    const auto preset_import =
+        preset_router.route_ui_actions(
+            snapshot,
+            std::array{
+                envelope(UiImportImageProject{
+                    preset_bytes,
+                }),
+            });
+    const auto* preset_command =
+        preset_import &&
+                preset_import->commands.size() == 1U
+            ? std::get_if<ImportImageProject>(
+                  &preset_import->commands.front())
+            : nullptr;
+    passed &= expect(
+        preset_command &&
+            preset_command->id == 650U &&
+            preset_command->bytes == preset_bytes,
+        "project import did not retain immutable preset bytes");
+    passed &= expect(
+        preset_router.route_ui_actions(
+            snapshot,
+            std::array{
+                envelope(UiImportImageProject{}),
+            }) ==
+            std::unexpected(
+                InputCommandRouterError::InvalidUiAction),
+        "project import accepted missing preset bytes");
+
     const auto toggle = router.route_ui_actions(
         snapshot,
         std::array{

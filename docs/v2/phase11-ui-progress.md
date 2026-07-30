@@ -4,8 +4,10 @@ Phase 11 is open. The portable Canvas protocol, layout, interaction, widget,
 scroll, text-edit, Image Paint editor, input-lease, and typed editor-mutation
 boundaries are implemented. The current milestones add the application-owned
 hotkey and product-action boundaries plus a portable five-tab product-panel
-shell. Production UCanvas rendering, Unreal input registration, font/texture
-lifetime, project-file/import controls, and live verification remain
+shell, native file-selection boundary, latest-snapshot effect executor, and
+v2-only preset import/activation path. Production UCanvas rendering, Unreal
+input registration, font/texture lifetime, body-guide integration, and live
+verification remain
 intentionally unimplemented until their owned adapters and the protected
 UE4SS graph expose the exact accepted interfaces.
 
@@ -64,8 +66,8 @@ held-key behavior across snapshot publication, complete remapping, duplicate
 mapping refusal, invalid/event-limit refusal, exact command-ID exhaustion,
 input-loss release, and terminal shutdown.
 
-The complete Linux, Linux ASan/UBSan, and Windows MSVC Release graphs pass 70,
-70, and 87 tests respectively.
+The complete Linux, Linux ASan/UBSan, and Windows MSVC Release graphs pass 71,
+71, and 88 tests respectively.
 
 ## Immutable product presentation
 
@@ -365,6 +367,31 @@ admission, transaction failure, draft ownership, and revision publication. The
 native picker is compiled in the Windows MSVC Release graph; opening and
 cancelling the real dialog remains a live/manual check.
 
+`ProductUiEffectExecutor` owns the non-frame modal boundary. It refuses an
+effect whose initial snapshot revision is already stale, opens only the
+requested native picker, and reads a fresh immutable snapshot after the dialog
+returns. Add-images requires the exact project identity and revision to remain
+editable before it prepares one mutation; the emitted action is rebound to the
+latest application snapshot revision. Preset Load similarly rechecks current
+availability and returns immutable bounded bytes in a typed import action.
+Cancellation is a successful non-mutating result, while picker and import
+preparation failures retain separate structured error domains.
+
+The preset command enters the existing bounded image-project I/O worker.
+Decoding, project-store publication, configuration activation, and pipeline
+submission remain outside the Canvas callback. Import accepts the v2 container
+only, atomically publishes a new named project, reuses an exactly equal
+existing project, and refuses a differing project with the same ID without
+changing stored bytes. The editor's persistence busy guard prevents overlap
+with Save, Load, Rename, Delete, and another Import. The application root
+routes the typed command without reading preset structure or accessing Unreal.
+
+Portable tests cover stale effects both before and after the modal boundary,
+latest-snapshot rebinding, cancellation, picker error preservation, immutable
+preset ownership, store reuse and conflict refusal, worker-thread import,
+configuration activation, editor busy exclusion, pipeline publication, and
+root routing.
+
 ## Localized status strip
 
 The status strip is now composed by a dedicated portable owner. It renders the
@@ -399,21 +426,15 @@ Portable tests cover localized messages, command IDs, Canvas/missing-function
 details, omitted counts, the empty state, compact scrolling, and incoherent
 queue refusal.
 
-This remains a partial product UI milestone. Picker-effect execution,
-`.mcpreset` import/activation, body-guide lifetime, and the production UCanvas
-adapter remain open.
+This remains a partial product UI milestone. Body-guide lifetime and the
+production UCanvas adapter remain open.
 
 ## Remaining work
 
-- Execute native picker effects outside Canvas composition and revalidate the
-  latest immutable snapshot after the modal dialog.
-- Import and activate the selected v2 `.mcpreset` transactionally without
-  overwriting a conflicting stored project.
-- Enqueue the prepared Add-images mutation through the implemented typed
-  product-action router without direct runtime mutation.
 - Enqueue the returned product action through the production callback boundary.
 - Connect the production UE4SS key callbacks and input lease.
-- Implement game-font/OFL fallback selection and runtime texture lifetime.
+- Implement body-guide generation, game-font/OFL fallback selection, and
+  runtime texture lifetime.
 - Complete fake-runtime and live UI verification across all languages,
   resolutions, and DPI settings.
 

@@ -483,6 +483,27 @@ auto ImageEditorSession::load(
     });
 }
 
+auto ImageEditorSession::import_project(
+    CommandId command_id,
+    std::shared_ptr<const std::vector<std::byte>> bytes,
+    core::ApplicationConfig current_config)
+    -> std::expected<void, ImageEditorSessionStartError>
+{
+    auto request = ImageProjectIoRequest{
+        ImageProjectImportRequest{
+            command_id,
+            std::move(bytes),
+            std::move(current_config),
+        }};
+    return admit(ActivePersistenceOperation{
+        command_id,
+        ImageProjectIoOperation::Import,
+        {},
+        false,
+        std::move(request),
+    });
+}
+
 auto ImageEditorSession::save(
     CommandId command_id,
     std::string_view project_id,
@@ -742,8 +763,12 @@ auto ImageEditorSession::complete(
 
     auto success = ImageEditorSessionSuccess{};
     success.project_id = expected_project_id;
+    const auto completed_operation = completed.operation;
     const auto accepted = std::visit(
-        [this, &success, &expected_project_id](
+        [this,
+         &success,
+         &expected_project_id,
+         completed_operation](
             auto&& value)
             -> std::optional<ImageEditorSessionFailure>
         {
@@ -751,10 +776,21 @@ auto ImageEditorSession::complete(
             if constexpr (
                 std::is_same_v<Value, ActivatedImageProject>)
             {
-                if (value.project.project_id !=
-                    expected_project_id)
+                const auto importing =
+                    completed_operation ==
+                    ImageProjectIoOperation::Import;
+                if ((importing &&
+                     !expected_project_id.empty()) ||
+                    (!importing &&
+                     value.project.project_id !=
+                         expected_project_id))
                 {
                     return invalid_completion();
+                }
+                if (importing)
+                {
+                    success.project_id =
+                        value.project.project_id;
                 }
                 success.project_revision =
                     value.project.revision;

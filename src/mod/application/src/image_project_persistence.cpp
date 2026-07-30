@@ -254,6 +254,38 @@ auto ImageProjectPersistenceCoordinator::load_named_and_activate(
     };
 }
 
+auto ImageProjectPersistenceCoordinator::import_named_and_activate(
+    std::span<const std::byte> bytes,
+    const core::ApplicationConfig& current_config)
+    -> std::expected<
+        ActivatedImageProject,
+        ImageProjectPersistenceError>
+{
+    auto imported = projects_.import_named(bytes);
+    if (!imported)
+    {
+        return std::unexpected(
+            project_failure(imported.error()));
+    }
+
+    auto updated = current_config;
+    updated.active_image_project =
+        core::ActiveImageProjectReference{
+            core::ImageProjectReferenceKind::NamedProject,
+            imported->project.project_id,
+        };
+    const auto configured = configuration_.save(updated);
+    if (!configured)
+    {
+        return std::unexpected(
+            configuration_failure(configured.error()));
+    }
+    return ActivatedImageProject{
+        std::move(imported->project),
+        std::move(updated),
+    };
+}
+
 auto ImageProjectPersistenceCoordinator::
     delete_named_and_deactivate(
         std::string_view project_id,

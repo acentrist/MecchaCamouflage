@@ -316,6 +316,35 @@ public:
         return {};
     }
 
+    auto import_project(
+        CommandId command_id,
+        std::shared_ptr<const std::vector<std::byte>> bytes,
+        core::ApplicationConfig config)
+        -> std::expected<
+            void,
+            ImageEditorSessionStartError> override
+    {
+        ++import_count;
+        imported_bytes = std::move(bytes);
+        config.active_image_project =
+            core::ActiveImageProjectReference{
+                core::ImageProjectReferenceKind::NamedProject,
+                std::string{ProjectId},
+            };
+        completion_ = ImageEditorSessionCompletion{
+            command_id,
+            ImageProjectIoOperation::Import,
+            ImageEditorSessionSuccess{
+                std::string{ProjectId},
+                current_revision_,
+                1U,
+                std::move(config),
+                false,
+            },
+        };
+        return {};
+    }
+
     auto save(
         CommandId command_id,
         std::string_view project_id,
@@ -442,6 +471,7 @@ public:
         -> std::vector<std::size_t>
     {
         return {
+            import_count,
             load_count,
             save_count,
             rename_count,
@@ -502,6 +532,7 @@ private:
     std::shared_ptr<const core::ImageProject> project_{};
     std::uint64_t current_revision_{7U};
     std::optional<ImageEditorSessionCompletion> completion_{};
+    std::size_t import_count{};
     std::size_t load_count{};
     std::size_t save_count{};
     std::size_t rename_count{};
@@ -513,6 +544,8 @@ private:
     std::string mutated_project_id{};
     std::uint64_t mutated_expected_revision{};
     std::optional<ImageEditorMutation> last_mutation{};
+    std::shared_ptr<const std::vector<std::byte>>
+        imported_bytes{};
     core::ApplicationConfig recovered_config{};
     ImageEditorStartupSnapshot startup_{};
     std::size_t recovery_count{};
@@ -737,7 +770,15 @@ auto main() -> int
         "the typed ESP toggle did not gate frame capture and draw");
 
     passed &= expect(
-        route(LoadImageProject{
+        route(ImportImageProject{
+            250U,
+            std::make_shared<const std::vector<std::byte>>(
+                std::initializer_list<std::byte>{
+                    std::byte{0x01},
+                }),
+        }) == CommandEnqueueResult::Accepted &&
+            root.snapshot()->settings.active_image_project &&
+            route(LoadImageProject{
             251U,
             std::string{ProjectId},
         }) == CommandEnqueueResult::Accepted &&
@@ -759,7 +800,13 @@ auto main() -> int
             }) == CommandEnqueueResult::Accepted &&
             !root.snapshot()->settings.active_image_project &&
             projects.operation_counts() ==
-                std::vector<std::size_t>{1U, 1U, 1U, 1U} &&
+                std::vector<std::size_t>{
+                    1U,
+                    1U,
+                    1U,
+                    1U,
+                    1U,
+                } &&
             projects.expected_revisions() ==
                 std::pair<std::uint64_t, std::uint64_t>{
                     6U,

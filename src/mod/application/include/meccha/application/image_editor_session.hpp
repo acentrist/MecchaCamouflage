@@ -130,6 +130,12 @@ public:
         core::ApplicationConfig current_config)
         -> std::expected<void, ImageEditorSessionStartError> = 0;
 
+    [[nodiscard]] virtual auto import_project(
+        CommandId command_id,
+        std::shared_ptr<const std::vector<std::byte>> bytes,
+        core::ApplicationConfig current_config)
+        -> std::expected<void, ImageEditorSessionStartError> = 0;
+
     [[nodiscard]] virtual auto save(
         CommandId command_id,
         std::string_view project_id,
@@ -204,6 +210,12 @@ public:
     [[nodiscard]] auto load(
         CommandId command_id,
         std::string project_id,
+        core::ApplicationConfig current_config)
+        -> std::expected<void, ImageEditorSessionStartError> override;
+
+    [[nodiscard]] auto import_project(
+        CommandId command_id,
+        std::shared_ptr<const std::vector<std::byte>> bytes,
         core::ApplicationConfig current_config)
         -> std::expected<void, ImageEditorSessionStartError> override;
 

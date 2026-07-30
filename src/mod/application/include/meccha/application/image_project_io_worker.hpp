@@ -4,6 +4,7 @@
 #include <meccha/application/job_state.hpp>
 
 #include <cstdint>
+#include <cstddef>
 #include <expected>
 #include <memory>
 #include <mutex>
@@ -11,6 +12,7 @@
 #include <string>
 #include <thread>
 #include <variant>
+#include <vector>
 
 namespace meccha::application
 {
@@ -26,6 +28,13 @@ struct ImageProjectSaveRequest
     CommandId command_id{};
     std::shared_ptr<const core::ImageProject> project{};
     std::uint64_t expected_revision{};
+    core::ApplicationConfig current_config{};
+};
+
+struct ImageProjectImportRequest
+{
+    CommandId command_id{};
+    std::shared_ptr<const std::vector<std::byte>> bytes{};
     core::ApplicationConfig current_config{};
 };
 
@@ -46,6 +55,7 @@ struct ImageProjectDeleteRequest
 
 using ImageProjectIoRequest = std::variant<
     ImageProjectLoadRequest,
+    ImageProjectImportRequest,
     ImageProjectSaveRequest,
     ImageProjectRenameRequest,
     ImageProjectDeleteRequest>;
@@ -53,6 +63,7 @@ using ImageProjectIoRequest = std::variant<
 enum class ImageProjectIoOperation : std::uint8_t
 {
     Load,
+    Import,
     Save,
     Rename,
     Delete,

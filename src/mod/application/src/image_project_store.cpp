@@ -169,6 +169,48 @@ auto ImageProjectStore::save_named(
     return {};
 }
 
+auto ImageProjectStore::import_named(
+    std::span<const std::byte> bytes)
+    -> std::expected<
+        ImportedImageProject,
+        ImageProjectStoreError>
+{
+    auto project = decode_stored_project(bytes, hasher_);
+    if (!project)
+    {
+        return std::unexpected(project.error());
+    }
+
+    auto current = load_named(project->project_id);
+    if (!current)
+    {
+        return std::unexpected(current.error());
+    }
+    if (*current)
+    {
+        if (**current != *project)
+        {
+            return std::unexpected(project_error(
+                ImageProjectStoreErrorCode::ImportConflict,
+                "A different project already uses the imported project ID."));
+        }
+        return ImportedImageProject{
+            std::move(*project),
+            false,
+        };
+    }
+
+    const auto saved = save_named(*project, 0U);
+    if (!saved)
+    {
+        return std::unexpected(saved.error());
+    }
+    return ImportedImageProject{
+        std::move(*project),
+        true,
+    };
+}
+
 auto ImageProjectStore::rename_named(
     std::string_view project_id,
     std::string new_name)

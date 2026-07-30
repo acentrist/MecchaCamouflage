@@ -10,6 +10,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -97,6 +98,13 @@ public:
 
     [[nodiscard]] auto load_named_and_activate(
         std::string_view project_id,
+        const core::ApplicationConfig& current_config)
+        -> std::expected<
+            ActivatedImageProject,
+            ImageProjectPersistenceError>;
+
+    [[nodiscard]] auto import_named_and_activate(
+        std::span<const std::byte> bytes,
         const core::ApplicationConfig& current_config)
         -> std::expected<
             ActivatedImageProject,

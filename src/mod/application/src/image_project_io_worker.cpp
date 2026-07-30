@@ -37,6 +37,11 @@ auto operation(const ImageProjectIoRequest& request)
                 return ImageProjectIoOperation::Load;
             }
             else if constexpr (
+                std::is_same_v<Request, ImageProjectImportRequest>)
+            {
+                return ImageProjectIoOperation::Import;
+            }
+            else if constexpr (
                 std::is_same_v<Request, ImageProjectSaveRequest>)
             {
                 return ImageProjectIoOperation::Save;
@@ -67,6 +72,17 @@ auto valid(const ImageProjectIoRequest& request) -> bool
                 return core::valid_image_project_id(
                            value.project_id) &&
                        core::validate(value.current_config).empty();
+            }
+            else if constexpr (
+                std::is_same_v<Request, ImageProjectImportRequest>)
+            {
+                return value.bytes &&
+                       !value.bytes->empty() &&
+                       value.bytes->size() <=
+                           MaximumPresetContainerBytes &&
+                       core::validate(
+                           value.current_config)
+                           .empty();
             }
             else if constexpr (
                 std::is_same_v<Request, ImageProjectSaveRequest>)
@@ -133,6 +149,22 @@ auto execute(
                 }
                 return ImageProjectIoValue{
                     std::move(*loaded),
+                };
+            }
+            else if constexpr (
+                std::is_same_v<Request, ImageProjectImportRequest>)
+            {
+                auto imported =
+                    persistence.import_named_and_activate(
+                        *value.bytes,
+                        value.current_config);
+                if (!imported)
+                {
+                    return persistence_failure(
+                        std::move(imported.error()));
+                }
+                return ImageProjectIoValue{
+                    std::move(*imported),
                 };
             }
             else if constexpr (

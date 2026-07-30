@@ -65,6 +65,7 @@ enum class ImageProjectStoreErrorCode : std::uint8_t
     RevisionConflict,
     RevisionOverflow,
     IdentityMismatch,
+    ImportConflict,
 };
 
 struct ImageProjectStoreError
@@ -75,6 +76,15 @@ struct ImageProjectStoreError
     std::string detail{};
 
     auto operator==(const ImageProjectStoreError&) const
+        -> bool = default;
+};
+
+struct ImportedImageProject
+{
+    core::ImageProject project{};
+    bool created{};
+
+    auto operator==(const ImportedImageProject&) const
         -> bool = default;
 };
 
@@ -94,6 +104,12 @@ public:
         const core::ImageProject& project,
         std::uint64_t expected_revision)
         -> std::expected<void, ImageProjectStoreError>;
+
+    [[nodiscard]] auto import_named(
+        std::span<const std::byte> bytes)
+        -> std::expected<
+            ImportedImageProject,
+            ImageProjectStoreError>;
 
     [[nodiscard]] auto rename_named(
         std::string_view project_id,

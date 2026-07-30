@@ -336,6 +336,57 @@ auto main() -> int
                 second_id,
         "named load did not validate before activating its reference");
 
+    constexpr auto imported_id =
+        std::string_view{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"};
+    const auto imported_project = make_project(
+        hasher,
+        std::string{imported_id},
+        3U);
+    const auto imported_bytes =
+        application::encode_image_project(
+            imported_project,
+            hasher);
+    const auto imported_and_activated =
+        coordinator.import_named_and_activate(
+            imported_bytes.value(),
+            config);
+    passed &= expect(
+        imported_and_activated &&
+            imported_and_activated->project ==
+                imported_project &&
+            imported_and_activated->config
+                    .active_image_project &&
+            imported_and_activated->config
+                    .active_image_project->project_id ==
+                imported_id &&
+            project_store.load_named(imported_id)
+                .value()
+                .has_value(),
+        "preset import did not publish before activating its reference");
+
+    auto conflicting_import = imported_project;
+    conflicting_import.display_name = "Conflict";
+    const auto conflicting_import_bytes =
+        application::encode_image_project(
+            conflicting_import,
+            hasher);
+    const auto conflict =
+        coordinator.import_named_and_activate(
+            conflicting_import_bytes.value(),
+            config);
+    passed &= expect(
+        !conflict &&
+            conflict.error().code ==
+                application::ImageProjectPersistenceErrorCode::
+                    Project &&
+            conflict.error().project &&
+            conflict.error().project->code ==
+                application::ImageProjectStoreErrorCode::
+                    ImportConflict &&
+            project_store.load_named(imported_id).value() ==
+                std::optional{imported_project},
+        "preset activation overwrote a conflicting stored project");
+
     const auto deleted_and_deactivated =
         coordinator.delete_named_and_deactivate(
             second_id,

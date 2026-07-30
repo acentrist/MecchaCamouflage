@@ -208,6 +208,15 @@ auto main() -> int
     const auto caller_thread = std::this_thread::get_id();
     auto worker =
         ImageProjectIoWorker{project_store, persistence};
+    passed &= expect(
+        worker.start(ImageProjectImportRequest{
+            100U,
+            nullptr,
+            core::ApplicationConfig{},
+        }) ==
+            std::unexpected(
+                ImageProjectIoStartError::InvalidRequest),
+        "project import accepted missing immutable bytes");
     const auto started = worker.start(
         ImageProjectLoadRequest{
             101U,
@@ -314,9 +323,54 @@ auto main() -> int
             !project_store.load_named(ProjectId).value(),
         "delete left a named project or active config reference");
 
+    auto imported_project = project(hasher, 5U);
+    imported_project.display_name = "Imported";
+    const auto encoded_import = encode_image_project(
+        imported_project,
+        hasher);
+    auto immutable_import =
+        std::make_shared<const std::vector<std::byte>>(
+            encoded_import.value());
+    passed &= expect(
+        worker.start(ImageProjectImportRequest{
+            204U,
+            immutable_import,
+            core::ApplicationConfig{},
+        }).has_value(),
+        "validated preset bytes did not enter off-thread import");
+    const auto imported_completion =
+        wait_for_completion(worker);
+    const auto* imported =
+        imported_completion && imported_completion->result
+            ? std::get_if<ActivatedImageProject>(
+                  &*imported_completion->result)
+            : nullptr;
+    passed &= expect(
+        imported_completion &&
+            imported_completion->operation ==
+                ImageProjectIoOperation::Import &&
+            imported &&
+            imported->project == imported_project &&
+            imported->config.active_image_project &&
+            project_store.load_named(ProjectId)
+                .value()
+                .has_value(),
+        "off-thread preset import did not publish and activate");
+
+    passed &= expect(
+        worker.start(ImageProjectDeleteRequest{
+            205U,
+            std::string{ProjectId},
+            imported
+                ? imported->config
+                : core::ApplicationConfig{},
+        }).has_value() &&
+            wait_for_completion(worker).has_value(),
+        "the imported-project cleanup did not complete");
+
     passed &= expect(
         worker.start(ImageProjectLoadRequest{
-            204U,
+            206U,
             std::string{ProjectId},
             core::ApplicationConfig{},
         }).has_value(),
@@ -335,7 +389,7 @@ auto main() -> int
     project_storage.throw_read = true;
     passed &= expect(
         worker.start(ImageProjectLoadRequest{
-            205U,
+            207U,
             std::string{ProjectId},
             core::ApplicationConfig{},
         }).has_value(),
