@@ -428,6 +428,58 @@ auto recover_runtime(RuntimeStorage& storage)
         "Prepared runtime transaction state is inconsistent.");
 }
 
+auto validate_runtime_reuse(
+    RuntimeStorage& storage,
+    const Sha256Digest& expected_manifest_sha256)
+    -> std::expected<void, RuntimeTransactionError>
+{
+    auto journal = storage.read_journal();
+    if (!journal)
+    {
+        return storage_error(journal.error());
+    }
+    if (*journal)
+    {
+        return transaction_error(
+            RuntimeTransactionErrorCode::Conflict,
+            "Runtime reuse found a pending transaction journal.");
+    }
+    auto names = staging_names(storage);
+    if (!names)
+    {
+        return std::unexpected(names.error());
+    }
+    if (!names->empty())
+    {
+        return transaction_error(
+            RuntimeTransactionErrorCode::Conflict,
+            "Runtime reuse found a staging generation.");
+    }
+    const auto rollback = identify(storage, RollbackName);
+    if (!rollback)
+    {
+        return std::unexpected(rollback.error());
+    }
+    if (rollback->state != GenerationState::Missing)
+    {
+        return transaction_error(
+            RuntimeTransactionErrorCode::Conflict,
+            "Runtime reuse found a rollback generation.");
+    }
+    const auto active = identify(storage, ActiveName);
+    if (!active)
+    {
+        return std::unexpected(active.error());
+    }
+    if (!matches(*active, expected_manifest_sha256))
+    {
+        return transaction_error(
+            RuntimeTransactionErrorCode::Conflict,
+            "The active runtime changed after reuse planning.");
+    }
+    return {};
+}
+
 auto prepare_runtime(
     RuntimeStorage& storage,
     const Sha256Digest& next_manifest_sha256,
@@ -551,5 +603,39 @@ auto prepare_runtime(
         return std::unexpected(journal_removed.error());
     }
     return RuntimePrepareResult::Published;
+}
+
+auto remove_runtime(RuntimeStorage& storage)
+    -> std::expected<RuntimeRemoveResult, RuntimeTransactionError>
+{
+    auto recovered = recover_runtime(storage);
+    if (!recovered)
+    {
+        return std::unexpected(recovered.error());
+    }
+    const auto active = identify(storage, ActiveName);
+    if (!active)
+    {
+        return std::unexpected(active.error());
+    }
+    const auto accepted =
+        reject_conflicting_generation(*active, ActiveName);
+    if (!accepted)
+    {
+        return std::unexpected(accepted.error());
+    }
+    if (active->state == GenerationState::Missing)
+    {
+        return RuntimeRemoveResult::Missing;
+    }
+    auto removed = remove_generation(
+        storage,
+        ActiveName,
+        active->manifest_sha256);
+    if (!removed)
+    {
+        return std::unexpected(removed.error());
+    }
+    return RuntimeRemoveResult::Removed;
 }
 } // namespace meccha::launcher

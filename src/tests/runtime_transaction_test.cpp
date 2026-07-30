@@ -237,6 +237,44 @@ auto main() -> int
             fresh.mutations.size() == mutations_before_reuse,
         "exact active generation was not a no-op");
 
+    const auto mutations_before_validation =
+        fresh.mutations.size();
+    const auto validated_reuse =
+        validate_runtime_reuse(fresh, new_manifest);
+    passed &= expect(
+        validated_reuse &&
+            fresh.mutations.size() ==
+                mutations_before_validation,
+        "runtime reuse validation was not read-only");
+
+    FakeRuntimeStorage stale_reuse{};
+    stale_reuse.generations["active"] = exact(old_manifest);
+    const auto rejected_stale_reuse =
+        validate_runtime_reuse(stale_reuse, new_manifest);
+    passed &= expect(
+        !rejected_stale_reuse &&
+            rejected_stale_reuse.error().code ==
+                RuntimeTransactionErrorCode::Conflict &&
+            stale_reuse.mutations.empty(),
+        "stale runtime reuse was repaired without a publish plan");
+
+    FakeRuntimeStorage pending_reuse{};
+    pending_reuse.journal = RuntimeTransactionJournal{
+        1,
+        TransactionPhase::Prepared,
+        std::nullopt,
+        new_manifest,
+        std::string{Staging},
+    };
+    const auto rejected_pending_reuse =
+        validate_runtime_reuse(pending_reuse, new_manifest);
+    passed &= expect(
+        !rejected_pending_reuse &&
+            rejected_pending_reuse.error().code ==
+                RuntimeTransactionErrorCode::Conflict &&
+            pending_reuse.mutations.empty(),
+        "runtime reuse mutated a pending transaction");
+
     FakeRuntimeStorage update{};
     update.generations["active"] = exact(old_manifest);
     const auto updated = prepare_runtime(update, new_manifest, Nonce);
@@ -325,6 +363,66 @@ auto main() -> int
                 RuntimeTransactionErrorCode::InvalidNonce &&
             bad_nonce.mutations.empty(),
         "an unsafe staging nonce reached storage");
+
+    FakeRuntimeStorage removable{};
+    removable.generations["active"] = exact(old_manifest);
+    const auto removed_runtime = remove_runtime(removable);
+    passed &= expect(
+        removed_runtime &&
+            *removed_runtime == RuntimeRemoveResult::Removed &&
+            removable.generations.empty() &&
+            removable.mutations ==
+                std::vector<std::string>{
+                    "remove active",
+                },
+        "owned active runtime was not removed through its identity");
+
+    FakeRuntimeStorage missing_runtime{};
+    const auto missing_remove = remove_runtime(missing_runtime);
+    passed &= expect(
+        missing_remove &&
+            *missing_remove == RuntimeRemoveResult::Missing &&
+            missing_runtime.mutations.empty(),
+        "missing runtime removal was not an idempotent no-op");
+
+    FakeRuntimeStorage conflicted_remove{};
+    conflicted_remove.generations["active"] = {
+        GenerationState::Conflict,
+        {},
+    };
+    const auto rejected_remove = remove_runtime(conflicted_remove);
+    passed &= expect(
+        !rejected_remove &&
+            rejected_remove.error().code ==
+                RuntimeTransactionErrorCode::Conflict &&
+            conflicted_remove.mutations.empty(),
+        "conflicting runtime content was removed");
+
+    FakeRuntimeStorage interrupted_remove{};
+    interrupted_remove.generations["active"] = exact(old_manifest);
+    interrupted_remove.generations[std::string{Staging}] =
+        exact(new_manifest);
+    interrupted_remove.journal = RuntimeTransactionJournal{
+        1,
+        TransactionPhase::Prepared,
+        old_manifest,
+        new_manifest,
+        std::string{Staging},
+    };
+    const auto recovered_remove =
+        remove_runtime(interrupted_remove);
+    passed &= expect(
+        recovered_remove &&
+            *recovered_remove == RuntimeRemoveResult::Removed &&
+            interrupted_remove.generations.empty() &&
+            !interrupted_remove.journal &&
+            interrupted_remove.mutations ==
+                std::vector<std::string>{
+                    "remove " + std::string{Staging},
+                    "remove journal",
+                    "remove active",
+                },
+        "runtime removal did not recover the transaction first");
 
     if (passed)
     {

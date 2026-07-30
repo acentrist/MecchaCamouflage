@@ -132,12 +132,26 @@ enum class RuntimePrepareResult : std::uint8_t
     Published,
 };
 
+enum class RuntimeRemoveResult : std::uint8_t
+{
+    Missing,
+    Removed,
+};
+
 [[nodiscard]] auto recover_runtime(RuntimeStorage& storage)
     -> std::expected<RuntimeRecoveryResult, RuntimeTransactionError>;
+
+[[nodiscard]] auto validate_runtime_reuse(
+    RuntimeStorage& storage,
+    const Sha256Digest& expected_manifest_sha256)
+    -> std::expected<void, RuntimeTransactionError>;
 
 [[nodiscard]] auto prepare_runtime(
     RuntimeStorage& storage,
     const Sha256Digest& next_manifest_sha256,
     std::string_view nonce)
     -> std::expected<RuntimePrepareResult, RuntimeTransactionError>;
+
+[[nodiscard]] auto remove_runtime(RuntimeStorage& storage)
+    -> std::expected<RuntimeRemoveResult, RuntimeTransactionError>;
 } // namespace meccha::launcher

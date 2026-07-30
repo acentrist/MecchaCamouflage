@@ -35,6 +35,7 @@ if(WIN32)
     target_sources(
         meccha_launcher_core
         PRIVATE
+            src/execution_win32.cpp
             src/game_discovery_win32.cpp
             src/hash_win32.cpp
             src/loader_observation_win32.cpp

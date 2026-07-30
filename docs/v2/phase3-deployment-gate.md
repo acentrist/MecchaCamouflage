@@ -158,6 +158,17 @@ payload, so Phase 3 remains open.
   for prepare-only. Managed removal deactivates the loader before deleting the
   runtime cache, while shared removal cannot reach either managed operation.
   Every effect failure terminates the sequence immediately.
+- Runtime reuse now has a strictly read-only transaction check: `active` must
+  match the expected manifest and no journal, staging, or rollback generation
+  may exist. Runtime removal first completes the existing recovery state
+  machine, then removes only the ownership-identified `active` generation; a
+  missing cache is an idempotent no-op and conflicting content is untouched.
+- The Win32 execution backend binds that transaction contract to the existing
+  managed-loader and shared-mod adapters. Elevated managed operations are
+  handed only to the broker interface, with cache/mod actions stripped from a
+  removal request. Normal managed and shared integration tests operate on real
+  temporary Windows trees; Steam launch remains an injected final effect and
+  is not invoked by the tests.
 
 ## Automated evidence
 
@@ -201,6 +212,10 @@ The portable execution suite proves managed/shared isolation, prepare-only,
 minimal elevated-loader routing, effect ordering, plan rejection, idempotent
 empty removal, and the absence of later mutations or Steam launch after a
 failed effect.
+The Win32 execution suite additionally proves read-only exact runtime reuse,
+normal owned-loader publication, elevated loader-only handoff, loader-before-
+cache removal, shared-mod installation/removal, and preservation of the shared
+UE4SS runtime.
 
 Covered Windows directory cases:
 
@@ -229,8 +244,8 @@ without adding a test-only branch to production coordination.
 - Connect active Steam-user `localconfig.vdf` lookup to launcher orchestration.
 - Connect the native folder-picker fallback to the validated explicit-directory
   path.
-- Bind the validated portable execution coordinator to the concrete Win32
-  observations, runtime transaction, managed/shared adapters, and Steam launch.
+- Build the native observation/material composition root around the Win32
+  execution backend and connect the concrete Steam URI launcher.
 - Validate Unicode and ANSI-round-trip behavior of the pinned proxy's
   narrow-string `override.txt` reader. Use a verified short path when
   available and fail closed if the stable runtime path cannot be represented;
