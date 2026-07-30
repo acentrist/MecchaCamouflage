@@ -2,6 +2,7 @@
 #include <meccha/core/esp.hpp>
 #include <meccha/core/image_mapping.hpp>
 #include <meccha/core/image_project.hpp>
+#include <meccha/core/mesh_profile.hpp>
 #include <meccha/core/paint.hpp>
 
 #include <cmath>
@@ -367,6 +368,60 @@ auto main() -> int
         validate(image_defaults, oversized_layers) ==
             std::vector{ImageProjectError::SourceSizeLimit},
         "the total Image Paint source-byte limit was not enforced");
+
+    for (const auto body : {
+             BodyProfile::Round,
+             BodyProfile::Cube,
+             BodyProfile::Fukuyoka,
+         })
+    {
+        const auto raw =
+            expected_mesh_profile(body, MeshProfileRole::Raw);
+        const auto image = expected_mesh_profile(
+            body,
+            MeshProfileRole::ImageReference);
+        passed &= expect(
+            validate(raw).empty() && validate(image).empty() &&
+                image.base_profile_id == raw.profile_id &&
+                image.base_profile_hash == raw.profile_hash &&
+                image.reference_pose_bone_count == raw.bone_count,
+            "a frozen body profile contract is internally inconsistent");
+    }
+
+    auto misspelled_alias = expected_mesh_profile(
+        BodyProfile::Fukuyoka,
+        MeshProfileRole::Raw);
+    misspelled_alias.source_path.replace(
+        misspelled_alias.source_path.find("hukuyoka"),
+        std::string_view{"hukuyoka"}.size(),
+        "fukuyoka");
+    passed &= expect(
+        validate(misspelled_alias) ==
+            std::vector{MeshProfileField::SourceIdentity},
+        "the fukuyoka UI name leaked into the game asset alias");
+
+    auto invalid_topology = expected_mesh_profile(
+        BodyProfile::Cube,
+        MeshProfileRole::Raw);
+    invalid_topology.maximum_vertex_index =
+        invalid_topology.vertex_count;
+    invalid_topology.serialized_index_count -= 1U;
+    passed &= expect(
+        validate(invalid_topology) ==
+            std::vector{
+                MeshProfileField::SerializedCounts,
+                MeshProfileField::IndexBounds,
+            },
+        "invalid profile topology or index bounds were accepted");
+
+    auto wrong_base = expected_mesh_profile(
+        BodyProfile::Round,
+        MeshProfileRole::ImageReference);
+    wrong_base.base_profile_hash.assign(64U, '0');
+    passed &= expect(
+        validate(wrong_base) ==
+            std::vector{MeshProfileField::BaseProfile},
+        "a derived image profile accepted the wrong raw profile hash");
 
     passed &= expect(
         esp_scope_matches(EspScope::All, EspRole::Hider) &&

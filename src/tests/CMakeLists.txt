@@ -62,6 +62,23 @@ add_test(
 )
 
 add_executable(
+    meccha_mesh_profile_codec_tests
+    mesh_profile_codec_test.cpp
+)
+target_link_libraries(
+    meccha_mesh_profile_codec_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(
+    NAME mesh_profile_codec
+    COMMAND
+        meccha_mesh_profile_codec_tests
+        "${PROJECT_SOURCE_DIR}/resources/mesh-profiles"
+)
+
+add_executable(
     meccha_config_persistence_tests
     config_persistence_test.cpp
 )

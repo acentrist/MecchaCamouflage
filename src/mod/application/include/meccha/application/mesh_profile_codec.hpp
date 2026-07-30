@@ -1,0 +1,40 @@
+#pragma once
+
+#include <meccha/core/mesh_profile.hpp>
+
+#include <cstddef>
+#include <cstdint>
+#include <expected>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace meccha::application
+{
+inline constexpr std::size_t MaximumMeshProfileBytes =
+    8U * 1024U * 1024U;
+
+enum class MeshProfileCodecErrorCode : std::uint8_t
+{
+    TooLarge,
+    MalformedJson,
+    InvalidProfile,
+};
+
+struct MeshProfileCodecError
+{
+    MeshProfileCodecErrorCode code{};
+    std::vector<core::MeshProfileField> fields{};
+    std::string detail{};
+
+    auto operator==(const MeshProfileCodecError&) const -> bool = default;
+};
+
+[[nodiscard]] auto decode_mesh_profile_identity(
+    std::string_view json,
+    core::BodyProfile body,
+    core::MeshProfileRole role)
+    -> std::expected<
+        core::MeshProfileIdentity,
+        MeshProfileCodecError>;
+} // namespace meccha::application

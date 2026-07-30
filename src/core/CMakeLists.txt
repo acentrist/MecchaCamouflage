@@ -5,6 +5,7 @@ add_library(
         src/esp.cpp
         src/image_mapping.cpp
         src/image_project.cpp
+        src/mesh_profile.cpp
         src/paint.cpp
 )
 add_library(MecchaCamouflage::Core ALIAS meccha_core)

@@ -9,6 +9,7 @@ add_library(
         src/game_thread_scheduler.cpp
         src/job_state.cpp
         src/localization.cpp
+        src/mesh_profile_codec.cpp
         src/runtime_lifecycle.cpp
         src/runtime_operation_executor.cpp
 )

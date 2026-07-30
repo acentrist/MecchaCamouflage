@@ -5,8 +5,8 @@
 The first frozen domain contracts have moved from the v1 mixed runtime header
 and C# models into focused, dependency-free C++ modules. Typed application
 commands, immutable snapshots, and the job/preview state machines are also in
-place. Phase 6 remains open: profile validation, properties, sanitizers, and
-the remainder of the retained algorithms are not yet complete.
+place. Phase 6 remains open: properties, sanitizers, and the remainder of the
+retained algorithms are not yet complete.
 
 ## Implemented modules
 
@@ -31,6 +31,22 @@ the remainder of the retained algorithms are not yet complete.
 - Per-source 12 MiB and per-project 64 MiB limits with checked accumulation.
 - Frozen body, placement, face, brush, compression, material, and layer
   defaults.
+
+### Mesh profiles
+
+- Exact round, cube, and fukuyoka schema, asset/export identity, profile ID,
+  topology hash, LOD, texture, vertex/index/triangle, UV-island, and bone
+  contracts.
+- The user-facing `fukuyoka` name maps only to the historical
+  `paintman_hukuyoka` game asset alias.
+- Raw and Image-reference profiles require exact base-profile linkage and
+  reference-pose bone counts.
+- The bounded profile decoder validates all six packaged JSON files, including
+  declared/serialized counts, maximum mesh indices, bone hierarchy, triangle
+  vertex/UV/bone indices, and vertex influence bone bounds.
+- A single leading UTF-8 BOM is accepted only at this inherited profile
+  resource boundary; the remainder still uses strict duplicate-safe JSON
+  validation.
 
 ### ESP
 
@@ -68,8 +84,8 @@ the remainder of the retained algorithms are not yet complete.
 
 ## Evidence
 
-`core_contract_test` and `application_state_test` port representative cases
-from:
+`core_contract_test`, `mesh_profile_codec_test`, and
+`application_state_test` port representative cases from:
 
 - `src/tests/fixtures/v1/paint-domain.json`;
 - `src/tests/fixtures/v1/runtime-pacing.json`;
