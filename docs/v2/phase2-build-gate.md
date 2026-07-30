@@ -48,7 +48,8 @@ cmake --build --preset dev-linux
 ctest --preset dev-linux
 ```
 
-Result: 7/7 tests passed with GCC 13.3.0, CMake 3.28.3, and Ninja 1.13.2.
+Result: all registered secret-free tests passed with GCC 13.3.0,
+CMake 3.28.3, and Ninja 1.13.2.
 
 Windows secret-free build:
 
@@ -60,7 +61,8 @@ cmake --build .build/v2/windows-vs --config Release
 ctest --test-dir .build/v2/windows-vs -C Release --output-on-failure
 ```
 
-Result: 7/7 tests passed with MSVC 19.44.35228 and CMake 4.4.0.
+Result: all registered secret-free tests passed with MSVC 19.44.35228 and
+CMake 4.4.0.
 UNC-only MSBuild emitted path/case incremental-build warnings in this WSL
 workspace, so those warnings are recorded as host-path noise rather than
 product compiler warnings. GitHub CI uses a native local Windows workspace.

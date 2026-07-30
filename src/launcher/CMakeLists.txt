@@ -6,6 +6,7 @@ add_library(
         src/manifest.cpp
         src/ownership.cpp
         src/policy.cpp
+        src/transaction.cpp
 )
 add_library(MecchaCamouflage::LauncherCore ALIAS meccha_launcher_core)
 
