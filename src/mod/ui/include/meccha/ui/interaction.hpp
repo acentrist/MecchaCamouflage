@@ -79,6 +79,8 @@ public:
     [[nodiscard]] auto finish() &&
         -> std::expected<InteractionState, InteractionError>;
 
+    [[nodiscard]] auto pointer() const -> const PointerFrame&;
+
 private:
     [[nodiscard]] auto ready() const
         -> std::expected<void, InteractionError>;

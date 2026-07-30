@@ -202,6 +202,10 @@ Evidence:
 ## Phase 5 — UCanvas feasibility gate
 
 - [ ] Implement retained immediate-mode Canvas controls and layout.
+  - [x] Implement bounded clipped scroll containers and pointer-driven buttons,
+    toggles, continuous sliders, and RGB color controls on the project-owned
+    Canvas/interaction protocol.
+  - [ ] Implement keyboard focus/navigation and bounded text fields.
 - [ ] Implement frame-scoped lines, boxes, text, clipping, and textures.
   - [x] Define a bounded project-owned Canvas frame protocol with finite
     geometry validation, nested clipping, exact line/box intersection,
@@ -225,6 +229,8 @@ Evidence:
     shutdown contract tests.
   - [x] Pass portable safe-area/DPI layout, clipped hit-test, exclusive pointer
     capture, focus, disabled-control, duplicate-ID, and same-frame click tests.
+  - [x] Pass portable scroll clamp/hit tests and Canvas widget drawing,
+    activation, value-mapping, duplicate-ID, and high-DPI scale tests.
 - [ ] DEFERRED — maintainer interaction required: verify the complete Canvas
   viability checklist in the live game.
 

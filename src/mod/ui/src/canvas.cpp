@@ -300,7 +300,8 @@ auto CanvasFrameBuilder::add_text(
     {
         return std::unexpected(CanvasError::InvalidGeometry);
     }
-    if (!finite(scale) || scale < 0.25 || scale > 4.0)
+    if (!finite(scale) || scale < 0.25 ||
+        scale > MaximumCanvasTextScale)
     {
         return std::unexpected(CanvasError::InvalidScale);
     }

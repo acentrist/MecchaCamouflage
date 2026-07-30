@@ -201,4 +201,9 @@ auto InteractionFrame::finish() &&
     }
     return std::move(state_);
 }
+
+auto InteractionFrame::pointer() const -> const PointerFrame&
+{
+    return pointer_;
+}
 } // namespace meccha::ui

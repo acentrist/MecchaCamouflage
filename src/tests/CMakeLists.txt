@@ -148,6 +148,24 @@ target_link_libraries(
 )
 add_test(NAME ui_interaction COMMAND meccha_ui_interaction_tests)
 
+add_executable(meccha_ui_scroll_tests ui_scroll_test.cpp)
+target_link_libraries(
+    meccha_ui_scroll_tests
+    PRIVATE
+        MecchaCamouflage::Ui
+        meccha_build_options
+)
+add_test(NAME ui_scroll COMMAND meccha_ui_scroll_tests)
+
+add_executable(meccha_ui_widgets_tests ui_widgets_test.cpp)
+target_link_libraries(
+    meccha_ui_widgets_tests
+    PRIVATE
+        MecchaCamouflage::Ui
+        meccha_build_options
+)
+add_test(NAME ui_widgets COMMAND meccha_ui_widgets_tests)
+
 add_executable(
     meccha_mesh_profile_codec_tests
     mesh_profile_codec_test.cpp

@@ -63,6 +63,28 @@ and focus. Duplicate/zero IDs, invalid geometry, non-finite input, and more
 than 2,048 controls fail the complete interaction frame; the caller never
 receives partially committed state.
 
+`update_scroll_container` is a pure retained scroll transition. It clamps
+existing state whenever content shrinks, consumes finite wheel input only
+inside the intersection of the container viewport and active clip, and
+returns the exact visible clip, content origin, maximum offset, and change
+state. Fully clipped containers cannot consume input.
+
+`WidgetPainter` composes that interaction protocol with the Canvas builder. It
+provides buttons, toggles, continuous bounded sliders, and an RGBA-preserving
+three-channel RGB control. Every control:
+
+- has one explicit ID and one explicit interaction clip;
+- renders only through filled-box, line, and strict UTF-8 text primitives;
+- distinguishes disabled, hovered, held, selected, and accent states;
+- maps a captured slider pointer deterministically and clamps outside drags;
+  and
+- propagates Canvas, interaction, and validation failures so the caller can
+  discard both frame-local builders rather than publish partial UI state.
+
+The maximum Canvas text scale is eight, matching the largest validated
+user-scale/DPI product combination. The same frame protocol rejects any larger
+text request.
+
 ## Exact input lease
 
 `InputLeaseController` owns the panel input transition while a future Unreal
@@ -100,14 +122,20 @@ exclusive capture, clipped hit testing, inside/outside release, focus,
 disabled controls, duplicate IDs, panel close, same-frame clicks, and invalid
 pointer refusal.
 
-All four tests run in the normal Linux graph, the mandatory ASan/UBSan graph,
+`ui_scroll` covers inside/outside/clipped wheel routing, retained offset
+clamping after content shrink, and invalid-state/content refusal. `ui_widgets`
+covers primitive emission, button activation/focus, stable and activated
+toggles, continuous slider mapping/capture, stable alpha-preserving color
+controls, and duplicate-ID propagation. `ui_canvas` also verifies the bounded
+high-DPI text-scale contract.
+
+All six tests run in the normal Linux graph, the mandatory ASan/UBSan graph,
 and the Windows MSVC x64 Release graph.
 
 ## Remaining feasibility work
 
-- Implement scroll containers, controls, keyboard focus, text editing, editor
-  gestures, body guides, and immutable command/snapshot binding above this
-  protocol.
+- Implement keyboard focus/navigation, bounded text editing, editor gestures,
+  body guides, and immutable command/snapshot binding above this protocol.
 - Implement the validated UCanvas and Unreal input adapters only after the
   protected UE4SS graph compiles the exact interfaces.
 - Prove localized font/text, texture creation/lifetime, clipping, mouse input,

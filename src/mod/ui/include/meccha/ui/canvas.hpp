@@ -16,6 +16,7 @@ inline constexpr std::size_t MaximumCanvasClipDepth = 16U;
 inline constexpr std::size_t MaximumCanvasTextBytes = 4'096U;
 inline constexpr std::size_t MaximumCanvasFrameTextBytes =
     1U * 1024U * 1024U;
+inline constexpr double MaximumCanvasTextScale = 8.0;
 
 struct CanvasPoint
 {

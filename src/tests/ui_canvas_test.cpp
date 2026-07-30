@@ -176,6 +176,24 @@ auto main() -> int
             std::unexpected(CanvasError::InvalidViewport),
         "an invalid viewport produced a frame");
 
+    auto scaled_text = CanvasFrameBuilder{
+        CanvasViewport{640.0, 480.0, 4.0}};
+    passed &= expect(
+        scaled_text.add_text(
+            CanvasPoint{1.0, 1.0},
+            "DPI",
+            CanvasColor{255U, 255U, 255U, 255U},
+            MaximumCanvasTextScale) == true &&
+            scaled_text.add_text(
+                CanvasPoint{1.0, 20.0},
+                "too large",
+                CanvasColor{255U, 255U, 255U, 255U},
+                MaximumCanvasTextScale + 0.01) ==
+                std::unexpected(CanvasError::InvalidScale) &&
+            std::move(scaled_text).finish()->primitives.size() ==
+                1U,
+        "bounded high-DPI text scale was not enforced");
+
     if (passed)
     {
         std::cout << "PASS ui_canvas\n";
