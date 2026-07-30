@@ -273,6 +273,19 @@ int main()
     using EspScope = runtime_contract::EspScope;
     using EspTargetPawnSource =
         runtime_contract::EspTargetPawnSource;
+    if (runtime_contract::esp_active_roster_role(
+            true, 0u) != EspRole::Spectator ||
+        runtime_contract::esp_active_roster_role(
+            false, 0u) != EspRole::Unknown ||
+        runtime_contract::esp_active_roster_role(
+            true, 1u) != EspRole::Hider ||
+        runtime_contract::esp_active_roster_role(
+            true, 2u) != EspRole::Hunter ||
+        runtime_contract::esp_active_roster_role(
+            true, 3u) != EspRole::Unknown)
+    {
+        return 43;
+    }
     if (runtime_contract::esp_select_target_pawn_source(
             EspRole::Hider,
             EspRole::Spectator,
@@ -362,6 +375,12 @@ int main()
             EspRole::Hider ||
         runtime_contract::esp_resolve_target_role(
             EspRole::Hider, EspRole::Spectator) !=
+            EspRole::Spectator ||
+        runtime_contract::esp_resolve_target_role(
+            EspRole::Spectator, EspRole::Hider) !=
+            EspRole::Spectator ||
+        runtime_contract::esp_resolve_target_role(
+            EspRole::Spectator, EspRole::Hunter) !=
             EspRole::Spectator ||
         runtime_contract::esp_resolve_target_role(
             EspRole::Unknown, EspRole::Unknown) !=

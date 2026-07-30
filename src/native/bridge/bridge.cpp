@@ -34834,11 +34834,13 @@ float4 main(float4 position : SV_POSITION, float2 uv : TEXCOORD0) : SV_TARGET
                 "native snapshot is waiting for PlayerArray");
             return;
         }
-        (void)esp_snapshot_collect_roster(
+        const bool hider_roster_available =
+            esp_snapshot_collect_roster(
             resolver.reflection, game_state, EspSnapshotRole::Hider,
             {"Survivors", "LiveSurvivors_PlayerState", "Hiders", "HiderPlayers", "HiderPlayerStates", "HiderPawns", "HiderCharacters", "CurrentHider"},
             hiders);
-        (void)esp_snapshot_collect_roster(
+        const bool hunter_roster_available =
+            esp_snapshot_collect_roster(
             resolver.reflection, game_state, EspSnapshotRole::Hunter,
             {"Hunters", "HuntersPlayerState", "HunterPlayers", "HunterPlayerStates", "HunterPawns", "HunterCharacters", "CurrentHunter"},
             hunters);
@@ -34862,6 +34864,10 @@ float4 main(float4 position : SV_POSITION, float2 uv : TEXCOORD0) : SV_TARGET
         {
             index_role_target(hunter, 2u);
         }
+        const bool active_role_rosters_authoritative =
+            hider_roster_available &&
+            hunter_roster_available &&
+            !role_membership.empty();
         const bool avatar_directory_world_changed =
             resolver.avatar_directory_world != context.world;
         if (avatar_directory_world_changed)
@@ -34902,17 +34908,24 @@ float4 main(float4 position : SV_POSITION, float2 uv : TEXCOORD0) : SV_TARGET
         {
             const auto membership =
                 role_membership.find(target.player_state);
-            if (membership == role_membership.end())
-            {
-                continue;
-            }
+            const auto active_role =
+                runtime_contract::esp_active_roster_role(
+                    active_role_rosters_authoritative,
+                    membership == role_membership.end()
+                        ? 0u
+                        : membership->second);
             target.role =
-                membership->second == 1u
+                active_role == runtime_contract::EspRole::Hider
                     ? EspSnapshotRole::Hider
-                    : membership->second == 2u
+                    : active_role ==
+                              runtime_contract::EspRole::Hunter
                           ? EspSnapshotRole::Hunter
-                          : EspSnapshotRole::Unknown;
-            if (target.role == EspSnapshotRole::Unknown)
+                          : active_role ==
+                                    runtime_contract::EspRole::Spectator
+                                ? EspSnapshotRole::Spectator
+                                : EspSnapshotRole::Unknown;
+            if (target.role != EspSnapshotRole::Hider &&
+                target.role != EspSnapshotRole::Hunter)
             {
                 continue;
             }
@@ -34932,7 +34945,8 @@ float4 main(float4 position : SV_POSITION, float2 uv : TEXCOORD0) : SV_TARGET
         bool unresolved_active_avatar{};
         const auto recover_target_avatar =
             [&](EspSnapshotTarget& target) {
-                if (target.role == EspSnapshotRole::Unknown)
+                if (target.role != EspSnapshotRole::Hider &&
+                    target.role != EspSnapshotRole::Hunter)
                 {
                     return;
                 }
