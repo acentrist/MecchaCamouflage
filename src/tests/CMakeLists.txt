@@ -176,7 +176,37 @@ add_test(
     COMMAND meccha_launcher_execution_tests
 )
 
+add_executable(
+    meccha_launcher_command_line_tests
+    launcher_command_line_test.cpp
+)
+target_link_libraries(
+    meccha_launcher_command_line_tests
+    PRIVATE
+        MecchaCamouflage::LauncherCore
+        meccha_build_options
+)
+add_test(
+    NAME launcher_command_line
+    COMMAND meccha_launcher_command_line_tests
+)
+
 if(WIN32)
+    add_executable(
+        meccha_single_instance_tests
+        single_instance_win32_test.cpp
+    )
+    target_link_libraries(
+        meccha_single_instance_tests
+        PRIVATE
+            MecchaCamouflage::LauncherCore
+            meccha_build_options
+    )
+    add_test(
+        NAME single_instance
+        COMMAND meccha_single_instance_tests
+    )
+
     add_executable(
         meccha_launcher_execution_win32_tests
         launcher_execution_win32_test.cpp

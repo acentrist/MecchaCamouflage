@@ -1,6 +1,7 @@
 add_library(
     meccha_launcher_core
     STATIC
+        src/command_line.cpp
         src/execution.cpp
         src/game_discovery.cpp
         src/hash.cpp
@@ -43,6 +44,7 @@ if(WIN32)
             src/owned_file_storage_win32.cpp
             src/owned_file_win32_io.cpp
             src/runtime_storage_win32.cpp
+            src/single_instance_win32.cpp
             src/shared_mod_win32.cpp
     )
     target_link_libraries(

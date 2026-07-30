@@ -179,6 +179,16 @@ payload, so Phase 3 remains open.
   `steam://rungameid/4704690`. It is an injected final execution effect, closes
   any returned shell process handle, and is never exercised by automated
   tests or preparation validation.
+- The public command-line parser accepts only `--game-dir <path>`,
+  `--prepare-only`, and `--remove`. Duplicate switches, missing or
+  embedded-NUL values, conflicting modes, positional values, and unknown
+  operations are rejected before discovery or mutation. Internal broker
+  inputs are not part of this parser.
+- Normal launcher invocations hold the fixed per-session
+  `MecchaCamouflage.v2.Launcher` mutex for their complete lifetime. A second
+  invocation fails immediately, and the RAII guard releases the kernel object
+  on every exit path. The child broker protocol remains a distinct internal
+  mode so the elevated process cannot deadlock against its parent.
 
 ## Automated evidence
 
@@ -226,6 +236,9 @@ The Win32 execution suite additionally proves read-only exact runtime reuse,
 normal owned-loader publication, elevated loader-only handoff, loader-before-
 cache removal, shared-mod installation/removal, and preservation of the shared
 UE4SS runtime.
+The command-line and Windows single-instance suites prove the exact public
+switch grammar, conflicting/hostile input rejection, concurrent-instance
+refusal, and deterministic guard release.
 
 Covered Windows directory cases:
 
