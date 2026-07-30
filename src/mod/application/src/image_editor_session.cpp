@@ -1,5 +1,7 @@
 #include <meccha/application/image_editor_session.hpp>
 
+#include <algorithm>
+#include <limits>
 #include <memory>
 #include <type_traits>
 #include <utility>
@@ -44,6 +46,25 @@ auto invalid_completion() -> ImageEditorSessionFailure
     return ImageEditorSessionFailure{
         ImageEditorSessionFailureKind::InvalidCompletion,
     };
+}
+
+auto mutation_error(ImageEditorSubmitError error)
+    -> ImageEditorMutationError
+{
+    switch (error)
+    {
+    case ImageEditorSubmitError::InvalidProject:
+        return ImageEditorMutationError::InvalidProject;
+    case ImageEditorSubmitError::StaleRevision:
+        return ImageEditorMutationError::StaleRevision;
+    case ImageEditorSubmitError::Stopped:
+        return ImageEditorMutationError::Stopped;
+    case ImageEditorSubmitError::GenerationOverflow:
+        return ImageEditorMutationError::GenerationOverflow;
+    case ImageEditorSubmitError::DecodeStart:
+        return ImageEditorMutationError::PipelineStart;
+    }
+    return ImageEditorMutationError::PipelineStart;
 }
 } // namespace
 
@@ -110,8 +131,9 @@ auto ImageEditorSession::recover_startup(
         return startup_;
     }
 
-    auto submitted =
-        pipeline_.replace(std::move(*recovered.project));
+    auto submitted = admit_project(
+        std::move(*recovered.project),
+        true);
     if (!submitted)
     {
         startup_.failure =
@@ -130,7 +152,190 @@ auto ImageEditorSession::submit_edit(core::ImageProject project)
     {
         return std::unexpected(ImageEditorSubmitError::Stopped);
     }
-    return pipeline_.submit(std::move(project));
+    return admit_project(std::move(project), false);
+}
+
+auto ImageEditorSession::admit_project(
+    core::ImageProject project,
+    bool replace)
+    -> std::expected<JobGeneration, ImageEditorSubmitError>
+{
+    auto retained =
+        std::make_shared<const core::ImageProject>(
+            std::move(project));
+    auto submitted = replace
+                         ? pipeline_.replace(*retained)
+                         : pipeline_.submit(*retained);
+    if (submitted)
+    {
+        current_project_ = std::move(retained);
+    }
+    return submitted;
+}
+
+auto ImageEditorSession::mutate(
+    std::string_view project_id,
+    std::uint64_t expected_revision,
+    ImageEditorMutation mutation)
+    -> std::expected<JobGeneration, ImageEditorMutationError>
+{
+    if (stopped_)
+    {
+        return std::unexpected(
+            ImageEditorMutationError::Stopped);
+    }
+    if (active_operation_ || completion_)
+    {
+        return std::unexpected(
+            ImageEditorMutationError::Busy);
+    }
+    if (!current_project_ ||
+        current_project_->project_id != project_id)
+    {
+        return std::unexpected(
+            ImageEditorMutationError::NoProject);
+    }
+    if (current_project_->revision != expected_revision)
+    {
+        return std::unexpected(
+            ImageEditorMutationError::StaleRevision);
+    }
+
+    auto edited = *current_project_;
+    const auto changed = std::visit(
+        [&edited](auto&& request)
+            -> std::expected<bool, ImageEditorMutationError>
+        {
+            using Request = std::decay_t<decltype(request)>;
+            if constexpr (
+                std::is_same_v<Request, ReplaceImageLayerMutation>)
+            {
+                if (request.layer_index >= edited.layers.size() ||
+                    request.expected_asset_id.empty())
+                {
+                    return std::unexpected(
+                        ImageEditorMutationError::InvalidLayer);
+                }
+                auto& layer = edited.layers[request.layer_index];
+                if (layer.asset_id != request.expected_asset_id ||
+                    request.layer.asset_id !=
+                        request.expected_asset_id)
+                {
+                    return std::unexpected(
+                        ImageEditorMutationError::InvalidLayer);
+                }
+
+                auto replacement = layer;
+                replacement.center_x = request.layer.center_x;
+                replacement.center_y = request.layer.center_y;
+                replacement.width = request.layer.width;
+                replacement.height = request.layer.height;
+                replacement.crop = request.layer.crop;
+                replacement.wrap_atlas_seam =
+                    request.layer.wrap_atlas_seam;
+                replacement.mirror_front_back =
+                    request.layer.mirror_front_back;
+                if (!core::validate(replacement).empty())
+                {
+                    return std::unexpected(
+                        ImageEditorMutationError::InvalidLayer);
+                }
+                if (replacement == layer)
+                {
+                    return false;
+                }
+                layer = std::move(replacement);
+                return true;
+            }
+            else if constexpr (
+                std::is_same_v<Request, ReorderImageLayerMutation>)
+            {
+                if (request.layer_index >= edited.layers.size() ||
+                    request.destination_index >=
+                        edited.layers.size() ||
+                    request.expected_asset_id.empty() ||
+                    edited.layers[request.layer_index].asset_id !=
+                        request.expected_asset_id)
+                {
+                    return std::unexpected(
+                        ImageEditorMutationError::InvalidLayer);
+                }
+                if (request.layer_index ==
+                    request.destination_index)
+                {
+                    return false;
+                }
+
+                auto first = edited.layers.begin();
+                if (request.layer_index <
+                    request.destination_index)
+                {
+                    std::rotate(
+                        first +
+                            static_cast<std::ptrdiff_t>(
+                                request.layer_index),
+                        first +
+                            static_cast<std::ptrdiff_t>(
+                                request.layer_index + 1U),
+                        first +
+                            static_cast<std::ptrdiff_t>(
+                                request.destination_index + 1U));
+                }
+                else
+                {
+                    std::rotate(
+                        first +
+                            static_cast<std::ptrdiff_t>(
+                                request.destination_index),
+                        first +
+                            static_cast<std::ptrdiff_t>(
+                                request.layer_index),
+                        first +
+                            static_cast<std::ptrdiff_t>(
+                                request.layer_index + 1U));
+                }
+                return true;
+            }
+            else
+            {
+                if (!core::validate(request.settings).empty())
+                {
+                    return std::unexpected(
+                        ImageEditorMutationError::InvalidSettings);
+                }
+                if (request.settings == edited.settings)
+                {
+                    return false;
+                }
+                edited.settings = std::move(request.settings);
+                return true;
+            }
+        },
+        std::move(mutation));
+    if (!changed)
+    {
+        return std::unexpected(changed.error());
+    }
+    if (!*changed)
+    {
+        return std::unexpected(
+            ImageEditorMutationError::NoChange);
+    }
+    if (edited.revision ==
+        std::numeric_limits<std::uint64_t>::max())
+    {
+        return std::unexpected(
+            ImageEditorMutationError::RevisionOverflow);
+    }
+    ++edited.revision;
+
+    const auto submitted = submit_edit(std::move(edited));
+    if (!submitted)
+    {
+        return std::unexpected(
+            mutation_error(submitted.error()));
+    }
+    return *submitted;
 }
 
 auto ImageEditorSession::load(
@@ -226,6 +431,18 @@ auto ImageEditorSession::remove(
     core::ApplicationConfig current_config)
     -> std::expected<void, ImageEditorSessionStartError>
 {
+    if (current_project_ &&
+        current_project_->project_id == project_id)
+    {
+        const auto editor = pipeline_.snapshot();
+        if (editor.phase == ImageEditorPipelinePhase::Decoding ||
+            editor.phase == ImageEditorPipelinePhase::Composing ||
+            editor.pending)
+        {
+            return std::unexpected(
+                ImageEditorSessionStartError::NotReady);
+        }
+    }
     auto request = ImageProjectIoRequest{
         ImageProjectDeleteRequest{
             command_id,
@@ -348,6 +565,7 @@ auto ImageEditorSession::observe_ready_project() -> void
             ActiveDraftScheduleError::InvalidProject;
         return;
     }
+    current_project_ = project;
     const auto scheduled = draft_worker_.schedule(project);
     if (!scheduled)
     {
@@ -417,9 +635,9 @@ auto ImageEditorSession::complete(
                 success.project_revision =
                     value.project.revision;
                 success.config = std::move(value.config);
-                auto submitted =
-                    pipeline_.replace(
-                        std::move(value.project));
+                auto submitted = admit_project(
+                    std::move(value.project),
+                    true);
                 if (!submitted)
                 {
                     auto failure = pipeline_failure(
@@ -451,8 +669,9 @@ auto ImageEditorSession::complete(
                     return invalid_completion();
                 }
                 success.project_revision = value.revision;
-                auto submitted =
-                    pipeline_.replace(std::move(value));
+                auto submitted = admit_project(
+                    std::move(value),
+                    true);
                 if (!submitted)
                 {
                     return pipeline_failure(
@@ -468,6 +687,12 @@ auto ImageEditorSession::complete(
                 if (editor.project_id == expected_project_id)
                 {
                     pipeline_.clear();
+                }
+                if (current_project_ &&
+                    current_project_->project_id ==
+                        expected_project_id)
+                {
+                    current_project_.reset();
                 }
             }
             return std::nullopt;
@@ -533,6 +758,7 @@ auto ImageEditorSession::shutdown(
     pipeline_.shutdown();
     active_operation_.reset();
     completion_.reset();
+    current_project_.reset();
 }
 
 auto ImageEditorSession::session_snapshot() const
@@ -554,6 +780,18 @@ auto ImageEditorSession::session_snapshot() const
                   ? std::optional<ImageProjectIoOperation>{
                         completion_->operation}
                   : std::nullopt;
+    auto document =
+        std::optional<ImageEditorDocumentSnapshot>{};
+    if (current_project_)
+    {
+        document = ImageEditorDocumentSnapshot{
+            current_project_->project_id,
+            current_project_->display_name,
+            current_project_->revision,
+            current_project_->settings,
+            current_project_->layers,
+        };
+    }
     return ImageEditorSessionSnapshot{
         pipeline_.snapshot(),
         startup_,
@@ -562,6 +800,7 @@ auto ImageEditorSession::session_snapshot() const
         completion_.has_value(),
         draft_worker_.snapshot(),
         draft_schedule_error_,
+        std::move(document),
         stopped_,
     };
 }

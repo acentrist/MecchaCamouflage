@@ -144,11 +144,16 @@ auto main() -> int
         "preview restore was not exactly-once");
 
     const ApplicationCommand typed_command{
-        ApplyValidatedSettings{200U, {}}};
+        MutateImageProject{
+            200U,
+            "0123456789abcdef0123456789abcdef",
+            7U,
+            ReplaceImageProjectSettingsMutation{},
+        }};
     passed &= expect(
-        std::holds_alternative<ApplyValidatedSettings>(
+        std::holds_alternative<MutateImageProject>(
             typed_command) &&
-            std::variant_size_v<ApplicationCommand> == 15U,
+            std::variant_size_v<ApplicationCommand> == 16U,
         "the internal typed command surface is incomplete");
 
     BoundedDiagnostics diagnostics{2U};

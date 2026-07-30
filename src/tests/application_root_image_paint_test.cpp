@@ -12,6 +12,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <tuple>
 #include <variant>
 #include <vector>
 
@@ -387,6 +388,21 @@ public:
         return {};
     }
 
+    auto mutate(
+        std::string_view project_id,
+        std::uint64_t expected_revision,
+        ImageEditorMutation mutation)
+        -> std::expected<
+            JobGeneration,
+            ImageEditorMutationError> override
+    {
+        ++mutation_count;
+        mutated_project_id = project_id;
+        mutated_expected_revision = expected_revision;
+        last_mutation = std::move(mutation);
+        return 2U;
+    }
+
     auto update() -> void override
     {
     }
@@ -411,6 +427,13 @@ public:
         auto value = ImageEditorSessionSnapshot{};
         value.pipeline = snapshot();
         value.startup = startup_;
+        value.document = ImageEditorDocumentSnapshot{
+            project_->project_id,
+            project_->display_name,
+            project_->revision,
+            project_->settings,
+            project_->layers,
+        };
         value.stopped = stopped_;
         return value;
     }
@@ -441,6 +464,24 @@ public:
         return renamed_to;
     }
 
+    [[nodiscard]] auto mutation_state() const
+        -> std::tuple<
+            std::size_t,
+            std::string_view,
+            std::uint64_t,
+            bool>
+    {
+        return {
+            mutation_count,
+            mutated_project_id,
+            mutated_expected_revision,
+            last_mutation &&
+                std::holds_alternative<
+                    ReplaceImageLayerMutation>(
+                    *last_mutation),
+        };
+    }
+
     [[nodiscard]] auto stopped() const -> bool
     {
         return stopped_;
@@ -468,6 +509,10 @@ private:
     std::uint64_t saved_expected_revision{};
     std::uint64_t renamed_expected_revision{};
     std::string renamed_to{};
+    std::size_t mutation_count{};
+    std::string mutated_project_id{};
+    std::uint64_t mutated_expected_revision{};
+    std::optional<ImageEditorMutation> last_mutation{};
     core::ApplicationConfig recovered_config{};
     ImageEditorStartupSnapshot startup_{};
     std::size_t recovery_count{};
@@ -722,6 +767,34 @@ auto main() -> int
                 } &&
             projects.renamed_name() == "Renamed",
         "typed Image project commands did not route through the editor session");
+
+    auto edited_layer =
+        root.snapshot()
+            ->image_editor.document->layers.front();
+    edited_layer.center_x = 0.25;
+    passed &= expect(
+        route(MutateImageProject{
+            255U,
+            std::string{ProjectId},
+            7U,
+            ReplaceImageLayerMutation{
+                0U,
+                std::string{AssetId},
+                edited_layer,
+            },
+        }) == CommandEnqueueResult::Accepted &&
+            projects.mutation_state() ==
+                std::tuple<
+                    std::size_t,
+                    std::string_view,
+                    std::uint64_t,
+                    bool>{
+                    1U,
+                    ProjectId,
+                    7U,
+                    true,
+                },
+        "the typed Image editor mutation did not route through the session");
 
     passed &= expect(
         root.enqueue_command(StartImagePaint{

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <meccha/application/image_editor_contract.hpp>
 #include <meccha/application/job_state.hpp>
 #include <meccha/core/config.hpp>
 #include <meccha/core/image_project.hpp>
@@ -100,6 +101,14 @@ struct DeleteImageProject
     std::string project_id{};
 };
 
+struct MutateImageProject
+{
+    CommandId id{};
+    std::string project_id{};
+    std::uint64_t expected_revision{};
+    ImageEditorMutation mutation{};
+};
+
 using ApplicationCommand = std::variant<
     StartPaint,
     PreviewPaint,
@@ -115,5 +124,6 @@ using ApplicationCommand = std::variant<
     LoadImageProject,
     SaveImageProject,
     RenameImageProject,
-    DeleteImageProject>;
+    DeleteImageProject,
+    MutateImageProject>;
 } // namespace meccha::application

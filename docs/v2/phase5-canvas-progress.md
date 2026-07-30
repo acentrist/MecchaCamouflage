@@ -188,9 +188,37 @@ primitive-limit failure.
 All eight tests run in the normal Linux graph, the mandatory ASan/UBSan graph,
 and the Windows MSVC x64 Release graph.
 
+## Immutable editor binding
+
+The Canvas editor result now crosses the UI/application boundary through one
+typed `MutateImageProject` command. Every mutation carries the exact project
+ID and expected revision. Layer replacement and reordering additionally carry
+the selected layer index and expected asset ID, so a stale selection cannot
+modify a replaced or reordered layer.
+
+`ImageEditorSession` retains the newest accepted immutable draft even while
+decode/composition is active. This allows consecutive drag, resize, crop,
+order, wrap/mirror, and project-settings changes to coalesce without depending
+on an older ready atlas. A successful change advances the project revision
+exactly once; stale revisions, invalid layer identities/ranges, invalid
+settings, no-op edits, revision overflow, and concurrent persistence ownership
+fail closed.
+
+The immutable application snapshot exposes only bounded project metadata,
+settings, and ordered layer values. Encoded source bytes and the canonical
+atlas remain inside the editor owner. A layer mutation can change only
+placement, crop, seam wrapping, and front/back mirroring; source identity,
+codec, name, and byte length are copied from the owned project rather than
+trusted from UI input.
+
+`image_editor_session` covers consecutive mutations during active composition,
+metadata isolation, revision/asset/range guards, order preservation into the
+debounced draft, and terminal shutdown. `application_root_image_paint` proves
+the typed command route and immutable document publication. The normal Linux,
+ASan/UBSan, and Windows Release graphs pass 65, 65, and 82 tests respectively.
+
 ## Remaining feasibility work
 
-- Implement immutable command/snapshot binding above the editor protocol.
 - Build and lifetime-manage the three exact packaged profile guide textures.
 - Implement the validated UCanvas and Unreal input adapters only after the
   protected UE4SS graph compiles the exact interfaces.

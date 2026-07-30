@@ -717,6 +717,18 @@ auto ApplicationRoot::process_command(
                     record_command_error(request.id);
                 }
             }
+            else if constexpr (
+                std::is_same_v<Request, MutateImageProject>)
+            {
+                if (!image_editor_ ||
+                    !image_editor_->mutate(
+                        request.project_id,
+                        request.expected_revision,
+                        std::move(request.mutation)))
+                {
+                    record_command_error(request.id);
+                }
+            }
             else
             {
                 record_command_error(request.id);

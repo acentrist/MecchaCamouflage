@@ -277,13 +277,29 @@ published together as immutable application state. Final root shutdown closes
 the session only after active derived work and draft persistence settle and
 runtime callbacks are unregistered.
 
+Canvas layer and settings results now enter that same owner through a typed
+`MutateImageProject` command. The command is guarded by exact project revision;
+layer changes are additionally guarded by selected index and content-addressed
+asset ID. The session applies only editable placement, crop, seam-wrap, mirror,
+order, and validated settings fields, advances the revision once, and retains
+the latest immutable draft while older decode/composition work is cancelled or
+coalesced. UI snapshots copy only bounded project metadata, settings, and layer
+values; encoded sources and the canonical atlas never cross the UI boundary.
+Load/save/rename/delete persistence ownership also blocks editor mutation, so
+an asynchronous project replacement cannot discard a concurrent Canvas edit.
+Deleting the current project is not admitted while its decode/composition
+generation is active; after it becomes terminal, delete owns the session,
+drains draft persistence, and prevents a newer edit from recreating the draft.
+
 `application_root_image_paint_test` covers exact ready lookup, body/profile
 capture, planning through final drain, the shared `PaintAtUvWithBrush`
 operation, stale command rejection before capture, typed cancellation under
 queue pressure, edit invalidation during dispatch, immutable snapshot state,
 cancel-before-lifecycle shutdown, all four project command routes, config
 publication, and editor close ordering. `image_editor_session_test` covers the
-full fake-store load/edit/draft/save/rename/delete lifecycle.
+full fake-store load/edit/draft/save/rename/delete lifecycle plus consecutive
+in-flight mutations, stale revision and asset/range rejection, source-metadata
+isolation, and ordered draft publication.
 
 The production runtime adapter still needs to capture validated
 triangle/barycentric anchors and real queue observations from reflected game

@@ -1,10 +1,12 @@
 #pragma once
 
+#include <meccha/application/image_editor_contract.hpp>
 #include <meccha/application/image_editor_pipeline.hpp>
 #include <meccha/application/image_project_io_worker.hpp>
 #include <meccha/application/image_project_persistence.hpp>
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <memory>
@@ -100,6 +102,7 @@ struct ImageEditorSessionSnapshot
     bool completion_pending{};
     ActiveDraftPersistenceSnapshot active_draft{};
     std::optional<ActiveDraftScheduleError> draft_schedule_error{};
+    std::optional<ImageEditorDocumentSnapshot> document{};
     bool stopped{};
 
     auto operator==(const ImageEditorSessionSnapshot&) const
@@ -147,6 +150,14 @@ public:
         core::ApplicationConfig current_config)
         -> std::expected<void, ImageEditorSessionStartError> = 0;
 
+    [[nodiscard]] virtual auto mutate(
+        std::string_view project_id,
+        std::uint64_t expected_revision,
+        ImageEditorMutation mutation)
+        -> std::expected<
+            JobGeneration,
+            ImageEditorMutationError> = 0;
+
     virtual auto update() -> void = 0;
 
     [[nodiscard]] virtual auto poll_completion()
@@ -181,6 +192,14 @@ public:
 
     [[nodiscard]] auto submit_edit(core::ImageProject project)
         -> std::expected<JobGeneration, ImageEditorSubmitError>;
+
+    [[nodiscard]] auto mutate(
+        std::string_view project_id,
+        std::uint64_t expected_revision,
+        ImageEditorMutation mutation)
+        -> std::expected<
+            JobGeneration,
+            ImageEditorMutationError> override;
 
     [[nodiscard]] auto load(
         CommandId command_id,
@@ -248,6 +267,10 @@ private:
         CommandId command_id,
         ImageProjectIoOperation operation,
         ImageEditorSessionFailure failure) -> void;
+    [[nodiscard]] auto admit_project(
+        core::ImageProject project,
+        bool replace)
+        -> std::expected<JobGeneration, ImageEditorSubmitError>;
 
     ImageEditorPipeline pipeline_;
     ImageProjectPersistenceCoordinator& persistence_;
@@ -259,6 +282,7 @@ private:
     JobGeneration scheduled_draft_generation_{};
     std::optional<ActiveDraftScheduleError>
         draft_schedule_error_{};
+    std::shared_ptr<const core::ImageProject> current_project_{};
     bool stopped_{};
 };
 } // namespace meccha::application

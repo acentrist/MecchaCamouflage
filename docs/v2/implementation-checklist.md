@@ -361,6 +361,10 @@ Evidence:
   - [x] Implement bounded project-owned layer selection, move, corner resize,
     reorder, crop/zoom, exact cancellation, and immutable edit results for the
     in-game Canvas editor.
+  - [x] Route revision- and asset-guarded layer placement/crop/order and
+    project-settings mutations through the application owner, retain the
+    newest immutable draft while composition is active, and publish only
+    bounded editor metadata to UI snapshots.
   - [ ] Connect those values to the complete in-game editor lifecycle.
 - [x] Implement deterministic cancellable 1024×512 RGBA composition.
   - [x] Run composition on one owned worker with copied immutable inputs,

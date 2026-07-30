@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <expected>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -186,13 +187,20 @@ auto project(
     DeterministicHasher& hasher,
     std::uint64_t revision) -> core::ImageProject
 {
-    auto bytes =
+    auto first_bytes =
         std::make_shared<const std::vector<std::byte>>(
             std::initializer_list<std::byte>{
                 std::byte{0x11},
             });
-    const auto asset_id =
-        common::sha256_hex(hasher.hash(*bytes).value());
+    auto second_bytes =
+        std::make_shared<const std::vector<std::byte>>(
+            std::initializer_list<std::byte>{
+                std::byte{0x22},
+            });
+    const auto first_asset_id =
+        common::sha256_hex(hasher.hash(*first_bytes).value());
+    const auto second_asset_id =
+        common::sha256_hex(hasher.hash(*second_bytes).value());
     return core::ImageProject{
         core::ImageProjectSchemaVersion,
         std::string{ProjectId},
@@ -200,16 +208,27 @@ auto project(
         revision,
         {},
         {core::ImageLayer{
-            asset_id,
-            "source.png",
-            core::ImageMime::Png,
-            bytes->size(),
-        }},
+             first_asset_id,
+             "first.png",
+             core::ImageMime::Png,
+             first_bytes->size(),
+         },
+         core::ImageLayer{
+             second_asset_id,
+             "second.png",
+             core::ImageMime::Png,
+             second_bytes->size(),
+         }},
         {core::ImageSourceAsset{
-            asset_id,
-            core::ImageMime::Png,
-            bytes,
-        }},
+             first_asset_id,
+             core::ImageMime::Png,
+             first_bytes,
+         },
+         core::ImageSourceAsset{
+             second_asset_id,
+             core::ImageMime::Png,
+             second_bytes,
+         }},
         std::make_shared<const std::vector<std::byte>>(
             core::CanonicalAtlasByteLength,
             std::byte{0x00}),
@@ -305,6 +324,34 @@ auto main() -> int
             "startup recovery did not publish the named project exactly once");
         recovered_session.shutdown(false);
     }
+    {
+        auto overflow_session = ImageEditorSession{
+            decoder,
+            composer,
+            projects,
+            persistence,
+            1ms,
+        };
+        auto overflow_project = project(
+            hasher,
+            std::numeric_limits<std::uint64_t>::max());
+        auto overflow_settings = overflow_project.settings;
+        overflow_settings.brush_size_texels = 6.0;
+        passed &= expect(
+            overflow_session
+                    .submit_edit(std::move(overflow_project))
+                    .has_value() &&
+                overflow_session.mutate(
+                    ProjectId,
+                    std::numeric_limits<std::uint64_t>::max(),
+                    ReplaceImageProjectSettingsMutation{
+                        overflow_settings,
+                    }) ==
+                    std::unexpected(
+                        ImageEditorMutationError::RevisionOverflow),
+            "an editor mutation wrapped the project revision");
+        overflow_session.shutdown(false);
+    }
 
     auto session = ImageEditorSession{
         decoder,
@@ -333,7 +380,13 @@ auto main() -> int
                 std::string{ProjectId},
                 core::ApplicationConfig{}) ==
                 std::unexpected(
-                    ImageEditorSessionStartError::Busy),
+                    ImageEditorSessionStartError::Busy) &&
+            session.mutate(
+                ProjectId,
+                1U,
+                ReplaceImageProjectSettingsMutation{}) ==
+                std::unexpected(
+                    ImageEditorMutationError::Busy),
         "load admission did not retain one persistence owner");
     const auto loaded = wait_for_completion(session);
     const auto loaded_config =
@@ -353,17 +406,143 @@ auto main() -> int
             wait_until_ready(session, 1U),
         "named load did not activate and prepare the project");
 
-    auto edited = *session.ready_project(ProjectId, 1U);
-    edited.revision = 2U;
-    edited.settings.brush_size_texels = 9.0;
+    const auto loaded_document =
+        session.session_snapshot().document;
     passed &= expect(
-        session.submit_edit(std::move(edited)).has_value() &&
-            wait_until_ready(session, 2U),
-        "an editor revision did not compose and debounce");
+        loaded_document &&
+            loaded_document->project_id == ProjectId &&
+            loaded_document->revision == 1U &&
+            loaded_document->layers.size() == 2U,
+        "the session did not publish the immutable editor document");
+    auto invalid_settings = loaded_document
+                                ? loaded_document->settings
+                                : core::ImageProjectSettings{};
+    invalid_settings.brush_size_texels = 11.0;
+    passed &= expect(
+        session.mutate(
+            ProjectId,
+            1U,
+            ReplaceImageProjectSettingsMutation{
+                loaded_document
+                    ? loaded_document->settings
+                    : core::ImageProjectSettings{},
+            }) ==
+                std::unexpected(
+                    ImageEditorMutationError::NoChange) &&
+            session.mutate(
+                ProjectId,
+                1U,
+                ReplaceImageProjectSettingsMutation{
+                    invalid_settings,
+                }) ==
+                std::unexpected(
+                    ImageEditorMutationError::InvalidSettings) &&
+            session.session_snapshot().document ==
+                loaded_document,
+        "no-op or invalid settings advanced the editor document");
+
+    auto edited_layer = loaded_document
+                            ? loaded_document->layers.front()
+                            : core::ImageLayer{};
+    const auto first_asset_id = edited_layer.asset_id;
+    edited_layer.file_name = "untrusted-metadata.png";
+    edited_layer.center_x = 0.25;
+    edited_layer.crop = {0.1, 0.2, 0.5, 0.5};
+    const auto layer_edit = session.mutate(
+        ProjectId,
+        1U,
+        ReplaceImageLayerMutation{
+            0U,
+            first_asset_id,
+            edited_layer,
+        });
+    const auto after_layer =
+        session.session_snapshot().document;
+    passed &= expect(
+        layer_edit.has_value() && after_layer &&
+            after_layer->revision == 2U &&
+            after_layer->layers.front().asset_id ==
+                first_asset_id &&
+            after_layer->layers.front().file_name ==
+                "first.png" &&
+            after_layer->layers.front().center_x == 0.25 &&
+            after_layer->layers.front().crop ==
+                core::NormalizedCrop{0.1, 0.2, 0.5, 0.5},
+        "a layer mutation changed immutable source metadata or lost placement");
+
+    auto edited_settings = after_layer
+                               ? after_layer->settings
+                               : core::ImageProjectSettings{};
+    edited_settings.brush_size_texels = 9.0;
+    const auto settings_edit = session.mutate(
+        ProjectId,
+        2U,
+        ReplaceImageProjectSettingsMutation{
+            edited_settings,
+        });
+    const auto after_settings =
+        session.session_snapshot().document;
+    passed &= expect(
+        settings_edit.has_value() && after_settings &&
+            after_settings->revision == 3U &&
+            after_settings->settings.brush_size_texels ==
+                9.0,
+        "a second edit was not admitted while composition was active");
+
+    const auto second_asset_id =
+        after_settings
+            ? after_settings->layers.back().asset_id
+            : std::string{};
+    const auto reorder = session.mutate(
+        ProjectId,
+        3U,
+        ReorderImageLayerMutation{
+            1U,
+            0U,
+            second_asset_id,
+        });
+    const auto after_reorder =
+        session.session_snapshot().document;
+    passed &= expect(
+        reorder.has_value() && after_reorder &&
+            after_reorder->revision == 4U &&
+            after_reorder->layers.front().asset_id ==
+                second_asset_id &&
+            session.mutate(
+                ProjectId,
+                1U,
+                ReplaceImageProjectSettingsMutation{
+                    edited_settings,
+                }) ==
+                std::unexpected(
+                    ImageEditorMutationError::StaleRevision) &&
+            session.mutate(
+                ProjectId,
+                4U,
+                ReorderImageLayerMutation{
+                    0U,
+                    2U,
+                    second_asset_id,
+                }) ==
+                std::unexpected(
+                    ImageEditorMutationError::InvalidLayer) &&
+            session.session_snapshot().document ==
+                after_reorder &&
+            session.remove(
+                400U,
+                std::string{ProjectId},
+                core::ApplicationConfig{}) ==
+                std::unexpected(
+                    ImageEditorSessionStartError::NotReady) &&
+            wait_until_ready(session, 4U),
+        "revision-safe ordering or delete admission did not guard active edits");
+
     const auto draft = projects.load_active_draft();
     passed &= expect(
-        draft && *draft && (*draft)->revision == 2U &&
-            (*draft)->settings.brush_size_texels == 9.0,
+        draft && *draft && (*draft)->revision == 4U &&
+            (*draft)->settings.brush_size_texels == 9.0 &&
+            (*draft)->layers.front().asset_id ==
+                second_asset_id,
         "the latest ready revision was not persisted as active draft");
 
     passed &= expect(
@@ -383,31 +562,31 @@ auto main() -> int
         projects.load_named(ProjectId);
     passed &= expect(
         saved && saved->result &&
-            saved->result->project_revision == 2U &&
+            saved->result->project_revision == 4U &&
             saved_config.active_image_project &&
             named_after_save && *named_after_save &&
-            (*named_after_save)->revision == 2U,
+            (*named_after_save)->revision == 4U,
         "named save did not publish the exact ready revision");
 
     passed &= expect(
         session.rename(
             301U,
             ProjectId,
-            2U,
+            4U,
             "Renamed").has_value(),
         "rename did not accept the ready project");
     const auto renamed = wait_for_completion(session);
     passed &= expect(
         renamed && renamed->result &&
-            renamed->result->project_revision == 3U &&
+            renamed->result->project_revision == 5U &&
             renamed->result->pipeline_generation &&
-            wait_until_ready(session, 3U),
+            wait_until_ready(session, 5U),
         "rename did not advance and re-publish editor state");
     const auto named_after_rename =
         projects.load_named(ProjectId);
     passed &= expect(
         named_after_rename && *named_after_rename &&
-            (*named_after_rename)->revision == 3U &&
+            (*named_after_rename)->revision == 5U &&
             (*named_after_rename)->display_name == "Renamed" &&
             (*named_after_rename)->settings.brush_size_texels ==
                 9.0,
@@ -437,10 +616,17 @@ auto main() -> int
 
     session.shutdown(true);
     passed &= expect(
-        session.session_snapshot().stopped &&
-            session.submit_edit(project(hasher, 4U)) ==
+            session.session_snapshot().stopped &&
+            !session.session_snapshot().document &&
+            session.submit_edit(project(hasher, 6U)) ==
                 std::unexpected(
                     ImageEditorSubmitError::Stopped) &&
+            session.mutate(
+                ProjectId,
+                5U,
+                ReplaceImageProjectSettingsMutation{}) ==
+                std::unexpected(
+                    ImageEditorMutationError::Stopped) &&
             session.load(
                 501U,
                 std::string{ProjectId},
