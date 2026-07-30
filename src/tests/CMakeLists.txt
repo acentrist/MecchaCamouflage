@@ -106,6 +106,27 @@ add_test(
     COMMAND meccha_runtime_operation_executor_tests
 )
 
+add_executable(meccha_ui_canvas_tests ui_canvas_test.cpp)
+target_link_libraries(
+    meccha_ui_canvas_tests
+    PRIVATE
+        MecchaCamouflage::Ui
+        meccha_build_options
+)
+add_test(NAME ui_canvas COMMAND meccha_ui_canvas_tests)
+
+add_executable(
+    meccha_ui_input_lease_tests
+    ui_input_lease_test.cpp
+)
+target_link_libraries(
+    meccha_ui_input_lease_tests
+    PRIVATE
+        MecchaCamouflage::Ui
+        meccha_build_options
+)
+add_test(NAME ui_input_lease COMMAND meccha_ui_input_lease_tests)
+
 add_executable(
     meccha_mesh_profile_codec_tests
     mesh_profile_codec_test.cpp

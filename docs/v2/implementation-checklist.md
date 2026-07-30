@@ -203,7 +203,17 @@ Evidence:
 
 - [ ] Implement retained immediate-mode Canvas controls and layout.
 - [ ] Implement frame-scoped lines, boxes, text, clipping, and textures.
+  - [x] Define a bounded project-owned Canvas frame protocol with finite
+    geometry validation, nested clipping, exact line/box intersection,
+    texture/UV clipping, strict UTF-8 text, opaque texture handles, and no
+    Unreal or graphics API types.
+  - [ ] Implement the production UCanvas primitive adapter.
 - [ ] Implement exact cursor/look/movement/input-mode lease restoration.
+  - [x] Implement a transactional lease controller that captures the complete
+    prior input state once, avoids repeated mutation, restores exactly on
+    close/shutdown, rolls back failed acquisition, and retains failed restore
+    state for bounded retry.
+  - [ ] Implement and live-verify the production Unreal input-state port.
 - [ ] Implement responsive viewport/DPI scaling.
 - [ ] Implement localized game-font and packaged OFL fallback-glyph paths.
 - [ ] Render representative ESP primitives while the panel is closed.
@@ -211,8 +221,14 @@ Evidence:
 - [ ] Keep body guides above layers and outside the canonical atlas.
 - [ ] Pass layout, hit-test, input-lease, glyph, editor, worker-result, and
   texture-lifetime tests.
+  - [x] Pass portable Canvas clipping/resource and input-lease rollback/retry/
+    shutdown contract tests.
 - [ ] DEFERRED — maintainer interaction required: verify the complete Canvas
   viability checklist in the live game.
+
+Evidence:
+
+- [`phase5-canvas-progress.md`](phase5-canvas-progress.md)
 
 ## Phase 6 — Pure core and application state machines
 

@@ -16,6 +16,7 @@ a pass.
 | `meccha_build_options` | Interface build policy | Project warnings and C++23 only |
 | `meccha_build_identity` | Generated immutable contract | Product/schema/UE4SS identity; no platform headers |
 | `meccha_core` | Interface boundary pending Phase 6 sources | No UE4SS, Unreal, Windows UI, graphics, or launcher dependency |
+| `meccha_ui` | Static project-owned Canvas/input protocol | Depends only on core values; exposes no Unreal or graphics API type |
 | `meccha_launcher_core` | Static Phase 3 deployment-policy module | Depends on core/build identity and pinned Glaze; contains no persistent UI |
 | `meccha_mod` | Windows x64 shared library when full build is enabled | Links the `UE4SS` target from the same configure graph and outputs `main.dll` |
 | `meccha_build_identity_test` | Secret-free executable test | Exercises the generated public build identity |
