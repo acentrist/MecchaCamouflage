@@ -437,8 +437,17 @@ Evidence:
 - [ ] Build runtime and mod from the same trusted graph.
 - [ ] Complete secret-free PR CI and protected full-build/release CI.
 - [ ] Add binary, provenance, payload, license, and forbidden-artifact checks.
-- [ ] Decide and document code-signing policy without modifying Defender.
+  - [x] Implement a bounded dependency-free PE/resource verifier for exact x64
+    GUI/manifest/icon/RCDATA contracts, memory protections, import allowlist,
+    no exports/.NET/CodeView/PDB/legacy tokens, payload/layout/provenance
+    identity, and exact single-artifact publication.
+  - [ ] Run the verifier against the protected full-build artifact and audited
+    dependency-notice bundle.
+- [x] Decide and document code-signing policy without modifying Defender.
 - [ ] Produce exactly one EXE and its SHA-256.
+  - [x] Generate the canonical SHA-256 sidecar and release evidence only after
+    the exact single-EXE directory passes all artifact checks.
+  - [ ] Produce and retain the protected final artifact bytes.
 - [ ] DEFERRED — maintainer interaction required: complete real Steam/UAC/
   coexistence/update/remove checks.
 

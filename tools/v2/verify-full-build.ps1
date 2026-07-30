@@ -74,8 +74,10 @@ function Get-Dependents {
 
 $Main = Get-SingleBinary -Name "main.dll"
 $Ue4ss = Get-SingleBinary -Name "UE4SS.dll"
+$Proxy = Get-SingleBinary -Name "dwmapi.dll"
 Assert-X64Pe -Binary $Main
 Assert-X64Pe -Binary $Ue4ss
+Assert-X64Pe -Binary $Proxy
 
 $ExportOutput = Invoke-Dumpbin -Mode "/exports" -Path $Main.FullName
 $Exports = @(
@@ -95,6 +97,7 @@ if (Compare-Object -ReferenceObject $ExpectedExports -DifferenceObject $Exports)
 
 $MainDependents = Get-Dependents -Binary $Main
 $Ue4ssDependents = Get-Dependents -Binary $Ue4ss
+$ProxyDependents = Get-Dependents -Binary $Proxy
 if ($MainDependents -notcontains "ue4ss.dll") {
     throw "main.dll does not import UE4SS.dll from the same source graph."
 }
@@ -103,6 +106,9 @@ if ($MainDependents -notcontains "vcruntime140.dll") {
 }
 if ($Ue4ssDependents -notcontains "vcruntime140.dll") {
     throw "UE4SS.dll is not linked to the expected dynamic MSVC runtime."
+}
+if ($ProxyDependents -notcontains "vcruntime140.dll") {
+    throw "dwmapi.dll is not linked to the expected dynamic MSVC runtime."
 }
 
 $Ue4ssHead = (
@@ -141,6 +147,12 @@ $Report = [ordered]@{
         size = $Ue4ss.Length
         sha256 = (Get-FileHash -LiteralPath $Ue4ss.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
         dependents = $Ue4ssDependents
+    }
+    proxy = [ordered]@{
+        path = $Proxy.FullName.Substring($ResolvedBuildRoot.Length).TrimStart("\", "/")
+        size = $Proxy.Length
+        sha256 = (Get-FileHash -LiteralPath $Proxy.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        dependents = $ProxyDependents
     }
 }
 

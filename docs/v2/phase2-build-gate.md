@@ -111,8 +111,8 @@ After approval, it must:
 3. build `UE4SS`, `meccha_mod`, and the build-identity test together;
 4. run `tools/v2/verify-full-build.ps1`;
 5. prove x64 PE format, only `start_mod`/`uninstall_mod` exports, a direct
-   `UE4SS.dll` import, matching dynamic MSVC runtime, clean gitlink, and exact
-   commit;
+   `UE4SS.dll` import, matching proxy/mod/runtime dynamic MSVC runtime, clean
+   gitlink, and the exact pinned commit;
 6. run all registered contracts;
 7. upload only the provenance report, not a distributable runtime.
 

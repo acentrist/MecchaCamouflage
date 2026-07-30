@@ -197,6 +197,50 @@ release-only settings without upstream mutation, required notice inputs,
 linked-input refusal, pre-existing-output preservation, and no partial
 publication after validation failure.
 
+## Exact release artifact verifier
+
+`tools/v2/verify_release_artifact.py` is a dependency-free bounded parser for
+the final PE32+ executable. It requires an artifact directory containing
+exactly one correctly versioned EXE and independently supplied canonical
+payload manifest, CAB, layout, and protected full-build provenance report.
+
+The verifier requires:
+
+- x64 PE32+, the Windows GUI subsystem, no COFF symbol table, no exports, no
+  .NET COM descriptor, and high-entropy ASLR, dynamic-base, and NX flags;
+- the reviewed exact native DLL import allowlist and absence of WebView2,
+  WinForms, bridge, MinHook, D3D/DXGI, networking, and CodeView/PDB artifacts;
+- an `asInvoker` application manifest with Common Controls v6 and Windows 10
+  compatibility, native icon group 201, and exactly RCDATA 101/102;
+- byte-for-byte identity between those RCDATA resources and the independently
+  verified canonical manifest/CAB;
+- exact layout-to-manifest path/role identity, required product/runtime/mod/
+  config/resource/license roles, no build artifacts, and the frozen product
+  and UE4SS identities; and
+- size/SHA-256 identity for the proxy, UE4SS runtime, and mod against the
+  protected x64 Shipping provenance report.
+
+Only after every check passes does it publish a deterministic JSON evidence
+report and the canonical `sha256  filename` sidecar, each through atomic
+replacement. Tests construct PE/resource fixtures directly and cover extra
+files, forbidden imports, CodeView, console binaries, substituted CAB bytes,
+mismatched provenance, and signing-policy violations. The parser has also
+validated a real MSVC Release launcher with fixture manifest/CAB resources,
+including the linker-generated resource and debug-directory layout; this is
+development evidence, not final release acceptance.
+
+## Code-signing policy
+
+The v2 pipeline currently produces an explicitly **unsigned** artifact because
+the project has no reviewed code-signing identity or protected signing
+credential. The verifier rejects a certificate table under this policy so a
+partially or unexpectedly signed binary cannot be mislabeled. A future signed
+release requires a dedicated security/CI review, protected timestamping and
+certificate configuration, Authenticode chain verification, and verification
+of the exact post-signing bytes. It must not add Defender exclusions, suppress
+SmartScreen, weaken UAC, or rebuild after acceptance. GitHub Releases publish
+the verified SHA-256 regardless of signing state.
+
 Portable target-validation coverage runs in the normal Linux graph and the
 Linux ASan/UBSan graph. The MakeCab determinism and round-trip case runs in the
 Windows MSVC Release graph.
@@ -207,5 +251,5 @@ Windows MSVC Release graph.
 - Audit the complete linked dependency notice bundle in the protected build.
 - Embed CAB, manifest, layout identity, localization, profiles, fonts, icon,
   project/UE4SS/dependency licenses, and notices as Win32 resources.
-- Add final binary, provenance, import/export, license, forbidden-artifact, and
-  one-EXE checks.
+- Run the exact artifact verifier against the protected full-build EXE and
+  retain its report/checksum beside the release evidence.
