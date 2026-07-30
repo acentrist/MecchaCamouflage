@@ -605,6 +605,21 @@ add_test(
 )
 
 add_executable(
+    meccha_launcher_observation_assembly_tests
+    launcher_observation_assembly_test.cpp
+)
+target_link_libraries(
+    meccha_launcher_observation_assembly_tests
+    PRIVATE
+        MecchaCamouflage::LauncherCore
+        meccha_build_options
+)
+add_test(
+    NAME launcher_observation_assembly
+    COMMAND meccha_launcher_observation_assembly_tests
+)
+
+add_executable(
     meccha_launcher_command_line_tests
     launcher_command_line_test.cpp
 )

@@ -100,6 +100,9 @@ Evidence:
   - [x] Observe compatible shared mod payload and installed-ledger state as
     missing, exact owned, exact unowned, owned previous, or conflict without
     creating ownership metadata or recovering transactions.
+  - [x] Assemble loader, managed-file, runtime-cache, runtime-settings, and
+    shared-mod evidence into one deterministic preparation/removal observation
+    without platform effects.
   - [ ] Bind the native original-user observation source and minimal elevated
     broker.
 - [x] Implement safe reuse, repair, update, cleanup, and `--remove`.

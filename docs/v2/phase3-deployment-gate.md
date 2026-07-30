@@ -172,6 +172,13 @@ open, so Phase 3 remains open.
   planning, removal, or execution failure. Observation and planning failures
   cannot reach a mutation or Steam-launch effect, and prepare-only cannot
   launch Steam.
+- A portable observation assembler converts the immutable loader chain,
+  managed-file ownership, recovered-cache identity, runtime-settings state,
+  and shared-mod state into the workflow contracts. It keeps preparation
+  selection separate from removal ownership: a verified previous managed
+  generation remains removable even when it is incompatible with the current
+  payload, while mixed managed ownership and an active shared runtime fail
+  closed.
 - Runtime reuse now has a strictly read-only transaction check: `active` must
   match the expected manifest and no journal, staging, or rollback generation
   may exist. Runtime removal first completes the existing recovery state
@@ -286,6 +293,9 @@ failed effect.
 The portable workflow suite additionally proves the full observation-policy-
 plan-execution order for prepare-and-launch, prepare-only, and managed removal,
 including typed fail-closed observation/planning behavior before any effect.
+The portable observation-assembly suite proves clean, exact managed, previous
+managed, exact shared, mixed-ownership, and invalid-loader mappings for both
+preparation and removal.
 The Win32 execution suite additionally proves read-only exact runtime reuse,
 normal owned-loader publication, elevated loader-only handoff, loader-before-
 cache removal, shared-mod installation/removal, and preservation of the shared

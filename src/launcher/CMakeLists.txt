@@ -7,6 +7,7 @@ add_library(
         src/loader.cpp
         src/loader_observation.cpp
         src/manifest.cpp
+        src/observation_assembly.cpp
         src/ownership.cpp
         src/owned_file_receipt.cpp
         src/policy.cpp
