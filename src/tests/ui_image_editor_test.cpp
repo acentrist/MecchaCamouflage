@@ -5,6 +5,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <variant>
@@ -286,16 +287,19 @@ auto main() -> int
                 ui::CanvasTextureHandle{20U},
             },
             true,
+            {"Front", "Right", "Back", "Left"},
         });
     const auto frame = std::move(canvas).finish();
     passed &= expect(
         drawn && drawn->layer_outlines == 2U &&
-            drawn->guide_drawn && frame,
+            drawn->guide_drawn &&
+            drawn->guide_labels_drawn == 4U && frame,
         "two-layer editor frame did not render");
     if (frame)
     {
         auto textures =
             std::vector<ui::CanvasTextureHandle>{};
+        auto guide_labels = std::vector<std::string>{};
         for (const auto& primitive : frame->primitives)
         {
             if (const auto* texture =
@@ -304,6 +308,12 @@ auto main() -> int
             {
                 textures.push_back(texture->texture);
             }
+            if (const auto* text =
+                    std::get_if<ui::CanvasTextPrimitive>(
+                        &primitive))
+            {
+                guide_labels.push_back(text->utf8);
+            }
         }
         passed &= expect(
             textures == std::vector{
@@ -311,6 +321,15 @@ auto main() -> int
                             ui::CanvasTextureHandle{20U},
                         },
             "guide was not a separate overlay above the atlas");
+        passed &= expect(
+            guide_labels ==
+                std::vector<std::string>{
+                    "Front",
+                    "Right",
+                    "Back",
+                    "Left",
+                },
+            "localized face labels were not drawn over the guide");
     }
 
     auto invalid_guide_canvas =

@@ -109,7 +109,9 @@ struct ImageEditorSessionSnapshot
         -> bool = default;
 };
 
-class ImageEditorSessionPort : public ImageProjectReadinessPort
+class ImageEditorSessionPort
+    : public ImageProjectReadinessPort,
+      public ImageEditorReadyContentPort
 {
 public:
     ImageEditorSessionPort() = default;
@@ -257,6 +259,11 @@ public:
         std::string_view project_id,
         std::uint64_t project_revision) const
         -> std::shared_ptr<const core::ImageProject> override;
+
+    [[nodiscard]] auto ready_content(
+        std::string_view project_id,
+        std::uint64_t project_revision) const
+        -> std::shared_ptr<const ImageEditorReadyContent> override;
 
 private:
     struct ActivePersistenceOperation

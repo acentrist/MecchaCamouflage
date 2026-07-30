@@ -383,8 +383,15 @@ Evidence:
 - [ ] Implement versioned round/cube/fukuyoka guide overlays.
   - [x] Define an exact image-profile/schema-bound guide texture contract and
     render it separately after the canonical atlas.
-  - [ ] Generate and lifetime-manage the guide textures from the three exact
-    packaged reference profiles through the production runtime adapter.
+  - [x] Generate deterministic locale-independent 1024×512 guide bitmaps from
+    the exact three packaged reference profiles, including validated component
+    transforms, body silhouettes, reference-pose skeletons, and face bounds.
+  - [x] Retain the matching immutable decoded source pixels with each ready
+    atlas and own atlas/source/guide opaque handles through a game-thread-only,
+    rollback-safe, bounded, retryable texture coordinator.
+  - [ ] Bind the texture coordinator's narrow port to validated reflected
+    Unreal texture creation/release and prove it through HUD replacement,
+    travel, and unload.
 - [ ] Implement game-thread preview texture lifetime.
 - [ ] Implement all profile mappings and reuse the accepted Paint dispatch.
   - [x] Decode immutable reference vertices/indices from each exact packaged
@@ -418,12 +425,16 @@ Evidence:
   - [x] Connect current-project Save/Rename/Delete to the portable UCanvas
     toolbar with typed actions, bounded name editing, and explicit delete
     confirmation.
-  - [ ] Connect native picker/import/load and the remaining UCanvas project
-    controls.
+  - [x] Connect native picker/import/load and the portable UCanvas project
+    controls through latest-snapshot effect execution.
+  - [ ] Bind those effects and controls to the production callback boundary.
 - [ ] Pass decoder, layer, guide, atlas, mapping, preset, fake-runtime, and
   resource-limit tests.
   - [x] Pass portable editor gesture/crop/order and guide overlay isolation/
     identity/ordering/limit tests.
+  - [x] Pass exact-profile guide generation, deterministic rasterization,
+    strict reference-transform parsing, ready-content retention, and
+    game-thread texture rollback/retry/shutdown tests.
 - [ ] DEFERRED — maintainer interaction required: complete the full Image Paint
   visual/editor/live-paint checklist.
 
@@ -553,7 +564,12 @@ Evidence:
     - [x] Decode, publish, and activate selected v2 presets on the persistence
       worker, reuse an exact existing project, and refuse a differing project
       with the same ID without overwriting it.
-    - [ ] Implement body-guide generation and production texture lifetime.
+    - [x] Generate all three exact packaged-profile guide bitmaps, draw the
+      localized Front/Right/Back/Left labels separately through Canvas, retain
+      decoded crop-source content, and own atlas/source/guide handle
+      generations through the game-thread texture coordinator.
+    - [ ] Bind the texture coordinator to the production Unreal runtime port
+      and validated callback teardown.
 - [ ] Complete F9 and configurable F1–F8 hotkey behavior.
   - [x] Implement a bounded application-owned F1–F24 command router with the
     F9/F1–F8 defaults, validated remapping, physical-key repeat suppression
@@ -632,6 +648,11 @@ Evidence:
     latest-revision action binding, immutable preset bytes, off-thread preset
     import/activation, exact-project reuse, same-ID conflict refusal, busy
     exclusion, and root command routing.
+  - [x] Prove exact-profile guide decoding/generation for all three body types,
+    deterministic four-face output, strict reference-transform validation,
+    matching ready atlas/source ownership, localized guide-label ordering,
+    game-thread texture publication, partial-create rollback, bounded release
+    retry, clear, and terminal shutdown.
 - [ ] DEFERRED — maintainer interaction required: complete the full in-game UI
   walkthrough across languages/resolutions/DPI.
 

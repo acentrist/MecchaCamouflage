@@ -8,8 +8,10 @@ validated immutable project/layer values and decoded RGBA buffers. Owned
 application workers run decode and composition off-thread, and an editor
 pipeline connects them by exact project identity and revision. An editor
 session now coordinates the derived pipeline, active draft, typed project
-operations, and application root. These modules do not create Unreal textures
-or drive the complete in-game editor lifecycle.
+operations, and application root. Exact-profile guide generation and the
+project-owned game-thread texture coordinator are implemented, but their
+narrow port does not yet create reflected Unreal textures or drive the
+complete in-game editor lifecycle.
 Phase 9 therefore remains open.
 
 ## Portable Canvas editor
@@ -57,9 +59,16 @@ validates an optional guide against its overlay schema and the complete frozen
 round/cube/fukuyoka ImageReference identity, and submits that guide as a
 separate later Canvas texture. Selection outlines and handles remain UI
 primitives. The guide can therefore never enter the canonical RGBA atlas,
-`.mcpreset`, preview planning, or Paint dispatch. The producer and lifetime
-owner for the three native guide textures is intentionally not guessed before
-the protected UE4SS/UCanvas adapter is available.
+`.mcpreset`, preview planning, or Paint dispatch.
+
+The exact packaged ImageReference geometry and ordered reference-pose component
+transforms now produce deterministic locale-independent 1024×512 RGBA body and
+skeleton overlays for round, cube, and fukuyoka. Localized face names remain
+separate Canvas text. The editor pipeline retains the immutable decoded
+sources that match its ready atlas, and a game-thread-only coordinator owns
+opaque atlas/source/guide handle generations with transactional replacement,
+bounded release retry, clear, and shutdown. Only the narrow reflected Unreal
+texture port and its live evidence remain open.
 
 ## Native decoder boundary
 
@@ -339,9 +348,8 @@ a live production path.
 
 - Construct the production session from the Win32 stores; root-owned startup
   recovery is already connected.
-- Derive and version all three editor-only guide overlays.
-- Implement game-thread texture creation/update/release through the accepted
-  runtime adapter.
+- Bind game-thread texture creation/release to the accepted reflected Unreal
+  runtime port and verify it through travel, HUD replacement, and unload.
 - Capture triangle/barycentric anchors through the production runtime adapter.
 - Build the complete UCanvas editor and pass fake-runtime and live checks.
 

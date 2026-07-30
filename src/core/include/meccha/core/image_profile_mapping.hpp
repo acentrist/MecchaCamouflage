@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <expected>
 #include <memory>
+#include <optional>
 #include <stop_token>
 #include <vector>
 
@@ -21,11 +22,20 @@ struct Vector3d
     auto operator==(const Vector3d&) const -> bool = default;
 };
 
+struct ImageReferenceBone
+{
+    std::optional<std::size_t> parent{};
+    Vector3d position{};
+
+    auto operator==(const ImageReferenceBone&) const -> bool = default;
+};
+
 struct ImageReferenceGeometry
 {
     MeshProfileIdentity identity{};
     std::shared_ptr<const std::vector<Vector3d>> positions{};
     std::shared_ptr<const std::vector<std::uint32_t>> indices{};
+    std::shared_ptr<const std::vector<ImageReferenceBone>> bones{};
 };
 
 struct CanonicalImageProfile

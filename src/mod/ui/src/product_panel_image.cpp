@@ -822,6 +822,14 @@ auto compose_image_settings_section(
                     state.image_editor.interaction.selected_layer,
                     input.image_editor->guide,
                     model.image_paint.project.edit,
+                    input.image_editor->guide
+                        ? std::array<std::string_view, 4U>{
+                              labels.image_setting_labels[3U],
+                              labels.image_setting_labels[4U],
+                              labels.image_setting_labels[5U],
+                              labels.image_setting_labels[6U],
+                          }
+                        : std::array<std::string_view, 4U>{},
                 });
             if (!drawn)
             {

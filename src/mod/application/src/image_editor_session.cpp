@@ -980,4 +980,14 @@ auto ImageEditorSession::ready_project(
         project_id,
         project_revision);
 }
+
+auto ImageEditorSession::ready_content(
+    std::string_view project_id,
+    std::uint64_t project_revision) const
+    -> std::shared_ptr<const ImageEditorReadyContent>
+{
+    return pipeline_.ready_content(
+        project_id,
+        project_revision);
+}
 } // namespace meccha::application

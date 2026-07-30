@@ -142,6 +142,21 @@ add_test(
 )
 
 add_executable(
+    meccha_image_editor_texture_coordinator_tests
+    image_editor_texture_coordinator_test.cpp
+)
+target_link_libraries(
+    meccha_image_editor_texture_coordinator_tests
+    PRIVATE
+        MecchaCamouflage::ProductUi
+        meccha_build_options
+)
+add_test(
+    NAME image_editor_texture_coordinator
+    COMMAND meccha_image_editor_texture_coordinator_tests
+)
+
+add_executable(
     meccha_application_root_tests
     application_root_test.cpp
 )
@@ -296,6 +311,23 @@ add_test(
     NAME mesh_profile_codec
     COMMAND
         meccha_mesh_profile_codec_tests
+        "${PROJECT_SOURCE_DIR}/resources/mesh-profiles"
+)
+
+add_executable(
+    meccha_image_guide_tests
+    image_guide_test.cpp
+)
+target_link_libraries(
+    meccha_image_guide_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(
+    NAME image_guide
+    COMMAND
+        meccha_image_guide_tests
         "${PROJECT_SOURCE_DIR}/resources/mesh-profiles"
 )
 

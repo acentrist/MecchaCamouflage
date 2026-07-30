@@ -1,9 +1,11 @@
 #pragma once
 
+#include <meccha/core/image_guide.hpp>
 #include <meccha/core/image_project.hpp>
 #include <meccha/core/mesh_profile.hpp>
 #include <meccha/ui/canvas.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -16,7 +18,8 @@
 namespace meccha::ui
 {
 inline constexpr std::size_t MaximumImageEditorEventsPerFrame = 16U;
-inline constexpr std::uint32_t ImageGuideOverlaySchemaVersion = 1U;
+inline constexpr std::uint32_t ImageGuideOverlaySchemaVersion =
+    core::ImageGuideSchemaVersion;
 
 enum class ImageResizeCorner : std::uint8_t
 {
@@ -196,12 +199,14 @@ struct ImageEditorView
     std::optional<std::size_t> selected_layer{};
     std::optional<ImageGuideOverlay> guide{};
     bool editing{};
+    std::array<std::string_view, 4U> guide_labels{};
 };
 
 struct ImageEditorDrawResult
 {
     std::size_t layer_outlines{};
     bool guide_drawn{};
+    std::size_t guide_labels_drawn{};
 };
 
 enum class ImageEditorDrawValidationError : std::uint8_t

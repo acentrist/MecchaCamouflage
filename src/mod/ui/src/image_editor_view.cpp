@@ -222,6 +222,24 @@ auto draw_image_editor(
         return std::unexpected(ImageEditorDrawError{
             ImageEditorDrawValidationError::InvalidGuide});
     }
+    const auto has_any_guide_label = std::ranges::any_of(
+        view.guide_labels,
+        [](std::string_view label)
+        {
+            return !label.empty();
+        });
+    const auto has_all_guide_labels = std::ranges::all_of(
+        view.guide_labels,
+        [](std::string_view label)
+        {
+            return !label.empty();
+        });
+    if ((!view.guide && has_any_guide_label) ||
+        (has_any_guide_label && !has_all_guide_labels))
+    {
+        return std::unexpected(ImageEditorDrawError{
+            ImageEditorDrawValidationError::InvalidGuide});
+    }
 
     auto clips = CanvasClipLease{canvas};
     if (const auto outer = clips.push(clip); !outer)
@@ -246,6 +264,7 @@ auto draw_image_editor(
     }
 
     auto guide_drawn = false;
+    auto guide_labels_drawn = std::size_t{};
     if (view.guide)
     {
         const auto guide = canvas.add_texture(
@@ -259,6 +278,50 @@ auto draw_image_editor(
                 ImageEditorDrawError{guide.error()});
         }
         guide_drawn = *guide;
+        if (has_all_guide_labels)
+        {
+            const auto tile_width = atlas_rect.width / 4.0;
+            const auto label_scale = std::max(
+                0.5,
+                std::min(
+                    atlas_rect.width /
+                        static_cast<double>(
+                            core::CanonicalAtlasWidth),
+                    atlas_rect.height /
+                        static_cast<double>(
+                            core::CanonicalAtlasHeight)));
+            for (auto face = std::size_t{};
+                 face < view.guide_labels.size();
+                 ++face)
+            {
+                const auto label = canvas.add_text(
+                    CanvasPoint{
+                        atlas_rect.x +
+                            static_cast<double>(face) *
+                                tile_width +
+                            12.0 * label_scale,
+                        atlas_rect.y + 12.0 * label_scale,
+                    },
+                    view.guide_labels[face],
+                    CanvasColor{
+                        255U,
+                        255U,
+                        255U,
+                        199U,
+                    },
+                    label_scale);
+                if (!label)
+                {
+                    return std::unexpected(
+                        ImageEditorDrawError{
+                            label.error()});
+                }
+                if (*label)
+                {
+                    ++guide_labels_drawn;
+                }
+            }
+        }
     }
 
     auto outlines = std::size_t{};
@@ -329,6 +392,10 @@ auto draw_image_editor(
         return std::unexpected(
             ImageEditorDrawError{closed.error()});
     }
-    return ImageEditorDrawResult{outlines, guide_drawn};
+    return ImageEditorDrawResult{
+        outlines,
+        guide_drawn,
+        guide_labels_drawn,
+    };
 }
 } // namespace meccha::ui

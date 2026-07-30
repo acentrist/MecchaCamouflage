@@ -130,8 +130,11 @@ complete frozen ImageReference profile identity must match, then layer
 outlines and selected resize handles. The guide is therefore a separate Canvas
 primitive after the atlas; it is never passed to the compositor, persisted
 atlas, preset, preview planner, or Paint dispatcher. A failed draw unwinds both
-clip scopes before returning. Production profile-to-guide texture construction
-and Unreal texture lifetime remain open work.
+clip scopes before returning. All three packaged profiles now produce
+deterministic body/skeleton guide bitmaps, localized face names remain separate
+Canvas text, and the project-owned game-thread coordinator manages opaque
+guide, atlas, and source handle generations. Reflected Unreal texture
+creation/release and its live lifetime evidence remain open work.
 
 ## Exact input lease
 
@@ -215,11 +218,12 @@ trusted from UI input.
 metadata isolation, revision/asset/range guards, order preservation into the
 debounced draft, and terminal shutdown. `application_root_image_paint` proves
 the typed command route and immutable document publication. The normal Linux,
-ASan/UBSan, and Windows Release graphs pass 69, 69, and 86 tests respectively.
+ASan/UBSan, and Windows Release graphs pass 73, 73, and 90 tests respectively.
 
 ## Remaining feasibility work
 
-- Build and lifetime-manage the three exact packaged profile guide textures.
+- Bind the project-owned texture coordinator to reflected Unreal texture
+  creation/release.
 - Implement the validated UCanvas and Unreal input adapters only after the
   protected UE4SS graph compiles the exact interfaces.
 - Prove localized font/text, texture creation/lifetime, clipping, mouse input,

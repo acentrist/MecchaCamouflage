@@ -5,11 +5,12 @@ scroll, text-edit, Image Paint editor, input-lease, and typed editor-mutation
 boundaries are implemented. The current milestones add the application-owned
 hotkey and product-action boundaries plus a portable five-tab product-panel
 shell, native file-selection boundary, latest-snapshot effect executor, and
-v2-only preset import/activation path. Production UCanvas rendering, Unreal
-input registration, font/texture lifetime, body-guide integration, and live
-verification remain
-intentionally unimplemented until their owned adapters and the protected
-UE4SS graph expose the exact accepted interfaces.
+v2-only preset import/activation path. The three exact body guides and the
+portable game-thread texture lifetime boundary are also implemented.
+Production UCanvas rendering, Unreal input registration, game-font/fallback
+selection, the reflected Unreal texture port, and live verification remain
+intentionally unimplemented until the protected UE4SS graph exposes the exact
+accepted interfaces.
 
 ## Ownership and dependency direction
 
@@ -66,8 +67,8 @@ held-key behavior across snapshot publication, complete remapping, duplicate
 mapping refusal, invalid/event-limit refusal, exact command-ID exhaustion,
 input-loss release, and terminal shutdown.
 
-The complete Linux, Linux ASan/UBSan, and Windows MSVC Release graphs pass 71,
-71, and 88 tests respectively.
+The complete Linux, Linux ASan/UBSan, and Windows MSVC Release graphs pass 73,
+73, and 90 tests respectively.
 
 ## Immutable product presentation
 
@@ -392,6 +393,46 @@ preset ownership, store reuse and conflict refusal, worker-thread import,
 configuration activation, editor busy exclusion, pipeline publication, and
 root routing.
 
+## Body-guide and texture ownership boundary
+
+`core/image_guide` derives one deterministic, locale-independent 1024×512 RGBA
+overlay from each exact packaged round, cube, and fukuyoka ImageReference
+profile. Profile decoding now validates the complete ordered reference-pose
+component-transform collection and its skeleton parent hierarchy. Generation
+projects the bounded reference geometry and skeleton into all four canonical
+faces, draws only translucent white guide content, checks cancellation and a
+fixed raster-work ceiling, and never touches a UObject, runtime texture,
+project atlas, or persisted preset.
+
+Front/Right/Back/Left remain localized Canvas text rather than pixels baked
+into the overlay. The product panel supplies all four labels only with an
+exact-profile guide, and the portable editor draws them after the guide
+texture and before selection primitives. This keeps one reusable guide bitmap
+per body type while retaining every shipped locale.
+
+`ImageEditorPipeline` now publishes a matching immutable ready-content bundle:
+the exact composed project/atlas and the decoded source pixels used for that
+revision. Encoded and decoded bytes remain outside application snapshots.
+This bundle gives Crop and the runtime texture owner the source content they
+need without decoding again or accepting mismatched revisions.
+
+`ImageEditorTextureCoordinator` is the game-thread-only owner of opaque
+atlas/source/guide texture generations. It installs the exact three guide
+textures once, reuses them across project revisions, publishes a replacement
+frame only after every new texture succeeds, rolls back partial creation,
+retires the previous generation after publication, bounds failed releases,
+and retries release during later synchronization or shutdown. Clear releases
+only project textures; shutdown is retryable until all project-owned handles
+are released. Its narrow runtime port exposes no UE4SS or Unreal type. The
+production reflected texture implementation and live travel/unload evidence
+remain open.
+
+Tests cover all packaged profiles, deterministic four-face output, strict
+reference-transform validation, cancellation, ready-content matching and
+invalidation, localized guide-label ordering, wrong-thread refusal, unchanged
+generation reuse, partial-create rollback, failed-release retry, clear, and
+resource-free terminal shutdown.
+
 ## Localized status strip
 
 The status strip is now composed by a dedicated portable owner. It renders the
@@ -426,15 +467,15 @@ Portable tests cover localized messages, command IDs, Canvas/missing-function
 details, omitted counts, the empty state, compact scrolling, and incoherent
 queue refusal.
 
-This remains a partial product UI milestone. Body-guide lifetime and the
-production UCanvas adapter remain open.
+This remains a partial product UI milestone. The reflected Unreal texture port
+and production UCanvas adapter remain open.
 
 ## Remaining work
 
 - Enqueue the returned product action through the production callback boundary.
 - Connect the production UE4SS key callbacks and input lease.
-- Implement body-guide generation, game-font/OFL fallback selection, and
-  runtime texture lifetime.
+- Bind the game-thread texture coordinator to validated reflected Unreal
+  texture creation/release and select the game-font/OFL fallback path.
 - Complete fake-runtime and live UI verification across all languages,
   resolutions, and DPI settings.
 

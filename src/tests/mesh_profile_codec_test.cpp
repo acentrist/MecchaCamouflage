@@ -254,6 +254,35 @@ auto main(int argc, char** argv) -> int
                 application::MeshProfileCodecErrorCode::InvalidProfile,
         "an out-of-order image-reference vertex was accepted");
 
+    auto invalid_reference_transform =
+        read_file(root / "paintman.image-profile-v2.json");
+    const auto scale_position =
+        invalid_reference_transform.find(
+            R"("ScaleX":  0.0316935182)");
+    if (scale_position != std::string::npos)
+    {
+        invalid_reference_transform.replace(
+            scale_position,
+            std::string_view{
+                R"("ScaleX":  0.0316935182)"}
+                .size(),
+            R"("ScaleX":  0)");
+    }
+    const auto rejected_reference_transform =
+        application::decode_canonical_image_profile(
+            invalid_reference_transform,
+            core::BodyProfile::Round);
+    passed &= expect(
+        scale_position != std::string::npos &&
+            !rejected_reference_transform &&
+            rejected_reference_transform.error().code ==
+                application::MeshProfileCodecErrorCode::
+                    InvalidProfile &&
+            rejected_reference_transform.error().fields ==
+                std::vector{
+                    core::MeshProfileField::ReferencePose},
+        "an invalid image-reference skeleton transform was accepted");
+
     if (passed)
     {
         std::cout << "PASS mesh_profile_codec\n";

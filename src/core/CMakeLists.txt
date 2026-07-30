@@ -4,6 +4,7 @@ add_library(
         src/config.cpp
         src/esp.cpp
         src/image_compositor.cpp
+        src/image_guide.cpp
         src/image_mapping.cpp
         src/image_paint_plan.cpp
         src/image_profile_mapping.cpp

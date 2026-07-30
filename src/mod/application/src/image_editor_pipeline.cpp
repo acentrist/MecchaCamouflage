@@ -77,6 +77,7 @@ auto ImageEditorPipeline::admit(
         std::make_shared<const core::ImageProject>(
             std::move(project));
     ready_project_.reset();
+    ready_content_.reset();
     if (work_active_)
     {
         clear_pending_ = false;
@@ -119,6 +120,7 @@ auto ImageEditorPipeline::clear() noexcept -> void
     }
 
     ready_project_.reset();
+    ready_content_.reset();
     pending_project_.reset();
     pending_generation_ = 0U;
     snapshot_ = ImageEditorPipelineSnapshot{};
@@ -194,6 +196,8 @@ auto ImageEditorPipeline::update() -> void
                 completed->result.value()->end(),
             },
         };
+        active_decoded_sources_ =
+            completed->result.value();
         if (!composition_worker_.start(
                 active_generation_,
                 std::move(request)))
@@ -271,6 +275,13 @@ auto ImageEditorPipeline::update() -> void
         return;
     }
     ready_project_ = std::move(ready);
+    ready_content_ =
+        std::make_shared<const ImageEditorReadyContent>(
+            ImageEditorReadyContent{
+                ready_project_,
+                active_decoded_sources_,
+            });
+    active_decoded_sources_.reset();
     work_active_ = false;
     active_project_.reset();
     active_phase_ = ImageEditorPipelinePhase::Ready;
@@ -290,6 +301,8 @@ auto ImageEditorPipeline::shutdown() noexcept -> void
     active_project_.reset();
     pending_project_.reset();
     ready_project_.reset();
+    active_decoded_sources_.reset();
+    ready_content_.reset();
     active_generation_ = 0U;
     pending_generation_ = 0U;
     work_active_ = false;
@@ -319,10 +332,25 @@ auto ImageEditorPipeline::ready_project(
     return ready_project_;
 }
 
+auto ImageEditorPipeline::ready_content(
+    std::string_view project_id,
+    std::uint64_t project_revision) const
+    -> std::shared_ptr<const ImageEditorReadyContent>
+{
+    if (!ready_content_ || !ready_content_->project ||
+        ready_content_->project->project_id != project_id ||
+        ready_content_->project->revision != project_revision)
+    {
+        return {};
+    }
+    return ready_content_;
+}
+
 auto ImageEditorPipeline::start(
     JobGeneration generation,
     std::shared_ptr<const core::ImageProject> project) -> bool
 {
+    active_decoded_sources_.reset();
     auto request = ImageProjectDecodeRequest{
         project->project_id,
         project->revision,
@@ -375,6 +403,8 @@ auto ImageEditorPipeline::clear_completed() noexcept -> void
     active_project_.reset();
     pending_project_.reset();
     ready_project_.reset();
+    active_decoded_sources_.reset();
+    ready_content_.reset();
     active_generation_ = 0U;
     pending_generation_ = 0U;
     work_active_ = false;
@@ -388,6 +418,8 @@ auto ImageEditorPipeline::fail(
 {
     active_project_.reset();
     ready_project_.reset();
+    active_decoded_sources_.reset();
+    ready_content_.reset();
     work_active_ = false;
     active_phase_ = ImageEditorPipelinePhase::Failed;
     snapshot_.phase = ImageEditorPipelinePhase::Failed;

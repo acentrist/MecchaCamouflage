@@ -278,6 +278,8 @@ auto main() -> int
 
     const auto snapshot = pipeline.snapshot();
     const auto ready = pipeline.ready_project(ProjectId, 7U);
+    const auto ready_content =
+        pipeline.ready_content(ProjectId, 7U);
     passed &= expect(
         snapshot.phase ==
                 ImageEditorPipelinePhase::Ready &&
@@ -287,11 +289,27 @@ auto main() -> int
             ready && ready->revision == 7U &&
             ready->canonical_atlas &&
             std::to_integer<std::uint8_t>(
-                ready->canonical_atlas->front()) == 0x7AU,
-        "decode and composition did not publish the matching ready project");
+                ready->canonical_atlas->front()) == 0x7AU &&
+            ready_content &&
+            ready_content->project == ready &&
+            ready_content->decoded_sources &&
+            ready_content->decoded_sources->size() == 1U &&
+            ready_content->decoded_sources->front().asset_id ==
+                AssetId &&
+            ready_content->decoded_sources->front().width == 1U &&
+            ready_content->decoded_sources->front().height == 1U &&
+            ready_content->decoded_sources->front().rgba &&
+            ready_content->decoded_sources->front().rgba->size() ==
+                4U &&
+            std::to_integer<std::uint8_t>(
+                ready_content->decoded_sources->front()
+                    .rgba->front()) == 0x44U,
+        "decode and composition did not publish matching immutable "
+        "project and source content");
     passed &= expect(
-        !pipeline.ready_project(ProjectId, 6U),
-        "a ready project was returned for a stale revision");
+        !pipeline.ready_project(ProjectId, 6U) &&
+            !pipeline.ready_content(ProjectId, 6U),
+        "ready content was returned for a stale revision");
 
     const auto replaced = pipeline.replace(project(6U));
     passed &= expect(
@@ -302,8 +320,9 @@ auto main() -> int
     pipeline.clear();
     passed &= expect(
         pipeline.snapshot() == ImageEditorPipelineSnapshot{} &&
-            !pipeline.ready_project(ProjectId, 6U),
-        "clearing an idle editor retained its ready project");
+            !pipeline.ready_project(ProjectId, 6U) &&
+            !pipeline.ready_content(ProjectId, 6U),
+        "clearing an idle editor retained its ready content");
 
     const auto restored = pipeline.submit(project(7U));
     passed &= expect(
@@ -323,8 +342,11 @@ auto main() -> int
                 std::unexpected(
                     ImageEditorSubmitError::StaleRevision) &&
             pipeline.ready_project(ProjectId, 7U) ==
+                current_ready &&
+            pipeline.ready_content(ProjectId, 7U) &&
+            pipeline.ready_content(ProjectId, 7U)->project ==
                 current_ready,
-        "invalid or stale edits disturbed the ready project");
+        "invalid or stale edits disturbed the ready content");
 
     auto superseded_decoder = SupersededDecoder{};
     auto coalescing_composer = TestComposer{};
@@ -423,7 +445,8 @@ auto main() -> int
             failure.failure->decode &&
             failure.failure->decode->decoder_error ==
                 ImageDecodeError::MalformedImage &&
-            !failing_pipeline.ready_project(ProjectId, 12U),
+            !failing_pipeline.ready_project(ProjectId, 12U) &&
+            !failing_pipeline.ready_content(ProjectId, 12U),
         "decode failure did not remain typed and fail closed");
 
     auto clearing_decoder = SupersededDecoder{};
@@ -450,7 +473,8 @@ auto main() -> int
     passed &= expect(
         clearing_pipeline.snapshot() ==
                 ImageEditorPipelineSnapshot{} &&
-            !clearing_pipeline.ready_project(ProjectId, 13U),
+            !clearing_pipeline.ready_project(ProjectId, 13U) &&
+            !clearing_pipeline.ready_content(ProjectId, 13U),
         "clear allowed cancelled editor work to publish");
 
     composition_pipeline.shutdown();
@@ -460,7 +484,8 @@ auto main() -> int
             composition_pipeline.submit(project(12U)) ==
                 std::unexpected(
                     ImageEditorSubmitError::Stopped) &&
-            !composition_pipeline.ready_project(ProjectId, 11U),
+            !composition_pipeline.ready_project(ProjectId, 11U) &&
+            !composition_pipeline.ready_content(ProjectId, 11U),
         "shutdown retained output or accepted new editor work");
 
     if (passed)

@@ -56,6 +56,17 @@ struct ImageEditorPipelineSnapshot
         -> bool = default;
 };
 
+struct ImageEditorReadyContent
+{
+    std::shared_ptr<const core::ImageProject> project{};
+    std::shared_ptr<
+        const std::vector<core::DecodedImageSource>>
+        decoded_sources{};
+
+    auto operator==(const ImageEditorReadyContent&) const
+        -> bool = default;
+};
+
 enum class ImageEditorSubmitError : std::uint8_t
 {
     InvalidProject,
@@ -84,8 +95,25 @@ public:
         -> std::shared_ptr<const core::ImageProject> = 0;
 };
 
+class ImageEditorReadyContentPort
+{
+public:
+    ImageEditorReadyContentPort() = default;
+    ImageEditorReadyContentPort(
+        const ImageEditorReadyContentPort&) = delete;
+    auto operator=(const ImageEditorReadyContentPort&)
+        -> ImageEditorReadyContentPort& = delete;
+    virtual ~ImageEditorReadyContentPort() = default;
+
+    [[nodiscard]] virtual auto ready_content(
+        std::string_view project_id,
+        std::uint64_t project_revision) const
+        -> std::shared_ptr<const ImageEditorReadyContent> = 0;
+};
+
 class ImageEditorPipeline final
-    : public ImageProjectReadinessPort
+    : public ImageProjectReadinessPort,
+      public ImageEditorReadyContentPort
 {
 public:
     ImageEditorPipeline(
@@ -114,6 +142,11 @@ public:
         std::uint64_t project_revision) const
         -> std::shared_ptr<const core::ImageProject> override;
 
+    [[nodiscard]] auto ready_content(
+        std::string_view project_id,
+        std::uint64_t project_revision) const
+        -> std::shared_ptr<const ImageEditorReadyContent> override;
+
 private:
     [[nodiscard]] auto admit(
         core::ImageProject project,
@@ -133,6 +166,11 @@ private:
     std::shared_ptr<const core::ImageProject> active_project_{};
     std::shared_ptr<const core::ImageProject> pending_project_{};
     std::shared_ptr<const core::ImageProject> ready_project_{};
+    std::shared_ptr<
+        const std::vector<core::DecodedImageSource>>
+        active_decoded_sources_{};
+    std::shared_ptr<const ImageEditorReadyContent>
+        ready_content_{};
     JobGeneration active_generation_{};
     JobGeneration pending_generation_{};
     JobGeneration next_generation_{1U};

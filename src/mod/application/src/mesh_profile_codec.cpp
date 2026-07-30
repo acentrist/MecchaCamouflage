@@ -434,6 +434,9 @@ auto decode_mesh_profile(
         }
     }
 
+    auto bone_parents =
+        std::vector<std::optional<std::size_t>>{};
+    bone_parents.reserve(bones->get().size());
     const auto validate_nested_indices =
         [&]() -> std::expected<void, MeshProfileCodecError>
         {
@@ -465,6 +468,12 @@ auto decode_mesh_profile(
                         core::MeshProfileField::IndexBounds,
                         "Mesh profile bone hierarchy is invalid.");
                 }
+                bone_parents.push_back(
+                    *parent < 0
+                        ? std::nullopt
+                        : std::optional<std::size_t>{
+                              static_cast<std::size_t>(
+                                  *parent)});
             }
 
             for (auto position = std::size_t{};
@@ -571,6 +580,8 @@ auto decode_mesh_profile(
 
     auto reference_pose_count = std::size_t{};
     auto reference_positions = std::vector<core::Vector3d>{};
+    auto reference_bones =
+        std::vector<core::ImageReferenceBone>{};
     if (role == core::MeshProfileRole::ImageReference)
     {
         const auto profile_role =
@@ -602,6 +613,94 @@ auto decode_mesh_profile(
                     : reference_vertices.error());
         }
         reference_pose_count = transforms->get().size();
+        if (reference_pose_count != bones->get().size() ||
+            bone_parents.size() != bones->get().size())
+        {
+            return invalid_profile(
+                core::MeshProfileField::ReferencePose,
+                "Image-reference transform count does not match the skeleton.");
+        }
+        reference_bones.reserve(reference_pose_count);
+        for (auto position = std::size_t{};
+             position < transforms->get().size();
+             ++position)
+        {
+            const auto* transform =
+                transforms->get()[position].get_if<Object>();
+            if (transform == nullptr)
+            {
+                return malformed(
+                    "Image-reference transform is not an object.");
+            }
+            const auto index = reader.size(*transform, "Index");
+            const auto x = reader.number(*transform, "X");
+            const auto y = reader.number(*transform, "Y");
+            const auto z = reader.number(*transform, "Z");
+            const auto rotation_x =
+                reader.number(*transform, "RotationX");
+            const auto rotation_y =
+                reader.number(*transform, "RotationY");
+            const auto rotation_z =
+                reader.number(*transform, "RotationZ");
+            const auto rotation_w =
+                reader.number(*transform, "RotationW");
+            const auto scale_x =
+                reader.number(*transform, "ScaleX");
+            const auto scale_y =
+                reader.number(*transform, "ScaleY");
+            const auto scale_z =
+                reader.number(*transform, "ScaleZ");
+            if (!index || !x || !y || !z ||
+                !rotation_x || !rotation_y || !rotation_z ||
+                !rotation_w || !scale_x || !scale_y ||
+                !scale_z)
+            {
+                if (!index)
+                    return std::unexpected(index.error());
+                if (!x) return std::unexpected(x.error());
+                if (!y) return std::unexpected(y.error());
+                if (!z) return std::unexpected(z.error());
+                if (!rotation_x)
+                    return std::unexpected(
+                        rotation_x.error());
+                if (!rotation_y)
+                    return std::unexpected(
+                        rotation_y.error());
+                if (!rotation_z)
+                    return std::unexpected(
+                        rotation_z.error());
+                if (!rotation_w)
+                    return std::unexpected(
+                        rotation_w.error());
+                if (!scale_x)
+                    return std::unexpected(scale_x.error());
+                if (!scale_y)
+                    return std::unexpected(scale_y.error());
+                return std::unexpected(scale_z.error());
+            }
+            const auto rotation_length =
+                std::sqrt(
+                    *rotation_x * *rotation_x +
+                    *rotation_y * *rotation_y +
+                    *rotation_z * *rotation_z +
+                    *rotation_w * *rotation_w);
+            if (*index != position ||
+                !std::isfinite(rotation_length) ||
+                rotation_length <= 0.000001 ||
+                std::abs(*scale_x) <= 0.000001 ||
+                std::abs(*scale_y) <= 0.000001 ||
+                std::abs(*scale_z) <= 0.000001)
+            {
+                return invalid_profile(
+                    core::MeshProfileField::ReferencePose,
+                    "Image-reference transform is invalid.");
+            }
+            reference_bones.push_back(
+                core::ImageReferenceBone{
+                    bone_parents[position],
+                    core::Vector3d{*x, *y, *z},
+                });
+        }
         if (reference_vertices->get().size() != *vertex_count)
         {
             return invalid_profile(
@@ -698,6 +797,9 @@ auto decode_mesh_profile(
             std::make_shared<
                 const std::vector<std::uint32_t>>(
                 std::move(decoded_indices)),
+            std::make_shared<
+                const std::vector<core::ImageReferenceBone>>(
+                std::move(reference_bones)),
         };
     }
     return identity;

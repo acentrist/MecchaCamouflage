@@ -263,6 +263,15 @@ public:
                    : nullptr;
     }
 
+    [[nodiscard]] auto ready_content(
+        std::string_view,
+        std::uint64_t) const
+        -> std::shared_ptr<
+            const ImageEditorReadyContent> override
+    {
+        return {};
+    }
+
     [[nodiscard]] auto recover_startup(
         const core::ApplicationConfig& config)
         -> std::expected<

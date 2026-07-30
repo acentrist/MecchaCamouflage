@@ -30,6 +30,7 @@ target_link_libraries(
 add_library(
     meccha_product_ui
     STATIC
+        src/image_editor_texture_coordinator.cpp
         src/product_panel.cpp
         src/product_panel_diagnostics.cpp
         src/product_panel_esp.cpp
