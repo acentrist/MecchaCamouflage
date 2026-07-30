@@ -7,6 +7,7 @@ add_library(
         src/loader_observation.cpp
         src/manifest.cpp
         src/ownership.cpp
+        src/owned_file_receipt.cpp
         src/policy.cpp
         src/preparation.cpp
         src/transaction.cpp
@@ -35,6 +36,8 @@ if(WIN32)
             src/game_discovery_win32.cpp
             src/hash_win32.cpp
             src/loader_observation_win32.cpp
+            src/owned_file_storage_win32.cpp
+            src/owned_file_win32_io.cpp
             src/runtime_storage_win32.cpp
     )
     target_link_libraries(

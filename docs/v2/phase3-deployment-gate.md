@@ -71,6 +71,18 @@ payload, so Phase 3 remains open.
   cache, proxy, and override; exact shared-runtime removal deletes only the
   owned MecchaCamouflage mod. Exact unowned files remain untouched, and
   conflicting observations abort the entire plan.
+- The native owned-file store binds each mutable target to a separate,
+  path-and-role-specific LocalAppData ownership receipt. Matching unowned
+  content can be reused by policy but is never silently claimed, replaced, or
+  removed.
+- Owned-file publication uses write-through staging plus
+  `installing`/`complete`/`removing` receipt phases. Recovery either confirms
+  the published bytes, restores the prior ownership record, or completes a
+  verified removal; any changed target, staging file, receipt, or reparse path
+  fails closed.
+- Read-only observation and no-op removal do not create ownership directories.
+  Mutation remeasures the target immediately before atomic publication, and
+  removal remeasures it after recording intent.
 
 ## Automated evidence
 
@@ -84,6 +96,14 @@ prepare-only operation, managed UAC decisions, shared mod installation,
 running-game rejection, invalid payloads, inaccessible cache storage, every
 deployment conflict, ownership-safe managed/shared removal, and removal
 conflicts.
+
+The MSVC Release owned-file suite covers create, no-op reuse, owned update,
+idempotent removal, exact-unowned refusal, post-install tampering, payload
+hash mismatch, read-only observation, interrupted receipt publication,
+post-publish install recovery, post-delete removal recovery, and a
+privilege-free NTFS junction fixture. The optional file-symbolic-link variant
+is skipped on hosts where Windows developer-mode link creation is unavailable;
+the junction fixture remains mandatory and passes.
 
 Covered Windows directory cases:
 
@@ -118,7 +138,8 @@ without adding a test-only branch to production coordination.
 - Implement the managed `dwmapi.dll` and `override.txt` mutation set,
   ownership persistence, exact-match reuse, and removal.
 - Add the minimal elevated two-file broker and alternate-credential contract.
-- Add explicit junction/reparse fixtures to the Windows temporary-tree suite.
+- Extend the passing owned-file junction fixture to the managed runtime
+  generation adapter.
 - Connect the embedded payload source and final runtime generated-path
   allowlist.
 - Run the deferred live managed/shared/UAC/launch checks after the game is
