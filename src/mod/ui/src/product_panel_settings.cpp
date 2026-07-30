@@ -103,36 +103,23 @@ auto set_hotkey(
     }
 }
 
-auto next_available_key(
+auto key_used_elsewhere(
     const core::HotkeySettings& hotkeys,
-    std::size_t changed_index) -> core::FunctionKey
+    std::size_t changed_index,
+    core::FunctionKey candidate) -> bool
 {
     const auto keys = config_hotkeys(hotkeys);
-    const auto current =
-        static_cast<unsigned>(keys[changed_index]);
-    for (auto step = 1U; step <= 24U; ++step)
+    for (auto index = std::size_t{};
+         index < keys.size();
+         ++index)
     {
-        const auto value = (current - 1U + step) % 24U + 1U;
-        const auto candidate =
-            static_cast<core::FunctionKey>(value);
-        auto used = false;
-        for (auto index = std::size_t{};
-             index < keys.size();
-             ++index)
+        if (index != changed_index &&
+            keys[index] == candidate)
         {
-            if (index != changed_index &&
-                keys[index] == candidate)
-            {
-                used = true;
-                break;
-            }
-        }
-        if (!used)
-        {
-            return candidate;
+            return true;
         }
     }
-    return keys[changed_index];
+    return false;
 }
 
 auto function_key_text(core::FunctionKey key) -> std::string
@@ -273,6 +260,47 @@ auto compose_settings_section(
                intersects(control(row), layout.content);
     };
 
+    if (!model.settings.can_apply ||
+        !input.function_key_input_available ||
+        input.keyboard.cancel_pressed)
+    {
+        state.hotkey_capture = {};
+    }
+    else if (
+        state.hotkey_capture.index &&
+        input.function_key_pressed)
+    {
+        const auto index = *state.hotkey_capture.index;
+        const auto candidate = *input.function_key_pressed;
+        if (config_hotkeys(
+                model.settings.config.ui.hotkeys)[index] ==
+            candidate)
+        {
+            state.hotkey_capture = {};
+        }
+        else if (key_used_elsewhere(
+                model.settings.config.ui.hotkeys,
+                index,
+                candidate))
+        {
+            state.hotkey_capture.rejected = candidate;
+        }
+        else
+        {
+            auto config = model.settings.config;
+            set_hotkey(config.ui.hotkeys, index, candidate);
+            if (const auto published = publish_settings(
+                    std::move(config),
+                    model,
+                    action);
+                !published)
+            {
+                return published;
+            }
+            state.hotkey_capture = {};
+        }
+    }
+
     if (const auto text = label(0U, labels.language); !text)
     {
         return text;
@@ -393,11 +421,21 @@ auto compose_settings_section(
         {
             return text;
         }
+        auto button_text = function_key_text(hotkeys[index]);
+        if (state.hotkey_capture.index ==
+            std::optional<std::size_t>{index})
+        {
+            button_text = state.hotkey_capture.rejected
+                              ? function_key_text(
+                                    *state.hotkey_capture.rejected) +
+                                    labels.hotkey_duplicate_suffix
+                              : labels.hotkey_capture_prompt;
+        }
         const auto button = widgets.button(
             HotkeyIds[index],
             control(row),
             layout.content,
-            function_key_text(hotkeys[index]),
+            button_text,
             enabled(row),
             false);
         if (!button)
@@ -405,22 +443,19 @@ auto compose_settings_section(
             return std::unexpected(
                 ProductPanelError{button.error()});
         }
-        if (button->activated)
+        if (button->activated && !action)
         {
-            auto config = model.settings.config;
-            set_hotkey(
-                config.ui.hotkeys,
-                index,
-                next_available_key(
-                    config.ui.hotkeys,
-                    index));
-            if (const auto published = publish_settings(
-                    std::move(config),
-                    model,
-                    action);
-                !published)
+            if (state.hotkey_capture.index ==
+                std::optional<std::size_t>{index})
             {
-                return published;
+                state.hotkey_capture = {};
+            }
+            else
+            {
+                state.hotkey_capture = {
+                    std::optional<std::size_t>{index},
+                    std::nullopt,
+                };
             }
         }
     }

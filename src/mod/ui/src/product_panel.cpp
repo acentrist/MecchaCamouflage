@@ -106,6 +106,8 @@ auto labels_valid(const ProductPanelLabels& labels) -> bool
            valid_label(labels.cancel) &&
            valid_label(labels.language) &&
            valid_label(labels.theme_color) &&
+           valid_label(labels.hotkey_capture_prompt) &&
+           valid_label(labels.hotkey_duplicate_suffix) &&
            valid_label(labels.image_project_save) &&
            valid_label(labels.image_wrap) &&
            valid_label(labels.image_mirror) &&
@@ -390,7 +392,18 @@ auto state_valid(const ProductPanelState& state) -> bool
         (core::valid_image_project_id(
              state.image_editor.project_id) &&
          state.image_editor.project_revision != 0U);
+    const auto capture_index_valid =
+        !state.hotkey_capture.index ||
+        *state.hotkey_capture.index < 9U;
+    const auto rejected_key_valid =
+        !state.hotkey_capture.rejected ||
+        (state.hotkey_capture.index &&
+         static_cast<unsigned>(
+             *state.hotkey_capture.rejected) >= 1U &&
+         static_cast<unsigned>(
+             *state.hotkey_capture.rejected) <= 24U);
     return section_valid && editor_identity_valid &&
+           capture_index_valid && rejected_key_valid &&
            valid_project_name_state(
                state.image_editor.project_name,
                state.image_editor.project_id.empty()) &&
@@ -598,6 +611,16 @@ auto build_product_panel_labels(
         std::string{catalog.text(locale, "button.stop")},
         std::string{catalog.text(locale, "language")},
         std::string{catalog.text(locale, "theme.color")},
+        std::string{
+            catalog.text(locale, "dialog.hotkey.title")},
+        [&catalog, locale]
+        {
+            const auto formatted = catalog.format(
+                locale,
+                "toast.hotkey.duplicate",
+                std::array<std::string_view, 1U>{""});
+            return formatted ? *formatted : std::string{};
+        }(),
         std::string{catalog.text(locale, "button.save.preset")},
         std::string{catalog.text(locale, "image.action.wrap")},
         std::string{catalog.text(locale, "image.action.mirror")},
@@ -769,6 +792,15 @@ auto compose_product_panel(
         return std::unexpected(ProductPanelError{
             ProductPanelValidationError::InvalidImageAssets});
     }
+    if ((!input.function_key_input_available &&
+         input.function_key_pressed) ||
+        (input.function_key_pressed &&
+         (static_cast<unsigned>(*input.function_key_pressed) < 1U ||
+          static_cast<unsigned>(*input.function_key_pressed) > 24U)))
+    {
+        return std::unexpected(ProductPanelError{
+            ProductPanelValidationError::InvalidInput});
+    }
 
     auto canvas = ui::CanvasFrameBuilder{input.viewport};
     auto interaction = ui::InteractionFrame{
@@ -794,6 +826,7 @@ auto compose_product_panel(
                 ProductPanelError{frame.error()});
         }
         previous.interaction = *next_interaction;
+        previous.hotkey_capture = {};
         previous.image_editor = {};
         return ProductPanelOutput{
             std::move(*frame),
@@ -847,6 +880,12 @@ auto compose_product_panel(
         {
             previous.selected = model.sections[index];
         }
+    }
+
+    if (previous.selected !=
+        application::ProductUiSection::Settings)
+    {
+        previous.hotkey_capture = {};
     }
 
     auto action =

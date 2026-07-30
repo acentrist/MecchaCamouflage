@@ -2398,10 +2398,39 @@ auto main(int argc, char** argv) -> int
             3.0 * SettingsRowHeight +
             SettingsRowHeight * 0.5,
     };
-    const auto hotkey = compose_product_panel(
+    const auto hotkey_capture = compose_product_panel(
         model,
         settings_shell->state,
         settings_input,
+        english);
+    passed &= expect(
+        hotkey_capture && !hotkey_capture->action &&
+            hotkey_capture->state.hotkey_capture.index ==
+                std::optional<std::size_t>{0U} &&
+            !hotkey_capture->state.hotkey_capture.rejected,
+        "hotkey control did not enter direct capture mode");
+    const auto waiting_hotkey = compose_product_panel(
+        model,
+        hotkey_capture ? hotkey_capture->state
+                       : settings_shell->state,
+        default_input(),
+        english);
+    passed &= expect(
+        waiting_hotkey && !waiting_hotkey->action &&
+            frame_contains_text(
+                waiting_hotkey->frame,
+                "Press a function key"),
+        "hotkey capture prompt was not rendered");
+
+    auto captured_hotkey_input = default_input();
+    captured_hotkey_input.function_key_pressed =
+        core::FunctionKey::F12;
+    const auto hotkey = compose_product_panel(
+        model,
+        waiting_hotkey ? waiting_hotkey->state
+                       : hotkey_capture ? hotkey_capture->state
+                       : settings_shell->state,
+        captured_hotkey_input,
         english);
     const auto* hotkey_action =
         hotkey && hotkey->action
@@ -2411,22 +2440,145 @@ auto main(int argc, char** argv) -> int
     passed &= expect(
         hotkey_action &&
             hotkey_action->settings.ui.hotkeys.toggle_ui ==
-                core::FunctionKey::F10 &&
+                core::FunctionKey::F12 &&
             hotkey_action->settings.ui.hotkeys.paint_start ==
                 core::FunctionKey::F1 &&
+            !hotkey->state.hotkey_capture.index &&
+            !hotkey->state.hotkey_capture.rejected &&
             core::validate(hotkey_action->settings).empty(),
-        "hotkey control introduced a duplicate or changed another mapping");
+        "direct hotkey capture changed the wrong mapping");
+
+    auto duplicate_input = default_input();
+    duplicate_input.function_key_pressed =
+        core::FunctionKey::F1;
+    const auto duplicate_hotkey = compose_product_panel(
+        model,
+        waiting_hotkey ? waiting_hotkey->state
+                       : hotkey_capture ? hotkey_capture->state
+                       : settings_shell->state,
+        duplicate_input,
+        english);
+    passed &= expect(
+        duplicate_hotkey && !duplicate_hotkey->action &&
+            duplicate_hotkey->state.hotkey_capture.index ==
+                std::optional<std::size_t>{0U} &&
+            duplicate_hotkey->state.hotkey_capture.rejected ==
+                std::optional<core::FunctionKey>{
+                    core::FunctionKey::F1} &&
+            frame_contains_text(
+                duplicate_hotkey->frame,
+                "F1 is already assigned."),
+        "duplicate hotkey capture did not fail closed in capture mode");
+
+    auto unchanged_input = default_input();
+    unchanged_input.function_key_pressed =
+        core::FunctionKey::F9;
+    const auto unchanged_hotkey = compose_product_panel(
+        model,
+        waiting_hotkey ? waiting_hotkey->state
+                       : hotkey_capture ? hotkey_capture->state
+                                        : settings_shell->state,
+        unchanged_input,
+        english);
+    passed &= expect(
+        unchanged_hotkey && !unchanged_hotkey->action &&
+            !unchanged_hotkey->state.hotkey_capture.index &&
+            !unchanged_hotkey->state.hotkey_capture.rejected,
+        "unchanged hotkey capture published a redundant settings action");
+
+    auto cancel_capture_input = default_input();
+    cancel_capture_input.keyboard.cancel_pressed = true;
+    const auto cancelled_hotkey = compose_product_panel(
+        model,
+        duplicate_hotkey ? duplicate_hotkey->state
+                         : settings_shell->state,
+        cancel_capture_input,
+        english);
+    passed &= expect(
+        cancelled_hotkey && !cancelled_hotkey->action &&
+            !cancelled_hotkey->state.hotkey_capture.index &&
+            !cancelled_hotkey->state.hotkey_capture.rejected,
+        "hotkey capture did not cancel without changing settings");
+
+    auto lost_input = default_input();
+    lost_input.function_key_input_available = false;
+    const auto lost_hotkey = compose_product_panel(
+        model,
+        waiting_hotkey ? waiting_hotkey->state
+                       : hotkey_capture ? hotkey_capture->state
+                       : settings_shell->state,
+        lost_input,
+        english);
+    passed &= expect(
+        lost_hotkey && !lost_hotkey->action &&
+            !lost_hotkey->state.hotkey_capture.index &&
+            !lost_hotkey->state.hotkey_capture.rejected,
+        "hotkey capture survived function-key input loss");
+
+    auto invalid_hotkey_input = default_input();
+    invalid_hotkey_input.function_key_pressed =
+        static_cast<core::FunctionKey>(0U);
+    const auto invalid_hotkey = compose_product_panel(
+        model,
+        waiting_hotkey ? waiting_hotkey->state
+                       : hotkey_capture ? hotkey_capture->state
+                       : settings_shell->state,
+        invalid_hotkey_input,
+        english);
+    passed &= expect(
+        !invalid_hotkey &&
+            std::holds_alternative<ProductPanelValidationError>(
+                invalid_hotkey.error()) &&
+            std::get<ProductPanelValidationError>(
+                invalid_hotkey.error()) ==
+                ProductPanelValidationError::InvalidInput,
+        "out-of-range captured function key was not rejected");
 
     model.settings.can_apply = false;
     const auto unavailable_settings = compose_product_panel(
         model,
-        settings_shell->state,
-        settings_input,
+        waiting_hotkey ? waiting_hotkey->state
+                       : hotkey_capture ? hotkey_capture->state
+                       : settings_shell->state,
+        default_input(),
         english);
     passed &= expect(
-        unavailable_settings && !unavailable_settings->action,
-        "unavailable Settings controls emitted a config action");
+        unavailable_settings && !unavailable_settings->action &&
+            !unavailable_settings->state.hotkey_capture.index &&
+            !unavailable_settings->state.hotkey_capture.rejected,
+        "unavailable Settings controls retained hotkey capture");
     model.settings.can_apply = true;
+
+    auto closed_model = model;
+    closed_model.ui_open = false;
+    const auto closed_hotkey = compose_product_panel(
+        closed_model,
+        waiting_hotkey ? waiting_hotkey->state
+                       : hotkey_capture ? hotkey_capture->state
+                       : settings_shell->state,
+        default_input(),
+        english);
+    passed &= expect(
+        closed_hotkey &&
+            !closed_hotkey->state.hotkey_capture.index &&
+            !closed_hotkey->state.hotkey_capture.rejected,
+        "closed panel retained hotkey capture");
+
+    auto departed_settings_state =
+        waiting_hotkey ? waiting_hotkey->state
+                       : settings_shell->state;
+    departed_settings_state.selected =
+        ProductUiSection::Paint;
+    const auto departed_settings = compose_product_panel(
+        model,
+        departed_settings_state,
+        default_input(),
+        english);
+    passed &= expect(
+        departed_settings &&
+            !departed_settings->state.hotkey_capture.index &&
+            !departed_settings->state.hotkey_capture.rejected,
+        "leaving Settings retained hotkey capture");
 
     auto compact_input = ProductPanelInput{
         ui::CanvasViewport{640.0, 360.0, 1.0},

@@ -473,8 +473,8 @@ Evidence:
     action rows, ESP toggle, and bounded status output in a separate
     application-to-UI target without changing the Core-only UI primitives.
   - [x] Compose the complete portable Settings section for language, UI scale,
-    RGB theme color, and all nine F1–F24 mappings with section-local scrolling
-    and duplicate-free remapping.
+    RGB theme color, and all nine F1–F24 mappings with section-local scrolling,
+    direct key capture, duplicate refusal, cancellation, and input-loss reset.
   - [x] Compose the complete portable Paint settings editor for sampling
     bounds, three region modes, appearance toggles, independent Paint/Fill
     materials, Fill color, compression, and bounded section-local scrolling.
@@ -546,6 +546,11 @@ Evidence:
     input-loss release, and terminal shutdown.
   - [x] Expose all nine current mappings as localized, duplicate-free portable
     Settings controls while preserving a complete validated config.
+  - [x] Replace click-to-cycle remapping with an explicit localized capture
+    state that accepts the next exact F1–F24 press, refuses duplicate or
+    out-of-range input without publishing settings, treats the current mapping
+    as a no-op, and clears on Esc, input loss, unavailable application state,
+    tab departure, or panel close.
   - [ ] Register all supported keys once and connect the production UE4SS input
     callbacks to the router.
 - [ ] Complete progress, backpressure, compatibility, and diagnostics display.
@@ -600,6 +605,9 @@ Evidence:
   - [x] Prove localized progress/elapsed/ETA/queue formatting, exact
     millisecond duration rendering, absent-ETA presentation, status clipping,
     and fail-closed progress arithmetic validation.
+  - [x] Prove direct F1–F24 Settings capture, exact isolated remapping,
+    localized duplicate refusal, Esc cancellation, input-loss reset,
+    unavailable-state reset, tab/panel-close reset, and out-of-range refusal.
 - [ ] DEFERRED — maintainer interaction required: complete the full in-game UI
   walkthrough across languages/resolutions/DPI.
 

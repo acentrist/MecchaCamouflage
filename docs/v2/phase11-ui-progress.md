@@ -24,10 +24,13 @@ primitive UI library while allowing the panel composer to consume immutable
 link UE4SS, Unreal, Windows UI, or a graphics API.
 
 The future production input adapter therefore has one narrow responsibility:
-register F1–F24 once, translate physical press/release callbacks into bounded
-`FunctionKeyEvent` values, pass the current immutable snapshot to the router,
-and enqueue the returned commands. It does not choose feature settings,
-project revisions, or command identities.
+register F1–F24 once and translate physical input into the portable
+boundaries. While a Settings capture is armed, the next press is delivered
+only as `ProductPanelInput::function_key_pressed`; otherwise press/release
+callbacks become bounded `FunctionKeyEvent` values for the command router.
+The adapter passes the current immutable snapshot to the router and enqueues
+the returned commands. It does not choose feature settings, project revisions,
+or command identities.
 
 ## Hotkey command contract
 
@@ -159,18 +162,27 @@ values when it submits a settings edit.
 
 The section exposes the 16-language selection, 75–200 percent UI scale, RGB
 theme color, panel-toggle mapping, and all eight Paint/Image Paint mappings.
-Each activation starts from the immutable complete config, changes exactly one
-field, validates the result, and emits one `UiApplySettings` action bound to
-the rendered snapshot revision. Function-key controls cycle through F1–F24
-while skipping all keys owned by the other eight mappings, so an intermediate
-duplicate config is never published.
+Each ordinary activation starts from the immutable complete config, changes
+exactly one field, validates the result, and emits one `UiApplySettings` action
+bound to the rendered snapshot revision.
+
+Activating a function-key row now arms a retained capture state instead of
+cycling to an arbitrary available key. The next exact F1–F24 press changes only
+that mapping and publishes only after complete-config validation. A key owned
+by another mapping publishes nothing, keeps capture armed, and renders the
+catalog's localized duplicate message. Esc, explicit function-key input loss,
+loss of settings admission, leaving Settings, and closing the panel clear the
+capture without changing configuration. Capturing the existing mapping is a
+local no-op, and out-of-range or internally inconsistent key input is rejected
+before frame composition.
 
 Settings rows use retained section-local wheel scrolling on constrained
 viewports. Fully clipped controls are removed from focus and action admission.
 Invalid model/config divergence fails closed before drawing. Portable tests
-cover exact config copying, language, scale bounds, isolated RGB edits,
-duplicate-free hotkeys, unavailable actions, compact scrolling, all catalogs,
-and divergent-model refusal.
+cover exact config copying, language, scale bounds, isolated RGB edits, direct
+F1–F24 capture, localized duplicate refusal, cancellation/input-loss/tab/close
+reset, unavailable actions, compact scrolling, all catalogs, out-of-range
+input, and divergent-model refusal.
 
 ## Complete portable Paint settings section
 
@@ -349,8 +361,7 @@ details, omitted counts, the empty state, compact scrolling, and incoherent
 queue refusal.
 
 This remains a partial product UI milestone. Native picker-driven Image Paint
-import/load, direct hotkey capture UX, and the production UCanvas adapter remain
-open.
+import/load and the production UCanvas adapter remain open.
 
 ## Remaining work
 

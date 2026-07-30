@@ -33,6 +33,8 @@ struct ProductPanelLabels
     std::string cancel{};
     std::string language{};
     std::string theme_color{};
+    std::string hotkey_capture_prompt{};
+    std::string hotkey_duplicate_suffix{};
     std::string image_project_save{};
     std::string image_wrap{};
     std::string image_mirror{};
@@ -82,6 +84,14 @@ struct ImageEditorPanelState
     auto operator==(const ImageEditorPanelState&) const -> bool = default;
 };
 
+struct HotkeyCaptureState
+{
+    std::optional<std::size_t> index{};
+    std::optional<core::FunctionKey> rejected{};
+
+    auto operator==(const HotkeyCaptureState&) const -> bool = default;
+};
+
 struct ProductPanelState
 {
     application::ProductUiSection selected{
@@ -89,6 +99,7 @@ struct ProductPanelState
     ui::InteractionState interaction{};
     std::array<ui::ScrollState, application::ProductUiSections.size()>
         section_scroll{};
+    HotkeyCaptureState hotkey_capture{};
     ImageEditorPanelState image_editor{};
 
     auto operator==(const ProductPanelState&) const -> bool = default;
@@ -123,6 +134,8 @@ struct ProductPanelInput
     ui::KeyboardNavigationFrame keyboard{};
     std::vector<ui::TextEditEvent> text_edit_events{};
     std::optional<ImageEditorFrameAssets> image_editor{};
+    bool function_key_input_available{true};
+    std::optional<core::FunctionKey> function_key_pressed{};
 
     auto operator==(const ProductPanelInput&) const -> bool = default;
 };
@@ -141,6 +154,7 @@ enum class ProductPanelValidationError : std::uint8_t
     InvalidState,
     InvalidLabels,
     InvalidImageAssets,
+    InvalidInput,
 };
 
 using ProductPanelError = std::variant<
