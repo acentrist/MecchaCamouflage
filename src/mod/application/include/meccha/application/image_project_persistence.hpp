@@ -11,6 +11,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -63,6 +64,18 @@ struct ImageProjectPersistenceError
     std::string detail{};
 };
 
+struct ActivatedImageProject
+{
+    core::ImageProject project{};
+    core::ApplicationConfig config{};
+};
+
+struct DeletedImageProject
+{
+    bool deleted{};
+    core::ApplicationConfig config{};
+};
+
 class ImageProjectPersistenceCoordinator
 {
 public:
@@ -80,6 +93,20 @@ public:
         const core::ApplicationConfig& current_config)
         -> std::expected<
             core::ApplicationConfig,
+            ImageProjectPersistenceError>;
+
+    [[nodiscard]] auto load_named_and_activate(
+        std::string_view project_id,
+        const core::ApplicationConfig& current_config)
+        -> std::expected<
+            ActivatedImageProject,
+            ImageProjectPersistenceError>;
+
+    [[nodiscard]] auto delete_named_and_deactivate(
+        std::string_view project_id,
+        const core::ApplicationConfig& current_config)
+        -> std::expected<
+            DeletedImageProject,
             ImageProjectPersistenceError>;
 
     [[nodiscard]] auto save_active_draft_and_activate(

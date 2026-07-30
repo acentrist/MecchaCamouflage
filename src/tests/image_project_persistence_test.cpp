@@ -321,6 +321,49 @@ auto main() -> int
             activation->active_image_project->project_id == second_id,
         "named publication did not atomically follow with its reference");
 
+    const auto loaded_and_activated =
+        coordinator.load_named_and_activate(
+            second_id,
+            config);
+    passed &= expect(
+        loaded_and_activated &&
+            loaded_and_activated->project.project_id ==
+                second_id &&
+            loaded_and_activated->config.active_image_project &&
+            loaded_and_activated->config.active_image_project->kind ==
+                core::ImageProjectReferenceKind::NamedProject &&
+            loaded_and_activated->config.active_image_project->project_id ==
+                second_id,
+        "named load did not validate before activating its reference");
+
+    const auto deleted_and_deactivated =
+        coordinator.delete_named_and_deactivate(
+            second_id,
+            loaded_and_activated->config);
+    passed &= expect(
+        deleted_and_deactivated &&
+            deleted_and_deactivated->deleted &&
+            !deleted_and_deactivated->config.active_image_project &&
+            !project_store.load_named(second_id).value(),
+        "active named deletion left a dangling reference or project");
+
+    passed &= expect(
+        project_store.save_named(published, 0U).has_value(),
+        "delete failure fixture could not restore the named project");
+    text_storage.fail_write = true;
+    const auto refused_delete =
+        coordinator.delete_named_and_deactivate(
+            second_id,
+            loaded_and_activated->config);
+    passed &= expect(
+        !refused_delete &&
+            refused_delete.error().code ==
+                application::ImageProjectPersistenceErrorCode::
+                    Configuration &&
+            project_store.load_named(second_id).value().has_value(),
+        "config failure deleted a still-referenced named project");
+    text_storage.fail_write = false;
+
     project_storage.corrupt_active_draft();
     const auto corrupt_draft = coordinator.recover(
         core::ApplicationConfig{});

@@ -4,8 +4,9 @@ Phase 7 is open. The strict configuration codec, atomic Windows `config.json`
 path, localization catalog boundary, immutable project model, and v2-only
 preset codec, project coordinator, and shared atomic Win32 file adapter are
 implemented. The active-project recovery transaction and bounded off-thread
-active-draft debounce worker are also implemented. Final composition-root
-integration and glyph coverage are not yet complete.
+active-draft debounce worker are also implemented. Named project commands now
+have an owned off-thread I/O worker. Final composition-root integration and
+glyph coverage are not yet complete.
 
 ## Configuration contract
 
@@ -147,6 +148,11 @@ startup recovery contract:
 
 - a named project or active draft is fully published before its small config
   reference;
+- a named load validates and decodes the complete project before publishing
+  its active reference;
+- deleting an active named project clears its config reference before removing
+  the project, so a config-write failure leaves the referenced project intact;
+- a matching active draft is removed with its deleted named identity;
 - config publication failure never rolls back or deletes the valid project;
 - a matching newer active draft supersedes its named project on startup;
 - a missing or corrupt named project reports a bounded diagnostic and falls
@@ -160,10 +166,22 @@ thread, and exposes immutable pending/in-flight/completion/error state. It can
 flush or discard pending work during explicit shutdown, rejects work after
 shutdown, and cannot run container encoding in a Canvas callback.
 
+`ImageProjectIoWorker` serializes one copied Load, Save, Rename, or Delete
+request on a dedicated thread. It validates command IDs, project identities,
+complete config candidates, and save candidates before admission; preserves
+the store/coordinator's typed failures; tags the immutable completion with its
+command and operation; contains escaping filesystem/codec exceptions; joins
+before reuse; and permanently closes on shutdown. Atomic operations are
+allowed to finish during shutdown rather than being interrupted midway.
+
 `image_project_persistence` verifies missing-reference recovery,
 newer-draft precedence, corrupt-draft isolation, the named-project-first
-partial-failure case, monotonic revision gaps, debounce coalescing,
-off-caller-thread publication, failure visibility, and shutdown rejection.
+partial-failure case, load-before-activate, reference-before-delete,
+delete refusal on config failure, monotonic revision gaps, debounce
+coalescing, off-caller-thread publication, failure visibility, and shutdown
+rejection. `image_project_io_worker` covers single-operation admission,
+off-thread load/activate, save, rename revision advance, active delete,
+missing-project failure, exception containment, reuse, and terminal shutdown.
 The portable suite passes on Linux and Windows MSVC Release.
 
 ## Remaining gate

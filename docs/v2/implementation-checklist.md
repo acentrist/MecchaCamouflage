@@ -180,6 +180,9 @@ Evidence:
   - [ ] Verify game-font and packaged fallback glyph coverage.
 - [x] Specify the canonical v2-only `.mcpreset` container.
 - [x] Implement project save/load/rename/delete and content-addressed sources.
+- [x] Run named project load/save/rename/delete on one owned I/O worker with
+  copied immutable requests, typed results, exception containment, reuse, and
+  terminal shutdown.
 - [x] Reject v1 presets with the explicit non-destructive legacy result.
 - [ ] Pass schema, corruption, hostile-container, fault-injection, recovery,
   determinism, and resource-limit tests.

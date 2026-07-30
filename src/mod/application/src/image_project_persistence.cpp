@@ -213,6 +213,94 @@ auto ImageProjectPersistenceCoordinator::save_named_and_activate(
     return updated;
 }
 
+auto ImageProjectPersistenceCoordinator::load_named_and_activate(
+    std::string_view project_id,
+    const core::ApplicationConfig& current_config)
+    -> std::expected<
+        ActivatedImageProject,
+        ImageProjectPersistenceError>
+{
+    auto loaded = projects_.load_named(project_id);
+    if (!loaded)
+    {
+        return std::unexpected(project_failure(loaded.error()));
+    }
+    if (!*loaded)
+    {
+        return std::unexpected(project_failure(
+            ImageProjectStoreError{
+                ImageProjectStoreErrorCode::NotFound,
+                std::nullopt,
+                std::nullopt,
+                "The named image project does not exist.",
+            }));
+    }
+
+    auto updated = current_config;
+    updated.active_image_project =
+        core::ActiveImageProjectReference{
+            core::ImageProjectReferenceKind::NamedProject,
+            std::string{project_id},
+        };
+    const auto configured = configuration_.save(updated);
+    if (!configured)
+    {
+        return std::unexpected(
+            configuration_failure(configured.error()));
+    }
+    return ActivatedImageProject{
+        std::move(**loaded),
+        std::move(updated),
+    };
+}
+
+auto ImageProjectPersistenceCoordinator::
+    delete_named_and_deactivate(
+        std::string_view project_id,
+        const core::ApplicationConfig& current_config)
+    -> std::expected<
+        DeletedImageProject,
+        ImageProjectPersistenceError>
+{
+    auto updated = current_config;
+    if (updated.active_image_project &&
+        updated.active_image_project->project_id == project_id)
+    {
+        updated.active_image_project.reset();
+        const auto configured = configuration_.save(updated);
+        if (!configured)
+        {
+            return std::unexpected(
+                configuration_failure(configured.error()));
+        }
+    }
+
+    auto draft = projects_.load_active_draft();
+    if (!draft)
+    {
+        return std::unexpected(project_failure(draft.error()));
+    }
+    if (*draft && (*draft)->project_id == project_id)
+    {
+        const auto cleared = projects_.clear_active_draft();
+        if (!cleared)
+        {
+            return std::unexpected(
+                project_failure(cleared.error()));
+        }
+    }
+
+    const auto deleted = projects_.delete_named(project_id);
+    if (!deleted)
+    {
+        return std::unexpected(project_failure(deleted.error()));
+    }
+    return DeletedImageProject{
+        *deleted,
+        std::move(updated),
+    };
+}
+
 auto ImageProjectPersistenceCoordinator::
     save_active_draft_and_activate(
         const core::ImageProject& project,
