@@ -314,6 +314,21 @@ refusal, snapshot revision binding, Save, two-step Delete, keyboard
 cancellation, unavailable operations, invalid snapshot names, and the shifted
 atlas/settings scroll geometry.
 
+## Localized status strip
+
+The status strip is now composed by a dedicated portable owner. It renders the
+selected catalog's Progress, Elapsed, ETA, and Queue labels together with exact
+completed/total counts, a checked percentage, millisecond-precision duration
+text, and command-queue occupancy. A missing ETA is rendered as unavailable
+rather than fabricated as zero. The whole line is clipped to the status strip,
+so long translations cannot draw into the panel content.
+
+Panel validation independently rechecks completed/total arithmetic, the exact
+fraction, finite bounded queue pressure, and all derived ranges before duration
+or percentage formatting. Portable tests cover English and Japanese labels,
+known and absent ETA, exact duration text, queue counts, and NaN refusal; all 16
+catalog paths continue through composition.
+
 ## Complete portable Diagnostics section
 
 The Diagnostics tab now consumes only the bounded immutable
@@ -334,8 +349,8 @@ details, omitted counts, the empty state, compact scrolling, and incoherent
 queue refusal.
 
 This remains a partial product UI milestone. Native picker-driven Image Paint
-import/load, direct hotkey capture UX, localized progress/ETA formatting, and
-the production UCanvas adapter remain open.
+import/load, direct hotkey capture UX, and the production UCanvas adapter remain
+open.
 
 ## Remaining work
 

@@ -37,6 +37,7 @@ add_library(
         src/product_panel_image_project.cpp
         src/product_panel_paint.cpp
         src/product_panel_settings.cpp
+        src/product_panel_status.cpp
 )
 add_library(MecchaCamouflage::ProductUi ALIAS meccha_product_ui)
 

@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -225,6 +226,70 @@ auto main(int argc, char** argv) -> int
     {
         return 1;
     }
+    passed &= expect(
+        frame_contains_text(
+            initial->frame,
+            "Progress 4 / 10 (40%)") &&
+            frame_contains_text(
+                initial->frame,
+                "Elapsed 00:01.200") &&
+            frame_contains_text(
+                initial->frame,
+                "ETA 00:00.800") &&
+            frame_contains_text(
+                initial->frame,
+                "Queue 2 / 8"),
+        "status strip omitted localized progress, timing, or queue state");
+
+    const auto japanese_status = compose_product_panel(
+        model,
+        ProductPanelState{},
+        default_input(),
+        japanese);
+    passed &= expect(
+        japanese_status &&
+            frame_contains_text(
+                japanese_status->frame,
+                "進捗 4 / 10 (40%)") &&
+            frame_contains_text(
+                japanese_status->frame,
+                "経過 00:01.200") &&
+            frame_contains_text(
+                japanese_status->frame,
+                "キュー 2 / 8"),
+        "status strip labels did not follow the selected locale");
+
+    auto unknown_eta_model = model;
+    unknown_eta_model.progress.eta_ms.reset();
+    const auto unknown_eta = compose_product_panel(
+        unknown_eta_model,
+        ProductPanelState{},
+        default_input(),
+        english);
+    passed &= expect(
+        unknown_eta &&
+            frame_contains_text(
+                unknown_eta->frame,
+                "ETA —"),
+        "status strip invented an unavailable ETA");
+
+    auto invalid_status_model = model;
+    invalid_status_model.progress.fraction =
+        std::numeric_limits<double>::quiet_NaN();
+    const auto invalid_status = compose_product_panel(
+        invalid_status_model,
+        ProductPanelState{},
+        default_input(),
+        english);
+    passed &= expect(
+        !invalid_status &&
+            std::holds_alternative<
+                ProductPanelValidationError>(
+                invalid_status.error()) &&
+            std::get<ProductPanelValidationError>(
+                invalid_status.error()) ==
+                ProductPanelValidationError::InvalidModel,
+        "an invalid progress value entered status formatting");
 
     auto tab_input = default_input();
     tab_input.pointer = ui::PointerFrame{

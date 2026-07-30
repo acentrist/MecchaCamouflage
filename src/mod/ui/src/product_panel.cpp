@@ -5,6 +5,7 @@
 #include "product_panel_image.hpp"
 #include "product_panel_paint.hpp"
 #include "product_panel_settings.hpp"
+#include "product_panel_status.hpp"
 
 #include <meccha/core/image_compositor.hpp>
 #include <meccha/core/utf8.hpp>
@@ -23,10 +24,6 @@ namespace
 {
 constexpr auto PanelBackground =
     ui::CanvasColor{18U, 20U, 26U, 238U};
-constexpr auto StatusBackground =
-    ui::CanvasColor{25U, 28U, 35U, 245U};
-constexpr auto StatusText =
-    ui::CanvasColor{220U, 224U, 232U, 255U};
 
 constexpr auto TabIds = std::array{
     ui::WidgetId{1U},
@@ -117,6 +114,10 @@ auto labels_valid(const ProductPanelLabels& labels) -> bool
            valid_label(labels.crop_zoom) &&
            valid_label(labels.crop_apply) &&
            valid_label(labels.crop_cancel) &&
+           valid_label(labels.status_progress) &&
+           valid_label(labels.status_elapsed) &&
+           valid_label(labels.status_eta) &&
+           valid_label(labels.status_queue) &&
            valid_label(labels.diagnostics_runtime) &&
            valid_label(labels.diagnostics_compatibility) &&
            valid_label(labels.diagnostics_command_queue) &&
@@ -319,6 +320,27 @@ auto diagnostics_model_valid(
     return true;
 }
 
+auto progress_model_valid(
+    const application::ProgressPresentation& progress) -> bool
+{
+    if (progress.completed > progress.total ||
+        !std::isfinite(progress.fraction) ||
+        progress.fraction < 0.0 ||
+        progress.fraction > 1.0 ||
+        !std::isfinite(progress.queue_pressure) ||
+        progress.queue_pressure < 0.0 ||
+        progress.queue_pressure > 1.0)
+    {
+        return false;
+    }
+    const auto expected =
+        progress.total == 0U
+            ? 0.0
+            : static_cast<double>(progress.completed) /
+                  static_cast<double>(progress.total);
+    return std::abs(progress.fraction - expected) <= 1.0e-12;
+}
+
 auto model_valid(const application::ProductUiModel& model) -> bool
 {
     const auto image_settings_valid =
@@ -351,7 +373,8 @@ auto model_valid(const application::ProductUiModel& model) -> bool
                model.settings.config.esp &&
            model.esp.enabled ==
                model.settings.config.esp.enabled &&
-           diagnostics_model_valid(model.diagnostics);
+           diagnostics_model_valid(model.diagnostics) &&
+           progress_model_valid(model.progress);
 }
 
 auto state_valid(const ProductPanelState& state) -> bool
@@ -456,24 +479,6 @@ auto add_box(
     return {};
 }
 
-auto add_text(
-    ui::CanvasFrameBuilder& canvas,
-    ui::CanvasPoint anchor,
-    std::string_view text,
-    ui::CanvasColor color,
-    double scale)
-    -> std::expected<void, ProductPanelError>
-{
-    const auto result =
-        canvas.add_text(anchor, text, color, scale);
-    if (!result)
-    {
-        return std::unexpected(
-            ProductPanelError{result.error()});
-    }
-    return {};
-}
-
 auto action_rects(
     const ui::PanelLayout& layout)
     -> std::array<ui::CanvasRect, 4U>
@@ -566,17 +571,6 @@ auto paint_feature_actions(
     return {};
 }
 
-auto status_line(const application::ProductUiModel& model)
-    -> std::string
-{
-    return std::to_string(model.progress.completed) + " / " +
-           std::to_string(model.progress.total) + "   |   " +
-           std::to_string(
-               model.diagnostics.command_queue.queued) +
-           " / " +
-           std::to_string(
-               model.diagnostics.command_queue.capacity);
-}
 } // namespace
 
 auto build_product_panel_labels(
@@ -612,6 +606,10 @@ auto build_product_panel_labels(
         std::string{catalog.text(locale, "dialog.crop.zoom")},
         std::string{catalog.text(locale, "dialog.crop.apply")},
         std::string{catalog.text(locale, "button.cancel")},
+        std::string{catalog.text(locale, "metric.progress")},
+        std::string{catalog.text(locale, "metric.elapsed")},
+        std::string{catalog.text(locale, "metric.eta")},
+        std::string{catalog.text(locale, "metric.queue")},
         std::string{catalog.text(locale, "status.service")},
         std::string{catalog.text(locale, "footer.game")},
         std::string{catalog.text(locale, "app.title")} + " " +
@@ -821,13 +819,6 @@ auto compose_product_panel(
     {
         return std::unexpected(background.error());
     }
-    if (const auto status =
-            add_box(canvas, layout->status_strip, StatusBackground);
-        !status)
-    {
-        return std::unexpected(status.error());
-    }
-
     auto widgets = ui::WidgetPainter{
         canvas,
         interaction,
@@ -1008,21 +999,14 @@ auto compose_product_panel(
             model.source_revision;
     }
 
-    const auto status = status_line(model);
-    if (const auto result = add_text(
+    if (const auto status = detail::compose_status_strip(
             canvas,
-            {
-                layout->status_strip.x +
-                    12.0 * layout->effective_scale,
-                layout->status_strip.y +
-                    14.0 * layout->effective_scale,
-            },
-            status,
-            StatusText,
-            0.85 * layout->effective_scale);
-        !result)
+            *layout,
+            model,
+            labels);
+        !status)
     {
-        return std::unexpected(result.error());
+        return std::unexpected(status.error());
     }
 
     const auto next_interaction =

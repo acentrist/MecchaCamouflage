@@ -41,6 +41,10 @@ struct ProductPanelLabels
     std::string crop_zoom{};
     std::string crop_apply{};
     std::string crop_cancel{};
+    std::string status_progress{};
+    std::string status_elapsed{};
+    std::string status_eta{};
+    std::string status_queue{};
     std::string diagnostics_runtime{};
     std::string diagnostics_compatibility{};
     std::string diagnostics_command_queue{};

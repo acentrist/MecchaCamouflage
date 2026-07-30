@@ -552,8 +552,9 @@ Evidence:
   - [x] Publish validated progress fractions, queue pressure/utilization,
     compatibility state, and newest bounded ordered diagnostics as portable
     presentation values.
-  - [x] Draw bounded completed/total and command-queue counts in the portable
-    panel status strip.
+  - [x] Draw localized completed/total/percentage, elapsed time, optional ETA,
+    and command-queue counts in a clipped portable status strip, without
+    inventing an unavailable ETA.
   - [x] Draw localized runtime/compatibility/queue summaries and bounded
     actionable diagnostic entries through the portable Canvas panel.
   - [ ] Bind those values through the production UCanvas adapter.
@@ -596,6 +597,9 @@ Evidence:
   - [x] Prove bounded current-project name editing, empty-name refusal,
     snapshot-bound Save/Rename, two-step Delete, keyboard cancellation,
     invalid snapshot-name refusal, and unavailable-control suppression.
+  - [x] Prove localized progress/elapsed/ETA/queue formatting, exact
+    millisecond duration rendering, absent-ETA presentation, status clipping,
+    and fail-closed progress arithmetic validation.
 - [ ] DEFERRED — maintainer interaction required: complete the full in-game UI
   walkthrough across languages/resolutions/DPI.
 
