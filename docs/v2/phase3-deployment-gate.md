@@ -4,10 +4,10 @@
 
 The manifest, ownership, loader-policy, recoverable transaction, native
 Windows managed-runtime storage, side-effect-free preparation/removal
-planning, concrete normal/shared execution backend, and Steam launch effect
-are implemented. The native observation/material composition root, production
-elevated broker, and final embedded-resource binding remain open, so Phase 3
-remains open.
+planning, portable observation-to-plan workflow, concrete normal/shared
+execution backend, and Steam launch effect are implemented. The native
+observation/material composition root, production elevated broker, and final
+embedded-resource binding remain open, so Phase 3 remains open.
 
 ## Implemented contracts
 
@@ -159,6 +159,12 @@ remains open.
   for prepare-only. Managed removal deactivates the loader before deleting the
   runtime cache, while shared removal cannot reach either managed operation.
   Every effect failure terminates the sequence immediately.
+- The portable launcher workflow obtains exactly one immutable preparation or
+  removal observation, derives deployment policy and the minimal mutation plan
+  before invoking the execution backend, and preserves the typed observation,
+  planning, removal, or execution failure. Observation and planning failures
+  cannot reach a mutation or Steam-launch effect, and prepare-only cannot
+  launch Steam.
 - Runtime reuse now has a strictly read-only transaction check: `active` must
   match the expected manifest and no journal, staging, or rollback generation
   may exist. Runtime removal first completes the existing recovery state
@@ -252,6 +258,9 @@ The portable execution suite proves managed/shared isolation, prepare-only,
 minimal elevated-loader routing, effect ordering, plan rejection, idempotent
 empty removal, and the absence of later mutations or Steam launch after a
 failed effect.
+The portable workflow suite additionally proves the full observation-policy-
+plan-execution order for prepare-and-launch, prepare-only, and managed removal,
+including typed fail-closed observation/planning behavior before any effect.
 The Win32 execution suite additionally proves read-only exact runtime reuse,
 normal owned-loader publication, elevated loader-only handoff, loader-before-
 cache removal, shared-mod installation/removal, and preservation of the shared

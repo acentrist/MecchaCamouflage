@@ -13,6 +13,7 @@ add_library(
         src/preparation.cpp
         src/shared_mod_ledger.cpp
         src/transaction.cpp
+        src/workflow.cpp
 )
 add_library(MecchaCamouflage::LauncherCore ALIAS meccha_launcher_core)
 

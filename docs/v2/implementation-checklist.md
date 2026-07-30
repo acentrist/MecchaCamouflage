@@ -91,6 +91,10 @@ Evidence:
   loader identity.
 - [x] Implement managed, exact shared, and conflict modes.
 - [ ] Implement original-user preparation and minimal elevated broker.
+  - [x] Compose immutable observation, deployment policy, preparation/removal
+    planning, and ordered execution behind one portable typed workflow.
+  - [ ] Bind the native original-user observation source and minimal elevated
+    broker.
 - [x] Implement safe reuse, repair, update, cleanup, and `--remove`.
 - [ ] Pass temporary-tree, hostile-path, reparse, interrupted-transaction,
   shared-isolation, and alternate-credential tests.
