@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <span>
 #include <vector>
 
@@ -148,6 +149,58 @@ struct ReplayPlan
     int texture_size,
     double brush_size_texels,
     double fill_radius_texels) -> ReplayPlan;
+
+inline constexpr std::size_t MaximumAdaptivePaintSamples = 600'000U;
+inline constexpr std::size_t MaximumAdaptiveReplayEntries = 600'000U;
+
+struct AdaptivePaintSample
+{
+    double u{};
+    double v{};
+    Region region{};
+    int uv_island{};
+    double red{};
+    double green{};
+    double blue{};
+    bool paint_eligible{};
+    bool safe{};
+    std::uint64_t material_key{};
+
+    auto operator==(const AdaptivePaintSample&) const -> bool = default;
+};
+
+struct AdaptiveReplayEntry
+{
+    ReplayEntry replay{};
+    double radius_multiplier{1.0};
+
+    auto operator==(const AdaptiveReplayEntry&) const -> bool = default;
+};
+
+struct AdaptivePaintPlan
+{
+    std::vector<AdaptiveReplayEntry> entries{};
+    std::size_t compressed_paint_entries{};
+    std::size_t expanded_paint_entries{};
+
+    auto operator==(const AdaptivePaintPlan&) const -> bool = default;
+};
+
+enum class AdaptivePaintPlanError : std::uint8_t
+{
+    InvalidArgument,
+    InvalidSample,
+    InvalidReplayEntry,
+    ResourceLimit,
+};
+
+[[nodiscard]] auto build_adaptive_paint_plan(
+    std::span<const ReplayEntry> replay_entries,
+    std::span<const AdaptivePaintSample> samples,
+    double base_radius_uv,
+    double tolerance_percent,
+    double edge_margin_uv = 0.0)
+    -> std::expected<AdaptivePaintPlan, AdaptivePaintPlanError>;
 
 struct ReplicationPacingInput
 {

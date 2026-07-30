@@ -1,6 +1,7 @@
 #include <meccha/core/paint.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <set>
@@ -304,6 +305,276 @@ auto build_replay_plan(
         brush_size_texels,
         false);
     plan.paint_count = plan.entries.size() - plan.fill_end;
+    return plan;
+}
+
+auto build_adaptive_paint_plan(
+    std::span<const ReplayEntry> replay_entries,
+    std::span<const AdaptivePaintSample> samples,
+    double base_radius_uv,
+    double tolerance_percent,
+    double edge_margin_uv)
+    -> std::expected<AdaptivePaintPlan, AdaptivePaintPlanError>
+{
+    if (!std::isfinite(base_radius_uv) ||
+        !std::isfinite(tolerance_percent) ||
+        !std::isfinite(edge_margin_uv) ||
+        base_radius_uv < 0.0 || tolerance_percent < 0.0 ||
+        tolerance_percent > 10.0 || edge_margin_uv < 0.0)
+    {
+        return std::unexpected(
+            AdaptivePaintPlanError::InvalidArgument);
+    }
+    if (samples.size() > MaximumAdaptivePaintSamples ||
+        replay_entries.size() > MaximumAdaptiveReplayEntries)
+    {
+        return std::unexpected(
+            AdaptivePaintPlanError::ResourceLimit);
+    }
+
+    const auto unit =
+        [](double value)
+        {
+            return std::isfinite(value) &&
+                   value >= 0.0 && value <= 1.0;
+        };
+    for (const auto& sample : samples)
+    {
+        if (!unit(sample.u) || !unit(sample.v) ||
+            !unit(sample.red) || !unit(sample.green) ||
+            !unit(sample.blue))
+        {
+            return std::unexpected(
+                AdaptivePaintPlanError::InvalidSample);
+        }
+    }
+    for (const auto& entry : replay_entries)
+    {
+        if (entry.sample_index >= samples.size())
+        {
+            return std::unexpected(
+                AdaptivePaintPlanError::InvalidReplayEntry);
+        }
+    }
+
+    auto plan = AdaptivePaintPlan{};
+    plan.entries.reserve(replay_entries.size());
+    if (replay_entries.empty())
+    {
+        return plan;
+    }
+    if (tolerance_percent == 0.0 ||
+        base_radius_uv <= 0.000001 || samples.empty())
+    {
+        for (const auto& entry : replay_entries)
+        {
+            plan.entries.push_back({entry, 1.0});
+        }
+        return plan;
+    }
+
+    auto grid_size = 128;
+    if (samples.size() > 200'000U)
+    {
+        grid_size = 256;
+    }
+    if (samples.size() > 500'000U)
+    {
+        grid_size = 512;
+    }
+    auto grid = std::vector<std::vector<std::size_t>>(
+        static_cast<std::size_t>(grid_size) *
+        static_cast<std::size_t>(grid_size));
+    const auto cell_coordinate =
+        [grid_size](double value)
+        {
+            return std::clamp(
+                static_cast<int>(
+                    std::floor(value * grid_size)),
+                0,
+                grid_size - 1);
+        };
+    for (auto index = std::size_t{}; index < samples.size(); ++index)
+    {
+        const auto& sample = samples[index];
+        const auto cell = static_cast<std::size_t>(
+            cell_coordinate(sample.v) * grid_size +
+            cell_coordinate(sample.u));
+        grid[cell].push_back(index);
+    }
+
+    const auto threshold = tolerance_percent / 100.0;
+    const auto threshold_squared = threshold * threshold;
+    const auto same_payload =
+        [](const AdaptivePaintSample& center,
+           const AdaptivePaintSample& other)
+        {
+            return center.paint_eligible && center.safe &&
+                   other.paint_eligible && other.safe &&
+                   center.region == other.region &&
+                   center.uv_island == other.uv_island &&
+                   center.material_key == other.material_key;
+        };
+    const auto color_distance_squared =
+        [](const AdaptivePaintSample& left,
+           const AdaptivePaintSample& right)
+        {
+            const auto red = left.red - right.red;
+            const auto green = left.green - right.green;
+            const auto blue = left.blue - right.blue;
+            return std::max({
+                red * red,
+                green * green,
+                blue * blue,
+            });
+        };
+    const auto visit_nearby =
+        [&](const AdaptivePaintSample& center,
+            double radius_uv,
+            const auto& visit)
+        {
+            const auto radius = std::max(0.0, radius_uv);
+            const auto radius_squared = radius * radius;
+            const auto minimum_u =
+                cell_coordinate(center.u - radius);
+            const auto maximum_u =
+                cell_coordinate(center.u + radius);
+            const auto minimum_v =
+                cell_coordinate(center.v - radius);
+            const auto maximum_v =
+                cell_coordinate(center.v + radius);
+            for (auto cell_v = minimum_v;
+                 cell_v <= maximum_v;
+                 ++cell_v)
+            {
+                for (auto cell_u = minimum_u;
+                     cell_u <= maximum_u;
+                     ++cell_u)
+                {
+                    const auto cell = static_cast<std::size_t>(
+                        cell_v * grid_size + cell_u);
+                    for (const auto other_index : grid[cell])
+                    {
+                        const auto& other = samples[other_index];
+                        const auto delta_u = other.u - center.u;
+                        const auto delta_v = other.v - center.v;
+                        if (delta_u * delta_u +
+                                delta_v * delta_v <=
+                            radius_squared)
+                        {
+                            visit(other_index, other);
+                        }
+                    }
+                }
+            }
+        };
+
+    constexpr std::array RadiusMultipliers{
+        8.0,
+        6.0,
+        4.0,
+        3.0,
+        2.0,
+        1.5,
+    };
+    auto candidate_multipliers =
+        std::vector<double>(replay_entries.size(), 1.0);
+    for (auto index = std::size_t{};
+         index < replay_entries.size();
+         ++index)
+    {
+        const auto& entry = replay_entries[index];
+        if (entry.pass != ReplayPass::Paint)
+        {
+            continue;
+        }
+        const auto& center = samples[entry.sample_index];
+        if (!center.paint_eligible || !center.safe)
+        {
+            continue;
+        }
+        for (const auto multiplier : RadiusMultipliers)
+        {
+            const auto check_radius = std::max(
+                0.0,
+                multiplier * base_radius_uv - edge_margin_uv);
+            auto valid = true;
+            visit_nearby(
+                center,
+                check_radius,
+                [&](std::size_t,
+                    const AdaptivePaintSample& other)
+                {
+                    if (!same_payload(center, other) ||
+                        color_distance_squared(center, other) >
+                            threshold_squared)
+                    {
+                        valid = false;
+                    }
+                });
+            if (valid)
+            {
+                candidate_multipliers[index] = multiplier;
+                break;
+            }
+        }
+    }
+
+    auto covered = std::vector<bool>(samples.size(), false);
+    auto paint_entries = std::vector<AdaptiveReplayEntry>{};
+    paint_entries.reserve(replay_entries.size());
+    for (auto index = std::size_t{};
+         index < replay_entries.size();
+         ++index)
+    {
+        const auto& entry = replay_entries[index];
+        if (entry.pass != ReplayPass::Paint)
+        {
+            plan.entries.push_back({entry, 1.0});
+            continue;
+        }
+        if (covered[entry.sample_index])
+        {
+            ++plan.compressed_paint_entries;
+            continue;
+        }
+
+        const auto multiplier = candidate_multipliers[index];
+        const auto& center = samples[entry.sample_index];
+        paint_entries.push_back({entry, multiplier});
+        if (multiplier > 1.0)
+        {
+            ++plan.expanded_paint_entries;
+        }
+        covered[entry.sample_index] = true;
+        const auto coverage_radius = std::max(
+            0.0,
+            multiplier * base_radius_uv - edge_margin_uv);
+        visit_nearby(
+            center,
+            coverage_radius,
+            [&](std::size_t other_index,
+                const AdaptivePaintSample& other)
+            {
+                if (same_payload(center, other) &&
+                    color_distance_squared(center, other) <=
+                        threshold_squared)
+                {
+                    covered[other_index] = true;
+                }
+            });
+    }
+    std::ranges::stable_sort(
+        paint_entries,
+        [](const auto& left, const auto& right)
+        {
+            return left.radius_multiplier >
+                   right.radius_multiplier;
+        });
+    plan.entries.insert(
+        plan.entries.end(),
+        paint_entries.begin(),
+        paint_entries.end());
     return plan;
 }
 

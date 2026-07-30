@@ -5,9 +5,8 @@
 The first frozen domain contracts have moved from the v1 mixed runtime header
 and C# models into focused, dependency-free C++ modules. Typed application
 commands, immutable snapshots, and the job/preview state machines are also in
-place. Phase 6 remains open: profile validation, adaptive color compression,
-properties, sanitizers, and the remainder of the retained algorithms are not
-yet complete.
+place. Phase 6 remains open: profile validation, properties, sanitizers, and
+the remainder of the retained algorithms are not yet complete.
 
 ## Implemented modules
 
@@ -19,6 +18,9 @@ yet complete.
 - Fill-first replay planning, spatial ordering, deduplication, pass boundaries,
   and current-view fallback diagnostics.
 - Conservative replication pacing and terminal visual/outgoing queue drain.
+- Deterministic adaptive Paint compression with fixed radius candidates,
+  region/UV-island/material isolation, color tolerance, edge margin, and hard
+  sample/replay limits. Fill entries are never compressed.
 
 ### Image Paint
 
@@ -76,6 +78,10 @@ from:
 
 The focused core library includes no UE4SS, Unreal, Win32, graphics, launcher,
 JSON, or UI header. Its test passes with both GCC and MSVC `/W4 /WX`.
+
+The adaptive-compression cases cover disabled exact preservation,
+same-material coalescing, material isolation, deterministic expansion, and
+non-finite input rejection.
 
 ## Deliberate non-port
 

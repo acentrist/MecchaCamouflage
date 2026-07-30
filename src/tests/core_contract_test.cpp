@@ -130,6 +130,87 @@ auto main() -> int
                 ReplayPassWindow{ReplayPass::Complete, 4U, 4U},
         "replay pass boundary clamping is incorrect");
 
+    const std::vector adaptive_samples{
+        AdaptivePaintSample{
+            0.5,
+            0.5,
+            Region::Front,
+            1,
+            0.4,
+            0.5,
+            0.6,
+            true,
+            true,
+            42U,
+        },
+        AdaptivePaintSample{
+            0.52,
+            0.5,
+            Region::Front,
+            1,
+            0.4,
+            0.5,
+            0.6,
+            true,
+            true,
+            42U,
+        },
+    };
+    const std::vector adaptive_replay{
+        ReplayEntry{0U, ReplayPass::Paint, Region::Front, {}},
+        ReplayEntry{1U, ReplayPass::Paint, Region::Front, {}},
+    };
+    const auto compression_disabled = build_adaptive_paint_plan(
+        adaptive_replay,
+        adaptive_samples,
+        0.01,
+        0.0);
+    passed &= expect(
+        compression_disabled &&
+            compression_disabled->entries.size() == 2U &&
+            compression_disabled->compressed_paint_entries == 0U &&
+            compression_disabled->entries[0].radius_multiplier == 1.0 &&
+            compression_disabled->entries[1].radius_multiplier == 1.0,
+        "disabled adaptive compression changed replay entries");
+
+    const auto compressed = build_adaptive_paint_plan(
+        adaptive_replay,
+        adaptive_samples,
+        0.01,
+        5.0);
+    passed &= expect(
+        compressed && compressed->entries.size() == 1U &&
+            compressed->compressed_paint_entries == 1U &&
+            compressed->expanded_paint_entries == 1U &&
+            compressed->entries[0].radius_multiplier == 8.0,
+        "matching Paint samples did not coalesce deterministically");
+
+    auto different_material = adaptive_samples;
+    different_material[1].material_key = 43U;
+    const auto separated = build_adaptive_paint_plan(
+        adaptive_replay,
+        different_material,
+        0.01,
+        5.0);
+    passed &= expect(
+        separated && separated->entries.size() == 2U &&
+            separated->compressed_paint_entries == 0U,
+        "adaptive compression crossed a material boundary");
+
+    auto invalid_adaptive = adaptive_samples;
+    invalid_adaptive[0].u =
+        std::numeric_limits<double>::quiet_NaN();
+    const auto invalid_adaptive_result = build_adaptive_paint_plan(
+        adaptive_replay,
+        invalid_adaptive,
+        0.01,
+        5.0);
+    passed &= expect(
+        !invalid_adaptive_result &&
+            invalid_adaptive_result.error() ==
+                AdaptivePaintPlanError::InvalidSample,
+        "non-finite adaptive input was accepted");
+
     const auto fallback_pacing = replication_pacing_plan({});
     passed &= expect(
         fallback_pacing == ReplicationPacingPlan{
