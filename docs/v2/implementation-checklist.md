@@ -456,6 +456,9 @@ Evidence:
     containing exact current settings, editor/project readiness, feature and
     project action availability, ESP state, progress, queue utilization,
     compatibility, and newest bounded diagnostics.
+  - [x] Compose a responsive localized five-tab Canvas shell with Paint/Image
+    action rows, ESP toggle, and bounded status output in a separate
+    application-to-UI target without changing the Core-only UI primitives.
   - [ ] Render and interact with every complete section through the production
     UCanvas adapter.
 - [ ] Bind UI only to typed commands and immutable snapshots.
@@ -464,6 +467,8 @@ Evidence:
   - [x] Define a revision-bound product-action variant covering every Paint,
     Image Paint, ESP, settings, and project operation, and convert it through
     the same thread-safe monotonic command-ID owner used by hotkeys.
+  - [x] Convert portable Paint/Image button and ESP toggle activations into one
+    revision-bound product action per immutable Canvas frame.
   - [ ] Connect every production Canvas widget/editor activation to that
     product-action boundary and enqueue its typed result.
 - [ ] Complete all editor interactions and body-guide behavior.
@@ -479,10 +484,18 @@ Evidence:
   - [x] Publish validated progress fractions, queue pressure/utilization,
     compatibility state, and newest bounded ordered diagnostics as portable
     presentation values.
+  - [x] Draw bounded completed/total and command-queue counts in the portable
+    panel status strip.
   - [ ] Draw and localize those values through the production Canvas panel.
 - [ ] Complete responsive themes, DPI, clipping, fonts, and all 16 languages.
+  - [x] Apply safe-area, viewport, DPI, configured scale, clipping, and theme
+    accent to the portable panel shell and compose its labels for every one of
+    the 16 shipped catalogs.
 - [x] Ensure panel close preserves ESP and active jobs.
 - [ ] Pass UI action/state, gesture, hotkey, layout, and localization tests.
+  - [x] Pass portable panel tests for all shipped locales, section switching,
+    enabled/disabled typed actions, revision binding, panel-close input
+    release, and invalid label/state refusal.
 - [ ] DEFERRED — maintainer interaction required: complete the full in-game UI
   walkthrough across languages/resolutions/DPI.
 

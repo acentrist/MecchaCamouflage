@@ -2,11 +2,12 @@
 
 Phase 11 is open. The portable Canvas protocol, layout, interaction, widget,
 scroll, text-edit, Image Paint editor, input-lease, and typed editor-mutation
-boundaries are implemented. This milestone adds the application-owned hotkey
-command boundary. Production UCanvas rendering, Unreal input registration,
-font/texture lifetime, complete section composition, and live verification
-remain intentionally unimplemented until the protected UE4SS graph exposes
-the exact accepted interfaces.
+boundaries are implemented. The current milestones add the application-owned
+hotkey and product-action boundaries plus a portable five-tab product-panel
+shell. Production UCanvas rendering, Unreal input registration, font/texture
+lifetime, complete section composition, and live verification remain
+intentionally unimplemented until the protected UE4SS graph exposes the exact
+accepted interfaces.
 
 ## Ownership and dependency direction
 
@@ -15,6 +16,12 @@ does not import application state, UE4SS, Unreal, Windows, or graphics APIs.
 The new `InputCommandRouter` lives in `src/mod/application`, where it can read
 an immutable `ApplicationSnapshot` and emit only the existing typed
 `ApplicationCommand` variant.
+
+The new `meccha_product_ui` target is the explicit composition boundary between
+`meccha_ui` and `meccha_application`. This preserves the direction of the
+primitive UI library while allowing the panel composer to consume immutable
+`ProductUiModel` values and emit `ProductUiActionEnvelope` values. It does not
+link UE4SS, Unreal, Windows UI, or a graphics API.
 
 The future production input adapter therefore has one narrow responsibility:
 register F1–F24 once, translate physical press/release callbacks into bounded
@@ -54,8 +61,8 @@ held-key behavior across snapshot publication, complete remapping, duplicate
 mapping refusal, invalid/event-limit refusal, exact command-ID exhaustion,
 input-loss release, and terminal shutdown.
 
-The complete Linux, Linux ASan/UBSan, and Windows MSVC Release graphs pass 68,
-68, and 85 tests respectively.
+The complete Linux, Linux ASan/UBSan, and Windows MSVC Release graphs pass 69,
+69, and 86 tests respectively.
 
 ## Immutable product presentation
 
@@ -119,12 +126,41 @@ repeat state, uses the final `uint64_t` command ID exactly once, clears held
 keys on input loss/shutdown, and closes both hotkey and Canvas admission on
 terminal shutdown.
 
+## Portable product-panel composition
+
+`compose_product_panel` owns only deterministic frame composition. It receives
+one immutable `ProductUiModel`, retained pointer/focus and selected-tab state,
+viewport/safe-area/input values, and copied localized labels. It returns a
+bounded `CanvasFrame`, the responsive layout, the next local UI state, and at
+most one revision-bound product action.
+
+The shell currently renders all five localized section tabs, Paint and Image
+Paint Start/Preview/Restore/Cancel rows, an ESP toggle, the current Settings
+locale, and a language-neutral completed/total and command-queue summary. It
+applies viewport/DPI/configured scale, safe-area fitting, clipping, and the
+configured theme accent. Disabled presentation actions cannot emit commands.
+Tab switching changes only local panel state.
+
+Closing the panel emits an empty frame, releases pointer capture and keyboard
+focus, preserves the selected section, and does not mutate the model's ESP,
+job, preview, or queue state. Labels are bounded and UTF-8 validated before
+composition, and unknown section inventories or selected values fail closed.
+The panel test composes every shipped locale and covers pointer section
+switching, typed revision-bound actions, disabled controls, panel close, and
+invalid input refusal.
+
+This is deliberately a shell milestone. Paint/ESP settings editors, the full
+Image Paint canvas integration, project file operations, Settings draft/apply,
+localized progress/compatibility/diagnostics formatting, scrolling, and the
+production UCanvas adapter remain open.
+
 ## Remaining work
 
 - Compose the five complete Paint, Image Paint, ESP, Settings, and Diagnostics
-  Canvas sections from the implemented immutable presentation values.
-- Connect Canvas widget/editor activations to the implemented typed product
-  action router without direct runtime mutation.
+  Canvas sections from the implemented shell and immutable presentation values.
+- Connect the Image Paint editor, project operations, and settings drafts to
+  the implemented typed product-action router without direct runtime mutation.
+- Enqueue the returned product action through the production callback boundary.
 - Connect the production UE4SS key callbacks and input lease.
 - Implement game-font/OFL fallback selection and runtime texture lifetime.
 - Complete fake-runtime and live UI verification across all languages,

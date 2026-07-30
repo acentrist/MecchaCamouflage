@@ -95,6 +95,23 @@ add_test(
 )
 
 add_executable(
+    meccha_product_panel_tests
+    product_panel_test.cpp
+)
+target_link_libraries(
+    meccha_product_panel_tests
+    PRIVATE
+        MecchaCamouflage::ProductUi
+        meccha_build_options
+)
+add_test(
+    NAME product_panel
+    COMMAND
+        meccha_product_panel_tests
+        "${PROJECT_SOURCE_DIR}/resources/localization/catalog.json"
+)
+
+add_executable(
     meccha_application_root_tests
     application_root_test.cpp
 )

@@ -26,3 +26,24 @@ target_link_libraries(
     PRIVATE
         meccha_build_options
 )
+
+add_library(
+    meccha_product_ui
+    STATIC
+        src/product_panel.cpp
+)
+add_library(MecchaCamouflage::ProductUi ALIAS meccha_product_ui)
+
+target_include_directories(
+    meccha_product_ui
+    PUBLIC
+        "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+)
+target_link_libraries(
+    meccha_product_ui
+    PUBLIC
+        MecchaCamouflage::Application
+        MecchaCamouflage::Ui
+    PRIVATE
+        meccha_build_options
+)
