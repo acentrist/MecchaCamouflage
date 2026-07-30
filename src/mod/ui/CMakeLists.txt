@@ -6,6 +6,7 @@ add_library(
         src/interaction.cpp
         src/layout.cpp
         src/scroll.cpp
+        src/text_edit.cpp
         src/widgets.cpp
 )
 add_library(MecchaCamouflage::Ui ALIAS meccha_ui)

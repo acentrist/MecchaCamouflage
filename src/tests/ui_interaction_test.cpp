@@ -269,6 +269,150 @@ auto main() -> int
             std::unexpected(InteractionError::InvalidPointer),
         "non-finite pointer input was accepted");
 
+    auto navigation = InteractionFrame{
+        InteractionState{},
+        PointerFrame{},
+        true,
+        KeyboardNavigationFrame{
+            true,
+            false,
+            false,
+            false,
+        }};
+    passed &= expect(
+        navigation.control(
+            Primary,
+            Button,
+            Clip,
+            true,
+            true) &&
+            navigation.control(
+                Secondary,
+                CanvasRect{20.0, 80.0, 100.0, 40.0},
+                Clip,
+                true,
+                true) &&
+            std::move(navigation).finish()->focused == Primary,
+        "forward navigation did not focus the first control");
+
+    auto next_navigation = InteractionFrame{
+        InteractionState{std::nullopt, Primary},
+        PointerFrame{},
+        true,
+        KeyboardNavigationFrame{
+            true,
+            false,
+            false,
+            false,
+        }};
+    passed &= expect(
+        next_navigation.control(
+            Primary,
+            Button,
+            Clip,
+            true,
+            true) &&
+            next_navigation.control(
+                Secondary,
+                CanvasRect{20.0, 80.0, 100.0, 40.0},
+                Clip,
+                true,
+                true) &&
+            std::move(next_navigation).finish()->focused ==
+                Secondary,
+        "forward navigation did not advance focus");
+
+    auto keyboard_activate = InteractionFrame{
+        InteractionState{std::nullopt, Secondary},
+        PointerFrame{},
+        true,
+        KeyboardNavigationFrame{
+            false,
+            false,
+            true,
+            false,
+        }};
+    const auto inactive_keyboard = keyboard_activate.control(
+        Primary,
+        Button,
+        Clip,
+        true,
+        true);
+    const auto active_keyboard = keyboard_activate.control(
+        Secondary,
+        CanvasRect{20.0, 80.0, 100.0, 40.0},
+        Clip,
+        true,
+        true);
+    passed &= expect(
+        inactive_keyboard && !inactive_keyboard->activated &&
+            active_keyboard && active_keyboard->activated &&
+            std::move(keyboard_activate).finish()->focused ==
+                Secondary,
+        "keyboard activation escaped the focused control");
+
+    auto cancel_focus = InteractionFrame{
+        InteractionState{std::nullopt, Primary},
+        PointerFrame{},
+        true,
+        KeyboardNavigationFrame{
+            false,
+            false,
+            false,
+            true,
+        }};
+    passed &= expect(
+        cancel_focus.control(
+            Primary,
+            Button,
+            Clip,
+            true,
+            true) &&
+            !std::move(cancel_focus).finish()->focused,
+        "keyboard cancel retained focus");
+
+    auto reverse_navigation = InteractionFrame{
+        InteractionState{std::nullopt, Primary},
+        PointerFrame{},
+        true,
+        KeyboardNavigationFrame{
+            false,
+            true,
+            false,
+            false,
+        }};
+    passed &= expect(
+        reverse_navigation.control(
+            Primary,
+            Button,
+            Clip,
+            true,
+            true) &&
+            reverse_navigation.control(
+                Secondary,
+                CanvasRect{20.0, 80.0, 100.0, 40.0},
+                Clip,
+                true,
+                true) &&
+            std::move(reverse_navigation).finish()->focused ==
+                Secondary,
+        "reverse navigation did not wrap to the last control");
+
+    auto invalid_keyboard = InteractionFrame{
+        InteractionState{},
+        PointerFrame{},
+        true,
+        KeyboardNavigationFrame{
+            true,
+            true,
+            false,
+            false,
+        }};
+    passed &= expect(
+        std::move(invalid_keyboard).finish() ==
+            std::unexpected(InteractionError::InvalidKeyboard),
+        "conflicting keyboard navigation was accepted");
+
     if (passed)
     {
         std::cout << "PASS ui_interaction\n";

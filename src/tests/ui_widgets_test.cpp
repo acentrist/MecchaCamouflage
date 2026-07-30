@@ -199,6 +199,51 @@ auto main() -> int
                     InteractionError::DuplicateWidget),
         "widget painting hid a duplicate interaction ID");
 
+    auto text_canvas = CanvasFrameBuilder{Viewport};
+    auto text_interaction = InteractionFrame{
+        InteractionState{std::nullopt, WidgetId{30U}},
+        PointerFrame{},
+        true,
+        KeyboardNavigationFrame{
+            false,
+            false,
+            true,
+            false,
+        }};
+    auto text_widgets = WidgetPainter{
+        text_canvas,
+        text_interaction,
+        default_widget_palette(
+            CanvasColor{40U, 180U, 220U, 255U}),
+        1.0};
+    const auto text = text_widgets.text_field(
+        WidgetId{30U},
+        CanvasRect{20.0, 220.0, 240.0, 40.0},
+        Clip,
+        TextEditState{
+            false,
+            "旧",
+            {},
+            0U,
+        },
+        std::array{
+            TextEditEvent{
+                TextEditEventKind::Insert,
+                "新",
+            },
+        },
+        true);
+    passed &= expect(
+        text && text->state.editing &&
+            text->state.value == "旧新" &&
+            text->changed &&
+            !text->committed &&
+            !text->cancelled &&
+            std::move(text_interaction).finish()->focused ==
+                WidgetId{30U} &&
+            std::move(text_canvas).finish(),
+        "focused text field did not begin and apply UTF-8 input");
+
     if (passed)
     {
         std::cout << "PASS ui_widgets\n";

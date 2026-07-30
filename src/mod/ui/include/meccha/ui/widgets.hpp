@@ -2,11 +2,14 @@
 
 #include <meccha/ui/canvas.hpp>
 #include <meccha/ui/interaction.hpp>
+#include <meccha/ui/text_edit.hpp>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <optional>
+#include <span>
 #include <string_view>
 #include <variant>
 
@@ -41,7 +44,8 @@ enum class WidgetValidationError : std::uint8_t
 using WidgetError = std::variant<
     CanvasError,
     InteractionError,
-    WidgetValidationError>;
+    WidgetValidationError,
+    TextEditError>;
 
 struct ToggleResult
 {
@@ -61,6 +65,15 @@ struct ColorControlResult
 {
     CanvasColor value{};
     bool changed{};
+};
+
+struct TextFieldResult
+{
+    WidgetResponse interaction{};
+    TextEditState state{};
+    bool changed{};
+    bool committed{};
+    bool cancelled{};
 };
 
 class WidgetPainter
@@ -107,6 +120,16 @@ public:
         CanvasColor value,
         bool enabled)
         -> std::expected<ColorControlResult, WidgetError>;
+
+    [[nodiscard]] auto text_field(
+        WidgetId id,
+        CanvasRect rect,
+        CanvasRect clip,
+        TextEditState state,
+        std::span<const TextEditEvent> events,
+        bool enabled,
+        std::size_t maximum_bytes = 256U)
+        -> std::expected<TextFieldResult, WidgetError>;
 
 private:
     [[nodiscard]] auto validate() const

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <utility>
 
 namespace meccha::ui
@@ -64,8 +65,24 @@ InteractionFrame::InteractionFrame(
     PointerFrame pointer,
     bool panel_open,
     std::size_t widget_limit)
+    : InteractionFrame(
+          std::move(previous),
+          pointer,
+          panel_open,
+          KeyboardNavigationFrame{},
+          widget_limit)
+{
+}
+
+InteractionFrame::InteractionFrame(
+    InteractionState previous,
+    PointerFrame pointer,
+    bool panel_open,
+    KeyboardNavigationFrame keyboard,
+    std::size_t widget_limit)
     : state_{std::move(previous)},
       pointer_{pointer},
+      keyboard_{keyboard},
       panel_open_{panel_open},
       widget_limit_{widget_limit}
 {
@@ -80,6 +97,24 @@ InteractionFrame::InteractionFrame(
         error_ = InteractionError::InvalidPointer;
         return;
     }
+    const auto navigation_count =
+        static_cast<unsigned>(keyboard_.focus_next_pressed) +
+        static_cast<unsigned>(
+            keyboard_.focus_previous_pressed) +
+        static_cast<unsigned>(keyboard_.cancel_pressed);
+    if (keyboard_.focus_next_pressed &&
+        keyboard_.focus_previous_pressed)
+    {
+        error_ = InteractionError::InvalidKeyboard;
+        return;
+    }
+    if (navigation_count > 1U ||
+        (keyboard_.activate_pressed &&
+         keyboard_.cancel_pressed))
+    {
+        error_ = InteractionError::InvalidKeyboard;
+        return;
+    }
     if (!valid_id(state_.active) || !valid_id(state_.focused))
     {
         error_ = InteractionError::InvalidState;
@@ -92,6 +127,8 @@ InteractionFrame::InteractionFrame(
         return;
     }
     seen_.reserve(std::min<std::size_t>(widget_limit_, 128U));
+    focusable_.reserve(
+        std::min<std::size_t>(widget_limit_, 128U));
     if (!panel_open_)
     {
         state_ = {};
@@ -149,6 +186,10 @@ auto InteractionFrame::control(
         return std::unexpected(*error_);
     }
     seen_.push_back(id);
+    if (enabled && focusable)
+    {
+        focusable_.push_back(id);
+    }
 
     auto response = WidgetResponse{};
     if (!panel_open_ || !enabled)
@@ -177,6 +218,11 @@ auto InteractionFrame::control(
             state_.focused = id;
         }
     }
+    if (focusable && state_.focused == id &&
+        keyboard_.activate_pressed)
+    {
+        response.activated = true;
+    }
     return response;
 }
 
@@ -199,11 +245,65 @@ auto InteractionFrame::finish() &&
     {
         state_.focused.reset();
     }
+    if (keyboard_.cancel_pressed)
+    {
+        state_.focused.reset();
+    }
+    else if (keyboard_.focus_next_pressed ||
+             keyboard_.focus_previous_pressed)
+    {
+        if (focusable_.empty())
+        {
+            state_.focused.reset();
+        }
+        else
+        {
+            const auto current = state_.focused
+                                     ? std::ranges::find(
+                                           focusable_,
+                                           *state_.focused)
+                                     : focusable_.end();
+            if (keyboard_.focus_next_pressed)
+            {
+                if (current == focusable_.end() ||
+                    std::next(current) == focusable_.end())
+                {
+                    state_.focused = focusable_.front();
+                }
+                else
+                {
+                    state_.focused = *std::next(current);
+                }
+            }
+            else if (current == focusable_.end() ||
+                     current == focusable_.begin())
+            {
+                state_.focused = focusable_.back();
+            }
+            else
+            {
+                state_.focused = *std::prev(current);
+            }
+        }
+    }
     return std::move(state_);
 }
 
 auto InteractionFrame::pointer() const -> const PointerFrame&
 {
     return pointer_;
+}
+
+auto InteractionFrame::focused(WidgetId id) const -> bool
+{
+    return state_.focused == id;
+}
+
+auto InteractionFrame::clear_focus(WidgetId id) -> void
+{
+    if (state_.focused == id)
+    {
+        state_.focused.reset();
+    }
 }
 } // namespace meccha::ui

@@ -1,5 +1,7 @@
 #include <meccha/ui/widgets.hpp>
 
+#include <meccha/core/utf8.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <expected>
@@ -492,6 +494,204 @@ auto WidgetPainter::color_control(
             value.alpha,
         },
         changed,
+    };
+}
+
+auto WidgetPainter::text_field(
+    WidgetId id,
+    CanvasRect rect,
+    CanvasRect clip,
+    TextEditState state,
+    std::span<const TextEditEvent> events,
+    bool enabled,
+    std::size_t maximum_bytes)
+    -> std::expected<TextFieldResult, WidgetError>
+{
+    if (const auto painter_state = validate(); !painter_state)
+    {
+        return std::unexpected(painter_state.error());
+    }
+    if (!valid_rect(rect) ||
+        rect.width <= 12.0 * scale_ ||
+        rect.height <= 14.0 * scale_)
+    {
+        return std::unexpected(WidgetError{
+            WidgetValidationError::InvalidGeometry});
+    }
+    const auto response =
+        interaction_.control(id, rect, clip, enabled, true);
+    if (!response)
+    {
+        return std::unexpected(WidgetError{response.error()});
+    }
+
+    auto changed = false;
+    auto committed = false;
+    auto cancelled = false;
+    const auto focused = interaction_.focused(id);
+    if (state.editing && (!enabled || !focused))
+    {
+        if (!events.empty())
+        {
+            return std::unexpected(WidgetError{
+                TextEditError::InvalidState});
+        }
+        const auto terminal_event = std::array{
+            TextEditEvent{TextEditEventKind::Commit, {}}};
+        const auto update = update_text_edit(
+            std::move(state),
+            terminal_event,
+            maximum_bytes);
+        if (!update)
+        {
+            return std::unexpected(WidgetError{update.error()});
+        }
+        state = update->state;
+        changed = update->changed;
+        committed = true;
+    }
+    else
+    {
+        if (!state.editing && response->activated && enabled)
+        {
+            const auto begun = begin_text_edit(
+                std::move(state.value),
+                maximum_bytes);
+            if (!begun)
+            {
+                return std::unexpected(
+                    WidgetError{begun.error()});
+            }
+            state = *begun;
+        }
+        if (state.editing)
+        {
+            const auto update = update_text_edit(
+                std::move(state),
+                events,
+                maximum_bytes);
+            if (!update)
+            {
+                return std::unexpected(
+                    WidgetError{update.error()});
+            }
+            state = update->state;
+            changed = update->changed;
+            committed = update->committed;
+            cancelled = update->cancelled;
+        }
+        else if (!events.empty())
+        {
+            return std::unexpected(WidgetError{
+                TextEditError::InvalidState});
+        }
+    }
+
+    if (committed || cancelled)
+    {
+        interaction_.clear_focus(id);
+    }
+
+    const auto painted = inside_clip(
+        canvas_,
+        clip,
+        [&]() -> std::expected<void, WidgetError>
+        {
+            auto background = palette_.control;
+            if (!enabled)
+            {
+                background = palette_.disabled;
+            }
+            else if (state.editing)
+            {
+                background = palette_.selected;
+            }
+            else if (response->hovered)
+            {
+                background = palette_.hovered;
+            }
+            if (const auto fill = consume(
+                    canvas_.add_filled_box(rect, background));
+                !fill)
+            {
+                return fill;
+            }
+            if (const auto border = paint_border(
+                    canvas_,
+                    rect,
+                    state.editing
+                        ? palette_.accent
+                        : palette_.border,
+                    std::clamp(scale_, 0.5, 4.0));
+                !border)
+            {
+                return border;
+            }
+            const auto display = state.value.empty()
+                                     ? std::string_view{" "}
+                                     : std::string_view{state.value};
+            if (const auto text = consume(canvas_.add_text(
+                    CanvasPoint{
+                        rect.x + 10.0 * scale_,
+                        rect.y +
+                            std::max(
+                                2.0 * scale_,
+                                (rect.height -
+                                 14.0 * scale_) *
+                                    0.5),
+                    },
+                    display,
+                    enabled ? palette_.text : palette_.border,
+                    std::max(0.25, 0.85 * scale_)));
+                !text)
+            {
+                return text;
+            }
+            if (!state.editing)
+            {
+                return {};
+            }
+
+            const auto prefix = core::decode_utf8(
+                std::string_view{state.value}.substr(
+                    0U,
+                    state.cursor_byte));
+            if (!prefix)
+            {
+                return std::unexpected(WidgetError{
+                    TextEditError::InvalidState});
+            }
+            const auto estimated_x =
+                rect.x + 10.0 * scale_ +
+                static_cast<double>(prefix->size()) *
+                    8.0 * scale_;
+            const auto caret_x = std::clamp(
+                estimated_x,
+                rect.x + 4.0 * scale_,
+                rect.x + rect.width - 4.0 * scale_);
+            return consume(canvas_.add_line(
+                CanvasPoint{
+                    caret_x,
+                    rect.y + 7.0 * scale_,
+                },
+                CanvasPoint{
+                    caret_x,
+                    rect.y + rect.height - 7.0 * scale_,
+                },
+                palette_.accent,
+                std::clamp(scale_, 0.5, 3.0)));
+        });
+    if (!painted)
+    {
+        return std::unexpected(painted.error());
+    }
+
+    return TextFieldResult{
+        *response,
+        std::move(state),
+        changed,
+        committed,
+        cancelled,
     };
 }
 } // namespace meccha::ui

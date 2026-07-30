@@ -63,6 +63,12 @@ and focus. Duplicate/zero IDs, invalid geometry, non-finite input, and more
 than 2,048 controls fail the complete interaction frame; the caller never
 receives partially committed state.
 
+The same interaction frame collects the enabled focusable IDs actually
+submitted during the frame. Forward/reverse navigation wraps deterministically,
+activation reaches only the focused control, cancel clears focus, and
+conflicting navigation edges fail the frame. Pointer focus and keyboard focus
+share one state instead of maintaining competing input paths.
+
 `update_scroll_container` is a pure retained scroll transition. It clamps
 existing state whenever content shrinks, consumes finite wheel input only
 inside the intersection of the container viewport and active clip, and
@@ -84,6 +90,21 @@ three-channel RGB control. Every control:
 The maximum Canvas text scale is eight, matching the largest validated
 user-scale/DPI product combination. The same frame protocol rejects any larger
 text request.
+
+`TextEditState` owns a bounded single-line edit lease with an exact original
+value and a cursor that is always on a UTF-8 byte boundary. It consumes at most
+64 ordered events and 4 KiB of inserted bytes per frame. Insert, code-point
+left/right, home/end, backspace, forward-delete, commit, and exact cancel
+restore are supported. Invalid UTF-8, control characters, cursor splits,
+payloads on non-insert events, terminal-event suffixes, and size/event
+overflows fail without publishing an update.
+
+The Canvas text-field control enters editing only through pointer or focused
+keyboard activation, commits on focus loss/disable, clears focus after commit
+or cancel, draws its value and bounded approximate caret through the Canvas
+protocol, and preserves the text state outside runtime objects. The future
+input adapter supplies only committed UTF-8 event sequences; OS/IME composition
+state does not leak into the UI or application model.
 
 ## Exact input lease
 
@@ -126,16 +147,20 @@ pointer refusal.
 clamping after content shrink, and invalid-state/content refusal. `ui_widgets`
 covers primitive emission, button activation/focus, stable and activated
 toggles, continuous slider mapping/capture, stable alpha-preserving color
-controls, and duplicate-ID propagation. `ui_canvas` also verifies the bounded
-high-DPI text-scale contract.
+controls, text-field Canvas integration, and duplicate-ID propagation.
+`ui_interaction` also covers forward/reverse focus wrapping, focused-only
+activation, cancel, and conflicting-key refusal. `ui_text_edit` covers ordered
+multibyte editing, UTF-8 cursor boundaries, commit/cancel, byte/event limits,
+single-line enforcement, and terminal-sequence refusal. `ui_canvas` verifies
+the bounded high-DPI text-scale contract.
 
-All six tests run in the normal Linux graph, the mandatory ASan/UBSan graph,
+All seven tests run in the normal Linux graph, the mandatory ASan/UBSan graph,
 and the Windows MSVC x64 Release graph.
 
 ## Remaining feasibility work
 
-- Implement keyboard focus/navigation, bounded text editing, editor gestures,
-  body guides, and immutable command/snapshot binding above this protocol.
+- Implement editor gestures, body guides, and immutable command/snapshot
+  binding above this protocol.
 - Implement the validated UCanvas and Unreal input adapters only after the
   protected UE4SS graph compiles the exact interfaces.
 - Prove localized font/text, texture creation/lifetime, clipping, mouse input,

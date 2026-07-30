@@ -38,6 +38,17 @@ struct InteractionState
     auto operator==(const InteractionState&) const -> bool = default;
 };
 
+struct KeyboardNavigationFrame
+{
+    bool focus_next_pressed{};
+    bool focus_previous_pressed{};
+    bool activate_pressed{};
+    bool cancel_pressed{};
+
+    auto operator==(const KeyboardNavigationFrame&) const
+        -> bool = default;
+};
+
 struct WidgetResponse
 {
     bool hovered{};
@@ -57,6 +68,7 @@ enum class InteractionError : std::uint8_t
     InvalidGeometry,
     DuplicateWidget,
     WidgetLimit,
+    InvalidKeyboard,
 };
 
 class InteractionFrame
@@ -66,6 +78,13 @@ public:
         InteractionState previous,
         PointerFrame pointer,
         bool panel_open,
+        std::size_t widget_limit = MaximumWidgetsPerFrame);
+
+    InteractionFrame(
+        InteractionState previous,
+        PointerFrame pointer,
+        bool panel_open,
+        KeyboardNavigationFrame keyboard,
         std::size_t widget_limit = MaximumWidgetsPerFrame);
 
     [[nodiscard]] auto control(
@@ -80,6 +99,8 @@ public:
         -> std::expected<InteractionState, InteractionError>;
 
     [[nodiscard]] auto pointer() const -> const PointerFrame&;
+    [[nodiscard]] auto focused(WidgetId id) const -> bool;
+    auto clear_focus(WidgetId id) -> void;
 
 private:
     [[nodiscard]] auto ready() const
@@ -88,10 +109,12 @@ private:
 
     InteractionState state_{};
     PointerFrame pointer_{};
+    KeyboardNavigationFrame keyboard_{};
     bool panel_open_{};
     bool press_claimed_{};
     std::size_t widget_limit_{};
     std::optional<InteractionError> error_{};
     std::vector<WidgetId> seen_{};
+    std::vector<WidgetId> focusable_{};
 };
 } // namespace meccha::ui
