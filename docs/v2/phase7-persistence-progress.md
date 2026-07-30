@@ -1,8 +1,9 @@
 # Phase 7 Configuration and Persistence Progress
 
-Phase 7 is open. The strict configuration codec and atomic Windows
-`config.json` path are implemented. Active-draft persistence, localization,
-the v2-only preset container, and project/source storage are not yet complete.
+Phase 7 is open. The strict configuration codec, atomic Windows `config.json`
+path, and localization catalog boundary are implemented. Active-draft
+persistence, final glyph coverage, the v2-only preset container, and
+project/source storage are not yet complete.
 
 ## Configuration contract
 
@@ -61,6 +62,31 @@ creation, initial publication, replacement, bounded reads, traversal
 rejection, interrupted regular staging recovery, and fail-closed unsafe
 staging conflicts.
 
+## Localization boundary
+
+The 16 v1 catalogs and their 149 translated keys are preserved under
+`resources/localization/catalog.json` while the v2 UI key inventory is being
+defined. Retired architecture-only keys must be removed when Phase 11 freezes
+the final UI catalog; they are data only and have no runtime behavior.
+
+`LocalizationCatalog`:
+
+- requires exactly the 16 locked locale codes in their product display order;
+- requires every locale to have exactly the English key set;
+- rejects duplicate JSON keys, malformed JSON, comments, invalid UTF-8, empty
+  values, invalid key syntax, oversized catalogs/values, and resource
+  overflows;
+- requires each translation to preserve the English numeric placeholder
+  multiset, while allowing language-specific placeholder order;
+- exposes English fallback and key fallback without mutating the catalog;
+- performs bounded indexed placeholder formatting;
+- produces the unique Unicode codepoint inventory for deterministic font
+  coverage checks, including localized locale display names.
+
+`localization` verifies the shipped resource, representative Japanese/Korean/
+Cyrillic glyph inventory, English fallback, formatting, placeholder failures,
+locale-set failures, semantic duplicate keys, invalid UTF-8, and size limits.
+
 Verified in both the Linux secret-free build and the Windows MSVC Release
 build. The repeated MSBuild `MSB8064`/`MSB8065` messages are caused by building
 the Windows tree through a WSL UNC path and are not project compiler warnings.
@@ -68,7 +94,7 @@ the Windows tree through a WSL UNC path and are not project compiler warnings.
 ## Remaining gate
 
 - Active Image Paint draft storage must use a separate bounded format.
-- The 16 localization catalogs, placeholder checks, and glyph coverage remain.
+- The final v2-only UI key set and game/OFL fallback glyph coverage remain.
 - The canonical `.mcpreset` container and content-addressed source storage
   remain.
 - Reparse-point, power-loss, antivirus-lock, non-ASCII path, and native file

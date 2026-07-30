@@ -46,6 +46,23 @@ target_link_libraries(
 )
 add_test(NAME config_persistence COMMAND meccha_config_persistence_tests)
 
+add_executable(
+    meccha_localization_tests
+    localization_test.cpp
+)
+target_link_libraries(
+    meccha_localization_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(
+    NAME localization
+    COMMAND
+        meccha_localization_tests
+        "${PROJECT_SOURCE_DIR}/resources/localization/catalog.json"
+)
+
 add_executable(meccha_core_contract_tests core_contract_test.cpp)
 target_link_libraries(
     meccha_core_contract_tests

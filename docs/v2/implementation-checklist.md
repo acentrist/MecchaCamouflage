@@ -161,6 +161,9 @@ Evidence:
 - [x] Keep image bytes and layer collections out of `config.json`.
 - [ ] Implement atomic config and active-draft persistence.
 - [ ] Port all 16 localization catalogs and validate placeholders/glyphs.
+  - [x] Preserve all 16 catalogs in the v2 resource tree.
+  - [x] Validate locale/key sets, placeholders, UTF-8, and glyph inventory.
+  - [ ] Verify game-font and packaged fallback glyph coverage.
 - [ ] Specify the canonical v2-only `.mcpreset` container.
 - [ ] Implement project save/load/rename/delete and content-addressed sources.
 - [ ] Reject v1 presets with the explicit non-destructive legacy result.

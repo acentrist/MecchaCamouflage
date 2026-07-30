@@ -7,6 +7,7 @@ add_library(
         src/config_store.cpp
         src/game_thread_scheduler.cpp
         src/job_state.cpp
+        src/localization.cpp
         src/runtime_lifecycle.cpp
 )
 add_library(MecchaCamouflage::Application ALIAS meccha_application)
