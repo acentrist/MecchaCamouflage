@@ -223,6 +223,13 @@ open.
   process recovers/finalizes the receipt from the measured result. An absent
   privileged mutation rolls the intent back, while a completed mutation is
   finalized after interruption.
+- The privileged mutation executor has no ownership-directory or arbitrary
+  target-path input. It can address only `dwmapi.dll` and `override.txt` below
+  a validated game binaries directory. It rejects a running game, invalid
+  schema/nonce/manifest identity, mixed apply/remove actions, independently
+  rebuilt material mismatches, reparses, staging residue, and changed
+  preconditions before changing either target. Verify-only actions never
+  rewrite exact files.
 - Native writability observation walks only absolute normalized plain
   directory components, rejects reparses, opens the nearest existing directory
   with the exact create/delete-child access needed by publication, and treats
@@ -367,6 +374,11 @@ discovery-to-picker fallback, invoking-user LocalAppData path derivation,
 native GUID nonce shape, full prepare-only composition, second-instance
 refusal before bootstrap, and running-game refusal before package acquisition
 or filesystem mutation.
+The privileged loader-executor suite proves two-file-only fresh publication,
+exact proxy verification without rewrite, owned replacement, exact removal,
+full preflight before either mutation, changed-target refusal, running-game
+refusal, malformed-request refusal, and absence of any ownership-directory
+effect.
 The command-line and Windows single-instance suites prove the exact public
 switch grammar, conflicting/hostile input rejection, concurrent-instance
 refusal, and deterministic guard release.

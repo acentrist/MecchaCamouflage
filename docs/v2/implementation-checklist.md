@@ -120,6 +120,9 @@ Evidence:
     composition behind a testable native application boundary.
   - [x] Split owned-file receipt intent/finalization from privileged target
     mutation so the elevated broker never owns LocalAppData transaction work.
+  - [x] Constrain the privileged mutation executor to preflighted
+    verify/install/remove actions for only `dwmapi.dll` and `override.txt`,
+    with no ownership or LocalAppData capability.
   - [ ] Implement the minimal elevated two-file broker.
 - [x] Implement safe reuse, repair, update, cleanup, and `--remove`.
 - [ ] Pass temporary-tree, hostile-path, reparse, interrupted-transaction,
