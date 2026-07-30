@@ -1,14 +1,17 @@
 #pragma once
 
 #include <meccha/application/compatibility.hpp>
+#include <meccha/core/paint.hpp>
 
 #include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <expected>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <variant>
+#include <vector>
 
 namespace meccha::application
 {
@@ -40,18 +43,42 @@ struct RebindHudFrame
     auto operator==(const RebindHudFrame&) const -> bool = default;
 };
 
-struct RepresentativePaintCall
+struct RuntimeObjectHandle
 {
-    std::uint64_t request_id{};
+    std::uint64_t identity{};
+    std::uint64_t generation{};
 
-    auto operator==(const RepresentativePaintCall&) const -> bool = default;
+    [[nodiscard]] constexpr auto valid() const noexcept -> bool
+    {
+        return identity != 0U && generation != 0U;
+    }
+
+    auto operator==(const RuntimeObjectHandle&) const -> bool = default;
 };
 
-struct RepresentativeImagePaintCall
+struct PaintAtUvWithBrush
 {
     std::uint64_t request_id{};
+    RuntimeObjectHandle component{};
+    double u{};
+    double v{};
+    double brush_size_texels{};
+    core::Rgb8 color{};
+    core::Material material{};
+    bool include_scene_lighting{};
 
-    auto operator==(const RepresentativeImagePaintCall&) const
+    auto operator==(const PaintAtUvWithBrush&) const -> bool = default;
+};
+
+struct UpdateImagePreviewTexture
+{
+    std::uint64_t request_id{};
+    RuntimeObjectHandle texture{};
+    std::uint32_t width{};
+    std::uint32_t height{};
+    std::shared_ptr<const std::vector<std::byte>> rgba{};
+
+    auto operator==(const UpdateImagePreviewTexture&) const
         -> bool = default;
 };
 
@@ -65,8 +92,8 @@ struct RestoreTransientState
 using GameThreadOperation = std::variant<
     ResolveInitialContracts,
     RebindHudFrame,
-    RepresentativePaintCall,
-    RepresentativeImagePaintCall,
+    PaintAtUvWithBrush,
+    UpdateImagePreviewTexture,
     RestoreTransientState>;
 
 enum class ScheduleResult : std::uint8_t
@@ -79,6 +106,7 @@ enum class ScheduleResult : std::uint8_t
 enum class RuntimeExecutionErrorCode : std::uint8_t
 {
     WrongThread,
+    InvalidRequest,
     OperationFailure,
 };
 

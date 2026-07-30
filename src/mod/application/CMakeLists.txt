@@ -10,6 +10,7 @@ add_library(
         src/job_state.cpp
         src/localization.cpp
         src/runtime_lifecycle.cpp
+        src/runtime_operation_executor.cpp
 )
 add_library(MecchaCamouflage::Application ALIAS meccha_application)
 

@@ -1,0 +1,186 @@
+#include <meccha/application/runtime_operation_executor.hpp>
+
+#include <cstddef>
+#include <cstdint>
+#include <expected>
+#include <iostream>
+#include <memory>
+#include <optional>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace
+{
+using namespace meccha;
+using namespace meccha::application;
+
+auto expect(bool condition, std::string_view message) -> bool
+{
+    if (!condition)
+    {
+        std::cerr << "FAIL runtime_operation_executor: "
+                  << message << '\n';
+    }
+    return condition;
+}
+
+class FakeThreadContext final : public GameThreadContext
+{
+public:
+    [[nodiscard]] auto is_game_thread() const noexcept -> bool override
+    {
+        return game_thread;
+    }
+
+    bool game_thread{true};
+};
+
+class FakeRuntimePort final : public UnrealRuntimePort
+{
+public:
+    auto resolve_initial_contracts()
+        -> std::expected<void, RuntimeExecutionError> override
+    {
+        ++resolve_calls;
+        return {};
+    }
+
+    auto rebind_hud_frame(const HudFrameIdentity& identity)
+        -> std::expected<void, RuntimeExecutionError> override
+    {
+        frames.push_back(identity);
+        return {};
+    }
+
+    auto paint_at_uv_with_brush(
+        const PaintAtUvWithBrush& request)
+        -> std::expected<void, RuntimeExecutionError> override
+    {
+        paint_calls.push_back(request);
+        if (paint_failure)
+        {
+            return std::unexpected(*paint_failure);
+        }
+        return {};
+    }
+
+    auto update_image_preview_texture(
+        const UpdateImagePreviewTexture& request)
+        -> std::expected<void, RuntimeExecutionError> override
+    {
+        texture_calls.push_back(request);
+        return {};
+    }
+
+    auto restore_transient_state(std::uint64_t generation)
+        -> std::expected<void, RuntimeExecutionError> override
+    {
+        restore_generations.push_back(generation);
+        return {};
+    }
+
+    std::size_t resolve_calls{};
+    std::vector<HudFrameIdentity> frames{};
+    std::vector<PaintAtUvWithBrush> paint_calls{};
+    std::vector<UpdateImagePreviewTexture> texture_calls{};
+    std::vector<std::uint64_t> restore_generations{};
+    std::optional<RuntimeExecutionError> paint_failure{};
+};
+} // namespace
+
+auto main() -> int
+{
+    using namespace meccha;
+    using namespace meccha::application;
+
+    auto passed = true;
+    FakeThreadContext thread{};
+    FakeRuntimePort runtime{};
+    RuntimeOperationExecutor executor{thread, runtime};
+
+    const auto component = RuntimeObjectHandle{100U, 7U};
+    const auto texture = RuntimeObjectHandle{200U, 8U};
+    const auto pixels = std::make_shared<const std::vector<std::byte>>(
+        16U,
+        std::byte{0x7F});
+    const auto paint = PaintAtUvWithBrush{
+        10U,
+        component,
+        0.25,
+        0.75,
+        5.0,
+        core::Rgb8{10U, 20U, 30U},
+        core::Material{0.2, 0.8, 0.1},
+        true,
+    };
+    const auto image = UpdateImagePreviewTexture{
+        11U,
+        texture,
+        2U,
+        2U,
+        pixels,
+    };
+
+    GameThreadScheduler scheduler{2U};
+    static_cast<void>(scheduler.schedule(paint));
+    static_cast<void>(scheduler.schedule(image));
+    const auto drained = scheduler.drain(executor, 2U);
+    passed &= expect(
+        drained && *drained == 2U &&
+            runtime.paint_calls == std::vector{paint} &&
+            runtime.texture_calls == std::vector{image},
+        "valid typed operations did not reach the runtime port");
+
+    thread.game_thread = false;
+    const auto wrong_thread = executor.execute(paint);
+    passed &= expect(
+        !wrong_thread &&
+            wrong_thread.error().code ==
+                RuntimeExecutionErrorCode::WrongThread &&
+            runtime.paint_calls.size() == 1U,
+        "direct off-thread execution reached the runtime port");
+    thread.game_thread = true;
+
+    const auto invalid_image = UpdateImagePreviewTexture{
+        12U,
+        texture,
+        3U,
+        2U,
+        pixels,
+    };
+    const auto invalid = executor.execute(invalid_image);
+    passed &= expect(
+        !invalid &&
+            invalid.error().code ==
+                RuntimeExecutionErrorCode::InvalidRequest &&
+            invalid.error().compatibility_failure ==
+                CompatibilityFailure{
+                    RuntimeContractId::TextureMutation,
+                    ContractFailureKind::ParameterSizeMismatch,
+                    "error.operation.failed",
+                } &&
+            runtime.texture_calls.size() == 1U,
+        "invalid RGBA dimensions reached texture mutation");
+
+    runtime.paint_failure = RuntimeExecutionError{
+        RuntimeExecutionErrorCode::OperationFailure,
+        CompatibilityFailure{
+            RuntimeContractId::PaintAtUvWithBrush,
+            ContractFailureKind::MissingFunction,
+            "error.operation.failed",
+        },
+    };
+    const auto failed_paint = executor.execute(paint);
+    passed &= expect(
+        !failed_paint &&
+            failed_paint.error() == *runtime.paint_failure,
+        "the runtime port's structured Paint failure was lost");
+
+    if (passed)
+    {
+        std::cout << "PASS runtime_operation_executor\n";
+        return 0;
+    }
+    return 1;
+}

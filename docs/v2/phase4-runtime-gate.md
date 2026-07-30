@@ -45,6 +45,14 @@ open.
 - The HUD callback trampoline is non-throwing. Unexpected adapter exceptions
   become a closed runtime execution failure instead of crossing the UE4SS
   callback boundary.
+- The scheduler's former representative IDs are replaced by immutable
+  project-owned `PaintAtUvWithBrush` and Image preview-texture upload
+  requests. Opaque handles carry identity plus generation, RGBA payloads are
+  immutable shared buffers, and all dimensions/ranges are checked before the
+  runtime port is called.
+- `RuntimeOperationExecutor` is the sole typed dispatcher from scheduled
+  operations to `UnrealRuntimePort`. It independently rejects direct
+  off-game-thread calls and preserves adapter failures unchanged.
 - Shutdown closes scheduling, deterministically discards pending feature work,
   requires transient UI/preview/input restoration on the game thread, and
   refuses callback unregistration until restoration succeeds.
@@ -70,6 +78,8 @@ open.
   snapshot publication, recovery, and restore-before-finalize shutdown;
 - structured executor failure propagation and exception containment at the HUD
   callback boundary;
+- typed Paint/Image runtime dispatch, invalid-request rejection, and direct
+  off-thread port isolation;
 - cancellation of queued work during shutdown;
 - restore-before-unregister ordering.
 
@@ -81,10 +91,11 @@ The test runs in both the Linux secret-free build and the Windows MSVC
 - Add Paint, Image Paint, ESP, UI, and the production
   `UnrealRuntimeAdapter` to the existing owned root as those modules are
   implemented.
-- Replace representative operation markers with the final typed runtime
-  request/result contracts.
 - Implement the pinned UE4SS callback registration adapter and prove exact
   callback unregistration against its real APIs.
+- Bind the typed Paint/Image requests to validated reflected UFunction and
+  texture contracts in the production adapter and run the controlled live
+  calls.
 - Bind the project-owned World/controller/HUD/Canvas identity to validated
   UE4SS object generations and prove invalidation in the live UE 5.6 game.
 - Add complete lifecycle fault injection, concurrent uninstall, and repeated

@@ -37,6 +37,7 @@ enum class ContractFailureKind : std::uint8_t
     MissingFunction,
     ParameterSizeMismatch,
     StaleObject,
+    InvalidValue,
     CallbackFailure,
     ExecutionFailure,
     UnsupportedGameBuild,

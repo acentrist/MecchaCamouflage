@@ -8,6 +8,7 @@
 #include <expected>
 #include <iostream>
 #include <latch>
+#include <memory>
 #include <stdexcept>
 #include <string_view>
 #include <thread>
@@ -17,6 +18,36 @@
 namespace
 {
 using namespace meccha::application;
+
+auto paint_call(std::uint64_t request_id) -> PaintAtUvWithBrush
+{
+    return PaintAtUvWithBrush{
+        request_id,
+        RuntimeObjectHandle{10U, 1U},
+        0.25,
+        0.75,
+        5.0,
+        meccha::core::Rgb8{10U, 20U, 30U},
+        meccha::core::Material{0.2, 0.8, 0.1},
+        false,
+    };
+}
+
+auto image_call(std::uint64_t request_id)
+    -> UpdateImagePreviewTexture
+{
+    static const auto pixels =
+        std::make_shared<const std::vector<std::byte>>(
+            16U,
+            std::byte{0x7F});
+    return UpdateImagePreviewTexture{
+        request_id,
+        RuntimeObjectHandle{20U, 1U},
+        2U,
+        2U,
+        pixels,
+    };
+}
 
 auto expect(bool condition, std::string_view message) -> bool
 {
@@ -113,9 +144,9 @@ auto main() -> int
     passed &= expect(
         scheduler.schedule(ResolveInitialContracts{}) ==
                 ScheduleResult::Accepted &&
-            scheduler.schedule(RepresentativePaintCall{42U}) ==
+            scheduler.schedule(paint_call(42U)) ==
                 ScheduleResult::Accepted &&
-            scheduler.schedule(RepresentativeImagePaintCall{43U}) ==
+            scheduler.schedule(image_call(43U)) ==
                 ScheduleResult::Full,
         "the bounded queue did not apply backpressure");
 
@@ -153,7 +184,7 @@ auto main() -> int
     passed &= expect(
         final_drain && *final_drain == 1U &&
             game_thread.operations.back() ==
-                GameThreadOperation{RepresentativePaintCall{42U}},
+                GameThreadOperation{paint_call(42U)},
         "a retried Unreal operation was not executed");
 
     scheduler.close();
@@ -246,11 +277,11 @@ auto main() -> int
         "the first HUD frame did not resolve then bind on the game thread");
 
     static_cast<void>(
-        lifecycle.schedule(RepresentativePaintCall{70U}));
+        lifecycle.schedule(paint_call(70U)));
     callbacks.invoke(FirstFrame);
     passed &= expect(
         lifecycle_executor.operations.back() ==
-                GameThreadOperation{RepresentativePaintCall{70U}} &&
+                GameThreadOperation{paint_call(70U)} &&
             lifecycle_executor.operations.size() == 3U,
         "a stable-world HUD frame did not drain scheduled work");
 
@@ -270,10 +301,10 @@ auto main() -> int
         "a controller replacement did not invalidate the HUD binding");
 
     static_cast<void>(
-        lifecycle.schedule(RepresentativeImagePaintCall{71U}));
+        lifecycle.schedule(image_call(71U)));
     passed &= expect(
         lifecycle.request_shutdown(9U).has_value() &&
-            lifecycle.schedule(RepresentativePaintCall{72U}) ==
+            lifecycle.schedule(paint_call(72U)) ==
                 ScheduleResult::Closed &&
             lifecycle.snapshot().queue.queued == 0U,
         "shutdown did not close and cancel queued work");
