@@ -35,6 +35,21 @@ target_link_libraries(
 add_test(NAME application_state COMMAND meccha_application_state_tests)
 
 add_executable(
+    meccha_application_command_queue_tests
+    application_command_queue_test.cpp
+)
+target_link_libraries(
+    meccha_application_command_queue_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(
+    NAME application_command_queue
+    COMMAND meccha_application_command_queue_tests
+)
+
+add_executable(
     meccha_application_root_tests
     application_root_test.cpp
 )

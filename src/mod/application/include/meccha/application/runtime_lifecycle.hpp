@@ -92,7 +92,7 @@ public:
         const RuntimeLifecycleSnapshot& snapshot) noexcept -> void = 0;
 };
 
-class RuntimeLifecycle
+class RuntimeLifecycle final : public PaintDispatchQueue
 {
 public:
     RuntimeLifecycle(
@@ -115,7 +115,14 @@ public:
         -> std::expected<std::size_t, RuntimeLifecycleError>;
 
     [[nodiscard]] auto schedule(GameThreadOperation operation)
-        -> ScheduleResult;
+        -> ScheduleResult override;
+
+    auto discard_paint_generation(JobGeneration generation)
+        -> std::size_t override;
+    [[nodiscard]] auto queued_paint_generation(
+        JobGeneration generation) const -> std::size_t override;
+    [[nodiscard]] auto queue_snapshot() const
+        -> QueueSnapshot override;
 
     auto request_shutdown(std::uint64_t shutdown_generation)
         -> std::expected<void, RuntimeLifecycleError>;

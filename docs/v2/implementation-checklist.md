@@ -146,6 +146,8 @@ Evidence:
 - [ ] Port profile, region, color/PBR, atlas-mapping, pacing, compression, ESP,
   and timing algorithms.
 - [x] Implement typed commands and immutable revisioned snapshots.
+- [x] Implement bounded concurrent typed-command admission, FIFO frame drains,
+  close/discard shutdown, and invalid command-ID rejection.
 - [x] Implement job arbitration, cancellation generations, preview ownership,
   queue pressure, terminal drain, and shutdown coordination.
 - [ ] Add checked arithmetic and resource limits.

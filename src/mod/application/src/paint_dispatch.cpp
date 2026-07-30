@@ -78,7 +78,7 @@ auto mutation_error(JobMutationResult result)
 } // namespace
 
 PaintDispatchController::PaintDispatchController(
-    GameThreadScheduler& scheduler,
+    PaintDispatchQueue& scheduler,
     JobStateMachine& jobs)
     : scheduler_{scheduler},
       jobs_{jobs}
@@ -354,7 +354,7 @@ auto PaintDispatchController::publish_progress(
     const PaintQueueObservation& observation)
     -> std::expected<void, PaintDispatchError>
 {
-    const auto queue = scheduler_.snapshot();
+    const auto queue = scheduler_.queue_snapshot();
     const auto pressure =
         queue.capacity == 0U
             ? 0.0

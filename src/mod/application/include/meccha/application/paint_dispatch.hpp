@@ -64,7 +64,7 @@ class PaintDispatchController
 {
 public:
     PaintDispatchController(
-        GameThreadScheduler& scheduler,
+        PaintDispatchQueue& scheduler,
         JobStateMachine& jobs);
 
     [[nodiscard]] auto begin(
@@ -105,7 +105,7 @@ private:
         -> std::size_t;
     [[nodiscard]] auto state() const -> PaintDispatchState;
 
-    GameThreadScheduler& scheduler_;
+    PaintDispatchQueue& scheduler_;
     JobStateMachine& jobs_;
     JobGeneration generation_{};
     RuntimeObjectHandle component_{};

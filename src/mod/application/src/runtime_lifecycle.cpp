@@ -200,6 +200,23 @@ auto RuntimeLifecycle::schedule(GameThreadOperation operation)
     return scheduler_.schedule(std::move(operation));
 }
 
+auto RuntimeLifecycle::discard_paint_generation(
+    JobGeneration generation) -> std::size_t
+{
+    return scheduler_.discard_paint_generation(generation);
+}
+
+auto RuntimeLifecycle::queued_paint_generation(
+    JobGeneration generation) const -> std::size_t
+{
+    return scheduler_.queued_paint_generation(generation);
+}
+
+auto RuntimeLifecycle::queue_snapshot() const -> QueueSnapshot
+{
+    return scheduler_.snapshot();
+}
+
 auto RuntimeLifecycle::request_shutdown(std::uint64_t shutdown_generation)
     -> std::expected<void, RuntimeLifecycleError>
 {

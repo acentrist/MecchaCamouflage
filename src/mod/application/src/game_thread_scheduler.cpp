@@ -150,6 +150,11 @@ auto GameThreadScheduler::snapshot() const -> QueueSnapshot
     };
 }
 
+auto GameThreadScheduler::queue_snapshot() const -> QueueSnapshot
+{
+    return snapshot();
+}
+
 auto GameThreadScheduler::queued_paint_generation(
     JobGeneration generation) const -> std::size_t
 {

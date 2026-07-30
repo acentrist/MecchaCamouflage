@@ -79,6 +79,10 @@ not yet complete.
 
 - One typed `ApplicationCommand` variant covers all retained Paint, Image
   Paint, UI/ESP, settings, and image-project actions.
+- `ApplicationCommandQueue` provides a hard-capacity concurrent publication
+  boundary between UI/hotkey callbacks and bounded game-frame processing. It
+  rejects command ID zero, preserves FIFO order, and closes/discards exactly
+  during shutdown.
 - Paint and Image Paint share one generation-counted job arbiter and cannot run
   concurrently.
 - Late planning results cannot mutate a newer job.
@@ -94,6 +98,9 @@ not yet complete.
   One slot is reserved from frame admission, and resolve/rebind/restore work
   drains before Paint/texture work, so teardown and rebinding cannot be
   starved by a full Paint stream while total storage remains hard-bounded.
+- `RuntimeLifecycle` implements the narrow `PaintDispatchQueue` interface, so
+  the composition root can coordinate Paint without exposing or duplicating
+  the owned scheduler.
 
 ## Evidence
 
@@ -114,7 +121,10 @@ non-finite input rejection. Paint planning additionally covers Fill-first
 ordering, Skip/unsafe exclusion, independent Fill PBR, manual and resolved
 automatic appearance, scene-color selection, profile rejection, resource
 limits, and cancellation. `application_runtime_test` proves that control work
-preempts already-queued Paint work.
+preempts already-queued Paint work. `application_command_queue_test` covers
+hard capacity, invalid IDs, FIFO bounded drains, concurrent publication, and
+terminal close/discard. The secret-free Linux suite currently passes all 31
+registered tests.
 
 ## Deliberate non-port
 

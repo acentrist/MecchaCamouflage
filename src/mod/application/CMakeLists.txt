@@ -1,6 +1,7 @@
 add_library(
     meccha_application
     STATIC
+        src/application_command_queue.cpp
         src/application_snapshot.cpp
         src/application_root.cpp
         src/callback_barrier.cpp

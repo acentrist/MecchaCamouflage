@@ -144,7 +144,29 @@ public:
         -> std::expected<void, RuntimeExecutionError> = 0;
 };
 
-class GameThreadScheduler
+class PaintDispatchQueue
+{
+public:
+    PaintDispatchQueue() = default;
+    PaintDispatchQueue(const PaintDispatchQueue&) = delete;
+    auto operator=(const PaintDispatchQueue&)
+        -> PaintDispatchQueue& = delete;
+    PaintDispatchQueue(PaintDispatchQueue&&) = default;
+    auto operator=(PaintDispatchQueue&&)
+        -> PaintDispatchQueue& = default;
+    virtual ~PaintDispatchQueue() = default;
+
+    [[nodiscard]] virtual auto schedule(
+        GameThreadOperation operation) -> ScheduleResult = 0;
+    virtual auto discard_paint_generation(
+        JobGeneration generation) -> std::size_t = 0;
+    [[nodiscard]] virtual auto queued_paint_generation(
+        JobGeneration generation) const -> std::size_t = 0;
+    [[nodiscard]] virtual auto queue_snapshot() const
+        -> QueueSnapshot = 0;
+};
+
+class GameThreadScheduler final : public PaintDispatchQueue
 {
 public:
     explicit GameThreadScheduler(std::size_t capacity);
@@ -153,7 +175,7 @@ public:
         -> GameThreadScheduler& = delete;
 
     [[nodiscard]] auto schedule(GameThreadOperation operation)
-        -> ScheduleResult;
+        -> ScheduleResult override;
 
     [[nodiscard]] auto drain(
         GameThreadExecutor& executor,
@@ -163,11 +185,13 @@ public:
     auto close() -> void;
     auto discard() -> std::size_t;
     auto discard_paint_generation(JobGeneration generation)
-        -> std::size_t;
+        -> std::size_t override;
 
     [[nodiscard]] auto snapshot() const -> QueueSnapshot;
+    [[nodiscard]] auto queue_snapshot() const
+        -> QueueSnapshot override;
     [[nodiscard]] auto queued_paint_generation(
-        JobGeneration generation) const -> std::size_t;
+        JobGeneration generation) const -> std::size_t override;
 
 private:
     const std::size_t capacity_{};

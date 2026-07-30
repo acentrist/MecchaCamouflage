@@ -77,6 +77,8 @@ generation before it can mutate job state or begin dispatch. It also:
   compressed Paint radii while the persisted setting remains `[1,10]`.
 - The bounded scheduler has control and frame lanes. Contract resolution, HUD
   rebinding, and transient-state restore drain ahead of Paint strokes.
+- The lifecycle exposes only the project-owned `PaintDispatchQueue` contract
+  to feature coordination; its concrete scheduler remains lifecycle-owned.
 - The only represented production stroke operation remains
   `PaintAtUvWithBrush`; no texture import, bridge sender, or custom multiplayer
   transport exists in v2.
