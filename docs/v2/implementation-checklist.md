@@ -286,8 +286,8 @@ Evidence:
       port with project-owned non-reused handles, exact UObject generation
       checks, bounded rooted ownership, complete-frame texture preflight,
       partial-create rollback, retryable release, and forced teardown cleanup.
-    - [ ] Bind adapter-owned texture generations and game-font-first/fallback
-      text, then prove complete line/box/text/texture output without a partial
+    - [ ] Bind game-font-first missing-glyph fallback and glyph-level clipping,
+      then live-prove complete line/box/text/texture output without a partial
       frame mutation.
 - [ ] Implement exact cursor/look/movement/input-mode lease restoration.
   - [x] Implement a transactional lease controller that captures the complete
@@ -322,6 +322,11 @@ Evidence:
     cancellation, guide-ordering, identity, limit, and clip-unwind tests.
   - [x] Pass deterministic canonical PNG integrity/cancellation and exact
     texture-import ABI contract tests.
+  - [x] Pass the complete 96-test Windows x64 Shipping graph from an exact
+    clean project checkout while building UE4SS and `main.dll` from the
+    manifest-verified canonical source stage; reverify that the stage remains
+    the pinned upstream commit plus only the approved Cargo lock overlay after
+    the build.
 - [ ] DEFERRED — maintainer interaction required: verify the complete Canvas
   viability checklist in the live game.
 

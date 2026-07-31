@@ -68,8 +68,10 @@ skeleton overlays for round, cube, and fukuyoka. Localized face names remain
 separate Canvas text. The editor pipeline retains the immutable decoded
 sources that match its ready atlas, and a game-thread-only coordinator owns
 opaque atlas/source/guide handle generations with transactional replacement,
-bounded release retry, clear, and shutdown. Only the narrow reflected Unreal
-texture port and its live evidence remain open.
+bounded release retry, clear, and shutdown. The narrow reflected Unreal
+texture port is now bound to exact reflected import, rooted ownership,
+generation-validated lookup, and release/teardown cleanup. Its composition-root
+wiring and live evidence remain open.
 
 ## Native decoder boundary
 
@@ -359,6 +361,7 @@ reconstructs the graph and recovers that exact project after restart.
 - Verify the bound reflected game-thread texture creation/release port through
   travel, HUD replacement, and unload.
 - Capture triangle/barycentric anchors through the production runtime adapter.
-- Build the complete UCanvas editor and pass fake-runtime and live checks.
+- Bind the complete portable UCanvas editor to the production callback root,
+  finish fallback-glyph and Unreal-input adapters, and pass live checks.
 
 No decoder, runtime, or UI fallback is implied by this core milestone.

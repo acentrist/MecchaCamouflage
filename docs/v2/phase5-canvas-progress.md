@@ -320,9 +320,9 @@ HUD-frame coordinator additionally proves localized composition, exact
 input-lease acquisition and render-failure rollback, render-before-action
 ordering, ready-texture synchronization, and resource-free shutdown through a
 fake runtime port. The current normal Linux and ASan/UBSan graphs pass all 78
-registered tests. The accepted immutable Windows checkpoint passed 95 tests;
-the changed runtime contract test and production mod also pass/build in the
-pinned Windows work-source graph.
+registered tests. The current exact clean project checkpoint passes all 96
+registered Windows x64 Shipping tests and links the production mod against the
+same manifest-verified UE4SS source graph.
 
 ## Packaged fallback glyph atlas
 
