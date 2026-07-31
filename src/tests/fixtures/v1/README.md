@@ -16,5 +16,7 @@ tests must extend them; passing only these examples is not sufficient.
 - `esp-domain.json`: scope, spectator, avatar, bounds, and projection behavior.
 
 `manifest.json` records the v1 source commit and immutable profile hashes from
-which the fixtures were characterized. The raw and derived profile JSON files
-remain the authoritative large geometry inputs and are not duplicated here.
+which the fixtures were characterized. Hashes use the repository-canonical LF
+form declared by `.gitattributes`, so the fixture is independent of the
+checkout host's line-ending mode. The raw and derived profile JSON files remain
+the authoritative large geometry inputs and are not duplicated here.
