@@ -31,7 +31,8 @@ The earlier diagnostic binaries remain rejected.
 | `meccha_core` | Interface boundary pending Phase 6 sources | No UE4SS, Unreal, Windows UI, graphics, or launcher dependency |
 | `meccha_ui` | Static project-owned Canvas/layout/widget/text/editor/input protocol | Depends only on core values; exposes no Unreal or graphics API type |
 | `meccha_launcher_core` | Static Phase 3 deployment-policy module | Depends on core/build identity and pinned Glaze; contains no persistent UI |
-| `meccha_mod` | Windows x64 shared library when full build is enabled | Links the `UE4SS` target from the same configure graph and outputs `main.dll` |
+| `proxy` | Pinned UE4SS proxy library | Must exist in the accepted graph and build before the mod |
+| `meccha_mod` | Windows x64 shared library when full build is enabled | Links `UE4SS`, depends on the exact configured `proxy` target, and outputs `main.dll` |
 | `meccha_build_identity_test` | Secret-free executable test | Exercises the generated public build identity |
 
 The Phase 2 mod contains only metadata, empty `on_unreal_init`/`on_update`

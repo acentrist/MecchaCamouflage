@@ -137,6 +137,8 @@ def verify_build_pin() -> None:
         UE4SS_CANONICAL_LOCK_SHA256,
         '"${_meccha_ue4ss_root}"',
         '"${CMAKE_CURRENT_BINARY_DIR}/_ue4ss"',
+        "if(NOT TARGET proxy)",
+        "add_dependencies(meccha_mod proxy)",
     }
     missing_stage_fragments = sorted(
         fragment

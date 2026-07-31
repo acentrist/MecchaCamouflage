@@ -2,6 +2,8 @@ if(NOT TARGET UE4SS)
     message(FATAL_ERROR "meccha_mod must be built from the pinned UE4SS graph.")
 endif()
 
+add_subdirectory(runtime)
+
 add_library(meccha_mod SHARED entry.cpp)
 add_library(MecchaCamouflage::Mod ALIAS meccha_mod)
 
@@ -10,6 +12,7 @@ target_link_libraries(
     PRIVATE
         meccha_build_identity
         meccha_build_options
+        MecchaCamouflage::Runtime
     PUBLIC
         UE4SS
 )

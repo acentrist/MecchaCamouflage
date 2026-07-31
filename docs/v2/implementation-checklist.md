@@ -85,6 +85,8 @@ Evidence:
     canonical one-file overlay in an independent immutable build stage,
     preserving the accepted gitlink and Cargo `--locked`; verify real-source
     preparation, reuse, offline locked metadata, and post-command identity.
+  - [x] Require the pinned proxy target and make every `meccha_mod` build depend
+    on that exact configured proxy target.
   - [ ] Run the native protected build and bind its binaries to that exact
     source-stage manifest.
 - [ ] Verify x64 Release ABI, imports, exports, runtime library, and provenance.
@@ -223,6 +225,7 @@ Evidence:
 Evidence:
 
 - [`phase4-runtime-gate.md`](phase4-runtime-gate.md)
+- `src/mod/runtime/`
 
 ## Phase 5 — UCanvas feasibility gate
 

@@ -2,15 +2,38 @@
 
 ## Current status
 
-The secret-free application runtime foundation is implemented and tested. The
-production UE4SS composition root and live callback adapter remain blocked on
-the trusted recursive UE4SS build and live architecture gate, so Phase 4 is
-open.
+The secret-free application runtime foundation is implemented and tested. A
+production `UnrealRuntimeAdapter` now compiles against the pinned recursive
+UE4SS graph and implements the validated HUD callback/game-thread boundary.
+The adapter is not yet owned by the exported mod composition root, and no live
+callback has been registered in the game, so Phase 4 remains open.
 
 ## Implemented contracts
 
 - `meccha_application` is built independently from UE4SS and depends only on
   project-owned core interfaces.
+- `meccha_runtime` is the only production target that includes UE4SS/Unreal
+  headers. Its public PIMPL header exposes only project-owned callback and
+  game-thread interfaces. The pinned UE4SS include roots are compiler-system
+  boundaries while project-owned source remains under `/W4 /WX`.
+- `UnrealRuntimeAdapter` resolves the exact
+  `/Script/Engine.HUD:ReceiveDrawHUD` function and validates its owning class,
+  eight-byte parameter layout, ordered `SizeX`/`SizeY` integer parameters,
+  and lack of additional parameters before registering a hook.
+- The adapter also validates the exact HUD, World, PlayerController, and Canvas
+  classes plus the HUD `PlayerOwner` and `Canvas` object-property kinds,
+  classes, array dimensions, and container layouts. Any mismatch fails closed
+  before callback registration.
+- Hook registration uses the pinned UE4SS generic reflected-function API,
+  retains the returned pre/post ID pair, and supplies the same function and ID
+  pair to exact unregistration. The post-hook exception boundary never lets an
+  exception cross into UE4SS.
+- A HUD frame is admitted only when UE4SS reports the actual game thread and
+  every object is real, of the validated class, and resolves through a
+  nonzero-serial `FWeakObjectPtr`. The project identity combines that serial
+  with the object index for World, controller, HUD, and Canvas. A stale,
+  incomplete, or wrong-thread frame is delivered as an invalid identity and
+  fails closed in the existing lifecycle.
 - `ApplicationRoot` owns the runtime lifecycle, loaded configuration, bounded
   typed command queue, Paint planner/worker/coordinator, job and preview state
   machines, compatibility state, bounded diagnostics, and immutable snapshot
@@ -124,17 +147,25 @@ proves lifecycle quiescing cannot overtake active Paint cancellation/drain.
 The test runs in both the Linux secret-free build and the Windows MSVC
 `/W4 /WX` build.
 
+The production adapter additionally compiles and links with the
+manifest-verified canonical UE4SS source stage, UEPseudo, and patternsleuth
+graph in MSVC x64 `Game__Shipping__Win64`. The stage passes exact post-build
+one-diff verification. `main.dll` remains PE32+ x64, exports exactly
+`start_mod` and `uninstall_mod`, and imports the UE4SS DLL built by that graph.
+This is build evidence only; it does not count as a live callback registration
+or teardown pass.
+
 ## Remaining Phase 4 work
 
-- Add production reflected Paint preview import/export, Image Paint, ESP, and
-  the production `UnrealRuntimeAdapter` to the existing owned root as those
-  adapters are implemented.
-- Implement the pinned UE4SS callback registration adapter and prove exact
-  callback unregistration against its real APIs.
+- Make the exported mod composition root own the production
+  `UnrealRuntimeAdapter`, application root, and remaining runtime services.
+- Register and unregister the implemented HUD hook in the live game, then
+  prove that UE4SS removes the exact recorded callback pair and that all
+  admitted callbacks drain before adapter destruction.
 - Bind the typed Paint/Image requests to validated reflected UFunction and
   texture contracts in the production adapter and run the controlled live
   calls.
-- Bind the project-owned World/controller/HUD/Canvas identity to validated
-  UE4SS object generations and prove invalidation in the live UE 5.6 game.
+- Prove the implemented generation-checked World/controller/HUD/Canvas
+  identity invalidates and rebinds correctly in the live UE 5.6 game.
 - Run the deferred live load, travel, HUD replacement, freecam, spectator,
   explicit unload, and game-shutdown matrix.
