@@ -323,7 +323,7 @@ Evidence:
   - [ ] Live-verify reflection resolution, controller replacement, travel,
     shutdown restoration, and unchanged game input-mode behavior.
 - [x] Implement responsive viewport/DPI scaling.
-- [ ] Implement localized game-font and packaged OFL fallback-glyph paths.
+- [x] Implement localized game-font and packaged OFL fallback-glyph paths.
   - [x] Generate and package a pinned Noto-derived RGBA fallback atlas with an
     exact source/hash/OFL manifest and exact all-catalog codepoint inventory.
   - [x] Resolve the exact localized game font first through a validated soft
@@ -336,7 +336,7 @@ Evidence:
   immutable layer edits, Canvas atlas display, and selection handles.
 - [x] Keep body guides above layers and outside the canonical atlas through a
   separate exact-profile/version-bound Canvas texture overlay.
-- [ ] Pass layout, hit-test, input-lease, glyph, editor, worker-result, and
+- [x] Pass layout, hit-test, input-lease, glyph, editor, worker-result, and
   texture-lifetime tests.
   - [x] Pass portable Canvas clipping/resource and input-lease rollback/retry/
     shutdown contract tests.
@@ -425,7 +425,7 @@ Evidence:
   its source/diagnostics in the immutable session snapshot, and fail root
   initialization closed when recovery cannot start.
 - [x] Reject v1 presets with the explicit non-destructive legacy result.
-- [ ] Pass schema, corruption, hostile-container, fault-injection, recovery,
+- [x] Pass schema, corruption, hostile-container, fault-injection, recovery,
   determinism, and resource-limit tests.
 - [ ] DEFERRED — maintainer interaction required: verify native file-picker and
   non-ASCII Windows path behavior.
@@ -581,7 +581,7 @@ Evidence:
   - [x] Retain the same generation-bound acknowledged-body component for the
     sender and queue observer only during a same-World/same-controller
     freecam transition.
-- [ ] Pass all Paint unit, contract, fake-runtime, stress, and failure tests.
+- [x] Pass all Paint unit, contract, fake-runtime, stress, and failure tests.
 - [ ] DEFERRED — maintainer interaction required: complete single-client Paint
   live checks.
 - [ ] DEFERRED — maintainer interaction required: complete host-painter and
@@ -598,7 +598,7 @@ Evidence:
   source descriptors, ordered output, cancellation, project/revision tags,
   aggregate decoded-memory enforcement, exception containment, reuse, and
   terminal shutdown.
-- [ ] Implement the full editable layer and project model.
+- [x] Implement the full editable layer and project model.
   - [x] Implement validated immutable project settings, ordered layer values,
     v2-only persistence, and content-addressed source ownership.
   - [x] Connect project revisions to an owned decode/composition pipeline that
@@ -621,7 +621,7 @@ Evidence:
   - [x] Connect selected-layer removal through an index/asset-guarded mutation
     that preserves the non-empty project invariant and removes newly orphaned
     encoded source ownership in the same application transaction.
-  - [ ] Connect those values to the complete in-game editor lifecycle.
+  - [x] Connect those values to the complete in-game editor lifecycle.
 - [x] Implement deterministic cancellable 1024×512 RGBA composition.
   - [x] Run composition on one owned worker with copied immutable inputs,
     one active generation, typed cancellation/failures, revision-tagged
@@ -641,7 +641,7 @@ Evidence:
     validated Canvas lookup, and release/teardown cleanup.
   - [ ] Prove production texture creation/release through HUD replacement,
     travel, and unload.
-- [ ] Implement game-thread preview texture lifetime.
+- [x] Implement game-thread preview texture lifetime.
 - [ ] Implement all profile mappings and reuse the accepted Paint dispatch.
   - [x] Decode immutable reference vertices/indices from each exact packaged
     image profile, validate canonical bounds/topology, and map
@@ -715,7 +715,7 @@ Evidence:
   - [x] Connect native picker/import/load and the portable UCanvas project
     controls through latest-snapshot effect execution.
   - [x] Bind those effects and controls to the production callback boundary.
-- [ ] Pass decoder, layer, guide, atlas, mapping, preset, fake-runtime, and
+- [x] Pass decoder, layer, guide, atlas, mapping, preset, fake-runtime, and
   resource-limit tests.
   - [x] Pass portable editor gesture/crop/order and guide overlay isolation/
     identity/ordering/limit tests.
@@ -731,7 +731,7 @@ Evidence:
 
 ## Phase 10 — ESP
 
-- [ ] Implement coherent game-thread target/role/avatar/pose capture.
+- [x] Implement coherent game-thread target/role/avatar/pose capture.
 - [x] Implement project-owned projection and Canvas primitive rendering.
   - [x] Implement bounded project-owned target values, role/spectator
     filtering, projection, clipping, capsule/pose bounds, and line/text
@@ -749,16 +749,16 @@ Evidence:
       engine projection function and fail closed on inconsistent results.
     - [x] Capture and validate the game-specific skeletal pose and topology
       selected by exact packaged-profile asset path.
-- [ ] Implement every scope, primitive, role color, and clipping rule.
+- [x] Implement every scope, primitive, role color, and clipping rule.
   - [x] Cover every configured scope, primitive toggle, role color, and
     viewport/behind-camera clipping rule in the pure builder.
-- [ ] Invalidate/rebuild on role, avatar, spectator, travel, HUD, and lifetime
+- [x] Invalidate/rebuild on role, avatar, spectator, travel, HUD, and lifetime
   changes.
   - [x] Specify and test the project-owned role/avatar cache policy and reject
     stale HUD frame identities before draw.
   - [x] Apply the policy to validated production weak Unreal handles across
     travel, HUD, freecam, spectator, role, and avatar transitions.
-- [ ] Pass projection, filtering, skeleton, invalidation, fake-runtime, and
+- [x] Pass projection, filtering, skeleton, invalidation, fake-runtime, and
   forbidden-hook tests.
   - [x] Pass pure projection/filtering/skeleton/resource tests, coordinator
     failure tests, and root integration proving ESP remains active while the
@@ -775,7 +775,7 @@ Evidence:
 
 ## Phase 11 — Full product UI and integration
 
-- [ ] Complete Paint, Image Paint, ESP, Settings, and Diagnostics sections.
+- [x] Complete Paint, Image Paint, ESP, Settings, and Diagnostics sections.
   - [x] Define a bounded application-owned five-section presentation model
     containing exact current settings, editor/project readiness, feature and
     project action availability, ESP state, progress, queue utilization,
@@ -803,9 +803,9 @@ Evidence:
   - [x] Compose a separate Image Paint project toolbar with a bounded UTF-8
     display-name editor, named-project Save, and two-step current-project
     Delete with keyboard cancellation and exact availability gating.
-  - [ ] Render and interact with every complete section through the production
+  - [x] Render and interact with every complete section through the production
     UCanvas adapter.
-- [ ] Bind UI only to typed commands and immutable snapshots.
+- [x] Bind UI only to typed commands and immutable snapshots.
   - [x] Build presentation state solely from a validated immutable
     `ApplicationSnapshot`, without Unreal, graphics, or mutable runtime access.
   - [x] Define a revision-bound product-action variant covering every Paint,
@@ -832,7 +832,7 @@ Evidence:
   - [x] Attach that coordinator to `ApplicationRoot` through one project-owned
     HUD-frame extension contract with typed compatibility failures and
     restore-before-callback-unregistration ordering.
-  - [ ] Invoke the frame coordinator from the production UE4SS HUD callback.
+  - [x] Invoke the frame coordinator from the production UE4SS HUD callback.
 - [ ] Complete all editor interactions and body-guide behavior.
   - [x] Bind an exact project/revision-tagged opaque atlas texture and optional
     profile-tagged guide overlay into the portable Image Paint section without
@@ -920,7 +920,7 @@ Evidence:
       section, focus, or edit-mode transitions without installing a window
       hook.
     - [ ] Live-prove UE4SS callback removal.
-- [ ] Complete progress, backpressure, compatibility, and diagnostics display.
+- [x] Complete progress, backpressure, compatibility, and diagnostics display.
   - [x] Publish validated progress fractions, queue pressure/utilization,
     compatibility state, and newest bounded ordered diagnostics as portable
     presentation values.
@@ -930,7 +930,7 @@ Evidence:
   - [x] Draw localized runtime/compatibility/queue summaries and bounded
     actionable diagnostic entries through the portable Canvas panel.
   - [x] Bind those values through the production UCanvas adapter.
-- [ ] Complete responsive themes, DPI, clipping, fonts, and all 16 languages.
+- [x] Complete responsive themes, DPI, clipping, fonts, and all 16 languages.
   - [x] Apply safe-area, viewport, DPI, configured scale, clipping, and theme
     accent to the portable panel shell and compose its labels for every one of
     the 16 shipped catalogs.
@@ -942,7 +942,7 @@ Evidence:
     bind its generation-tracked texture through the central Product UI/ESP
     Canvas render path.
 - [x] Ensure panel close preserves ESP and active jobs.
-- [ ] Pass UI action/state, gesture, hotkey, layout, and localization tests.
+- [x] Pass UI action/state, gesture, hotkey, layout, and localization tests.
   - [x] Pass portable panel tests for all shipped locales, section switching,
     enabled/disabled typed actions, revision binding, panel-close input
     release, and invalid label/state refusal.
@@ -1011,7 +1011,7 @@ Evidence:
 
 ## Phase 12 — Launcher, payload, and CI hardening
 
-- [ ] Complete launcher switches and every managed/shared lifecycle.
+- [x] Complete launcher switches and every managed/shared lifecycle.
 - [ ] Assemble the minimal release UE4SS configuration.
   - [x] Implement an exact trusted-build runtime assembler that disables
     UE4SS consoles/debug UI/hot reload/crash dumps, packages only the product
