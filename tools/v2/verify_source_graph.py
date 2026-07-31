@@ -68,6 +68,28 @@ def git(*arguments: str, cwd: Path = ROOT) -> str:
     return result.stdout.strip()
 
 
+def git_bytes(*arguments: str, cwd: Path = ROOT) -> bytes:
+    result = subprocess.run(
+        [
+            "git",
+            "-c",
+            f"safe.directory={cwd}",
+            "-c",
+            "core.filemode=false",
+            *arguments,
+        ],
+        cwd=cwd,
+        check=False,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        fail(
+            f"git {' '.join(arguments)} failed: "
+            f"{result.stderr.decode('utf-8', errors='replace').strip()}"
+        )
+    return result.stdout
+
+
 def verify_root_gitlink() -> None:
     modules = configparser.ConfigParser()
     modules.read(ROOT / ".gitmodules", encoding="utf-8")
@@ -213,9 +235,11 @@ def verify_source_overlay() -> None:
     ).read_bytes()
     if hashlib.sha256(overlay).hexdigest() != UE4SS_CANONICAL_LOCK_SHA256:
         fail("the project-owned canonical Cargo lock changed")
-    upstream = (
-        ROOT / UE4SS_PATH / UE4SS_OVERLAY_TARGET
-    ).read_bytes()
+    upstream = git_bytes(
+        "show",
+        f"{UE4SS_COMMIT}:{UE4SS_OVERLAY_TARGET}",
+        cwd=ROOT / UE4SS_PATH,
+    )
     if hashlib.sha256(upstream).hexdigest() != UE4SS_UPSTREAM_LOCK_SHA256:
         fail("the accepted upstream Cargo lock changed")
 

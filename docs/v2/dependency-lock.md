@@ -83,8 +83,11 @@ MecchaCamouflage may:
   lock cannot be silently pruned or regenerated;
 - link `main.dll` against the `UE4SS` target from that same build.
 
-The staging tool checks the pristine source and nested commits, original and
-overlay hashes, exact one-file Git diff, and exact canonical manifest. CMake
+The staging tool checks the pristine source and nested commits, the upstream
+lock's accepted Git-blob bytes, overlay hashes, exact one-file Git diff, and
+exact canonical manifest. Its independent no-checkout clone explicitly uses
+`core.autocrlf=false` before materializing the accepted commit, so a clean
+Windows upstream checkout may use CRLF without changing stage identity. CMake
 accepts only the verified stage and manifest. The verifier runs again after
 build, and provenance plus dependency evidence bind the stage-manifest hash and
 diff identity. `.gitattributes` fixes project-owned text to LF by default,

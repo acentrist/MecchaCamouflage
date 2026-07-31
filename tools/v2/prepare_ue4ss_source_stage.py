@@ -156,8 +156,6 @@ def _git(
             [
                 "git",
                 "-c",
-                "core.autocrlf=false",
-                "-c",
                 "core.filemode=false",
                 "-C",
                 str(directory),
@@ -181,6 +179,43 @@ def _git(
             f"git {' '.join(arguments)} failed: {stderr.strip()}"
         )
     return completed.stdout
+
+
+def _git_blob(
+    directory: Path,
+    commit: str,
+    path: PurePosixPath,
+    maximum_size: int,
+) -> bytes:
+    entry = str(
+        _git(
+            directory,
+            "ls-tree",
+            commit,
+            "--",
+            path.as_posix(),
+        )
+    ).strip()
+    expected_suffix = f"\t{path.as_posix()}"
+    if (
+        not entry.startswith("100644 blob ")
+        or not entry.endswith(expected_suffix)
+    ):
+        raise Ue4ssSourceStageError(
+            "UE4SS upstream overlay target is not a regular Git blob."
+        )
+    contents = _git(
+        directory,
+        "show",
+        f"{commit}:{path.as_posix()}",
+        binary=True,
+    )
+    assert isinstance(contents, bytes)
+    if not contents or len(contents) > maximum_size:
+        raise Ue4ssSourceStageError(
+            "UE4SS upstream overlay target size is invalid."
+        )
+    return contents
 
 
 def _clone(source: Path, destination: Path, commit: str) -> None:
@@ -579,8 +614,12 @@ def prepare_ue4ss_source_stage(
                 "UE4SS initialized nested source is not the accepted clean "
                 f"commit: {nested_path.as_posix()}"
             )
-    source_target = source_root / Path(*target.parts)
-    upstream = _plain_file(source_target, _MAXIMUM_OVERLAY_BYTES)
+    upstream = _git_blob(
+        source_root,
+        commit,
+        target,
+        _MAXIMUM_OVERLAY_BYTES,
+    )
     overlay = _plain_file(overlay_path, _MAXIMUM_OVERLAY_BYTES)
     overlay_policy = policy["overlay"]
     assert isinstance(overlay_policy, dict)

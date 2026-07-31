@@ -340,6 +340,83 @@ class Ue4ssSourceStageTest(unittest.TestCase):
                 ["stage", "stage-manifest.json"],
             )
 
+    def test_accepts_clean_crlf_source_checkout_using_git_blob_identity(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, policy, target = make_simple_fixture(root)
+            crlf_source = root / "source-crlf"
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "core.autocrlf=true",
+                    "clone",
+                    "--quiet",
+                    "--no-hardlinks",
+                    str(source),
+                    str(crlf_source),
+                ],
+                check=True,
+            )
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(crlf_source),
+                    "config",
+                    "core.autocrlf",
+                    "true",
+                ],
+                check=True,
+            )
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(crlf_source),
+                    "checkout",
+                    "--quiet",
+                    "--force",
+                    "HEAD",
+                ],
+                check=True,
+            )
+            self.assertIn(
+                b"\r\n",
+                (crlf_source / target).read_bytes(),
+            )
+            self.assertEqual(
+                subprocess.check_output(
+                    [
+                        "git",
+                        "-C",
+                        str(crlf_source),
+                        "status",
+                        "--porcelain",
+                    ],
+                    text=True,
+                ).strip(),
+                "",
+            )
+
+            result = prepare_ue4ss_source_stage(
+                policy_path=policy,
+                source_root=crlf_source,
+                output_root=root / "stage",
+                manifest_path=root / "stage-manifest.json",
+            )
+
+            self.assertEqual(
+                result["ue4ss_commit"],
+                run_git(source, "rev-parse", "HEAD"),
+            )
+            self.assertEqual(
+                (root / "stage" / target).read_bytes(),
+                b"version = 4\n",
+            )
+
     def test_refuses_existing_stage_with_any_unapproved_change(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

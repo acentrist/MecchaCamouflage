@@ -48,8 +48,10 @@ touches no UObject, and is not a product release candidate.
 - The full build requires Windows x64, MSVC, UEPseudo, and patternsleuth.
 - Direct FetchContent inputs are predeclared by immutable commit.
 - `tools/v2/prepare_ue4ss_source_stage.py` clones the accepted initialized
-  graph without hardlinks or network access, applies only the approved build
-  overlay, and atomically publishes one reusable stage plus its manifest.
+  graph without hardlinks or network access, verifies the upstream lock from
+  its accepted Git blob, materializes the stage with `core.autocrlf=false`,
+  applies only the approved build overlay, and atomically publishes one
+  reusable stage plus its manifest.
 - `cmake/ue4ss-source-overlay.json` pins the upstream lock SHA-256
   `19292c3e0a74c851eb11ad09a3b3ac5e5d8e9b80eebe34dd705df10e09dc7e50`,
   canonical lock SHA-256
