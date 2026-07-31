@@ -34,6 +34,7 @@ add_library(
         src/product_ui_action_router.cpp
         src/product_ui_effect_executor.cpp
         src/product_ui_model.cpp
+        src/production_resources.cpp
         src/runtime_lifecycle.cpp
         src/runtime_operation_executor.cpp
 )

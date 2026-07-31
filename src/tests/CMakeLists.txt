@@ -409,6 +409,23 @@ add_test(
 )
 
 add_executable(
+    meccha_production_resources_tests
+    production_resources_test.cpp
+)
+target_link_libraries(
+    meccha_production_resources_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(
+    NAME production_resources
+    COMMAND
+        meccha_production_resources_tests
+        "${PROJECT_SOURCE_DIR}/resources"
+)
+
+add_executable(
     meccha_image_guide_tests
     image_guide_test.cpp
 )
