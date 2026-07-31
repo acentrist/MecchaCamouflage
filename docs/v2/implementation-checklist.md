@@ -426,24 +426,33 @@ Evidence:
   - [x] Implement the production queue observer with exact function/struct
     schemas, unique current-World manager discovery, owned component counters,
     sticky per-job activity, and negative/non-finite counter rejection.
+  - [x] Decode the three packaged deformation profiles, capture exact
+    world-space bone transforms through `GetSocketTransform`, and build
+    cancellable project-owned skinning/projection/sample materialization
+    entirely after the game-thread capture boundary.
+  - [x] Freeze typed current-build `CreateRenderTarget2D` 0x38 and
+    `ReadRenderTargetRaw` 0x28 reflection/parameter contracts, including the
+    `Slices` input and `TArray<LinearColor>` output, bounded dimensions,
+    finite readback validation, and struct-array reflection description.
   - [ ] Implement production mesh/sample/appearance capture.
-    - [ ] Freeze the exact 0x10-byte `InitializePaint` reflected schema before
-      calling it; the v1 zero-filled parameter buffer is not accepted evidence
-      of a no-argument contract.
+    - [x] Freeze the exact 0x10-byte `InitializePaint` reflected schema as
+      `MeshComponent` object input at 0x00 and bool return at 0x08; the v1
+      zero-filled no-argument call is not accepted.
 - [x] Validate round, cube, and fukuyoka profiles.
 - [x] Implement immutable planning for Paint/Fill/Skip, lighting, Auto Material,
   PBR, compression, and Fill-first ordering.
-- [x] Run Paint planning on one owned cancellable worker with immutable input,
-  generation-tagged results, and an exception boundary.
+- [x] Run Paint deformation, projection, sample materialization, and planning
+  on one owned cancellable worker from an immutable capture seed, with
+  generation-tagged results and an exception boundary.
 - [x] Coordinate planning, dispatch, drain, planning cancellation, typed
   failure, and stale-result rejection through the shared job generation.
 - [x] Implement the bounded typed albedo/packed-PBR preview snapshot controller,
   ownership guards, apply recovery, replacement restore, and shutdown restore.
 - [x] Implement cancellable bounded Paint-plan composition over immutable
   original albedo/packed-PBR channels without mutating the restore snapshot.
-- [x] Run Paint preview planning and composition on one owned cancellable
-  worker with immutable input, generation-tagged results, typed failures, and
-  an exception boundary.
+- [x] Run Paint preview deformation, projection, sample materialization,
+  planning, and composition on one owned cancellable worker with immutable
+  input, generation-tagged results, typed failures, and an exception boundary.
 - [x] Connect typed Start/Cancel Paint, capture, planning, dispatch, queue
   observation, progress, and terminal completion through `ApplicationRoot`.
 - [x] Connect typed Preview/Restore Paint through `ApplicationRoot`, including

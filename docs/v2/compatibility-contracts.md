@@ -70,8 +70,9 @@ Phase 4 validates the reflected equivalents before any call.
 | `PaintAtUVWithBrush` parameters | `0x68`: UV, ChannelData, BrushSettings, Channel |
 | `FScreenSpacePaintResult` | `0x48`: success, UV, world position, normal |
 | `HitTestAtScreenPosition` parameters | `0x70` |
-| `CreateRenderTarget2D` parameters | `0x30`; Format `0x10`; ClearColor `0x14`; ReturnValue `0x28` |
+| `CreateRenderTarget2D` parameters | current build `0x38`; Slices `0x10`; Format `0x14`; ClearColor `0x18`; ReturnValue `0x30` |
 | `ReadRenderTargetPixel` parameters | `0x20`; ReturnValue `0x18` |
+| `ReadRenderTargetRaw` parameters | current build `0x28`; output `TArray<LinearColor>` `0x10`; Normalize `0x20`; ReturnValue `0x21` |
 | `BeginDeferredActorSpawnFromClass` parameters | `0x90`; transform `0x10`; owner `0x78`; return `0x88` |
 | `FinishSpawningActor` parameters | `0x80` |
 
@@ -101,7 +102,7 @@ unassociated components are not candidates.
 | Contract ID | Owner/function | Required schema/semantics |
 | --- | --- | --- |
 | GAME-PAINT-001 | Runtime paintable `IsInitialized` | No-arg bool result |
-| GAME-PAINT-002 | Runtime paintable `InitializePaint` | Exact 0x10-byte parameter schema is not yet frozen; do not call until every property is verified. The v1 zero-filled buffer is not accepted as a no-argument contract |
+| GAME-PAINT-002 | Runtime paintable `InitializePaint` | exact `0x10`: input `MeshComponent` object at `0x00`; bool return at `0x08`; the v1 zero-filled no-argument call is rejected |
 | GAME-PAINT-003 | Runtime paintable `GetInitializedPaintMesh` | No-arg object result associated with target |
 | GAME-PAINT-004 | Runtime paintable `HitTestAtScreenPosition` | Exact `0x70` baseline semantics: mesh, screen point, controller, cache flag, structured result |
 | GAME-PAINT-005 | Runtime paintable `GetDominantPaintMaterialPatterns` | inputs `MaxPatterns`, `SampleStep`, `AlphaThreshold`; bounded `OutPatterns`; bool return |
@@ -143,8 +144,8 @@ The v1 research-only functions `MulticastSyncChannelData`,
 
 | Contract ID | Owner/function | Required use |
 | --- | --- | --- |
-| GAME-RENDER-001 | `KismetRenderingLibrary.CreateRenderTarget2D` | Create bounded transient render target on game thread |
-| GAME-RENDER-002 | `KismetRenderingLibrary.ReadRenderTargetPixel` | Validated bounded readback only where retained |
+| GAME-RENDER-001 | `KismetRenderingLibrary.CreateRenderTarget2D` | Exact current-build `0x38` schema; create a bounded, single-slice transient render target on the game thread |
+| GAME-RENDER-002 | `KismetRenderingLibrary.ReadRenderTargetRaw` | Exact current-build `0x28` schema; bounded finite `TArray<LinearColor>` readback with Unreal-owned storage cleanup |
 | GAME-RENDER-003 | `GameplayStatics.BeginDeferredActorSpawnFromClass` | Retain only if the accepted capture path still needs a scene-capture actor |
 | GAME-RENDER-004 | `GameplayStatics.FinishSpawningActor` | Pair with validated deferred spawn |
 | GAME-RENDER-005 | `Actor.K2_SetActorLocation` | Position retained capture actor |

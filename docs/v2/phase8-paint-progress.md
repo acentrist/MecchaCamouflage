@@ -1,16 +1,33 @@
 # Phase 8 Paint Progress
 
-Phase 8 is open. Its pure immutable planning, owned planning worker, and
+Phase 8 is open. Its pure immutable planning, packaged deformation,
+projection, sample materialization, owned planning worker, and
 generation-tagged dispatch boundaries are implemented and verified. Its exact
 reflected `PaintAtUVWithBrush` contract and production game-thread sender now
 compile against the pinned UE4SS graph. The exact production queue observer
-and preview channel adapter also compile against that graph; production
-mesh/sample/appearance capture, composition-root ownership, and live evidence
+and preview channel adapter also compile against that graph. Production scene
+capture/appearance feedback, composition-root ownership, and live evidence
 remain.
 
 ## Immutable capture-to-plan contract
 
-`PaintPlanRequest` owns copied game-thread capture values only:
+The game-thread boundary may now return either a complete
+`PaintPlanRequest` or an immutable `PaintCaptureInput`. The latter owns:
+
+- one complete packaged reference mesh, sampling topology, skinning influence,
+  skeleton, and inverse-reference pose;
+- copied current world-space bone transforms;
+- one validated camera view and viewport;
+- bounded immutable intrinsic/scene rasters and optional already-resolved
+  automatic appearances; and
+- one complete validated `PaintSettings` value.
+
+No UObject, UE4SS, Windows, graphics, callback, or launcher type crosses this
+boundary. `PaintPlanningWorker` and `PaintPreviewBuildWorker` perform
+skinning, projection, raster lookup, sample construction, and planning on
+their owned cancellable worker before planning or preview composition.
+
+The resulting `PaintPlanRequest` owns copied capture values only:
 
 - one exact validated raw round, cube, or fukuyoka profile identity;
 - one complete validated `PaintSettings` value;
@@ -45,9 +62,11 @@ publishing a partial plan.
 
 ## Owned planning worker
 
-`PaintPlanningWorker` receives a complete copied `PaintPlanRequest` and permits
-one active generation. It:
+`PaintPlanningWorker` receives a copied `PaintPlanRequest` or
+`PaintCaptureInput` and permits one active generation. It:
 
+- materializes deformation/projection/capture samples on its owned thread when
+  given a capture input;
 - runs the project-owned core planner on one owned `std::jthread`;
 - propagates cancellation through the planner's `std::stop_token`;
 - refuses generation zero, concurrent work, and work after shutdown;
@@ -58,7 +77,29 @@ one active generation. It:
   late result from being confused with a newer generation.
 
 The worker never touches UObjects, UE4SS, the scheduler, job state, or the
-runtime adapter.
+runtime adapter. Capture-seed failures are distinct from planner failures.
+
+## Current capture contracts
+
+The current shipping executable and source contracts now freeze:
+
+- `InitializePaint` at 0x10: `MeshComponent` object input at 0x00 and bool
+  return at 0x08;
+- `IsInitialized` at 0x01 and `GetInitializedPaintMesh` at 0x08;
+- `SceneComponent.GetSocketTransform` at 0x70, including the UE5 0x60
+  `Transform` return;
+- `KismetRenderingLibrary.CreateRenderTarget2D` at 0x38, including the current
+  `Slices` input at 0x10 and return object at 0x30; and
+- `KismetRenderingLibrary.ReadRenderTargetRaw` at 0x28, including its output
+  `TArray<LinearColor>` at 0x10 and bool return at 0x21.
+
+The typed render-target codec admits only non-null game-thread objects,
+single-image dimensions at or below 2048, and the reviewed RGBA8-sRGB or
+RGBA16f formats. Readback requires the exact expected pixel count, a plausible
+array header, a true function return, and finite RGBA values. The runtime
+reflection bridge now describes byte arrays and struct arrays without
+weakening exact inner-type validation. This is contract/build evidence; the
+production SceneCapture actor/property path is not connected yet.
 
 `PaintJobCoordinator` is the sole planning-to-dispatch transition. It compares
 every completion with both its owned generation and the current shared job
@@ -203,13 +244,14 @@ snapshot. It validates plan structure and channel dimensions before copying,
 uses checked arithmetic, stops above the hard stroke/pixel-operation budgets,
 and honors cancellation before and during scanline composition.
 
-`PaintPreviewBuildWorker` owns the asynchronous boundary around planning and
-composition. It accepts copied plan input plus shared immutable original
-channels, permits only one active nonzero generation, forwards one stop token
-through both algorithms, and publishes an immutable texture or a typed
-planner/composer failure tagged with the originating generation. Collection is
-required before reuse, and no planner exception can cross the worker boundary.
-It has no runtime adapter, UObject, scheduler, or preview-lease access.
+`PaintPreviewBuildWorker` owns the asynchronous boundary around capture
+materialization, planning, and composition. It accepts copied plan/capture
+input plus shared immutable original channels, permits only one active nonzero
+generation, forwards one stop token through every algorithm, and publishes an
+immutable texture or a typed capture/planner/composer failure tagged with the
+originating generation. Collection is required before reuse, and no exception
+can cross the worker boundary. It has no runtime adapter, UObject, scheduler,
+or preview-lease access.
 
 ## Automated evidence
 
@@ -249,7 +291,11 @@ containment, and terminal shutdown. `paint_preview_controller` covers
 game-thread enforcement, capture reuse, replacement ordering, strict image
 bounds, wrong-component and repeat guards, apply recovery, retained recovery
 failure, shutdown restoration, malformed capture, and invalid-handle expiry.
-`application_root_paint` covers the end-to-end real-Paint and preview commands,
+`paint_deformation`, `paint_capture_geometry`, and `paint_capture_request`
+cover exact hierarchy reconstruction, weighted skinning, current-view
+projection, finite/bounded raster materialization, Auto Material presence,
+and cancellation. `application_root_paint` covers the end-to-end real-Paint
+and preview commands,
 capture, workers, game-thread preview apply/restore, restore-before-real-Paint,
 dispatch, execution, observation, completion, command backpressure, and
 frame-owned UI/ESP path. It also holds fake runtime queues nonempty during
@@ -257,18 +303,20 @@ shutdown and proves the active Paint generation reaches `Cancelled` before
 quiescing. `paint_preview_composer` adds Fill/Paint overwrite
 ordering, packed-PBR quantization, edge clipping, original immutability,
 invalid plan/buffer rejection, cancellation, and resource-limit evidence. The
-secret-free Linux normal and ASan/UBSan suites currently pass all 78 registered
-tests from isolated fresh build directories. The production adapter, exact
-sender, queue observer, and preview channel adapter also compile in the pinned
-Windows MSVC `Game__Shipping__Win64` graph; this is build evidence, not a live
-Paint pass.
+secret-free Linux normal and fresh ASan/UBSan suites currently pass all 89
+registered tests. The production adapter, exact sender, queue observer,
+preview channel adapter, capture codecs, and struct-array reflection bridge
+also compile with `/WX` in the pinned Windows MSVC
+`Game__Shipping__Win64` graph; the exact Windows reflection-contract test
+passes. This is build evidence, not a live Paint pass.
 
 ## Remaining gate
 
 - Capture the live component/profile/source appearance through validated
-  reflected contracts on the game thread. `InitializePaint` is known to have a
-  0x10-byte parameter buffer, but its exact property schema is not frozen; v2
-  must not reproduce the v1 zero-filled call.
+  reflected contracts on the game thread. The initialization and bounded
+  render-target/readback ABIs are frozen; the SceneCapture actor/component
+  properties, target hiding, capture passes, cleanup, and Auto Material
+  preview-feedback transaction remain to be connected.
 - Implement the remaining production UE4SS capture contracts, connect the
   completed sender and queue observer through the exported composition root,
   and connect the completed preview adapter through that same root.
