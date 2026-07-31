@@ -10,10 +10,10 @@ pipeline connects them by exact project identity and revision. An editor
 session now coordinates the derived pipeline, active draft, typed project
 operations, and application root. The production Windows service owner
 constructs that session from the isolated native stores, hasher, decoder, and
-composer. Exact-profile guide generation and the project-owned game-thread
-texture coordinator are implemented, but their narrow port does not yet create
-reflected Unreal textures or drive the complete in-game editor lifecycle.
-Phase 9 therefore remains open.
+composer. Exact-profile guide generation, the project-owned game-thread texture
+coordinator, and its reflected Unreal texture port are implemented. Their
+exported composition-root wiring and the complete in-game editor lifecycle
+remain open, so Phase 9 is not complete.
 
 The packaged raw profiles now decode into project-owned immutable Paint
 sampling profiles containing only exact identity, ordered UV vertices, ordered
@@ -101,11 +101,15 @@ tuning can replace that bounded policy only through a separately frozen
 contract.
 
 Portable Linux verification passes all 83 tests, including exact catalog
-loading and static Image Paint sampling. The same source compiles and links
-`main.dll` under the pinned UE4SS/MSVC x64
-`Game__Shipping__Win64` graph. Live object resolution and behavior remain part
-of the explicit architecture/release matrix and are not claimed by these build
-checks.
+loading and static Image Paint sampling. Immutable Windows staging at project
+commit `ba4fdb3` builds the complete 1,131-step pinned UE4SS/MSVC x64
+`Game__Shipping__Win64` graph, passes all 101 Windows tests, and passes the
+full-build source, compiler, PE, export, import, and runtime provenance check.
+The verified stage contains the pinned UE4SS source plus only the approved
+project-owned canonical
+`deps/first/patternsleuth_bind/Cargo.lock` overlay. Live object resolution and
+behavior remain part of the explicit architecture/release matrix and are not
+claimed by these build checks.
 
 ## Portable Canvas editor
 

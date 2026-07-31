@@ -557,11 +557,18 @@ Evidence:
       anchors inside the owned planning worker, with cancellation and exact
       raw/image topology matching; never scan a runtime component for an
       unreflected triangle cache.
-    - [x] Preload and validate all three raw/image profile pairs outside the
-      HUD callback, then expose them through an injected immutable catalog.
+    - [x] Implement an immutable catalog loader that validates all three
+      raw/image profile pairs and require that catalog at runtime-adapter
+      construction, with no profile I/O or parsing in HUD callbacks.
+    - [ ] In the exported production composition root, resolve the packaged
+      profile directory, construct the catalog before callback registration,
+      and inject it into the single runtime adapter.
     - [x] On the game thread, validate the live RuntimePaintable target mesh
       and exact `SkinnedAsset` path/export against the selected catalog entry
       before returning the acknowledged component and pacing.
+    - [ ] Prove the reflected target-mesh and asset-identity gate against the
+      supported live game through replacement, travel, freecam, spectator, and
+      unload transitions.
 - [ ] Integrate v2 project/preset management.
   - [x] Connect the v2-only project store and session transaction boundary to
     the application command variant and composition root.
