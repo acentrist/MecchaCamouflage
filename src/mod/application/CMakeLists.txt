@@ -18,6 +18,7 @@ add_library(
         src/input_command_router.cpp
         src/image_paint_job_coordinator.cpp
         src/image_paint_planning_worker.cpp
+        src/image_paint_profile_catalog.cpp
         src/image_project_codec.cpp
         src/image_project_io_worker.cpp
         src/image_project_persistence.cpp
