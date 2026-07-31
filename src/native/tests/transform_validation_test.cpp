@@ -99,6 +99,46 @@ int main()
     {
         return 124;
     }
+    const auto compact_correction_metadata =
+        compact_mesh_response_metadata(
+            "\"appearance_calibration_step_texels\":4.0,"
+            "\"appearance_correction_field_ok\":true,"
+            "\"appearance_correction_field_hash\":\"123\","
+            "\"appearance_physical_source_candidate_samples\":7,"
+            "\"appearance_physical_accepted_samples\":1,"
+            "\"appearance_physical_color_carrier_candidate_samples\":1,"
+            "\"appearance_physical_color_carrier_final_samples\":1,"
+            "\"appearance_physical_accepted_components\":1,"
+            "\"appearance_albedo_only_improvement\":0.25,"
+            "\"appearance_final_painted_nonzero_emissive_pixels\":9,"
+            "\"appearance_physical_rejection_reason\":\"accepted\"");
+    if (compact_correction_metadata.find(
+            "\"appearance_calibration_step_texels\":4.0") ==
+            std::string::npos ||
+        compact_correction_metadata.find(
+            "\"appearance_correction_field_ok\":true") ==
+            std::string::npos ||
+        compact_correction_metadata.find(
+            "\"appearance_physical_accepted_samples\":1") ==
+            std::string::npos ||
+        compact_correction_metadata.find(
+            "\"appearance_physical_color_carrier_candidate_samples\":1") ==
+            std::string::npos ||
+        compact_correction_metadata.find(
+            "\"appearance_physical_color_carrier_final_samples\":1") ==
+            std::string::npos ||
+        compact_correction_metadata.find(
+            "\"appearance_physical_accepted_components\":1") ==
+            std::string::npos ||
+        compact_correction_metadata.find(
+            "\"appearance_albedo_only_improvement\":0.25") ==
+            std::string::npos ||
+        compact_correction_metadata.find(
+            "\"appearance_final_painted_nonzero_emissive_pixels\":9") ==
+            std::string::npos)
+    {
+        return 129;
+    }
 
     struct DuplicateUvTriangle
     {
@@ -934,25 +974,7 @@ int main()
     {
         return 81;
     }
-    if (runtime_contract::
-            appearance_should_resolve_screen_hit_uv(
-                true,
-                true,
-                false,
-                false) ||
-        !runtime_contract::
-            appearance_should_resolve_screen_hit_uv(
-                true,
-                true,
-                false,
-                true) ||
-        runtime_contract::
-            appearance_should_resolve_screen_hit_uv(
-                true,
-                true,
-                true,
-                true) ||
-        !runtime_contract::
+    if (!runtime_contract::
             appearance_normalized_screen_position_valid(
                 0.5,
                 0.5) ||
@@ -2183,6 +2205,32 @@ int main()
         runtime_contract::appearance_emission_chromaticity_albedo(
             {2.0, 1.0, 0.5},
             {0.1, 0.2, 0.3});
+    const runtime_contract::AppearanceRgb dark_emitter_base{
+        0.02, 0.02, 0.02};
+    const runtime_contract::AppearanceRgb warm_emission{
+        12.0, 4.0, 0.5};
+    const runtime_contract::AppearanceRgb warm_isolated_hdr{
+        runtime_contract::appearance_srgb_to_linear(
+            dark_emitter_base.r) + warm_emission.r,
+        runtime_contract::appearance_srgb_to_linear(
+            dark_emitter_base.g) + warm_emission.g,
+        runtime_contract::appearance_srgb_to_linear(
+            dark_emitter_base.b) + warm_emission.b};
+    const auto rescued_emitter =
+        runtime_contract::appearance_rescue_emission_color(
+            dark_emitter_base,
+            warm_isolated_hdr,
+            0.01);
+    const auto unchanged_non_emitter =
+        runtime_contract::appearance_rescue_emission_color(
+            dark_emitter_base,
+            {runtime_contract::appearance_srgb_to_linear(
+                 dark_emitter_base.r) + 0.001,
+             runtime_contract::appearance_srgb_to_linear(
+                 dark_emitter_base.g) + 0.001,
+             runtime_contract::appearance_srgb_to_linear(
+                 dark_emitter_base.b) + 0.001},
+            0.01);
     if (std::abs(
             intrinsic_residual.r -
             residual_expected.r) >
@@ -2200,9 +2248,379 @@ int main()
         std::abs(emission_chromaticity.g - 0.5) >
             0.000001 ||
         std::abs(emission_chromaticity.b - 0.25) >
-            0.000001)
+            0.000001 ||
+        !rescued_emitter.applied ||
+        std::abs(
+            std::max({rescued_emitter.albedo_srgb.r,
+                      rescued_emitter.albedo_srgb.g,
+                      rescued_emitter.albedo_srgb.b}) -
+            runtime_contract::AppearanceEmissionRescuePeakSrgb) >
+            0.000001 ||
+        !(rescued_emitter.albedo_srgb.r >
+              rescued_emitter.albedo_srgb.g &&
+          rescued_emitter.albedo_srgb.g >
+              rescued_emitter.albedo_srgb.b) ||
+        unchanged_non_emitter.applied ||
+        runtime_contract::appearance_max_channel_delta(
+            unchanged_non_emitter.albedo_srgb,
+            dark_emitter_base) > 0.000001)
     {
         return 75;
+    }
+
+    const auto diffuse_feedback =
+        runtime_contract::appearance_closed_loop_correction(
+            {{0.25, 0.20, 0.10},
+             0.0,
+             {0.60, 0.40, 0.10},
+             {0.30, 0.20, 0.10},
+             false});
+    const auto stable_feedback =
+        runtime_contract::appearance_closed_loop_correction(
+            {{0.25, 0.20, 0.10},
+             0.0,
+             {0.30, 0.20, 0.10},
+             {0.30, 0.20, 0.10},
+             false});
+    const auto emitter_feedback =
+        runtime_contract::appearance_closed_loop_correction(
+            {{1.0, 0.60, 0.10},
+             0.0,
+             {4.0, 2.0, 0.20},
+             {0.80, 0.40, 0.10},
+             true});
+    const auto non_emitter_feedback =
+        runtime_contract::appearance_closed_loop_correction(
+            {{1.0, 0.60, 0.10},
+             0.0,
+             {4.0, 2.0, 0.20},
+             {0.80, 0.40, 0.10},
+             false});
+    if (!diffuse_feedback.supported ||
+        !(diffuse_feedback.albedo_linear.r > 0.25) ||
+        !(diffuse_feedback.albedo_linear.g > 0.20) ||
+        std::abs(diffuse_feedback.albedo_linear.b - 0.10) >
+            0.000001 ||
+        diffuse_feedback.emissive != 0.0 ||
+        !stable_feedback.supported ||
+        runtime_contract::appearance_max_channel_delta(
+            stable_feedback.albedo_linear,
+            {0.25, 0.20, 0.10}) > 0.000001 ||
+        stable_feedback.emissive != 0.0 ||
+        !emitter_feedback.supported ||
+        !(emitter_feedback.emissive > 0.0) ||
+        non_emitter_feedback.emissive != 0.0)
+    {
+        return 76;
+    }
+
+    const auto albedo_only_feedback =
+        runtime_contract::appearance_albedo_closed_loop_correction(
+            {{0.20, 0.15, 0.10},
+             0.25,
+             {0.80, 0.45, 0.20},
+             {0.30, 0.20, 0.10},
+             true});
+    if (!albedo_only_feedback.supported ||
+        !(albedo_only_feedback.albedo_linear.r > 0.20) ||
+        !(albedo_only_feedback.albedo_linear.g > 0.15) ||
+        std::abs(albedo_only_feedback.emissive - 0.25) >
+            0.000001)
+    {
+        return 126;
+    }
+
+    runtime_contract::AppearancePhysicalEmissionEvidenceInput
+        unstable_speckle{};
+    unstable_speckle.source_residual_first =
+        {0.020, 0.018, 0.019};
+    unstable_speckle.source_residual_second =
+        {0.001, 0.024, 0.002};
+    unstable_speckle.source_noise_floor_first = 0.010;
+    unstable_speckle.source_noise_floor_second = 0.010;
+    unstable_speckle.source_hdr = {0.90, 0.70, 0.55};
+    unstable_speckle.baseline_hdr = {0.30, 0.25, 0.20};
+    unstable_speckle.endpoint_hdr = {1.40, 1.10, 0.85};
+    unstable_speckle.manual_emissive_floor = 0.20;
+    unstable_speckle.source_distribution_separated = false;
+    unstable_speckle.camera_stable = true;
+    unstable_speckle.readback_calibrated = true;
+    unstable_speckle.packed_b_verified = true;
+    const auto rejected_speckle =
+        runtime_contract::appearance_physical_emission_evidence(
+            unstable_speckle);
+
+    auto stable_but_below_noise = unstable_speckle;
+    stable_but_below_noise.source_residual_first =
+        {0.020, 0.018, 0.019};
+    stable_but_below_noise.source_residual_second =
+        {0.019, 0.018, 0.020};
+    stable_but_below_noise.source_noise_floor_first = 0.050;
+    stable_but_below_noise.source_noise_floor_second = 0.080;
+    const auto rejected_below_noise =
+        runtime_contract::appearance_physical_emission_evidence(
+            stable_but_below_noise);
+
+    runtime_contract::AppearancePhysicalEmissionEvidenceInput
+        small_physical_emitter{};
+    small_physical_emitter.source_residual_first =
+        {0.80, 0.32, 0.08};
+    small_physical_emitter.source_residual_second =
+        {0.79, 0.33, 0.08};
+    small_physical_emitter.source_noise_floor_first = 0.050;
+    small_physical_emitter.source_noise_floor_second = 0.080;
+    small_physical_emitter.source_hdr = {1.20, 0.52, 0.18};
+    small_physical_emitter.baseline_hdr = {0.28, 0.18, 0.09};
+    small_physical_emitter.endpoint_hdr = {2.20, 0.92, 0.27};
+    small_physical_emitter.manual_emissive_floor = 0.10;
+    small_physical_emitter.source_distribution_separated = false;
+    small_physical_emitter.camera_stable = true;
+    small_physical_emitter.readback_calibrated = true;
+    small_physical_emitter.packed_b_verified = true;
+    const auto accepted_small_emitter =
+        runtime_contract::appearance_physical_emission_evidence(
+            small_physical_emitter);
+    const auto warm_emission_material =
+        runtime_contract::appearance_compose_physical_emission_material(
+            {{0.18, 0.16, 0.03},
+             small_physical_emitter.source_residual_first,
+             small_physical_emitter.source_residual_second,
+             small_physical_emitter.manual_emissive_floor,
+             accepted_small_emitter.inferred_emissive,
+             accepted_small_emitter.accepted});
+    const auto rejected_emission_material =
+        runtime_contract::appearance_compose_physical_emission_material(
+            {{0.18, 0.16, 0.03},
+             unstable_speckle.source_residual_first,
+             unstable_speckle.source_residual_second,
+             unstable_speckle.manual_emissive_floor,
+             rejected_speckle.inferred_emissive,
+             rejected_speckle.accepted});
+    if (rejected_speckle.accepted ||
+        rejected_speckle.source_supported ||
+        !rejected_speckle.target_response_supported ||
+        rejected_below_noise.accepted ||
+        rejected_below_noise.source_supported ||
+        !rejected_below_noise.target_response_supported ||
+        std::abs(rejected_speckle.composed_emissive - 0.20) >
+            0.000001 ||
+        !accepted_small_emitter.accepted ||
+        !accepted_small_emitter.source_supported ||
+        !accepted_small_emitter.target_response_supported ||
+        !(accepted_small_emitter.composed_emissive > 0.10) ||
+        !(accepted_small_emitter.candidate_loss <
+          accepted_small_emitter.baseline_loss) ||
+        !warm_emission_material.chromaticity_carrier_applied ||
+        !(warm_emission_material.albedo.r >
+          warm_emission_material.albedo.g * 2.0) ||
+        !(warm_emission_material.albedo.g >
+          warm_emission_material.albedo.b * 2.0) ||
+        std::abs(
+            warm_emission_material.emissive -
+            accepted_small_emitter.composed_emissive) >
+            0.000001 ||
+        rejected_emission_material.chromaticity_carrier_applied ||
+        std::abs(rejected_emission_material.albedo.r - 0.18) >
+            0.000001 ||
+        std::abs(rejected_emission_material.albedo.g - 0.16) >
+            0.000001 ||
+        std::abs(rejected_emission_material.albedo.b - 0.03) >
+            0.000001 ||
+        std::abs(
+            runtime_contract::appearance_compose_physical_emissive(
+                0.65,
+                0.25) -
+            0.65) >
+            0.000001)
+    {
+        return 127;
+    }
+
+    runtime_contract::AppearancePhysicalEmissionComponentValidationInput
+        one_sample_component{};
+    one_sample_component.paired_samples = 1;
+    one_sample_component.baseline_loss = 0.10;
+    one_sample_component.candidate_loss = 0.08;
+    one_sample_component.non_emission_paired_samples = 100;
+    one_sample_component.baseline_non_emission_loss = 0.050;
+    one_sample_component.candidate_non_emission_loss = 0.055;
+    one_sample_component.dual_evidence_prevalidated = true;
+    one_sample_component.camera_stable = true;
+    one_sample_component.readback_calibrated = true;
+    one_sample_component.packed_b_verified = true;
+    one_sample_component.painted_emissive_nonzero_pixels = 1;
+    const auto accepted_one_sample_component =
+        runtime_contract::
+            appearance_validate_physical_emission_component(
+                one_sample_component);
+    auto weak_component = one_sample_component;
+    weak_component.candidate_loss = 0.09;
+    const auto rejected_weak_component =
+        runtime_contract::
+            appearance_validate_physical_emission_component(
+                weak_component);
+    const auto misleading_aggregate_improvement =
+        (1.10 - 0.59) / 1.10;
+    if (!accepted_one_sample_component.accepted ||
+        accepted_one_sample_component.rejection !=
+            runtime_contract::
+                AppearancePhysicalEmissionComponentRejection::None ||
+        rejected_weak_component.accepted ||
+        misleading_aggregate_improvement <
+            runtime_contract::AppearanceFitMinimumImprovement ||
+        rejected_weak_component.rejection !=
+            runtime_contract::
+                AppearancePhysicalEmissionComponentRejection::
+                    RoiImprovementBelowThreshold)
+    {
+        return 130;
+    }
+
+    runtime_contract::AppearanceCorrectionFieldInput
+        two_boundary_field{};
+    two_boundary_field.vertex_count = 3;
+    two_boundary_field.edges = {{0, 1}, {1, 2}};
+    two_boundary_field.side_vertices = {false, true, false};
+    two_boundary_field.anchors = {
+        {0,
+         {0.0, 0.0, 0.0},
+         1.0,
+         runtime_contract::AppearanceCorrectionBoundary::Front},
+        {2,
+         {std::log(4.0), std::log(4.0), std::log(4.0)},
+         1.0,
+         runtime_contract::AppearanceCorrectionBoundary::Back}};
+    const auto interpolated_field =
+        runtime_contract::appearance_solve_correction_field(
+            two_boundary_field);
+    auto reversed_boundary_field = two_boundary_field;
+    std::reverse(
+        reversed_boundary_field.anchors.begin(),
+        reversed_boundary_field.anchors.end());
+    const auto reversed_field =
+        runtime_contract::appearance_solve_correction_field(
+            reversed_boundary_field);
+
+    auto one_boundary_field = two_boundary_field;
+    one_boundary_field.anchors.resize(1);
+    const auto extended_field =
+        runtime_contract::appearance_solve_correction_field(
+            one_boundary_field);
+    auto unanchored_field = one_boundary_field;
+    unanchored_field.anchors.clear();
+    const auto rejected_field =
+        runtime_contract::appearance_solve_correction_field(
+            unanchored_field);
+    if (!interpolated_field.ok ||
+        interpolated_field.values.size() != 3 ||
+        std::abs(
+            interpolated_field.values[1].r -
+            std::log(2.0)) >
+            0.0001 ||
+        interpolated_field.front_anchor_vertices != 1 ||
+        interpolated_field.back_anchor_vertices != 1 ||
+        interpolated_field.side_components != 1 ||
+        interpolated_field.one_boundary_side_components != 0 ||
+        interpolated_field.hash != reversed_field.hash ||
+        !extended_field.ok ||
+        extended_field.one_boundary_side_components != 1 ||
+        std::abs(extended_field.values[1].r) > 0.000001 ||
+        rejected_field.ok ||
+        rejected_field.unanchored_side_components != 1 ||
+        rejected_field.failure !=
+            runtime_contract::AppearanceCorrectionFieldFailure::
+                SideUnanchored)
+    {
+        return 128;
+    }
+
+    struct CorrectionReplayVariation
+    {
+        double brush_size{1.0};
+        bool front{false};
+        bool side{false};
+        bool back{false};
+    };
+    const std::array<CorrectionReplayVariation, 8>
+        correction_replay_variations{{
+            {1.0, true, false, false},
+            {1.0, false, true, false},
+            {1.0, false, false, true},
+            {1.0, true, true, true},
+            {4.0, true, false, false},
+            {4.0, false, true, false},
+            {4.0, false, false, true},
+            {4.0, true, true, true},
+        }};
+    for (const auto& variation : correction_replay_variations)
+    {
+        const auto field =
+            runtime_contract::appearance_solve_correction_field(
+                two_boundary_field);
+        const std::vector<runtime_contract::ReplayCandidate>
+            replay_candidates{
+                {0,
+                 runtime_contract::ReplayRegion::Front,
+                 variation.front
+                     ? runtime_contract::ReplayRegionMode::Paint
+                     : runtime_contract::ReplayRegionMode::Skip,
+                 0,
+                 0.1,
+                 0.1,
+                 true,
+                 1.0,
+                 1.0,
+                 0.0,
+                 0},
+                {1,
+                 runtime_contract::ReplayRegion::Side,
+                 variation.side
+                     ? runtime_contract::ReplayRegionMode::Paint
+                     : runtime_contract::ReplayRegionMode::Skip,
+                 0,
+                 0.5,
+                 0.5,
+                 true,
+                 0.5,
+                 0.5,
+                 0.0,
+                 1},
+                {2,
+                 runtime_contract::ReplayRegion::Back,
+                 variation.back
+                     ? runtime_contract::ReplayRegionMode::Paint
+                     : runtime_contract::ReplayRegionMode::Skip,
+                 0,
+                 0.9,
+                 0.9,
+                 true,
+                 0.0,
+                 0.0,
+                 0.0,
+                 2}};
+        const auto replay =
+            runtime_contract::build_single_brush_replay_plan(
+                replay_candidates,
+                1024,
+                variation.brush_size,
+                8.0);
+        const auto expected_paint_count =
+            static_cast<std::size_t>(
+                (variation.front ? 1 : 0) +
+                (variation.side ? 1 : 0) +
+                (variation.back ? 1 : 0));
+        if (!field.ok ||
+            field.hash != interpolated_field.hash ||
+            field.values.size() != interpolated_field.values.size() ||
+            std::abs(
+                field.values[1].r -
+                interpolated_field.values[1].r) >
+                0.000001 ||
+            replay.fill_count != 0 ||
+            replay.paint_count != expected_paint_count)
+        {
+            return 131;
+        }
     }
 
     if (runtime_contract::production_material_stroke_count(3) != 3 ||
@@ -2212,6 +2630,37 @@ int main()
     {
         return 23;
     }
+
+    const auto projected_environment =
+        runtime_contract::environment_projected_capture_coordinate(
+            {0.25, 0.75});
+    const auto same_projected_back =
+        runtime_contract::environment_projected_capture_coordinate(
+            {0.25, 0.75});
+    const auto projected_top_left =
+        runtime_contract::environment_projected_capture_coordinate(
+            {0.0, 0.0});
+    const auto projected_bottom_right =
+        runtime_contract::environment_projected_capture_coordinate(
+            {1.0, 1.0});
+    const auto projected_outside =
+        runtime_contract::environment_projected_capture_coordinate(
+            {-0.01, 0.50});
+    if (!projected_environment.ok ||
+        !same_projected_back.ok ||
+        !projected_top_left.ok ||
+        !projected_bottom_right.ok ||
+        projected_outside.ok ||
+        std::abs(projected_environment.capture_u - 0.25) > 0.000001 ||
+        std::abs(projected_environment.capture_v - 0.75) > 0.000001 ||
+        std::abs(projected_environment.capture_u -
+                 same_projected_back.capture_u) > 0.000001 ||
+        std::abs(projected_environment.capture_v -
+                 same_projected_back.capture_v) > 0.000001)
+    {
+        return 125;
+    }
+
     if (runtime_contract::esp_capture_status(
             false, false, 0, false) !=
             runtime_contract::EspCaptureStatus::Disabled ||

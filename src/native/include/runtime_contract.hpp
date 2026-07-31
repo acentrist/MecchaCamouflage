@@ -634,6 +634,38 @@ namespace runtime_contract
         return result;
     }
 
+    struct EnvironmentProjectedCaptureInput
+    {
+        double screen_x{0.5};
+        double screen_y{0.5};
+    };
+
+    struct EnvironmentProjectedCaptureResult
+    {
+        bool ok{false};
+        double capture_u{0.5};
+        double capture_v{0.5};
+    };
+
+    inline EnvironmentProjectedCaptureResult
+    environment_projected_capture_coordinate(
+        const EnvironmentProjectedCaptureInput& input)
+    {
+        EnvironmentProjectedCaptureResult out{};
+        if (!std::isfinite(input.screen_x) ||
+            !std::isfinite(input.screen_y) ||
+            input.screen_x < 0.0 ||
+            input.screen_x > 1.0 ||
+            input.screen_y < 0.0 ||
+            input.screen_y > 1.0)
+        {
+            return out;
+        }
+        out.ok = true;
+        out.capture_u = input.screen_x;
+        out.capture_v = input.screen_y;
+        return out;
+    }
     enum class ReplayPass
     {
         Fill,
@@ -875,21 +907,6 @@ namespace runtime_contract
         return runtime_triangle_uv_valid
                    ? AppearancePaintUvRoute::RuntimeTriangle
                    : AppearancePaintUvRoute::Invalid;
-    }
-
-    constexpr bool appearance_should_resolve_screen_hit_uv(
-        bool auto_material,
-        bool any_paint_region,
-        bool image_paint,
-        bool research_screen_hit_requested)
-    {
-        // The validated runtime-triangle cache is the production paint-UV
-        // source. HitTestAtScreenPosition is retained as an explicit research
-        // cross-check, not a per-sample production prerequisite.
-        return auto_material &&
-               any_paint_region &&
-               !image_paint &&
-               research_screen_hit_requested;
     }
 
     inline bool appearance_normalized_screen_position_valid(
@@ -1333,6 +1350,227 @@ namespace runtime_contract
                 isolated_hdr.b -
                     appearance_srgb_to_linear(base_srgb.b)),
         };
+    }
+
+    constexpr double AppearanceEmissionRescuePeakSrgb = 1.0;
+
+    struct AppearanceEmissionColorRescue
+    {
+        AppearanceRgb albedo_srgb{};
+        bool applied{false};
+        double residual_luminance{0.0};
+    };
+
+    inline AppearanceEmissionColorRescue
+    appearance_rescue_emission_color(
+        const AppearanceRgb& base_srgb,
+        const AppearanceRgb& isolated_hdr,
+        double residual_threshold)
+    {
+        AppearanceEmissionColorRescue out{};
+        out.albedo_srgb = appearance_clamp_albedo(base_srgb);
+        if (!appearance_rgb_finite(base_srgb) ||
+            !appearance_rgb_finite(isolated_hdr) ||
+            !std::isfinite(residual_threshold))
+        {
+            return out;
+        }
+
+        const auto residual =
+            appearance_intrinsic_emission_residual(
+                isolated_hdr,
+                base_srgb);
+        out.residual_luminance =
+            appearance_luminance(residual);
+        const auto threshold =
+            std::max(0.0, residual_threshold);
+        if (!std::isfinite(out.residual_luminance) ||
+            out.residual_luminance <= threshold)
+        {
+            return out;
+        }
+
+        // Emission is used only as a colour source. A channel-wise HDR
+        // compression prevents raw emitter ratios from turning warm lights
+        // unnaturally yellow, then a fixed sRGB peak deliberately discards
+        // source intensity so the result remains ordinary bounded Albedo.
+        const AppearanceRgb compressed_linear{
+            residual.r / (1.0 + residual.r),
+            residual.g / (1.0 + residual.g),
+            residual.b / (1.0 + residual.b)};
+        const auto peak =
+            std::max({compressed_linear.r,
+                      compressed_linear.g,
+                      compressed_linear.b});
+        if (!std::isfinite(peak) || peak <= 0.000001)
+        {
+            return out;
+        }
+        const auto target_linear_peak =
+            appearance_srgb_to_linear(
+                AppearanceEmissionRescuePeakSrgb);
+        const auto scale = target_linear_peak / peak;
+        const AppearanceRgb rescued_srgb{
+            appearance_linear_to_srgb(
+                std::clamp(
+                    compressed_linear.r * scale,
+                    0.0,
+                    1.0)),
+            appearance_linear_to_srgb(
+                std::clamp(
+                    compressed_linear.g * scale,
+                    0.0,
+                    1.0)),
+            appearance_linear_to_srgb(
+                std::clamp(
+                    compressed_linear.b * scale,
+                    0.0,
+                    1.0))};
+        auto confidence = std::clamp(
+            (out.residual_luminance - threshold) /
+                std::max(0.01, threshold),
+            0.0,
+            1.0);
+        confidence =
+            confidence * confidence *
+            (3.0 - 2.0 * confidence);
+        out.albedo_srgb = appearance_clamp_albedo(
+            {out.albedo_srgb.r +
+                 (rescued_srgb.r - out.albedo_srgb.r) *
+                     confidence,
+             out.albedo_srgb.g +
+                 (rescued_srgb.g - out.albedo_srgb.g) *
+                     confidence,
+             out.albedo_srgb.b +
+                 (rescued_srgb.b - out.albedo_srgb.b) *
+                     confidence});
+        out.applied = confidence > 0.0;
+        return out;
+    }
+
+    struct AppearanceClosedLoopCorrectionInput
+    {
+        AppearanceRgb albedo_linear{};
+        double emissive{0.0};
+        AppearanceRgb source_hdr{};
+        AppearanceRgb rendered_hdr{};
+        bool intrinsic_emission_roi{false};
+    };
+
+    struct AppearanceClosedLoopCorrection
+    {
+        bool supported{false};
+        AppearanceRgb albedo_linear{};
+        double emissive{0.0};
+        double display_error{0.0};
+    };
+
+    inline AppearanceClosedLoopCorrection
+    appearance_albedo_closed_loop_correction(
+        const AppearanceClosedLoopCorrectionInput& input)
+    {
+        AppearanceClosedLoopCorrection out{};
+        out.albedo_linear =
+            appearance_clamp_albedo(input.albedo_linear);
+        // The Albedo feedback pass must never create, remove, or otherwise
+        // optimise Emissive.  Emissive has a separate measured-response gate;
+        // coupling it to the broad colour-loss improvement is what allowed
+        // false white points to ride along with a valid Albedo correction.
+        out.emissive = std::clamp(input.emissive, 0.0, 1.0);
+        if (!appearance_rgb_finite(input.albedo_linear) ||
+            !appearance_rgb_finite(input.source_hdr) ||
+            !appearance_rgb_finite(input.rendered_hdr) ||
+            !std::isfinite(input.emissive) ||
+            input.source_hdr.r < 0.0 ||
+            input.source_hdr.g < 0.0 ||
+            input.source_hdr.b < 0.0 ||
+            input.rendered_hdr.r < 0.0 ||
+            input.rendered_hdr.g < 0.0 ||
+            input.rendered_hdr.b < 0.0)
+        {
+            return out;
+        }
+
+        const auto source_display =
+            appearance_reinhard_display(input.source_hdr);
+        const auto rendered_display =
+            appearance_reinhard_display(input.rendered_hdr);
+        const std::array<double, 3> albedo{
+            out.albedo_linear.r,
+            out.albedo_linear.g,
+            out.albedo_linear.b};
+        const std::array<double, 3> source{
+            source_display.r,
+            source_display.g,
+            source_display.b};
+        const std::array<double, 3> rendered{
+            rendered_display.r,
+            rendered_display.g,
+            rendered_display.b};
+        std::array<double, 3> corrected = albedo;
+        constexpr double response_floor = 1.0 / 255.0;
+        constexpr double maximum_ratio_per_pass = 2.0;
+        constexpr double albedo_step = 0.75;
+        double display_error = 0.0;
+        for (std::size_t channel = 0;
+             channel < corrected.size();
+             ++channel)
+        {
+            display_error +=
+                std::abs(source[channel] - rendered[channel]);
+            const auto ratio = std::clamp(
+                (source[channel] + response_floor) /
+                    (rendered[channel] + response_floor),
+                1.0 / maximum_ratio_per_pass,
+                maximum_ratio_per_pass);
+            corrected[channel] = std::clamp(
+                std::max(albedo[channel], response_floor) *
+                    std::pow(ratio, albedo_step),
+                0.0,
+                1.0);
+        }
+        out.albedo_linear =
+            {corrected[0], corrected[1], corrected[2]};
+        out.display_error = display_error / 3.0;
+
+        out.supported = true;
+        return out;
+    }
+
+    inline AppearanceClosedLoopCorrection
+    appearance_closed_loop_correction(
+        const AppearanceClosedLoopCorrectionInput& input)
+    {
+        auto out =
+            appearance_albedo_closed_loop_correction(input);
+        out.emissive = input.intrinsic_emission_roi
+                           ? std::clamp(input.emissive, 0.0, 1.0)
+                           : 0.0;
+        if (!out.supported)
+        {
+            return out;
+        }
+        if (input.intrinsic_emission_roi)
+        {
+            const auto source_luminance =
+                std::max(0.0, appearance_luminance(input.source_hdr));
+            const auto rendered_luminance =
+                std::max(0.0, appearance_luminance(input.rendered_hdr));
+            const auto log_luminance_error =
+                std::log1p(source_luminance) -
+                std::log1p(rendered_luminance);
+            constexpr double emissive_step = 0.50;
+            constexpr double maximum_emissive_delta_per_pass = 0.35;
+            const auto emissive_delta = std::clamp(
+                log_luminance_error * emissive_step,
+                -maximum_emissive_delta_per_pass,
+                maximum_emissive_delta_per_pass);
+            out.emissive = std::clamp(
+                out.emissive + emissive_delta,
+                0.0,
+                1.0);
+        }
+        return out;
     }
 
     inline AppearanceRgb appearance_emission_chromaticity_albedo(
@@ -2035,6 +2273,784 @@ namespace runtime_contract
                 (endpoint_parameter - baseline_parameter) * projected,
             minimum_parameter,
             maximum_parameter);
+        return out;
+    }
+
+    constexpr double AppearancePhysicalEmissionReadbackFloor =
+        1.0 / 255.0;
+    constexpr double AppearancePhysicalEmissionMaximumChromaticityDelta =
+        0.10;
+
+    struct AppearancePhysicalEmissionEvidenceInput
+    {
+        AppearanceRgb source_residual_first{};
+        AppearanceRgb source_residual_second{};
+        double source_noise_floor_first{
+            std::numeric_limits<double>::infinity()};
+        double source_noise_floor_second{
+            std::numeric_limits<double>::infinity()};
+        AppearanceRgb source_hdr{};
+        AppearanceRgb baseline_hdr{};
+        AppearanceRgb endpoint_hdr{};
+        double manual_emissive_floor{0.0};
+        // Retained for diagnostics only.  A globally inseparable histogram
+        // must not disable a locally repeatable source residual.
+        bool source_distribution_separated{false};
+        bool camera_stable{false};
+        bool readback_calibrated{false};
+        bool packed_b_verified{false};
+    };
+
+    struct AppearancePhysicalEmissionEvidence
+    {
+        bool source_supported{false};
+        bool source_noise_floor_calibrated{false};
+        bool source_first_above_noise_floor{false};
+        bool source_second_above_noise_floor{false};
+        bool target_response_supported{false};
+        bool accepted{false};
+        double inferred_emissive{0.0};
+        double composed_emissive{0.0};
+        double source_repeatability_error{
+            std::numeric_limits<double>::infinity()};
+        double source_chromaticity_delta{
+            std::numeric_limits<double>::infinity()};
+        double response_energy{0.0};
+        double baseline_loss{
+            std::numeric_limits<double>::infinity()};
+        double candidate_loss{
+            std::numeric_limits<double>::infinity()};
+    };
+
+    inline double appearance_compose_physical_emissive(
+        double manual_emissive_floor,
+        double inferred_emissive)
+    {
+        if (!std::isfinite(manual_emissive_floor) ||
+            !std::isfinite(inferred_emissive))
+        {
+            return 0.0;
+        }
+        return std::max(
+            std::clamp(manual_emissive_floor, 0.0, 1.0),
+            std::clamp(inferred_emissive, 0.0, 1.0));
+    }
+
+    struct AppearancePhysicalEmissionMaterialInput
+    {
+        AppearanceRgb albedo{};
+        AppearanceRgb source_residual_first{};
+        AppearanceRgb source_residual_second{};
+        double manual_emissive_floor{0.0};
+        double inferred_emissive{0.0};
+        bool dual_evidence_accepted{false};
+    };
+
+    struct AppearancePhysicalEmissionMaterial
+    {
+        AppearanceRgb albedo{};
+        double emissive{0.0};
+        bool chromaticity_carrier_applied{false};
+    };
+
+    inline AppearancePhysicalEmissionMaterial
+    appearance_compose_physical_emission_material(
+        const AppearancePhysicalEmissionMaterialInput& input)
+    {
+        AppearancePhysicalEmissionMaterial out{};
+        out.albedo = appearance_clamp_albedo(input.albedo);
+        out.emissive = appearance_compose_physical_emissive(
+            input.manual_emissive_floor,
+            input.inferred_emissive);
+        if (!input.dual_evidence_accepted ||
+            !appearance_rgb_finite(input.source_residual_first) ||
+            !appearance_rgb_finite(input.source_residual_second))
+        {
+            return out;
+        }
+
+        const AppearanceRgb mean_positive_residual{
+            std::max(
+                0.0,
+                (input.source_residual_first.r +
+                 input.source_residual_second.r) *
+                    0.5),
+            std::max(
+                0.0,
+                (input.source_residual_first.g +
+                 input.source_residual_second.g) *
+                    0.5),
+            std::max(
+                0.0,
+                (input.source_residual_first.b +
+                 input.source_residual_second.b) *
+                    0.5)};
+        const auto peak = std::max(
+            {mean_positive_residual.r,
+             mean_positive_residual.g,
+             mean_positive_residual.b});
+        if (!std::isfinite(peak) || peak <= 0.000001)
+        {
+            return out;
+        }
+
+        // The game exposes Emissive as one scalar, so a physically validated
+        // emitter needs its source chromaticity carried by bounded Albedo.
+        // This is deliberately composed only after both source evidence and
+        // target response have passed; callers retain the independent best
+        // Albedo state and restore it if final component validation rejects E.
+        out.albedo = appearance_emission_chromaticity_albedo(
+            mean_positive_residual,
+            out.albedo);
+        out.chromaticity_carrier_applied = true;
+        return out;
+    }
+
+    inline AppearancePhysicalEmissionEvidence
+    appearance_physical_emission_evidence(
+        const AppearancePhysicalEmissionEvidenceInput& input)
+    {
+        AppearancePhysicalEmissionEvidence out{};
+        const auto manual_floor =
+            std::clamp(input.manual_emissive_floor, 0.0, 1.0);
+        out.inferred_emissive = manual_floor;
+        out.composed_emissive = manual_floor;
+        if (!appearance_rgb_finite(input.source_residual_first) ||
+            !appearance_rgb_finite(input.source_residual_second) ||
+            !appearance_rgb_finite(input.source_hdr) ||
+            !appearance_rgb_finite(input.baseline_hdr) ||
+            !appearance_rgb_finite(input.endpoint_hdr) ||
+            !std::isfinite(input.manual_emissive_floor))
+        {
+            return out;
+        }
+
+        const auto positive = [](const AppearanceRgb& value) {
+            return AppearanceRgb{
+                std::max(0.0, value.r),
+                std::max(0.0, value.g),
+                std::max(0.0, value.b)};
+        };
+        const auto first = positive(input.source_residual_first);
+        const auto second = positive(input.source_residual_second);
+        const AppearanceRgb repeatability_delta{
+            std::abs(first.r - second.r),
+            std::abs(first.g - second.g),
+            std::abs(first.b - second.b)};
+        const auto first_luminance = appearance_luminance(first);
+        const auto second_luminance = appearance_luminance(second);
+        const auto minimum_luminance =
+            std::min(first_luminance, second_luminance);
+        out.source_noise_floor_calibrated =
+            std::isfinite(input.source_noise_floor_first) &&
+            input.source_noise_floor_first >= 0.0 &&
+            std::isfinite(input.source_noise_floor_second) &&
+            input.source_noise_floor_second >= 0.0;
+        const auto first_noise_floor =
+            std::max(
+                AppearancePhysicalEmissionReadbackFloor,
+                input.source_noise_floor_first);
+        const auto second_noise_floor =
+            std::max(
+                AppearancePhysicalEmissionReadbackFloor,
+                input.source_noise_floor_second);
+        out.source_first_above_noise_floor =
+            out.source_noise_floor_calibrated &&
+            first_luminance > first_noise_floor;
+        out.source_second_above_noise_floor =
+            out.source_noise_floor_calibrated &&
+            second_luminance > second_noise_floor;
+        out.source_repeatability_error =
+            appearance_luminance(repeatability_delta);
+        out.source_chromaticity_delta =
+            appearance_rgb_chromaticity_delta(first, second);
+        out.source_supported =
+            out.source_first_above_noise_floor &&
+            out.source_second_above_noise_floor &&
+            std::isfinite(minimum_luminance) &&
+            minimum_luminance >
+                out.source_repeatability_error +
+                    AppearancePhysicalEmissionReadbackFloor &&
+            std::isfinite(out.source_chromaticity_delta) &&
+            out.source_chromaticity_delta <=
+                AppearancePhysicalEmissionMaximumChromaticityDelta;
+
+        if (manual_floor >= 1.0 ||
+            !input.camera_stable ||
+            !input.readback_calibrated ||
+            !input.packed_b_verified)
+        {
+            return out;
+        }
+        const auto calibrated =
+            appearance_calibrate_bounded_response(
+                input.source_hdr,
+                input.baseline_hdr,
+                input.endpoint_hdr,
+                manual_floor,
+                1.0,
+                manual_floor,
+                1.0);
+        out.response_energy = calibrated.response_energy;
+        if (!calibrated.supported ||
+            appearance_luminance(input.endpoint_hdr) <=
+                appearance_luminance(input.baseline_hdr) + 0.0001)
+        {
+            return out;
+        }
+
+        const auto log_channel = [](double channel) {
+            return std::log1p(std::max(0.0, channel));
+        };
+        const auto interpolation =
+            (calibrated.parameter - manual_floor) /
+            std::max(0.000001, 1.0 - manual_floor);
+        const std::array<double, 3> source{
+            log_channel(input.source_hdr.r),
+            log_channel(input.source_hdr.g),
+            log_channel(input.source_hdr.b)};
+        const std::array<double, 3> baseline{
+            log_channel(input.baseline_hdr.r),
+            log_channel(input.baseline_hdr.g),
+            log_channel(input.baseline_hdr.b)};
+        const std::array<double, 3> endpoint{
+            log_channel(input.endpoint_hdr.r),
+            log_channel(input.endpoint_hdr.g),
+            log_channel(input.endpoint_hdr.b)};
+        out.baseline_loss = 0.0;
+        out.candidate_loss = 0.0;
+        for (std::size_t channel = 0; channel < source.size(); ++channel)
+        {
+            const auto predicted =
+                baseline[channel] +
+                (endpoint[channel] - baseline[channel]) *
+                    interpolation;
+            out.baseline_loss +=
+                appearance_huber_loss(
+                    source[channel] - baseline[channel]);
+            out.candidate_loss +=
+                appearance_huber_loss(
+                    source[channel] - predicted);
+        }
+        out.baseline_loss /= 3.0;
+        out.candidate_loss /= 3.0;
+        const auto manual_quantized =
+            std::llround(manual_floor * 255.0);
+        const auto inferred_quantized =
+            std::llround(calibrated.parameter * 255.0);
+        out.target_response_supported =
+            inferred_quantized > manual_quantized &&
+            std::isfinite(out.baseline_loss) &&
+            std::isfinite(out.candidate_loss) &&
+            out.candidate_loss + 0.000001 < out.baseline_loss;
+        out.inferred_emissive = calibrated.parameter;
+        out.accepted =
+            out.source_supported &&
+            out.target_response_supported;
+        if (out.accepted)
+        {
+            out.composed_emissive =
+                appearance_compose_physical_emissive(
+                    manual_floor,
+                    out.inferred_emissive);
+        }
+        return out;
+    }
+
+    enum class AppearancePhysicalEmissionComponentRejection
+    {
+        None,
+        DualEvidenceUnavailable,
+        CameraUnstable,
+        ReadbackUncalibrated,
+        PackedBNotVerified,
+        QuantizedEmissiveZero,
+        NonEmissionLossRegressed,
+        RoiImprovementBelowThreshold,
+    };
+
+    struct AppearancePhysicalEmissionComponentValidationInput
+    {
+        int paired_samples{0};
+        double baseline_loss{
+            std::numeric_limits<double>::infinity()};
+        double candidate_loss{
+            std::numeric_limits<double>::infinity()};
+        int non_emission_paired_samples{0};
+        double baseline_non_emission_loss{
+            std::numeric_limits<double>::infinity()};
+        double candidate_non_emission_loss{
+            std::numeric_limits<double>::infinity()};
+        bool dual_evidence_prevalidated{false};
+        bool camera_stable{false};
+        bool readback_calibrated{false};
+        bool packed_b_verified{false};
+        int painted_emissive_nonzero_pixels{0};
+    };
+
+    struct AppearancePhysicalEmissionComponentValidation
+    {
+        bool accepted{false};
+        AppearancePhysicalEmissionComponentRejection rejection{
+            AppearancePhysicalEmissionComponentRejection::
+                DualEvidenceUnavailable};
+        double roi_improvement{
+            -std::numeric_limits<double>::infinity()};
+        double non_emission_loss_delta{
+            std::numeric_limits<double>::infinity()};
+    };
+
+    inline AppearancePhysicalEmissionComponentValidation
+    appearance_validate_physical_emission_component(
+        const AppearancePhysicalEmissionComponentValidationInput& input)
+    {
+        AppearancePhysicalEmissionComponentValidation out{};
+        if (!input.dual_evidence_prevalidated)
+        {
+            return out;
+        }
+        if (!input.camera_stable)
+        {
+            out.rejection =
+                AppearancePhysicalEmissionComponentRejection::
+                    CameraUnstable;
+            return out;
+        }
+        if (!input.readback_calibrated)
+        {
+            out.rejection =
+                AppearancePhysicalEmissionComponentRejection::
+                    ReadbackUncalibrated;
+            return out;
+        }
+        if (!input.packed_b_verified)
+        {
+            out.rejection =
+                AppearancePhysicalEmissionComponentRejection::
+                    PackedBNotVerified;
+            return out;
+        }
+        if (input.painted_emissive_nonzero_pixels <= 0)
+        {
+            out.rejection =
+                AppearancePhysicalEmissionComponentRejection::
+                    QuantizedEmissiveZero;
+            return out;
+        }
+
+        out.non_emission_loss_delta =
+            input.non_emission_paired_samples > 0 &&
+                    std::isfinite(input.baseline_non_emission_loss) &&
+                    std::isfinite(input.candidate_non_emission_loss)
+                ? input.candidate_non_emission_loss -
+                      input.baseline_non_emission_loss
+                : 0.0;
+        if (input.non_emission_paired_samples > 0 &&
+            (!std::isfinite(out.non_emission_loss_delta) ||
+             out.non_emission_loss_delta > 0.01))
+        {
+            out.rejection =
+                AppearancePhysicalEmissionComponentRejection::
+                    NonEmissionLossRegressed;
+            return out;
+        }
+
+        // A one-sample component is valid.  When the fixed calibration
+        // lattice does not land inside an even smaller emitter, the source
+        // residual and E=1 response remain the two physical proofs; the final
+        // capture still has to preserve the surrounding non-emissive field.
+        if (input.paired_samples > 0)
+        {
+            out.roi_improvement =
+                std::isfinite(input.baseline_loss) &&
+                        std::isfinite(input.candidate_loss) &&
+                        input.baseline_loss > 0.0
+                    ? (input.baseline_loss - input.candidate_loss) /
+                          input.baseline_loss
+                    : -std::numeric_limits<double>::infinity();
+            if (!std::isfinite(out.roi_improvement) ||
+                out.roi_improvement <
+                    AppearanceFitMinimumImprovement)
+            {
+                out.rejection =
+                    AppearancePhysicalEmissionComponentRejection::
+                        RoiImprovementBelowThreshold;
+                return out;
+            }
+        }
+
+        out.accepted = true;
+        out.rejection =
+            AppearancePhysicalEmissionComponentRejection::None;
+        return out;
+    }
+
+    enum class AppearanceCorrectionBoundary
+    {
+        Front,
+        Back,
+    };
+
+    enum class AppearanceCorrectionFieldFailure
+    {
+        None,
+        InvalidInput,
+        SideUnanchored,
+    };
+
+    struct AppearanceCorrectionFieldEdge
+    {
+        int first{-1};
+        int second{-1};
+    };
+
+    struct AppearanceCorrectionFieldAnchor
+    {
+        int vertex{-1};
+        AppearanceRgb value{};
+        double weight{0.0};
+        AppearanceCorrectionBoundary boundary{
+            AppearanceCorrectionBoundary::Front};
+    };
+
+    struct AppearanceCorrectionFieldInput
+    {
+        int vertex_count{0};
+        std::vector<AppearanceCorrectionFieldEdge> edges{};
+        std::vector<bool> side_vertices{};
+        std::vector<AppearanceCorrectionFieldAnchor> anchors{};
+    };
+
+    struct AppearanceCorrectionFieldResult
+    {
+        bool ok{false};
+        AppearanceCorrectionFieldFailure failure{
+            AppearanceCorrectionFieldFailure::None};
+        std::vector<AppearanceRgb> values{};
+        std::vector<bool> resolved{};
+        int front_anchor_vertices{0};
+        int back_anchor_vertices{0};
+        int side_components{0};
+        int one_boundary_side_components{0};
+        int unanchored_side_components{0};
+        int iterations{0};
+        std::uint64_t hash{1469598103934665603ULL};
+    };
+
+    inline AppearanceCorrectionFieldResult
+    appearance_solve_correction_field(
+        const AppearanceCorrectionFieldInput& input)
+    {
+        AppearanceCorrectionFieldResult out{};
+        if (input.vertex_count <= 0 ||
+            input.side_vertices.size() !=
+                static_cast<std::size_t>(input.vertex_count))
+        {
+            out.failure =
+                AppearanceCorrectionFieldFailure::InvalidInput;
+            return out;
+        }
+
+        std::vector<std::vector<int>> adjacency(
+            static_cast<std::size_t>(input.vertex_count));
+        for (const auto& edge : input.edges)
+        {
+            if (edge.first < 0 || edge.second < 0 ||
+                edge.first >= input.vertex_count ||
+                edge.second >= input.vertex_count ||
+                edge.first == edge.second)
+            {
+                out.failure =
+                    AppearanceCorrectionFieldFailure::InvalidInput;
+                return out;
+            }
+            adjacency[static_cast<std::size_t>(edge.first)]
+                .push_back(edge.second);
+            adjacency[static_cast<std::size_t>(edge.second)]
+                .push_back(edge.first);
+        }
+        for (auto& neighbours : adjacency)
+        {
+            std::sort(neighbours.begin(), neighbours.end());
+            neighbours.erase(
+                std::unique(neighbours.begin(), neighbours.end()),
+                neighbours.end());
+        }
+
+        struct WeightedValue
+        {
+            double value{0.0};
+            double weight{0.0};
+        };
+        std::vector<std::array<std::vector<WeightedValue>, 3>>
+            contributions(
+                static_cast<std::size_t>(input.vertex_count));
+        std::vector<bool> front_anchor(
+            static_cast<std::size_t>(input.vertex_count),
+            false);
+        std::vector<bool> back_anchor(
+            static_cast<std::size_t>(input.vertex_count),
+            false);
+        for (const auto& anchor : input.anchors)
+        {
+            if (anchor.vertex < 0 ||
+                anchor.vertex >= input.vertex_count ||
+                !appearance_rgb_finite(anchor.value) ||
+                !std::isfinite(anchor.weight) ||
+                anchor.weight <= 0.0)
+            {
+                continue;
+            }
+            auto& target =
+                contributions[
+                    static_cast<std::size_t>(anchor.vertex)];
+            target[0].push_back({anchor.value.r, anchor.weight});
+            target[1].push_back({anchor.value.g, anchor.weight});
+            target[2].push_back({anchor.value.b, anchor.weight});
+            if (anchor.boundary ==
+                AppearanceCorrectionBoundary::Front)
+            {
+                front_anchor[
+                    static_cast<std::size_t>(anchor.vertex)] = true;
+            }
+            else
+            {
+                back_anchor[
+                    static_cast<std::size_t>(anchor.vertex)] = true;
+            }
+        }
+
+        out.values.assign(
+            static_cast<std::size_t>(input.vertex_count),
+            {});
+        out.resolved.assign(
+            static_cast<std::size_t>(input.vertex_count),
+            false);
+        std::vector<bool> anchored(
+            static_cast<std::size_t>(input.vertex_count),
+            false);
+        const auto weighted_median =
+            [](std::vector<WeightedValue> values) {
+                std::sort(
+                    values.begin(),
+                    values.end(),
+                    [](const auto& left, const auto& right) {
+                        if (left.value != right.value)
+                        {
+                            return left.value < right.value;
+                        }
+                        return left.weight < right.weight;
+                    });
+                double total = 0.0;
+                for (const auto& value : values)
+                {
+                    total += value.weight;
+                }
+                const auto middle = total * 0.5;
+                double cumulative = 0.0;
+                for (const auto& value : values)
+                {
+                    cumulative += value.weight;
+                    if (cumulative >= middle)
+                    {
+                        return value.value;
+                    }
+                }
+                return values.empty() ? 0.0 : values.back().value;
+            };
+        for (int vertex = 0; vertex < input.vertex_count; ++vertex)
+        {
+            const auto index = static_cast<std::size_t>(vertex);
+            if (contributions[index][0].empty())
+            {
+                continue;
+            }
+            out.values[index] = {
+                weighted_median(contributions[index][0]),
+                weighted_median(contributions[index][1]),
+                weighted_median(contributions[index][2])};
+            anchored[index] = true;
+            out.resolved[index] = true;
+            out.front_anchor_vertices += front_anchor[index] ? 1 : 0;
+            out.back_anchor_vertices += back_anchor[index] ? 1 : 0;
+        }
+
+        std::vector<int> component_by_vertex(
+            static_cast<std::size_t>(input.vertex_count),
+            -1);
+        std::vector<std::vector<int>> components{};
+        std::vector<int> stack{};
+        for (int first = 0; first < input.vertex_count; ++first)
+        {
+            if (component_by_vertex[
+                    static_cast<std::size_t>(first)] >= 0)
+            {
+                continue;
+            }
+            const auto component_index =
+                static_cast<int>(components.size());
+            components.push_back({});
+            stack.clear();
+            stack.push_back(first);
+            component_by_vertex[
+                static_cast<std::size_t>(first)] = component_index;
+            while (!stack.empty())
+            {
+                const auto vertex = stack.back();
+                stack.pop_back();
+                components.back().push_back(vertex);
+                for (const auto neighbour :
+                     adjacency[static_cast<std::size_t>(vertex)])
+                {
+                    if (component_by_vertex[
+                            static_cast<std::size_t>(neighbour)] >= 0)
+                    {
+                        continue;
+                    }
+                    component_by_vertex[
+                        static_cast<std::size_t>(neighbour)] =
+                        component_index;
+                    stack.push_back(neighbour);
+                }
+            }
+        }
+
+        for (const auto& component : components)
+        {
+            bool has_side = false;
+            bool has_front = false;
+            bool has_back = false;
+            int anchor_count = 0;
+            AppearanceRgb anchor_mean{};
+            for (const auto vertex : component)
+            {
+                const auto index = static_cast<std::size_t>(vertex);
+                has_side = has_side || input.side_vertices[index];
+                has_front = has_front || front_anchor[index];
+                has_back = has_back || back_anchor[index];
+                if (anchored[index])
+                {
+                    anchor_mean.r += out.values[index].r;
+                    anchor_mean.g += out.values[index].g;
+                    anchor_mean.b += out.values[index].b;
+                    ++anchor_count;
+                }
+            }
+            if (has_side)
+            {
+                ++out.side_components;
+            }
+            if (has_side && anchor_count == 0)
+            {
+                ++out.unanchored_side_components;
+                continue;
+            }
+            if (has_side && (has_front != has_back))
+            {
+                ++out.one_boundary_side_components;
+            }
+            if (anchor_count == 0)
+            {
+                continue;
+            }
+            anchor_mean.r /= static_cast<double>(anchor_count);
+            anchor_mean.g /= static_cast<double>(anchor_count);
+            anchor_mean.b /= static_cast<double>(anchor_count);
+            for (const auto vertex : component)
+            {
+                const auto index = static_cast<std::size_t>(vertex);
+                if (!anchored[index])
+                {
+                    out.values[index] = anchor_mean;
+                    out.resolved[index] = true;
+                }
+            }
+        }
+
+        constexpr int maximum_iterations = 512;
+        constexpr double convergence_epsilon = 0.0000001;
+        auto next = out.values;
+        for (int iteration = 0; iteration < maximum_iterations; ++iteration)
+        {
+            double maximum_delta = 0.0;
+            for (int vertex = 0; vertex < input.vertex_count; ++vertex)
+            {
+                const auto index = static_cast<std::size_t>(vertex);
+                if (anchored[index] || !out.resolved[index] ||
+                    adjacency[index].empty())
+                {
+                    next[index] = out.values[index];
+                    continue;
+                }
+                AppearanceRgb average{};
+                int neighbours = 0;
+                for (const auto neighbour : adjacency[index])
+                {
+                    const auto neighbour_index =
+                        static_cast<std::size_t>(neighbour);
+                    if (!out.resolved[neighbour_index])
+                    {
+                        continue;
+                    }
+                    average.r += out.values[neighbour_index].r;
+                    average.g += out.values[neighbour_index].g;
+                    average.b += out.values[neighbour_index].b;
+                    ++neighbours;
+                }
+                if (neighbours <= 0)
+                {
+                    continue;
+                }
+                average.r /= static_cast<double>(neighbours);
+                average.g /= static_cast<double>(neighbours);
+                average.b /= static_cast<double>(neighbours);
+                maximum_delta = std::max(
+                    maximum_delta,
+                    std::max({
+                        std::abs(
+                            average.r - out.values[index].r),
+                        std::abs(
+                            average.g - out.values[index].g),
+                        std::abs(
+                            average.b - out.values[index].b)}));
+                next[index] = average;
+            }
+            out.values.swap(next);
+            out.iterations = iteration + 1;
+            if (maximum_delta <= convergence_epsilon)
+            {
+                break;
+            }
+        }
+
+        const auto hash_mix = [&out](std::uint64_t value) {
+            out.hash ^= value;
+            out.hash *= 1099511628211ULL;
+        };
+        hash_mix(static_cast<std::uint64_t>(input.vertex_count));
+        for (std::size_t index = 0; index < out.values.size(); ++index)
+        {
+            hash_mix(out.resolved[index] ? 1ULL : 0ULL);
+            if (!out.resolved[index])
+            {
+                continue;
+            }
+            const std::array<double, 3> channels{
+                out.values[index].r,
+                out.values[index].g,
+                out.values[index].b};
+            for (const auto channel : channels)
+            {
+                const auto quantized = static_cast<std::uint64_t>(
+                    static_cast<std::int64_t>(
+                        std::llround(channel * 1000000.0)));
+                hash_mix(quantized);
+            }
+        }
+        out.ok = out.unanchored_side_components == 0;
+        out.failure = out.ok
+                          ? AppearanceCorrectionFieldFailure::None
+                          : AppearanceCorrectionFieldFailure::SideUnanchored;
         return out;
     }
 

@@ -99,12 +99,9 @@ public sealed class SettingsStore
         paint.BrushSizeTexels = hasSingleBrush
             ? ReadDouble(root, "brush_size_texels", paint.BrushSizeTexels)
             : legacyBrush2Enabled || !legacyBrush1Enabled ? legacyBrush2Size : legacyBrush1Size;
-        paint.SideSourceMaxUv = ReadDouble(root, "side_source_max_uv", paint.SideSourceMaxUv);
         paint.FrontRegionMode = ReadRegionMode(root, "front_region_mode", paint.FrontRegionMode);
         paint.SideRegionMode = ReadRegionMode(root, "side_region_mode", paint.SideRegionMode);
         paint.BackRegionMode = ReadRegionMode(root, "back_region_mode", paint.BackRegionMode);
-        paint.AutoMaterial = ReadBool(root, "auto_material", paint.AutoMaterial);
-        paint.IncludeShadows = ReadBool(root, "include_shadows", paint.IncludeShadows);
         paint.Metallic = ReadDouble(root, "metallic", paint.Metallic);
         paint.Roughness = ReadDouble(root, "roughness", paint.Roughness);
         paint.Emissive = ReadDouble(root, "emissive", paint.Emissive);
@@ -175,7 +172,6 @@ public sealed class SettingsStore
             settings.ImageStopHotkey = "F8";
 
         settings.Paint.BrushSizeTexels = Math.Clamp(settings.Paint.BrushSizeTexels, 1.0, 10.0);
-        settings.Paint.SideSourceMaxUv = Math.Clamp(settings.Paint.SideSourceMaxUv, 0.001, 0.50);
         settings.Paint.Metallic = Math.Clamp(settings.Paint.Metallic, 0.0, 1.0);
         settings.Paint.Roughness = Math.Clamp(settings.Paint.Roughness, 0.0, 1.0);
         settings.Paint.Emissive = Math.Clamp(settings.Paint.Emissive, 0.0, 1.0);
@@ -224,12 +220,9 @@ public sealed class SettingsStore
         esp_hider_color = settings.Esp.HiderColor.ToHex(),
         esp_hunter_color = settings.Esp.HunterColor.ToHex(),
         brush_size_texels = settings.Paint.BrushSizeTexels,
-        side_source_max_uv = settings.Paint.SideSourceMaxUv,
         front_region_mode = RegionModeText(settings.Paint.FrontRegionMode),
         side_region_mode = RegionModeText(settings.Paint.SideRegionMode),
         back_region_mode = RegionModeText(settings.Paint.BackRegionMode),
-        auto_material = settings.Paint.AutoMaterial,
-        include_shadows = settings.Paint.IncludeShadows,
         metallic = settings.Paint.Metallic,
         roughness = settings.Paint.Roughness,
         emissive = settings.Paint.Emissive,

@@ -22,7 +22,6 @@ internal static class ResearchRunner
         bool Paint,
         bool PreviewOnly,
         bool UnPreviewOnly,
-        bool AutoMaterial,
         int HoldSeconds,
         int PressureSampleMs,
         bool TextureSnapshot,
@@ -99,7 +98,6 @@ internal static class ResearchRunner
             ["paint_requested"] = options.Paint,
             ["preview_only"] = options.PreviewOnly,
             ["unpreview_only"] = options.UnPreviewOnly,
-            ["auto_material"] = options.AutoMaterial,
             ["hold_seconds"] = options.HoldSeconds,
             ["pressure_sample_ms"] = options.PressureSampleMs,
             ["texture_snapshot_requested"] = options.TextureSnapshot,
@@ -164,8 +162,6 @@ internal static class ResearchRunner
             session.Settings.Paint.FillRoughness = fillRoughnessOverride;
         if (options.FillEmissiveOverride is double fillEmissiveOverride)
             session.Settings.Paint.FillEmissive = fillEmissiveOverride;
-        if (options.AutoMaterial)
-            session.Settings.Paint.AutoMaterial = true;
         if (options.FrontRegionModeOverride is RegionMode frontRegionMode)
             session.Settings.Paint.FrontRegionMode = frontRegionMode;
         if (options.SideRegionModeOverride is RegionMode sideRegionMode)
@@ -1008,8 +1004,6 @@ internal static class ResearchRunner
             side_region_mode = SettingsStore.RegionModeText(paint.SideRegionMode),
             back_region_mode = SettingsStore.RegionModeText(paint.BackRegionMode),
             fill_color = paint.FillColor.ToHex(),
-            auto_material = paint.AutoMaterial,
-            include_shadows = paint.IncludeShadows,
             metallic = paint.Metallic,
             roughness = paint.Roughness,
             emissive = paint.Emissive,
@@ -1051,7 +1045,6 @@ internal static class ResearchRunner
         var paint = false;
         var previewOnly = false;
         var unpreviewOnly = false;
-        var autoMaterial = false;
         var textureSnapshot = false;
         var requested = false;
         for (var index = 0; index < args.Length; ++index)
@@ -1069,9 +1062,6 @@ internal static class ResearchRunner
                     break;
                 case "--unpreview-only":
                     unpreviewOnly = true;
-                    break;
-                case "--auto-material":
-                    autoMaterial = true;
                     break;
                 case "--texture-snapshot":
                     textureSnapshot = true;
@@ -1346,7 +1336,6 @@ internal static class ResearchRunner
             paint,
             previewOnly,
             unpreviewOnly,
-            autoMaterial,
             holdSeconds,
             pressureSampleMs,
             textureSnapshot,

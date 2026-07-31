@@ -35,7 +35,6 @@ public sealed record SettingsSnapshot(PaintSnapshot Paint, AppSnapshot App, Imag
 
 public sealed record PaintSnapshot(
     double BrushSizeTexels,
-    bool AutoMaterial,
     double Metallic,
     double Roughness,
     double Emissive,
@@ -47,8 +46,7 @@ public sealed record PaintSnapshot(
     double FillRoughness,
     double FillEmissive,
     bool UsesFill,
-    double ColorCompressionTolerance = 0.0,
-    bool IncludeShadows = false);
+    double ColorCompressionTolerance = 0.0);
 
 public sealed record AppSnapshot(
     string ProcessName,

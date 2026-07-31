@@ -48,6 +48,38 @@ public static class BridgePayloadBuilder
     {
         var paint = SettingsStore.Clamp(settings).Paint;
         var image = options.Image;
+        var paintSource = new Dictionary<string, object?>
+        {
+            ["kind"] = image is null ? "environment_capture" : "imported_image"
+        };
+        if (image is not null)
+        {
+            paintSource["image_paint_width"] = image.Width;
+            paintSource["image_paint_height"] = image.Height;
+            paintSource["image_paint_rgba_base64"] = image.RgbaBase64;
+            paintSource["image_paint_alpha_mode"] = image.AlphaMode;
+            paintSource["image_paint_background_r"] = ToUnit(image.BackgroundColor.R);
+            paintSource["image_paint_background_g"] = ToUnit(image.BackgroundColor.G);
+            paintSource["image_paint_background_b"] = ToUnit(image.BackgroundColor.B);
+            paintSource["image_paint_placement"] = image.Placement;
+            paintSource["image_paint_body_type"] = image.BodyType;
+            paintSource["image_paint_front_region_mode"] = image.FrontRegionMode;
+            paintSource["image_paint_right_region_mode"] = image.RightRegionMode;
+            paintSource["image_paint_back_region_mode"] = image.BackRegionMode;
+            paintSource["image_paint_left_region_mode"] = image.LeftRegionMode;
+            paintSource["image_paint_fill_color_r"] = ToUnit(image.FillColor.R);
+            paintSource["image_paint_fill_color_g"] = ToUnit(image.FillColor.G);
+            paintSource["image_paint_fill_color_b"] = ToUnit(image.FillColor.B);
+            paintSource["image_paint_fill_metallic"] = image.FillMetallic;
+            paintSource["image_paint_fill_roughness"] = image.FillRoughness;
+            paintSource["image_paint_fill_emissive"] = image.FillEmissive;
+            paintSource["image_paint_brush_size_texels"] = image.BrushSizeTexels;
+            paintSource["image_paint_color_compression_tolerance"] = image.ColorCompressionTolerance;
+            paintSource["image_paint_metallic"] = image.Metallic;
+            paintSource["image_paint_roughness"] = image.Roughness;
+            paintSource["image_paint_emissive"] = image.Emissive;
+            paintSource["image_paint_revision"] = image.Revision;
+        }
         var payload = new Dictionary<string, object?>
         {
             ["type"] = "paint_full_route",
@@ -61,12 +93,10 @@ public static class BridgePayloadBuilder
                 ["pid"] = processId,
                 ["name"] = processName
             },
+            ["paint_source"] = paintSource,
             ["tuning"] = new Dictionary<string, object?>
             {
                 ["brush_size_texels"] = paint.BrushSizeTexels,
-                ["side_source_max_uv"] = paint.SideSourceMaxUv,
-                ["auto_material"] = paint.AutoMaterial,
-                ["include_shadows"] = paint.IncludeShadows,
                 ["metallic"] = paint.Metallic,
                 ["roughness"] = paint.Roughness,
                 ["emissive"] = paint.Emissive,
@@ -81,33 +111,7 @@ public static class BridgePayloadBuilder
                 ["fill_roughness"] = paint.FillRoughness,
                 ["fill_emissive"] = paint.FillEmissive,
                 ["color_compression_tolerance"] = paint.ColorCompressionTolerance
-            },
-            ["image_paint_enabled"] = image is not null,
-            ["image_paint_width"] = image?.Width ?? 0,
-            ["image_paint_height"] = image?.Height ?? 0,
-            ["image_paint_rgba_base64"] = image?.RgbaBase64 ?? "",
-            ["image_paint_alpha_mode"] = image?.AlphaMode ?? "skip",
-            ["image_paint_background_r"] = ToUnit(image?.BackgroundColor.R ?? 255),
-            ["image_paint_background_g"] = ToUnit(image?.BackgroundColor.G ?? 255),
-            ["image_paint_background_b"] = ToUnit(image?.BackgroundColor.B ?? 255),
-            ["image_paint_placement"] = image?.Placement ?? "fit",
-            ["image_paint_body_type"] = image?.BodyType ?? "round",
-            ["image_paint_front_region_mode"] = image?.FrontRegionMode ?? "fill",
-            ["image_paint_right_region_mode"] = image?.RightRegionMode ?? "fill",
-            ["image_paint_back_region_mode"] = image?.BackRegionMode ?? "fill",
-            ["image_paint_left_region_mode"] = image?.LeftRegionMode ?? "fill",
-            ["image_paint_fill_color_r"] = ToUnit(image?.FillColor.R ?? 255),
-            ["image_paint_fill_color_g"] = ToUnit(image?.FillColor.G ?? 255),
-            ["image_paint_fill_color_b"] = ToUnit(image?.FillColor.B ?? 255),
-            ["image_paint_fill_metallic"] = image?.FillMetallic ?? 1.0,
-            ["image_paint_fill_roughness"] = image?.FillRoughness ?? 0.0,
-            ["image_paint_fill_emissive"] = image?.FillEmissive ?? 0.0,
-            ["image_paint_brush_size_texels"] = image?.BrushSizeTexels ?? 5.0,
-            ["image_paint_color_compression_tolerance"] = image?.ColorCompressionTolerance ?? 0.0,
-            ["image_paint_metallic"] = image?.Metallic ?? 0.0,
-            ["image_paint_roughness"] = image?.Roughness ?? 1.0,
-            ["image_paint_emissive"] = image?.Emissive ?? 0.0,
-            ["image_paint_revision"] = image?.Revision ?? 0
+            }
         };
         if (options.DiagnosticStrokeLimit > 0)
             payload["diagnostic_stroke_limit"] = Math.Clamp(options.DiagnosticStrokeLimit, 1, 10_000);

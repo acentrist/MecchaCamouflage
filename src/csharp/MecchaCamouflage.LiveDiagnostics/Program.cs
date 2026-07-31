@@ -25,7 +25,7 @@ internal static class Program
     private const string TextureProbePreservePayload =
         "{\"type\":\"paint_replication_texture_probe\",\"research_texture_target\":\"resolved\",\"research_compact\":true,\"research_texture_preserve_baseline\":true}";
     private const string Usage =
-        "Usage: meccha-live-diagnostics --pid <game-pid> --command <ping|capabilities|esp-status|replication|replication-pressure|texture|material-memory|material-memory-inventory|appearance-emission-isolation-probe|appearance-emission-target-differential|appearance-preview|appearance-color-differential|appearance-preview-hold|manual-preview-hold|appearance-candidate-hold|appearance-candidate-differential|appearance-emissive-zero|appearance-restore|appearance-present-probe|emissive-texture-probe|direct-emissive-channel-probe|bridge-shutdown> [--allow-local-preview] [--allow-direct-stroke] [--allow-bridge-shutdown] [--include-shadows] [--preview-color-compression <0-10>] [--artifacts <directory>]";
+        "Usage: meccha-live-diagnostics --pid <game-pid> --command <ping|capabilities|esp-status|replication|replication-pressure|texture|material-memory|material-memory-inventory|appearance-emission-isolation-probe|appearance-emission-target-differential|appearance-preview|appearance-color-differential|appearance-preview-hold|manual-preview-hold|appearance-candidate-hold|appearance-candidate-differential|appearance-emissive-zero|appearance-restore|appearance-present-probe|emissive-texture-probe|environment-direct-stroke|direct-emissive-channel-probe|bridge-shutdown> [--allow-local-preview] [--allow-direct-stroke] [--allow-bridge-shutdown] [--preview-color-compression <0-10>] [--artifacts <directory>]";
 
     private sealed record Options(
         int ProcessId,
@@ -33,7 +33,6 @@ internal static class Program
         bool AllowLocalPreview,
         bool AllowDirectStroke,
         bool AllowBridgeShutdown,
-        bool IncludeShadows,
         string ArtifactRoot,
         double PreviewBrushSize,
         double PreviewRoughness,
@@ -286,6 +285,33 @@ internal static class Program
                     summary["material_memory_inventory"] = CaptureMaterialInventory(target.ProcessId, reply);
                     break;
                 }
+                case "environment-direct-stroke":
+                {
+                    RequireDirectStrokeOptIn(options);
+                    var before = await RequestAndStoreRawAsync(
+                        client,
+                        "environment-direct-before-texture",
+                        TextureProbePayload,
+                        runDirectory);
+                    if (!before.Ok || !before.Success)
+                        throw new InvalidOperationException($"pre-stroke texture discovery failed at {before.Stage}: {before.Message}");
+                    summary["before_texture"] = Summarize(before);
+                    summary["direct_stroke"] = await SendAndStoreAsync(
+                        client,
+                        "environment-direct-stroke",
+                        BuildEnvironmentDirectStrokePayload(target),
+                        runDirectory,
+                        TimeSpan.FromSeconds(30));
+                    var after = await RequestAndStoreRawAsync(
+                        client,
+                        "environment-direct-after-texture",
+                        TextureProbePayload,
+                        runDirectory);
+                    if (!after.Ok || !after.Success)
+                        throw new InvalidOperationException($"post-stroke texture discovery failed at {after.Stage}: {after.Message}");
+                    summary["after_texture"] = Summarize(after);
+                    break;
+                }
                 case "direct-emissive-channel-probe":
                 {
                     RequireDirectStrokeOptIn(options);
@@ -318,7 +344,6 @@ internal static class Program
                         "appearance-emission-isolation-probe",
                         BuildPreviewPayload(
                             target,
-                            autoMaterial: true,
                             emissive: 0.0,
                             researchArtifacts: true,
                             appearanceEmissionIsolationProbe: true),
@@ -334,7 +359,6 @@ internal static class Program
                         "manual-e0-preview",
                         BuildPreviewPayload(
                             target,
-                            autoMaterial: false,
                             emissive: 0.0),
                         runDirectory,
                         TimeSpan.FromSeconds(20));
@@ -343,7 +367,6 @@ internal static class Program
                         "manual-e0-isolation",
                         BuildPreviewPayload(
                             target,
-                            autoMaterial: true,
                             emissive: 0.0,
                             researchArtifacts: true,
                             appearanceEmissionIsolationProbe: true,
@@ -364,7 +387,6 @@ internal static class Program
                         "manual-e1-preview",
                         BuildPreviewPayload(
                             target,
-                            autoMaterial: false,
                             emissive: 1.0),
                         runDirectory,
                         TimeSpan.FromSeconds(20));
@@ -373,7 +395,6 @@ internal static class Program
                         "manual-e1-isolation",
                         BuildPreviewPayload(
                             target,
-                            autoMaterial: true,
                             emissive: 0.0,
                             researchArtifacts: true,
                             appearanceEmissionIsolationProbe: true,
@@ -397,9 +418,7 @@ internal static class Program
                         "appearance-preview",
                         BuildPreviewPayload(
                             target,
-                            autoMaterial: true,
-                            emissive: 0.0,
-                            includeShadows: options.IncludeShadows),
+                            emissive: 0.0),
                         runDirectory,
                         TimeSpan.FromSeconds(20));
                     break;
@@ -412,11 +431,9 @@ internal static class Program
                         "appearance-color-differential",
                         BuildPreviewPayload(
                             target,
-                            autoMaterial: true,
                             emissive: 0.0,
                             appearanceCaptureArtifacts: true,
-                            appearanceDiagnosticSamples: true,
-                            includeShadows: options.IncludeShadows),
+                            appearanceDiagnosticSamples: true),
                         runDirectory,
                         TimeSpan.FromSeconds(20));
                     break;
@@ -430,9 +447,7 @@ internal static class Program
                         "appearance-preview-hold",
                         BuildPreviewPayload(
                             target,
-                            autoMaterial: true,
-                            emissive: 0.0,
-                            includeShadows: options.IncludeShadows),
+                            emissive: 0.0),
                         runDirectory,
                         TimeSpan.FromSeconds(20));
                     summary["reply"] = reply;
@@ -453,11 +468,9 @@ internal static class Program
                         "manual-preview-hold",
                         BuildPreviewPayload(
                             target,
-                            autoMaterial: false,
                             emissive: 0.0,
                             researchArtifacts: true,
                             appearanceDiagnosticSamples: true,
-                            includeShadows: options.IncludeShadows,
                             brushSize: options.PreviewBrushSize,
                             roughness: options.PreviewRoughness,
                             colorCompressionTolerance:
@@ -482,7 +495,6 @@ internal static class Program
                         "appearance-candidate-hold",
                         BuildPreviewPayload(
                             target,
-                            autoMaterial: true,
                             emissive: 0.0,
                             diagnosticHoldBestCandidate: true),
                         runDirectory,
@@ -505,7 +517,6 @@ internal static class Program
                         "appearance-candidate-hold",
                         BuildPreviewPayload(
                             target,
-                            autoMaterial: true,
                             emissive: 0.0,
                             diagnosticHoldBestCandidate: true),
                         runDirectory,
@@ -571,7 +582,7 @@ internal static class Program
                     summary["e0_preview"] = await SendAndStoreAsync(
                         client,
                         "e0-preview",
-                        BuildPreviewPayload(target, autoMaterial: false, emissive: 0.0),
+                        BuildPreviewPayload(target, emissive: 0.0),
                         runDirectory,
                         TimeSpan.FromSeconds(20));
                     previewStarted = true;
@@ -580,7 +591,7 @@ internal static class Program
                     summary["e1_preview"] = await SendAndStoreAsync(
                         client,
                         "e1-preview",
-                        BuildPreviewPayload(target, autoMaterial: false, emissive: 1.0),
+                        BuildPreviewPayload(target, emissive: 1.0),
                         runDirectory,
                         TimeSpan.FromSeconds(20));
                     summary["e1_texture"] = await SendAndStoreAsync(client, "e1-texture", TextureProbePreservePayload, runDirectory);
@@ -589,7 +600,6 @@ internal static class Program
                         "auto-preview",
                         BuildPreviewPayload(
                             target,
-                            autoMaterial: true,
                             emissive: 0.0,
                             researchArtifacts: true,
                             researchKeepSourceSeed: true,
@@ -802,7 +812,6 @@ internal static class Program
         var allowLocalPreview = false;
         var allowDirectStroke = false;
         var allowBridgeShutdown = false;
-        var includeShadows = false;
         var artifacts = Path.Combine(Environment.CurrentDirectory, "artifacts", "live-diagnostics");
         var previewBrushSize = 4.0;
         var previewRoughness = 0.65;
@@ -825,9 +834,6 @@ internal static class Program
                     break;
                 case "--allow-bridge-shutdown":
                     allowBridgeShutdown = true;
-                    break;
-                case "--include-shadows":
-                    includeShadows = true;
                     break;
                 case "--artifacts" when ++index < args.Length && !string.IsNullOrWhiteSpace(args[index]):
                     artifacts = args[index];
@@ -874,7 +880,6 @@ internal static class Program
             allowLocalPreview,
             allowDirectStroke,
             allowBridgeShutdown,
-            includeShadows,
             artifacts,
             previewBrushSize,
             previewRoughness,
@@ -995,7 +1000,6 @@ internal static class Program
 
     private static string BuildPreviewPayload(
         TargetProcess target,
-        bool autoMaterial,
         double emissive,
         bool researchArtifacts = false,
         bool appearanceCaptureArtifacts = false,
@@ -1009,7 +1013,6 @@ internal static class Program
         bool appearanceDiagnosticSamples = false,
         bool appearanceEmissionIsolationProbe = false,
         bool appearanceEmissionIsolationTargetVisible = false,
-        bool includeShadows = false,
         double brushSize = 4.0,
         double roughness = 0.65,
         double colorCompressionTolerance = 5.0) =>
@@ -1040,12 +1043,10 @@ internal static class Program
             research_emissive_radius_multiplier = researchEmissiveRadiusMultiplier,
             research_use_screen_hit_uv = researchUseScreenHitUv,
             process = new { pid = target.ProcessId, name = Path.GetFileName(target.ExecutablePath) },
+            paint_source = new { kind = "environment_capture" },
             tuning = new
             {
                 brush_size_texels = brushSize,
-                side_source_max_uv = 0.08,
-                auto_material = autoMaterial,
-                include_shadows = includeShadows,
                 metallic = 0.0,
                 roughness,
                 emissive,
@@ -1060,8 +1061,7 @@ internal static class Program
                 fill_emissive = 0.0,
                 color_compression_tolerance =
                     colorCompressionTolerance
-            },
-            image_paint_enabled = false
+            }
         });
 
     private static string BuildRestorePayload(int processId) =>
@@ -1073,7 +1073,8 @@ internal static class Program
             preview_only = false,
             unpreview_only = true,
             process = new { pid = processId, name = "" },
-            tuning = new { auto_material = false }
+            paint_source = new { kind = "environment_capture" },
+            tuning = new { }
         });
 
     private static string BuildDirectEmissiveChannelProbePayload(TargetProcess target) =>
@@ -1094,10 +1095,10 @@ internal static class Program
             research_paint_color_g = 0.0,
             research_paint_color_b = 0.0,
             process = new { pid = target.ProcessId, name = Path.GetFileName(target.ExecutablePath) },
+            paint_source = new { kind = "environment_capture" },
             tuning = new
             {
                 brush_size_texels = 1.0,
-                auto_material = false,
                 metallic = 0.0,
                 roughness = 0.65,
                 emissive = 1.0,
@@ -1105,8 +1106,41 @@ internal static class Program
                 side_region_mode = "skip",
                 back_region_mode = "skip",
                 color_compression_tolerance = 0.0
+            }
+        });
+
+    private static string BuildEnvironmentDirectStrokePayload(TargetProcess target) =>
+        JsonSerializer.Serialize(new
+        {
+            type = "paint_full_route",
+            native_apply_mode = "native_recorded_paint",
+            route = "native_recorded_paint",
+            preview_only = false,
+            unpreview_only = false,
+            diagnostic_stroke_limit = 1,
+            process = new
+            {
+                pid = target.ProcessId,
+                name = Path.GetFileName(target.ExecutablePath)
             },
-            image_paint_enabled = false
+            paint_source = new { kind = "environment_capture" },
+            tuning = new
+            {
+                brush_size_texels = 10.0,
+                metallic = 0.0,
+                roughness = 0.65,
+                emissive = 0.0,
+                front_region_mode = "paint",
+                side_region_mode = "skip",
+                back_region_mode = "skip",
+                fill_color_r = 1.0,
+                fill_color_g = 1.0,
+                fill_color_b = 1.0,
+                fill_metallic = 0.0,
+                fill_roughness = 0.65,
+                fill_emissive = 0.0,
+                color_compression_tolerance = 10.0
+            }
         });
 
     private static void RequirePreviewOptIn(Options options)
@@ -1230,10 +1264,10 @@ internal static class Program
         foreach (var property in metadata.EnumerateObject())
         {
             if (property.Name.StartsWith("appearance_", StringComparison.Ordinal) ||
+                property.Name.StartsWith("environment_", StringComparison.Ordinal) ||
                 property.Name.StartsWith("preview_", StringComparison.Ordinal) ||
                 property.Name.StartsWith("unpreview_", StringComparison.Ordinal) ||
                 property.Name is "material_properties_mode" or "direct_route_only" or
-                    "include_shadows" or
                     "local_paint_rpc" or "local_paint_target_channel" or
                     "paint_target_channel" or "function_paint_at_uv_with_brush_available" or
                     "runtime_paint_component_inventory_detected_count" or

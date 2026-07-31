@@ -441,8 +441,6 @@ function renderSettings(snapshot) {
   const editable = canStartLiveDraftEdit();
   setNumberPair("brush-size", "brush-size-number", paint.brushSizeTexels);
   setNumberPair("color-compression-tolerance", "color-compression-tolerance-number", paint.colorCompressionTolerance);
-  setChecked("auto-material", paint.autoMaterial);
-  setChecked("include-shadows", paint.includeShadows);
   setNumberPair("metallic", "metallic-number", paint.metallic);
   setNumberPair("roughness", "roughness-number", paint.roughness);
   setNumberPair("emissive", "emissive-number", paint.emissive);
@@ -495,8 +493,7 @@ function renderSettings(snapshot) {
     button.disabled = !editable;
   }
 
-  const materialLocked = paint.autoMaterial || !editable;
-  setDisabled(["metallic", "metallic-number", "roughness", "roughness-number", "emissive", "emissive-number"], materialLocked);
+  setDisabled(["metallic", "metallic-number", "roughness", "roughness-number", "emissive", "emissive-number"], !editable);
 
   const fillLocked = !editable || !usesFill(paint);
   byId("paint-fill-section").classList.toggle("disabled", !usesFill(paint));
@@ -913,8 +910,6 @@ function diffSnapshots(before, after) {
     "app.language",
     "paint.brushSizeTexels",
     "paint.colorCompressionTolerance",
-    "paint.autoMaterial",
-    "paint.includeShadows",
     "paint.metallic",
     "paint.roughness",
     "paint.emissive",
@@ -2616,8 +2611,6 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeRangeScales();
   bindRangePair("brush-size", "brush-size-number", "paint.brushSizeTexels");
   bindRangePair("color-compression-tolerance", "color-compression-tolerance-number", "paint.colorCompressionTolerance");
-  bindCheckbox("auto-material", "paint.autoMaterial");
-  bindCheckbox("include-shadows", "paint.includeShadows");
   bindRangePair("metallic", "metallic-number", "paint.metallic");
   bindRangePair("roughness", "roughness-number", "paint.roughness");
   bindRangePair("emissive", "emissive-number", "paint.emissive");
