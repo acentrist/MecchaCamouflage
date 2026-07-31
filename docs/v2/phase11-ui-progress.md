@@ -103,14 +103,13 @@ mapping refusal, invalid/event-limit refusal, exact command-ID exhaustion,
 input-loss release, and terminal shutdown.
 
 The current complete Linux and Linux ASan/UBSan graphs pass all 81 registered
-tests. The exact clean project checkpoint at `4dd0dff` passes all 98 Windows
+tests. The exact clean project checkpoint at `bc1c39b` passes all 99 Windows
 MSVC x64 Shipping tests after building `UE4SS.dll`, `main.dll`, and the
 launcher from the manifest-verified immutable UE4SS source stage.
 Post-build verification confirms that the immutable stage still contains only
 the pinned source plus the project-owned canonical Cargo lock overlay.
-The new pointer/frame-capture target also passes targeted Windows MSVC Release,
-and the production adapter compiles and links as `main.dll` under `/W4 /WX`
-against that same source stage.
+The production pointer/frame-capture adapter compiles and links as `main.dll`
+under `/W4 /WX` against that same source stage.
 
 ## Immutable product presentation
 
