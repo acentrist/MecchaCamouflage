@@ -49,21 +49,6 @@ public:
         -> std::expected<void, RuntimeExecutionError> = 0;
 };
 
-class ImagePreviewTextureRuntimePort
-{
-public:
-    ImagePreviewTextureRuntimePort() = default;
-    ImagePreviewTextureRuntimePort(
-        const ImagePreviewTextureRuntimePort&) = delete;
-    auto operator=(const ImagePreviewTextureRuntimePort&)
-        -> ImagePreviewTextureRuntimePort& = delete;
-    virtual ~ImagePreviewTextureRuntimePort() = default;
-
-    virtual auto update_image_preview_texture(
-        const UpdateImagePreviewTexture& request)
-        -> std::expected<void, RuntimeExecutionError> = 0;
-};
-
 class TransientStateRuntimePort
 {
 public:
@@ -85,7 +70,6 @@ public:
         GameThreadContext& thread_context,
         UnrealFrameRuntimePort& frame_runtime,
         PaintStrokeRuntimePort& paint_runtime,
-        ImagePreviewTextureRuntimePort& texture_runtime,
         TransientStateRuntimePort& transient_runtime);
 
     [[nodiscard]] auto is_game_thread() const noexcept -> bool override;
@@ -97,7 +81,6 @@ private:
     GameThreadContext& thread_context_;
     UnrealFrameRuntimePort& frame_runtime_;
     PaintStrokeRuntimePort& paint_runtime_;
-    ImagePreviewTextureRuntimePort& texture_runtime_;
     TransientStateRuntimePort& transient_runtime_;
 };
 } // namespace meccha::application

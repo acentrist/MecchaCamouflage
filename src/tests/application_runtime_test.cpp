@@ -36,22 +36,6 @@ auto paint_call(std::uint64_t request_id) -> PaintAtUvWithBrush
     };
 }
 
-auto image_call(std::uint64_t request_id)
-    -> UpdateImagePreviewTexture
-{
-    static const auto pixels =
-        std::make_shared<const std::vector<std::byte>>(
-            16U,
-            std::byte{0x7F});
-    return UpdateImagePreviewTexture{
-        request_id,
-        RuntimeObjectHandle{20U, 1U},
-        2U,
-        2U,
-        pixels,
-    };
-}
-
 auto expect(bool condition, std::string_view message) -> bool
 {
     if (!condition)
@@ -222,7 +206,7 @@ auto main() -> int
                 ScheduleResult::Accepted &&
             scheduler.schedule(paint_call(42U)) ==
                 ScheduleResult::Accepted &&
-            scheduler.schedule(image_call(43U)) ==
+            scheduler.schedule(paint_call(43U)) ==
                 ScheduleResult::Full,
         "the bounded queue did not apply backpressure");
 
@@ -395,7 +379,7 @@ auto main() -> int
         "a controller replacement did not invalidate the HUD binding");
 
     static_cast<void>(
-        lifecycle.schedule(image_call(71U)));
+        lifecycle.schedule(paint_call(71U)));
     passed &= expect(
         lifecycle.request_shutdown(9U).has_value() &&
             lifecycle.schedule(paint_call(72U)) ==

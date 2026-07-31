@@ -40,7 +40,6 @@ public:
 class FakeRuntimePort final
     : public UnrealFrameRuntimePort,
       public PaintStrokeRuntimePort,
-      public ImagePreviewTextureRuntimePort,
       public TransientStateRuntimePort
 {
 public:
@@ -70,14 +69,6 @@ public:
         return {};
     }
 
-    auto update_image_preview_texture(
-        const UpdateImagePreviewTexture& request)
-        -> std::expected<void, RuntimeExecutionError> override
-    {
-        texture_calls.push_back(request);
-        return {};
-    }
-
     auto restore_transient_state(std::uint64_t generation)
         -> std::expected<void, RuntimeExecutionError> override
     {
@@ -88,7 +79,6 @@ public:
     std::size_t resolve_calls{};
     std::vector<HudFrameIdentity> frames{};
     std::vector<PaintAtUvWithBrush> paint_calls{};
-    std::vector<UpdateImagePreviewTexture> texture_calls{};
     std::vector<std::uint64_t> restore_generations{};
     std::optional<RuntimeExecutionError> paint_failure{};
 };
@@ -107,14 +97,9 @@ auto main() -> int
         runtime,
         runtime,
         runtime,
-        runtime,
     };
 
     const auto component = RuntimeObjectHandle{100U, 7U};
-    const auto texture = RuntimeObjectHandle{200U, 8U};
-    const auto pixels = std::make_shared<const std::vector<std::byte>>(
-        16U,
-        std::byte{0x7F});
     const auto paint = PaintAtUvWithBrush{
         10U,
         1U,
@@ -127,22 +112,16 @@ auto main() -> int
         core::Material{0.2, 0.8, 0.1},
         true,
     };
-    const auto image = UpdateImagePreviewTexture{
-        11U,
-        texture,
-        2U,
-        2U,
-        pixels,
-    };
-
     GameThreadScheduler scheduler{3U};
     static_cast<void>(scheduler.schedule(paint));
-    static_cast<void>(scheduler.schedule(image));
+    static_cast<void>(
+        scheduler.schedule(RestoreTransientState{11U}));
     const auto drained = scheduler.drain(executor, 2U);
     passed &= expect(
         drained && *drained == 2U &&
             runtime.paint_calls == std::vector{paint} &&
-            runtime.texture_calls == std::vector{image},
+            runtime.restore_generations ==
+                std::vector<std::uint64_t>{11U},
         "valid typed operations did not reach the runtime port");
 
     thread.game_thread = false;
@@ -183,26 +162,20 @@ auto main() -> int
             runtime.paint_calls.size() == 2U,
         "Paint without a captured texture dimension reached the runtime");
 
-    const auto invalid_image = UpdateImagePreviewTexture{
-        12U,
-        texture,
-        3U,
-        2U,
-        pixels,
-    };
-    const auto invalid = executor.execute(invalid_image);
+    const auto invalid =
+        executor.execute(RestoreTransientState{0U});
     passed &= expect(
         !invalid &&
             invalid.error().code ==
                 RuntimeExecutionErrorCode::InvalidRequest &&
             invalid.error().compatibility_failure ==
                 CompatibilityFailure{
-                    RuntimeContractId::TextureMutation,
-                    ContractFailureKind::ParameterSizeMismatch,
+                    RuntimeContractId::InputControl,
+                    ContractFailureKind::InvalidValue,
                     "error.operation.failed",
                 } &&
-            runtime.texture_calls.size() == 1U,
-        "invalid RGBA dimensions reached texture mutation");
+            runtime.restore_generations.size() == 1U,
+        "an invalid shutdown generation reached transient restore");
 
     runtime.paint_failure = RuntimeExecutionError{
         RuntimeExecutionErrorCode::OperationFailure,

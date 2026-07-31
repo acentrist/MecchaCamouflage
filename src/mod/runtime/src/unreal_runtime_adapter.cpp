@@ -2163,6 +2163,50 @@ public:
         }
     }
 
+    auto restore_transient_state(std::uint64_t generation)
+        -> std::expected<
+            void,
+            application::RuntimeExecutionError>
+    {
+        if (!IsInGameThreadRaw())
+        {
+            return std::unexpected(
+                application::RuntimeExecutionError{
+                    application::RuntimeExecutionErrorCode::
+                        WrongThread,
+                    std::nullopt,
+                });
+        }
+        if (generation == 0U)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::InputControl,
+                application::ContractFailureKind::InvalidValue);
+        }
+        try
+        {
+            restore_input_noexcept();
+            release_all_canvas_textures_noexcept();
+            const auto lock = std::scoped_lock{mutex_};
+            if (input_mutation_ || !canvas_textures_.empty())
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        InputControl,
+                    application::ContractFailureKind::
+                        ExecutionFailure);
+            }
+            return {};
+        }
+        catch (...)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::InputControl,
+                application::ContractFailureKind::
+                    ExecutionFailure);
+        }
+    }
+
     auto observe_queues(
         application::RuntimeObjectHandle component_handle,
         application::JobGeneration generation)
@@ -3648,6 +3692,15 @@ auto UnrealRuntimeAdapter::paint_at_uv_with_brush(
         application::RuntimeExecutionError>
 {
     return impl_->paint(request);
+}
+
+auto UnrealRuntimeAdapter::restore_transient_state(
+    std::uint64_t generation)
+    -> std::expected<
+        void,
+        application::RuntimeExecutionError>
+{
+    return impl_->restore_transient_state(generation);
 }
 
 auto UnrealRuntimeAdapter::observe_paint_queues(

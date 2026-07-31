@@ -73,18 +73,6 @@ struct PaintAtUvWithBrush
     auto operator==(const PaintAtUvWithBrush&) const -> bool = default;
 };
 
-struct UpdateImagePreviewTexture
-{
-    std::uint64_t request_id{};
-    RuntimeObjectHandle texture{};
-    std::uint32_t width{};
-    std::uint32_t height{};
-    std::shared_ptr<const std::vector<std::byte>> rgba{};
-
-    auto operator==(const UpdateImagePreviewTexture&) const
-        -> bool = default;
-};
-
 struct RestoreTransientState
 {
     std::uint64_t shutdown_generation{};
@@ -96,7 +84,6 @@ using GameThreadOperation = std::variant<
     ResolveInitialContracts,
     RebindHudFrame,
     PaintAtUvWithBrush,
-    UpdateImagePreviewTexture,
     RestoreTransientState>;
 
 enum class ScheduleResult : std::uint8_t

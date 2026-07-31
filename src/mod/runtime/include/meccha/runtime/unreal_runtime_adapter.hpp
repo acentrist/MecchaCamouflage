@@ -19,6 +19,7 @@ class UnrealRuntimeAdapter final
       public application::GameThreadContext,
       public application::UnrealFrameRuntimePort,
       public application::PaintStrokeRuntimePort,
+      public application::TransientStateRuntimePort,
       public application::PaintQueueRuntimePort,
       public application::PaintPreviewRuntimePort,
       public application::ImagePaintGameRuntimePort,
@@ -67,6 +68,11 @@ public:
 
     auto paint_at_uv_with_brush(
         const application::PaintAtUvWithBrush& request)
+        -> std::expected<
+            void,
+            application::RuntimeExecutionError> override;
+
+    auto restore_transient_state(std::uint64_t generation)
         -> std::expected<
             void,
             application::RuntimeExecutionError> override;

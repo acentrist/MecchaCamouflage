@@ -4,7 +4,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
-#include <limits>
 #include <type_traits>
 #include <variant>
 
@@ -15,8 +14,6 @@ namespace
 constexpr auto FailureMessage = "error.operation.failed";
 constexpr std::uint32_t MaximumTextureDimension = 4096U;
 constexpr double MaximumEffectiveBrushRadiusTexels = 1024.0;
-constexpr std::uint64_t MaximumTextureBytes =
-    64U * 1024U * 1024U;
 
 auto invalid(
     RuntimeContractId contract,
@@ -75,62 +72,16 @@ auto validate(const PaintAtUvWithBrush& request)
     return {};
 }
 
-auto validate(const UpdateImagePreviewTexture& request)
-    -> std::expected<void, RuntimeExecutionError>
-{
-    if (request.request_id == 0U)
-    {
-        return invalid(
-            RuntimeContractId::TextureMutation,
-            ContractFailureKind::InvalidValue);
-    }
-    if (!request.texture.valid())
-    {
-        return invalid(
-            RuntimeContractId::TextureMutation,
-            ContractFailureKind::StaleObject);
-    }
-    if (request.width == 0U || request.height == 0U ||
-        request.width > MaximumTextureDimension ||
-        request.height > MaximumTextureDimension ||
-        request.rgba == nullptr)
-    {
-        return invalid(
-            RuntimeContractId::TextureMutation,
-            ContractFailureKind::InvalidValue);
-    }
-    const auto pixels =
-        static_cast<std::uint64_t>(request.width) *
-        static_cast<std::uint64_t>(request.height);
-    if (pixels >
-        std::numeric_limits<std::uint64_t>::max() / 4U)
-    {
-        return invalid(
-            RuntimeContractId::TextureMutation,
-            ContractFailureKind::ParameterSizeMismatch);
-    }
-    const auto expected_bytes = pixels * 4U;
-    if (expected_bytes > MaximumTextureBytes ||
-        request.rgba->size() != expected_bytes)
-    {
-        return invalid(
-            RuntimeContractId::TextureMutation,
-            ContractFailureKind::ParameterSizeMismatch);
-    }
-    return {};
-}
 } // namespace
 
 RuntimeOperationExecutor::RuntimeOperationExecutor(
     GameThreadContext& thread_context,
     UnrealFrameRuntimePort& frame_runtime,
     PaintStrokeRuntimePort& paint_runtime,
-    ImagePreviewTextureRuntimePort& texture_runtime,
     TransientStateRuntimePort& transient_runtime)
     : thread_context_{thread_context},
       frame_runtime_{frame_runtime},
       paint_runtime_{paint_runtime},
-      texture_runtime_{texture_runtime},
       transient_runtime_{transient_runtime}
 {
 }
@@ -183,19 +134,6 @@ auto RuntimeOperationExecutor::execute(
                 }
                 return paint_runtime_.paint_at_uv_with_brush(
                     request);
-            }
-            else if constexpr (
-                std::is_same_v<
-                    Request,
-                    UpdateImagePreviewTexture>)
-            {
-                const auto validated = validate(request);
-                if (!validated)
-                {
-                    return validated;
-                }
-                return texture_runtime_
-                    .update_image_preview_texture(request);
             }
             else
             {
