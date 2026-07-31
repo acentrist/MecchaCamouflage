@@ -2242,8 +2242,11 @@ static void NativeNormalPaintUsesEnvironmentProjection()
     Assert(!bridge.Contains("tuning_auto_material", StringComparison.Ordinal) &&
            !bridge.Contains("mesh_first_get_dominant_material_properties", StringComparison.Ordinal) &&
            !bridge.Contains("auto_material_resolution_failed", StringComparison.Ordinal) &&
+           !bridge.Contains("appearance_match_requested", StringComparison.Ordinal) &&
+           !bridge.Contains("appearance_make_calibrated_emissive_parameters", StringComparison.Ordinal) &&
+           !bridge.Contains("appearance_make_cluster_local_candidate", StringComparison.Ordinal) &&
            !contract.Contains("appearance_should_resolve_screen_hit_uv", StringComparison.Ordinal),
-        "normal Paint should have one manual material route without Auto Material discovery or request branches");
+        "normal Paint should have one manual material route without retired Auto Material fitting branches");
     Assert(!bridge.Contains("appearance_fallback_stroke_samples", StringComparison.Ordinal) &&
            !bridge.Contains("mesh_first_assign_colors(profile_available", StringComparison.Ordinal),
         "the production bridge should not retain per-sample Appearance Match fallback or source-mesh transfer");
