@@ -15,6 +15,11 @@ open.
   typed command queue, Paint planner/worker/coordinator, job and preview state
   machines, compatibility state, bounded diagnostics, and immutable snapshot
   publisher. Platform adapters remain injected ports.
+- `ApplicationRoot` also owns the single admission point for an optional
+  project-owned `RuntimeFrameExtensionPort`. It passes the exact validated HUD
+  identity only after publishing the current runtime snapshot; the production
+  UI coordinator implements this port without exposing UI or Unreal types to
+  the application layer.
 - The root runtime state is explicit:
   `Cold -> Initializing -> Compatible | Incompatible -> ShuttingDown ->
   Stopped`.
@@ -64,8 +69,10 @@ open.
   its local and observed visual/outgoing queues to drain. It then cancels and
   collects any root-owned Paint preview build, restores its exact project-owned
   texture snapshot on the game thread, and requires transient UI/input
-  restoration on the next game-thread frame. It refuses callback
-  unregistration until the job and both restoration layers are terminal.
+  restoration on the next game-thread frame. The attached frame extension
+  must then restore and stop its input lease and texture ownership; typed
+  failures remain retryable on later HUD frames. The root refuses callback
+  unregistration until the job and all restoration layers are terminal.
 - Finalization closes callback admission, unregisters the exact recorded
   callback ID, drains in-flight leases, and then reaches `Stopped`.
 
@@ -92,6 +99,9 @@ open.
   deterministic retry on the next valid frame;
 - failed transient-state restoration without unregistering the callback,
   followed by deterministic retry;
+- exact HUD-identity delivery to the attached frame extension, typed Canvas
+  failure publication, rejection of late/duplicate attachment, and retryable
+  extension shutdown before lifecycle restoration and unregistration;
 - callback-unregistration failure publication and exact destructor recovery;
 - 128 consecutive initialize/resolve/restore/unregister cycles;
 - typed Paint/Image runtime dispatch, invalid-request rejection, and direct
@@ -112,9 +122,9 @@ The test runs in both the Linux secret-free build and the Windows MSVC
 
 ## Remaining Phase 4 work
 
-- Add production reflected Paint preview import/export, Image Paint, ESP, full
-  UI and persistence lifecycle, and the production `UnrealRuntimeAdapter` to
-  the existing owned root as those modules are implemented.
+- Add production reflected Paint preview import/export, Image Paint, ESP, and
+  the production `UnrealRuntimeAdapter` to the existing owned root as those
+  adapters are implemented.
 - Implement the pinned UE4SS callback registration adapter and prove exact
   callback unregistration against its real APIs.
 - Bind the typed Paint/Image requests to validated reflected UFunction and

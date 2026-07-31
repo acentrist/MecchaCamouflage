@@ -268,6 +268,21 @@ auto ApplicationRoot::initialize()
     return {};
 }
 
+auto ApplicationRoot::attach_frame_extension(
+    RuntimeFrameExtensionPort& extension)
+    -> std::expected<void, ApplicationRootError>
+{
+    const auto lock = std::scoped_lock{state_mutex_};
+    if (phase_ != ApplicationRuntimePhase::Cold ||
+        frame_extension_ != nullptr)
+    {
+        return std::unexpected(
+            ApplicationRootError::InvalidState);
+    }
+    frame_extension_ = &extension;
+    return {};
+}
+
 auto ApplicationRoot::on_update() noexcept -> void
 {
     lifecycle_.on_update();
@@ -295,7 +310,7 @@ auto ApplicationRoot::request_shutdown(
     -> std::expected<void, ApplicationRootError>
 {
     auto initialized = false;
-    auto defer_for_preview = false;
+    auto defer_for_game_thread = false;
     {
         const auto lock = std::scoped_lock{state_mutex_};
         if (phase_ != ApplicationRuntimePhase::Initializing &&
@@ -306,10 +321,12 @@ auto ApplicationRoot::request_shutdown(
                 ApplicationRootError::InvalidState);
         }
         initialized = runtime_initialized_;
-        defer_for_preview = paint_previews_ != nullptr;
+        defer_for_game_thread =
+            paint_previews_ != nullptr ||
+            frame_extension_ != nullptr;
     }
 
-    if (initialized && !defer_for_preview)
+    if (initialized && !defer_for_game_thread)
     {
         const auto requested =
             lifecycle_.request_shutdown(shutdown_generation);
@@ -339,7 +356,7 @@ auto ApplicationRoot::request_shutdown(
     phase_ = ApplicationRuntimePhase::ShuttingDown;
     pending_shutdown_generation_ = shutdown_generation;
     lifecycle_shutdown_requested_ =
-        initialized && !defer_for_preview;
+        initialized && !defer_for_game_thread;
     publish_locked();
     return {};
 }
@@ -356,8 +373,7 @@ auto ApplicationRoot::finalize_shutdown()
                 ApplicationRootError::InvalidState);
         }
         initialized = runtime_initialized_;
-        if (initialized && paint_previews_ &&
-            !lifecycle_shutdown_requested_)
+        if (initialized && !lifecycle_shutdown_requested_)
         {
             return std::unexpected(
                 ApplicationRootError::PendingGameThreadRestore);
@@ -406,6 +422,8 @@ auto ApplicationRoot::on_hud_frame_complete(
     {
         auto advance = false;
         auto advance_root_shutdown = false;
+        auto* frame_extension =
+            static_cast<RuntimeFrameExtensionPort*>(nullptr);
         if (!result)
         {
             const auto lock = std::scoped_lock{state_mutex_};
@@ -433,6 +451,7 @@ auto ApplicationRoot::on_hud_frame_complete(
                 advance =
                     paint_runtime_ != nullptr &&
                     command_queue_ != nullptr;
+                frame_extension = frame_extension_;
             }
         }
         if (advance)
@@ -445,8 +464,22 @@ auto ApplicationRoot::on_hud_frame_complete(
         {
             advance_shutdown(monotonic_milliseconds());
         }
-        const auto lock = std::scoped_lock{state_mutex_};
-        publish_locked(runtime_snapshot);
+        {
+            const auto lock = std::scoped_lock{state_mutex_};
+            publish_locked(runtime_snapshot);
+        }
+        if (frame_extension &&
+            runtime_snapshot.frame_identity)
+        {
+            const auto extended =
+                frame_extension->on_hud_frame(
+                    *runtime_snapshot.frame_identity);
+            if (!extended)
+            {
+                record_frame_extension_error(
+                    extended.error());
+            }
+        }
     }
     catch (...)
     {
@@ -492,6 +525,23 @@ auto ApplicationRoot::record_preview_error(
             GenericFailureMessage,
             command_id);
     }
+}
+
+auto ApplicationRoot::record_frame_extension_error(
+    const RuntimeFrameExtensionError& error) -> void
+{
+    const auto lock = std::scoped_lock{state_mutex_};
+    if (error.compatibility_failure)
+    {
+        fail_locked(*error.compatibility_failure);
+    }
+    else
+    {
+        diagnostics_.push(
+            DiagnosticSeverity::Error,
+            error.message_key);
+    }
+    publish_locked();
 }
 
 auto ApplicationRoot::record_command_error(
@@ -1493,6 +1543,28 @@ auto ApplicationRoot::advance_shutdown(
                 std::nullopt);
             return;
         }
+    }
+
+    auto* frame_extension =
+        static_cast<RuntimeFrameExtensionPort*>(nullptr);
+    {
+        const auto lock = std::scoped_lock{state_mutex_};
+        if (!frame_extension_stopped_)
+        {
+            frame_extension = frame_extension_;
+        }
+    }
+    if (frame_extension)
+    {
+        const auto stopped =
+            frame_extension->restore_and_stop();
+        if (!stopped)
+        {
+            record_frame_extension_error(stopped.error());
+            return;
+        }
+        const auto lock = std::scoped_lock{state_mutex_};
+        frame_extension_stopped_ = true;
     }
 
     auto shutdown_generation = std::uint64_t{};

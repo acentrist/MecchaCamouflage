@@ -7,10 +7,11 @@ hotkey and product-action boundaries plus a portable five-tab product-panel
 shell, native file-selection boundary, latest-snapshot effect executor, and
 v2-only preset import/activation path. The three exact body guides, portable
 game-thread texture lifetime boundary, and complete project-owned HUD-frame
-coordinator are also implemented. Production UCanvas rendering, Unreal input
-registration, game-font/fallback selection, the reflected Unreal texture port,
-and live verification remain intentionally unimplemented until the protected
-UE4SS graph exposes the exact accepted interfaces.
+coordinator are also implemented and attached to `ApplicationRoot` through one
+project-owned frame-extension contract. Production UCanvas rendering, Unreal
+input registration, game-font/fallback selection, the reflected Unreal
+texture port, and live verification remain intentionally unimplemented until
+the protected UE4SS graph exposes the exact accepted interfaces.
 
 ## Ownership and dependency direction
 
@@ -508,10 +509,21 @@ queue refusal.
 This remains a partial product UI milestone. The production UE4SS callback,
 reflected Unreal texture port, and UCanvas/input adapters remain open.
 
+`ProductUiFrameCoordinator` now implements the application-owned
+`RuntimeFrameExtensionPort`. Each compatible root HUD frame supplies the same
+validated World/controller/HUD/Canvas identity used by feature dispatch.
+Capture/render, input-lease, and texture failures map to typed compatibility
+contracts without escaping the non-throwing callback boundary. During
+shutdown, the root retries UI input/texture restoration on later game-thread
+frames and cannot request lifecycle restoration or unregister the callback
+until the coordinator has stopped successfully. Portable tests cover identity
+delivery, Canvas failure mapping, terminal admission closure, failed
+restoration retry, and exact ordering before transient-state restore.
+
 ## Remaining work
 
-- Invoke the project-owned frame coordinator from the production UE4SS HUD
-  callback.
+- Bind the root-owned HUD-frame callback and attached frame coordinator to the
+  production UE4SS callback registration adapter.
 - Implement the production UCanvas capture/render and Unreal input-lease ports,
   then register the UE4SS key callbacks once.
 - Bind the game-thread texture coordinator to validated reflected Unreal

@@ -124,6 +124,55 @@ public:
     CallbackId unregistered_id{};
     bool fail_registration{};
 };
+
+class FakeFrameExtension final : public RuntimeFrameExtensionPort
+{
+public:
+    auto on_hud_frame(const HudFrameIdentity& identity) noexcept
+        -> std::expected<void, RuntimeFrameExtensionError> override
+    {
+        ++frame_count;
+        last_identity = identity;
+        if (fail_frame)
+        {
+            return std::unexpected(RuntimeFrameExtensionError{
+                RuntimeFrameExtensionStage::Frame,
+                CompatibilityFailure{
+                    RuntimeContractId::Canvas,
+                    ContractFailureKind::ExecutionFailure,
+                    "error.operation.failed",
+                },
+            });
+        }
+        return {};
+    }
+
+    auto restore_and_stop() noexcept
+        -> std::expected<void, RuntimeFrameExtensionError> override
+    {
+        ++shutdown_count;
+        if (fail_shutdown)
+        {
+            return std::unexpected(RuntimeFrameExtensionError{
+                RuntimeFrameExtensionStage::Shutdown,
+                CompatibilityFailure{
+                    RuntimeContractId::InputControl,
+                    ContractFailureKind::ExecutionFailure,
+                    "error.operation.failed",
+                },
+            });
+        }
+        stopped = true;
+        return {};
+    }
+
+    std::optional<HudFrameIdentity> last_identity{};
+    std::size_t frame_count{};
+    std::size_t shutdown_count{};
+    bool fail_frame{};
+    bool fail_shutdown{};
+    bool stopped{};
+};
 } // namespace
 
 auto main() -> int
@@ -141,10 +190,12 @@ auto main() -> int
         4U,
         4U,
     };
+    FakeFrameExtension frames{};
 
     passed &= expect(
-        root.snapshot()->runtime_phase == ApplicationRuntimePhase::Cold,
-        "a new root was not cold");
+        root.snapshot()->runtime_phase == ApplicationRuntimePhase::Cold &&
+            root.attach_frame_extension(frames).has_value(),
+        "a new root was not cold or refused its frame extension");
     passed &= expect(
         root.initialize().has_value() &&
             storage.read_count == 1U &&
@@ -184,6 +235,8 @@ auto main() -> int
             !compatible->compatibility.failure &&
             compatible->diagnostics.size() == 1U &&
             compatible->frame_identity == Frame &&
+            frames.frame_count == 1U &&
+            frames.last_identity == Frame &&
             executor.operations ==
                 std::vector<GameThreadOperation>{
                     ResolveInitialContracts{},
@@ -203,11 +256,31 @@ auto main() -> int
                 ApplicationRootError::PendingGameThreadRestore &&
             callbacks.unregister_count == 0U,
         "the root finalized before game-thread restoration");
+    frames.fail_shutdown = true;
+    callbacks.invoke(Frame);
+    passed &= expect(
+        frames.shutdown_count == 1U &&
+            !frames.stopped &&
+            callbacks.unregister_count == 0U &&
+            executor.operations.back() !=
+                GameThreadOperation{RestoreTransientState{9U}},
+        "failed frame-extension restoration advanced lifecycle shutdown");
+    frames.fail_shutdown = false;
+    callbacks.invoke(Frame);
+    passed &= expect(
+        frames.shutdown_count == 2U &&
+            frames.stopped &&
+            callbacks.unregister_count == 0U &&
+            executor.operations.back() !=
+                GameThreadOperation{RestoreTransientState{9U}},
+        "successful frame-extension restoration did not request lifecycle "
+        "shutdown in order");
     callbacks.invoke(Frame);
     passed &= expect(
         executor.operations.back() ==
             GameThreadOperation{RestoreTransientState{9U}},
-        "the composition root did not restore transient state");
+        "the composition root did not restore transient state after its "
+        "frame extension");
     passed &= expect(
         root.finalize_shutdown().has_value() &&
             callbacks.unregister_count == 1U &&
@@ -297,6 +370,38 @@ auto main() -> int
                     .compatibility_failure ==
                 contract_executor.failure,
         "executor contract context was lost before snapshot publication");
+
+    FakeStorage extension_storage{};
+    FakeCallbacks extension_callbacks{};
+    RecordingExecutor extension_executor{};
+    ApplicationRoot extension_failure{
+        extension_callbacks,
+        extension_executor,
+        extension_storage,
+        2U,
+        2U,
+    };
+    FakeFrameExtension broken_extension{};
+    broken_extension.fail_frame = true;
+    passed &= expect(
+        extension_failure.attach_frame_extension(broken_extension)
+                .has_value() &&
+            extension_failure.initialize().has_value(),
+        "frame-extension failure fixture did not initialize");
+    extension_callbacks.invoke(Frame);
+    const auto extension_snapshot = extension_failure.snapshot();
+    passed &= expect(
+        broken_extension.frame_count == 1U &&
+            extension_snapshot->runtime_phase ==
+                ApplicationRuntimePhase::Incompatible &&
+            extension_snapshot->compatibility.failure &&
+            extension_snapshot->compatibility.failure->contract ==
+                RuntimeContractId::Canvas &&
+            extension_snapshot->diagnostics.size() == 1U &&
+            !extension_failure
+                 .attach_frame_extension(broken_extension)
+                 .has_value(),
+        "frame-extension failure was not contained and published");
 
     if (passed)
     {

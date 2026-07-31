@@ -11,6 +11,7 @@
 #include <meccha/application/paint_job_coordinator.hpp>
 #include <meccha/application/paint_preview_build_worker.hpp>
 #include <meccha/application/paint_preview_controller.hpp>
+#include <meccha/application/runtime_frame_extension.hpp>
 #include <meccha/application/runtime_lifecycle.hpp>
 
 #include <atomic>
@@ -85,6 +86,8 @@ public:
     ~ApplicationRoot() override = default;
 
     auto initialize() -> std::expected<void, ApplicationRootError>;
+    auto attach_frame_extension(RuntimeFrameExtensionPort& extension)
+        -> std::expected<void, ApplicationRootError>;
     auto on_update() noexcept -> void;
 
     [[nodiscard]] auto enqueue_command(ApplicationCommand command)
@@ -118,6 +121,8 @@ private:
     auto record_preview_error(
         const PaintPreviewError& error,
         std::optional<CommandId> command_id) -> void;
+    auto record_frame_extension_error(
+        const RuntimeFrameExtensionError& error) -> void;
     auto record_command_error(CommandId command_id) -> void;
     auto advance_image_editor() -> void;
     auto advance_esp(
@@ -185,7 +190,9 @@ private:
         active_paint_preview_generation_{};
     std::optional<std::uint64_t>
         pending_shutdown_generation_{};
+    RuntimeFrameExtensionPort* frame_extension_{};
     bool lifecycle_shutdown_requested_{};
+    bool frame_extension_stopped_{};
     bool paint_shutdown_cancel_requested_{};
     bool ui_open_{};
 };

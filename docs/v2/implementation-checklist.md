@@ -190,6 +190,9 @@ Evidence:
     visual/outgoing queue drain before lifecycle quiescing.
   - [x] Stop and discard Paint preview builds, restore the exact project-owned
     texture snapshot on the game thread, then enter lifecycle quiescing.
+  - [x] Drive one attached project-owned frame extension from the exact HUD
+    identity, retry its UI/input/texture restoration on the game thread, and
+    refuse lifecycle quiescing until that extension reports terminal stop.
 - [ ] Pass fake-runtime, thread-affinity, lifecycle fault, and concurrent
   uninstall tests.
 - [ ] DEFERRED — maintainer interaction required: verify live load, travel,
@@ -535,6 +538,9 @@ Evidence:
   - [x] Connect every portable Canvas widget/editor activation and native
     picker effect through one game-thread frame coordinator that enqueues
     typed output only after successful frame rendering.
+  - [x] Attach that coordinator to `ApplicationRoot` through one project-owned
+    HUD-frame extension contract with typed compatibility failures and
+    restore-before-callback-unregistration ordering.
   - [ ] Invoke the frame coordinator from the production UE4SS HUD callback.
 - [ ] Complete all editor interactions and body-guide behavior.
   - [x] Bind an exact project/revision-tagged opaque atlas texture and optional

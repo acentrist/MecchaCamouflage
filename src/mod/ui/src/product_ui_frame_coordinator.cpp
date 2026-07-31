@@ -116,6 +116,54 @@ auto valid_function_key_event(
             event.kind ==
                 application::FunctionKeyEventKind::Released);
 }
+
+auto frame_extension_error(
+    application::RuntimeFrameExtensionStage stage,
+    const ProductUiFrameError& error)
+    -> application::RuntimeFrameExtensionError
+{
+    auto failure =
+        std::optional<application::CompatibilityFailure>{};
+    switch (error.code)
+    {
+    case ProductUiFrameErrorCode::InvalidFrameIdentity:
+        failure = application::CompatibilityFailure{
+            application::RuntimeContractId::Canvas,
+            application::ContractFailureKind::StaleObject,
+            "error.operation.failed",
+        };
+        break;
+    case ProductUiFrameErrorCode::Capture:
+    case ProductUiFrameErrorCode::Render:
+        failure = application::CompatibilityFailure{
+            application::RuntimeContractId::Canvas,
+            application::ContractFailureKind::ExecutionFailure,
+            "error.operation.failed",
+        };
+        break;
+    case ProductUiFrameErrorCode::Texture:
+        failure = application::CompatibilityFailure{
+            application::RuntimeContractId::TextureMutation,
+            application::ContractFailureKind::ExecutionFailure,
+            "error.operation.failed",
+        };
+        break;
+    case ProductUiFrameErrorCode::InputLease:
+        failure = application::CompatibilityFailure{
+            application::RuntimeContractId::InputControl,
+            application::ContractFailureKind::ExecutionFailure,
+            "error.operation.failed",
+        };
+        break;
+    default:
+        break;
+    }
+    return {
+        stage,
+        std::move(failure),
+        "error.operation.failed",
+    };
+}
 } // namespace
 
 ProductUiFrameCoordinator::ProductUiFrameCoordinator(
@@ -405,6 +453,63 @@ auto ProductUiFrameCoordinator::shutdown()
     snapshot_.stopping = false;
     snapshot_.stopped = true;
     return {};
+}
+
+auto ProductUiFrameCoordinator::on_hud_frame(
+    const application::HudFrameIdentity& identity) noexcept
+    -> std::expected<
+        void,
+        application::RuntimeFrameExtensionError>
+{
+    try
+    {
+        const auto result = tick(identity);
+        if (!result)
+        {
+            return std::unexpected(
+                frame_extension_error(
+                    application::RuntimeFrameExtensionStage::Frame,
+                    result.error()));
+        }
+        return {};
+    }
+    catch (...)
+    {
+        return std::unexpected(
+            application::RuntimeFrameExtensionError{
+                application::RuntimeFrameExtensionStage::Frame,
+                std::nullopt,
+                "error.operation.failed",
+            });
+    }
+}
+
+auto ProductUiFrameCoordinator::restore_and_stop() noexcept
+    -> std::expected<
+        void,
+        application::RuntimeFrameExtensionError>
+{
+    try
+    {
+        const auto result = shutdown();
+        if (!result)
+        {
+            return std::unexpected(
+                frame_extension_error(
+                    application::RuntimeFrameExtensionStage::Shutdown,
+                    result.error()));
+        }
+        return {};
+    }
+    catch (...)
+    {
+        return std::unexpected(
+            application::RuntimeFrameExtensionError{
+                application::RuntimeFrameExtensionStage::Shutdown,
+                std::nullopt,
+                "error.operation.failed",
+            });
+    }
 }
 
 auto ProductUiFrameCoordinator::snapshot() const

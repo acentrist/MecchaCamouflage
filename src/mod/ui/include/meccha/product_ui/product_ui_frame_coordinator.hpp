@@ -5,6 +5,7 @@
 #include <meccha/application/input_command_router.hpp>
 #include <meccha/application/localization.hpp>
 #include <meccha/application/product_ui_effect_executor.hpp>
+#include <meccha/application/runtime_frame_extension.hpp>
 #include <meccha/product_ui/image_editor_texture_coordinator.hpp>
 #include <meccha/product_ui/product_panel.hpp>
 #include <meccha/ui/input_lease.hpp>
@@ -118,6 +119,7 @@ struct ProductUiFrameSnapshot
 };
 
 class ProductUiFrameCoordinator
+    : public application::RuntimeFrameExtensionPort
 {
 public:
     ProductUiFrameCoordinator(
@@ -144,6 +146,17 @@ public:
 
     [[nodiscard]] auto shutdown()
         -> std::expected<void, ProductUiFrameError>;
+
+    [[nodiscard]] auto on_hud_frame(
+        const application::HudFrameIdentity& identity) noexcept
+        -> std::expected<
+            void,
+            application::RuntimeFrameExtensionError> override;
+
+    [[nodiscard]] auto restore_and_stop() noexcept
+        -> std::expected<
+            void,
+            application::RuntimeFrameExtensionError> override;
 
     [[nodiscard]] auto snapshot() const
         -> ProductUiFrameSnapshot;

@@ -424,6 +424,8 @@ auto main(int argc, char** argv) -> int
         runtime,
         &effects,
     };
+    auto& frame_extension =
+        static_cast<RuntimeFrameExtensionPort&>(coordinator);
     const auto frame_identity =
         HudFrameIdentity{1U, 2U, 3U, 4U};
 
@@ -555,6 +557,18 @@ auto main(int argc, char** argv) -> int
             input_lease.snapshot().phase ==
                 ui::InputLeasePhase::Released,
         "render failure left the game input lease held");
+    const auto failed_extension_frame =
+        frame_extension.on_hud_frame(frame_identity);
+    passed &= expect(
+        !failed_extension_frame &&
+            failed_extension_frame.error().stage ==
+                RuntimeFrameExtensionStage::Frame &&
+            failed_extension_frame.error()
+                .compatibility_failure &&
+            failed_extension_frame.error()
+                    .compatibility_failure->contract ==
+                RuntimeContractId::Canvas,
+        "render failure was not mapped to the Canvas runtime contract");
 
     runtime.fail_render = false;
     snapshots.value =
@@ -568,10 +582,17 @@ auto main(int argc, char** argv) -> int
                 ui::InputLeasePhase::Released,
         "a closed snapshot did not keep the input lease released");
 
-    const auto shutdown = coordinator.shutdown();
+    const auto extended_frame =
+        frame_extension.on_hud_frame(frame_identity);
+    passed &= expect(
+        extended_frame.has_value(),
+        "the runtime frame-extension adapter rejected a valid frame");
+
+    const auto shutdown =
+        frame_extension.restore_and_stop();
     passed &= expect(
         shutdown.has_value(),
-        "terminal shutdown did not complete");
+        "the runtime frame-extension adapter did not complete shutdown");
     passed &= expect(
         coordinator.snapshot().stopped,
         "terminal shutdown did not publish stopped state");
@@ -581,6 +602,15 @@ auto main(int argc, char** argv) -> int
             stopped_frame.error().code ==
                 ProductUiFrameErrorCode::Stopped,
         "terminal shutdown did not close UI frame admission");
+    const auto stopped_extension_frame =
+        frame_extension.on_hud_frame(frame_identity);
+    passed &= expect(
+        !stopped_extension_frame &&
+            stopped_extension_frame.error().stage ==
+                RuntimeFrameExtensionStage::Frame &&
+            !stopped_extension_frame.error()
+                 .compatibility_failure,
+        "a stopped UI frame was not contained as a typed extension error");
 
     auto texture_snapshots = SnapshotPort{};
     texture_snapshots.value =
