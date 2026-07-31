@@ -564,6 +564,10 @@ Evidence:
     - [x] Implement an immutable catalog loader that validates all three
       raw/image profile pairs and require that catalog at runtime-adapter
       construction, with no profile I/O or parsing in HUD callbacks.
+    - [x] Preconstruct one immutable production resource bundle from an
+      absolute resource root, including the exact profile catalog, all 16
+      localization catalogs, and the three generated guide bitmaps, with
+      bounded reads and typed fail-closed construction errors.
     - [ ] In the exported production composition root, resolve the packaged
       profile directory, construct the catalog before callback registration,
       and inject it into the single runtime adapter.

@@ -82,6 +82,15 @@ documents, mismatched topology, and any source identity that cannot form the
 exact `/Game/...Asset.Export` object path. No file I/O or profile parsing may
 occur in a HUD callback.
 
+`load_production_resources` now owns that pre-callback construction boundary.
+Given one absolute resource root, it performs bounded localization I/O, parses
+all 16 catalogs, loads the exact immutable profile catalog, and builds all
+three guide bitmaps before returning one move-only resource bundle. Relative
+roots, missing profile trees, catalog failures, localization failures, guide
+failures, allocation failures, and filesystem failures are typed and fail
+closed. The exported root still has to derive the actual
+`Mods/MecchaCamouflage/resources` path and own the returned bundle.
+
 `UnrealRuntimeAdapter` consumes that catalog through
 `ImagePaintGameRuntimePort`. Initial contract resolution requires the exact
 `RuntimePaintableComponent.TargetMeshComponent` weak-object property, an
@@ -100,7 +109,8 @@ scan, runtime topology extraction, or profile I/O. Exact reflected pacing
 tuning can replace that bounded policy only through a separately frozen
 contract.
 
-Portable Linux verification passes all 83 tests, including exact catalog
+Portable Linux verification passes all 84 tests, including production resource
+construction, exact catalog
 loading and static Image Paint sampling. Immutable Windows staging at project
 commit `86f5033` builds the complete pinned UE4SS/MSVC x64
 `Game__Shipping__Win64` graph, passes all 101 Windows tests, and passes the
