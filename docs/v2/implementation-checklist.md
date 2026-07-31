@@ -1048,6 +1048,10 @@ Evidence:
     icon, licenses, and notices into the release EXE.
 - [ ] Build runtime and mod from the same trusted graph.
 - [ ] Complete secret-free PR CI and protected full-build/release CI.
+  - [x] Bind every public v2 job to the exact pull-request head/push commit,
+    keep the legacy recursive v1 job off the rewrite pull request only, bound
+    GCC analyzer parallelism, and cover hosted-runner timing plus Windows 8.3
+    dependency-root aliases without weakening reparse rejection.
   - [x] Implement a manual, protected, fail-closed release-candidate workflow
     that rebuilds the pinned graph, requires a separately approved dependency
     audit, collects exact evidence, assembles the runtime/CAB/resources,

@@ -268,7 +268,11 @@ Path/git packages are bound to their source repositories and resolved feature
 sets. Registry packages must match both `Cargo.lock` and Cargo's
 `.cargo-checksum.json`; their resolved features are included as well. Missing
 targets/packages, an open dependency edge, root escape, malformed metadata, or
-linked/reparse-routed input fails collection.
+linked/reparse-routed input fails collection. On Windows, the containment check
+also recognizes 8.3 short and long spellings of the same approved directory by
+file identity. It still inspects both the alias route and every descendant and
+rejects any symlink, junction, or reparse point; path spelling cannot widen an
+approved root.
 
 `tools/v2/build_dependency_notices.py` then consumes two distinct protected
 inputs: that canonical evidence and a separately approved audit. The approved

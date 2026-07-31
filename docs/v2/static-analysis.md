@@ -38,7 +38,24 @@ The job builds `meccha_product_ui`, `meccha_runtime_contracts`, and
 `meccha_launcher_core`. Their transitive target closures cover the portable
 production common, core, application, runtime-contract, UI, and launcher
 sources without spending analyzer time on test translation units or requiring
-the restricted Unreal dependency.
+the restricted Unreal dependency. CI limits this analyzer build to two
+parallel compile jobs: the analyzer has a materially higher per-translation
+unit memory cost, and an unbounded Ninja fan-out can be terminated by a hosted
+runner before GCC emits a diagnostic.
+
+Every public v2 job checks out the exact pull-request head commit (or the exact
+push commit), rather than GitHub's synthetic pull-request merge ref. This keeps
+the rewrite's frozen v1 comparison evidence and profile identities bound to the
+commit under review even while the target branch changes. The legacy v1
+workflow remains enabled for its normal branches and pull requests but skips
+only the `rewrite/ue4ss-v2` pull request, whose restricted recursive checkout
+is outside the public v2 trust boundary.
+
+The sanitized Image Paint composition-root test pumps asynchronous work to a
+30-second steady-clock deadline and reports a timeout as a failed assertion.
+This preserves a bounded failure while avoiding the former assumption that a
+sanitized hosted runner would finish worker setup within 1,000 one-millisecond
+sleeps.
 
 `MECCHA_ENABLE_GCC_ANALYZER` requires GCC 13 or newer and enables `-fanalyzer`
 under the normal `-Wall -Wextra -Wpedantic -Werror` policy. Analyzer and
@@ -67,5 +84,6 @@ cmake -S . -B .build/v2/gcc-analyzer -G Ninja \
   -DMECCHA_WARNINGS_AS_ERRORS=ON \
   -DMECCHA_ENABLE_GCC_ANALYZER=ON
 cmake --build .build/v2/gcc-analyzer \
-  --target meccha_product_ui meccha_runtime_contracts meccha_launcher_core
+  --target meccha_product_ui meccha_runtime_contracts meccha_launcher_core \
+  --parallel 2
 ```

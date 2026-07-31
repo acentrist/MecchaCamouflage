@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -64,6 +66,28 @@ def cargo_lock(include_unused: bool) -> str:
 
 
 class DependencyEvidenceTests(unittest.TestCase):
+    @staticmethod
+    def windows_short_path(path: Path) -> Path:
+        import ctypes
+
+        get_short_path = ctypes.WinDLL(
+            "kernel32",
+            use_last_error=True,
+        ).GetShortPathNameW
+        get_short_path.argtypes = (
+            ctypes.c_wchar_p,
+            ctypes.c_wchar_p,
+            ctypes.c_uint32,
+        )
+        get_short_path.restype = ctypes.c_uint32
+        buffer = ctypes.create_unicode_buffer(32768)
+        length = get_short_path(str(path), buffer, len(buffer))
+        if length == 0:
+            raise ctypes.WinError(ctypes.get_last_error())
+        if length >= len(buffer):
+            raise OSError("Windows short path exceeds the test buffer")
+        return Path(buffer.value)
+
     def init_repository(self, path: Path, marker: str) -> str:
         path.mkdir(parents=True)
         (path / "LICENSE").write_text(
@@ -548,6 +572,72 @@ class DependencyEvidenceTests(unittest.TestCase):
                 first_fmt["source_identity"],
                 second_fmt["source_identity"],
             )
+
+    def test_refuses_linked_alias_of_approved_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            inputs, _ = self.make_fixture(root)
+            linked_build = root / "linked-build"
+            try:
+                linked_build.symlink_to(
+                    inputs.build_root,
+                    target_is_directory=True,
+                )
+            except OSError:
+                if sys.platform != "win32":
+                    self.skipTest("directory symlinks are unavailable")
+                junction = subprocess.run(
+                    [
+                        "cmd.exe",
+                        "/d",
+                        "/c",
+                        f'mklink /J "{linked_build}" '
+                        f'"{inputs.build_root}"',
+                    ],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                if junction.returncode != 0:
+                    self.skipTest("directory links are unavailable")
+            target_path = inputs.reply_directory / "target-fmt.json"
+            target = json.loads(target_path.read_text(encoding="utf-8"))
+            target["paths"]["source"] = str(
+                linked_build / "_deps/fmt-src"
+            )
+            target_path.write_bytes(canonical_json(target))
+
+            with self.assertRaisesRegex(
+                DependencyEvidenceError,
+                "linked/reparse-routed",
+            ):
+                collect_dependency_evidence(inputs)
+
+    @unittest.skipUnless(
+        sys.platform == "win32",
+        "Windows 8.3 aliases are platform-specific",
+    )
+    def test_accepts_windows_short_root_alias(self) -> None:
+        long_root = Path(
+            tempfile.mkdtemp(prefix="meccha evidence short root ")
+        )
+        try:
+            short_root = self.windows_short_path(long_root)
+            if os.path.normcase(str(short_root)) == os.path.normcase(
+                str(long_root)
+            ):
+                self.skipTest("8.3 short names are unavailable")
+
+            inputs, _ = self.make_fixture(short_root)
+            evidence = collect_dependency_evidence(inputs)
+
+            components = {
+                component["name"]
+                for component in evidence["components"]
+            }
+            self.assertIn("git:build:_deps/fmt-src", components)
+        finally:
+            shutil.rmtree(long_root, ignore_errors=True)
 
 
 if __name__ == "__main__":

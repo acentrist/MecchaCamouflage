@@ -153,6 +153,34 @@ def _relative_to(path: Path, root: Path) -> Path | None:
         return None
 
 
+def _samefile_relative_to(path: Path, root: Path) -> Path | None:
+    """Return a lexical suffix when path contains an alias of root."""
+    lineage: list[Path] = []
+    current = path
+    while True:
+        lineage.append(current)
+        try:
+            matches_root = os.path.samefile(current, root)
+        except OSError:
+            matches_root = False
+        if matches_root:
+            for candidate in reversed(lineage):
+                if _is_link_or_reparse(candidate):
+                    raise DependencyEvidenceError(
+                        "Dependency source path is linked/reparse-routed: "
+                        f"{path}"
+                    )
+            parts = tuple(
+                candidate.name
+                for candidate in reversed(lineage[:-1])
+            )
+            return Path(*parts) if parts else Path(".")
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
+
+
 def _path_alias(
     path: Path,
     roots: dict[str, Path],
@@ -167,6 +195,8 @@ def _path_alias(
     )
     for name in accepted_names:
         relative = _relative_to(normalized, roots[name])
+        if relative is None:
+            relative = _samefile_relative_to(normalized, roots[name])
         if relative is None:
             continue
         current = roots[name]

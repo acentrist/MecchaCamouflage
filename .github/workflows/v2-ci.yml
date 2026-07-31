@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  V2_SOURCE_COMMIT: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
 jobs:
   linux-static-analysis:
     runs-on: ubuntu-24.04
@@ -17,6 +20,7 @@ jobs:
       - name: Checkout without restricted dependencies
         uses: actions/checkout@v4
         with:
+          ref: ${{ env.V2_SOURCE_COMMIT }}
           submodules: false
 
       - name: Checkout the public UE4SS root only
@@ -35,7 +39,7 @@ jobs:
         run: >
           cmake --build .build/v2/ci-linux-analyzer
           --target meccha_product_ui meccha_runtime_contracts
-          meccha_launcher_core
+          meccha_launcher_core --parallel 2
 
   linux-sanitizers:
     runs-on: ubuntu-24.04
@@ -44,6 +48,7 @@ jobs:
       - name: Checkout without restricted dependencies
         uses: actions/checkout@v4
         with:
+          ref: ${{ env.V2_SOURCE_COMMIT }}
           submodules: false
 
       - name: Checkout the public UE4SS root only
@@ -76,6 +81,7 @@ jobs:
       - name: Checkout without restricted dependencies
         uses: actions/checkout@v4
         with:
+          ref: ${{ env.V2_SOURCE_COMMIT }}
           submodules: false
 
       - name: Checkout the public UE4SS root only

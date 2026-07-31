@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+LEGACY_WORKFLOW = ROOT / ".github/workflows/ci.yml"
 PUBLIC_WORKFLOW = ROOT / ".github/workflows/v2-ci.yml"
 TRUSTED_WORKFLOW = ROOT / ".github/workflows/v2-full-build.yml"
 RELEASE_WORKFLOW = ROOT / ".github/workflows/v2-release-candidate.yml"
@@ -29,6 +30,20 @@ def forbid_fragments(text: str, fragments: set[str], label: str) -> None:
     present = sorted(fragment for fragment in fragments if fragment in text)
     if present:
         fail(f"{label} contains forbidden policy fragments: {present}")
+
+
+def require_occurrences(
+    text: str,
+    fragment: str,
+    count: int,
+    label: str,
+) -> None:
+    actual = text.count(fragment)
+    if actual != count:
+        fail(
+            f"{label} requires {count} occurrences of {fragment!r}; "
+            f"found {actual}"
+        )
 
 
 def require_ordered_fragments(
@@ -54,6 +69,9 @@ def verify_public_workflow() -> None:
         text,
         {
             "pull_request:",
+            "V2_SOURCE_COMMIT:",
+            "github.event.pull_request.head.sha",
+            "ref: ${{ env.V2_SOURCE_COMMIT }}",
             "ubuntu-24.04",
             "windows-2022",
             "submodules: false",
@@ -63,12 +81,19 @@ def verify_public_workflow() -> None:
             "-DMECCHA_BUILD_TESTS=OFF",
             "-DMECCHA_ENABLE_GCC_ANALYZER=ON",
             "--target meccha_product_ui meccha_runtime_contracts",
+            "--parallel 2",
             "meccha_launcher_core",
             "-DMECCHA_ENABLE_SANITIZERS=ON",
             "ASAN_OPTIONS:",
             "UBSAN_OPTIONS:",
             "ctest",
         },
+        "public workflow",
+    )
+    require_occurrences(
+        text,
+        "ref: ${{ env.V2_SOURCE_COMMIT }}",
+        3,
         "public workflow",
     )
     forbid_fragments(
@@ -80,6 +105,21 @@ def verify_public_workflow() -> None:
             "UE4SS_GITHUB_TOKEN",
         },
         "public workflow",
+    )
+
+
+def verify_legacy_workflow() -> None:
+    if not LEGACY_WORKFLOW.exists():
+        fail(f"{LEGACY_WORKFLOW.relative_to(ROOT)} is missing")
+    text = LEGACY_WORKFLOW.read_text(encoding="utf-8")
+    require_fragments(
+        text,
+        {
+            "if: github.event_name != 'pull_request' || "
+            "github.head_ref != 'rewrite/ue4ss-v2'",
+            "submodules: recursive",
+        },
+        "legacy workflow",
     )
 
 
@@ -240,6 +280,7 @@ def verify_full_build_verifier() -> None:
 
 def main() -> int:
     try:
+        verify_legacy_workflow()
         verify_public_workflow()
         verify_trusted_workflow()
         verify_release_workflow()

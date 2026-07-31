@@ -39,6 +39,23 @@ auto expect(bool condition, std::string_view message) -> bool
     return condition;
 }
 
+template <typename Pump, typename Predicate>
+auto pump_until(Pump pump, Predicate predicate) -> bool
+{
+    const auto deadline =
+        std::chrono::steady_clock::now() + 30s;
+    do
+    {
+        pump();
+        if (predicate())
+        {
+            return true;
+        }
+        std::this_thread::sleep_for(1ms);
+    } while (std::chrono::steady_clock::now() < deadline);
+    return predicate();
+}
+
 auto image_profile(core::BodyProfile body)
     -> core::CanonicalImageProfile
 {
@@ -983,15 +1000,12 @@ auto main() -> int
         }) == CommandEnqueueResult::Accepted,
         "the composition root rejected a typed Image Paint command");
 
-    for (auto attempt = 0; attempt < 1000; ++attempt)
-    {
-        callbacks.invoke(Frame);
-        if (root.snapshot()->job.phase == JobPhase::Completed)
-        {
-            break;
-        }
-        std::this_thread::sleep_for(1ms);
-    }
+    const auto completed_in_time = pump_until(
+        [&callbacks, Frame]() { callbacks.invoke(Frame); },
+        [&root]() {
+            return root.snapshot()->job.phase ==
+                   JobPhase::Completed;
+        });
 
     auto paint_calls = std::size_t{};
     for (const auto& operation : executor.operations)
@@ -1004,7 +1018,8 @@ auto main() -> int
     }
     const auto completed = root.snapshot();
     passed &= expect(
-        completed->job.phase == JobPhase::Completed &&
+        completed_in_time &&
+            completed->job.phase == JobPhase::Completed &&
             completed->job.feature == Feature::ImagePaint &&
             completed->job.command_id == 301U &&
             completed->image_editor.pipeline.phase ==
@@ -1049,19 +1064,18 @@ auto main() -> int
             7U,
         }) == CommandEnqueueResult::Accepted,
         "the cancellable Image Paint job was rejected");
-    for (auto attempt = 0; attempt < 1000; ++attempt)
-    {
-        callbacks.invoke(Frame);
-        if (root.snapshot()->job.phase == JobPhase::Draining)
-        {
-            break;
-        }
-        std::this_thread::sleep_for(1ms);
-    }
+    const auto cancel_ready_in_time = pump_until(
+        [&callbacks, Frame]() { callbacks.invoke(Frame); },
+        [&root]() {
+            return root.snapshot()->job.phase ==
+                   JobPhase::Draining;
+        });
+    const auto cancel_result =
+        root.enqueue_command(CancelImagePaint{304U});
     passed &= expect(
-        root.snapshot()->job.phase == JobPhase::Draining &&
-            root.enqueue_command(CancelImagePaint{304U}) ==
-                CommandEnqueueResult::Accepted,
+        cancel_ready_in_time &&
+            root.snapshot()->job.phase == JobPhase::Draining &&
+            cancel_result == CommandEnqueueResult::Accepted,
         "the Image Paint fixture did not retain queue pressure");
     callbacks.invoke(Frame);
     passed &= expect(
@@ -1081,21 +1095,19 @@ auto main() -> int
             7U,
         }) == CommandEnqueueResult::Accepted,
         "the stale-during-dispatch Image Paint job was rejected");
-    for (auto attempt = 0; attempt < 1000; ++attempt)
-    {
-        callbacks.invoke(Frame);
-        if (root.snapshot()->job.phase == JobPhase::Draining)
-        {
-            break;
-        }
-        std::this_thread::sleep_for(1ms);
-    }
+    const auto stale_ready_in_time = pump_until(
+        [&callbacks, Frame]() { callbacks.invoke(Frame); },
+        [&root]() {
+            return root.snapshot()->job.phase ==
+                   JobPhase::Draining;
+        });
     const auto before_stale =
         root.snapshot()->diagnostics.size();
     projects.set_current_revision(8U);
     callbacks.invoke(Frame);
     passed &= expect(
-        root.snapshot()->job.phase == JobPhase::Cancelling,
+        stale_ready_in_time &&
+            root.snapshot()->job.phase == JobPhase::Cancelling,
         "a project edit did not cancel active Image Paint dispatch");
     image.hold_queues = false;
     callbacks.invoke(Frame);
@@ -1114,18 +1126,17 @@ auto main() -> int
             7U,
         }) == CommandEnqueueResult::Accepted,
         "the shutdown Image Paint job was rejected");
-    for (auto attempt = 0; attempt < 1000; ++attempt)
-    {
-        callbacks.invoke(Frame);
-        if (root.snapshot()->job.phase == JobPhase::Draining)
-        {
-            break;
-        }
-        std::this_thread::sleep_for(1ms);
-    }
+    const auto shutdown_ready_in_time = pump_until(
+        [&callbacks, Frame]() { callbacks.invoke(Frame); },
+        [&root]() {
+            return root.snapshot()->job.phase ==
+                   JobPhase::Draining;
+        });
+    const auto shutdown_result = root.request_shutdown(99U);
     passed &= expect(
-        root.snapshot()->job.phase == JobPhase::Draining &&
-            root.request_shutdown(99U).has_value(),
+        shutdown_ready_in_time &&
+            root.snapshot()->job.phase == JobPhase::Draining &&
+            shutdown_result.has_value(),
         "shutdown did not observe the active Image Paint queues");
     callbacks.invoke(Frame);
     passed &= expect(

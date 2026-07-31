@@ -9,6 +9,7 @@ on:
 
 jobs:
   build:
+    if: github.event_name != 'pull_request' || github.head_ref != 'rewrite/ue4ss-v2'
     runs-on: windows-2022
     env:
       BUILD_VERSION: ci-${{ github.run_number }}-${{ github.run_attempt }}
