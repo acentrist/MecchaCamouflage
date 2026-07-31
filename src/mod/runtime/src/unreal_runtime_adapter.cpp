@@ -3364,6 +3364,10 @@ auto capture_paint_scene_pass(
          pass.profile !=
              PaintSceneCaptureProfile::
                  IntrinsicEmission) ||
+        (pass.subject !=
+             PaintSceneCaptureSubject::BackgroundOnly &&
+         pass.subject !=
+             PaintSceneCaptureSubject::TargetVisible) ||
         !object_is_live(
             target_mesh,
             contracts.primitive_component_class) ||
@@ -3483,7 +3487,9 @@ auto capture_paint_scene_pass(
             &parameters);
         return true;
     };
-    if (!hide_component(target_mesh))
+    if (pass.subject ==
+            PaintSceneCaptureSubject::BackgroundOnly &&
+        !hide_component(target_mesh))
     {
         return runtime_failure(
             application::RuntimeContractId::PaintCapture,

@@ -378,4 +378,231 @@ auto build_paint_appearance_observations(
     }
     return output;
 }
+
+auto build_paint_appearance_readback_references(
+    const PaintAppearanceModel& model,
+    std::uint32_t texture_dimension,
+    std::span<const std::byte> preview_albedo_rgba,
+    std::stop_token cancellation)
+    -> std::expected<
+        std::vector<PaintAppearanceReadbackReference>,
+        PaintAppearanceCaptureError>
+{
+    if (cancellation.stop_requested())
+    {
+        return std::unexpected(
+            PaintAppearanceCaptureError::Cancelled);
+    }
+    const auto capture_pixels = pixel_count(
+        PaintAppearanceCameraFingerprint{
+            model.width,
+            model.height,
+        });
+    constexpr auto MaximumTextureDimension = 4096U;
+    if (!capture_pixels || model.samples.empty() ||
+        model.samples.size() > MaximumPaintAppearanceSamples ||
+        texture_dimension == 0U ||
+        texture_dimension > MaximumTextureDimension)
+    {
+        return std::unexpected(
+            PaintAppearanceCaptureError::InvalidEvidence);
+    }
+    const auto texture_side =
+        static_cast<std::size_t>(texture_dimension);
+    if (texture_side >
+            std::numeric_limits<std::size_t>::max() /
+                texture_side ||
+        texture_side * texture_side >
+            std::numeric_limits<std::size_t>::max() / 4U ||
+        preview_albedo_rgba.size() !=
+            texture_side * texture_side * 4U)
+    {
+        return std::unexpected(
+            PaintAppearanceCaptureError::InvalidEvidence);
+    }
+
+    auto candidates =
+        std::vector<PaintAppearanceReadbackReference>{};
+    candidates.reserve(model.samples.size());
+    for (auto index = std::size_t{};
+         index < model.samples.size();
+         ++index)
+    {
+        if ((index % 256U) == 0U &&
+            cancellation.stop_requested())
+        {
+            return std::unexpected(
+                PaintAppearanceCaptureError::Cancelled);
+        }
+        const auto& sample = model.samples[index];
+        if (sample.raster_pixel >= *capture_pixels ||
+            !std::isfinite(sample.u) ||
+            !std::isfinite(sample.v) ||
+            sample.u < 0.0 || sample.u > 1.0 ||
+            sample.v < 0.0 || sample.v > 1.0)
+        {
+            return std::unexpected(
+                PaintAppearanceCaptureError::InvalidGeometry);
+        }
+        const auto x = static_cast<std::size_t>(
+            std::clamp(
+                std::lround(
+                    sample.u *
+                    static_cast<double>(
+                        texture_dimension - 1U)),
+                0L,
+                static_cast<long>(
+                    texture_dimension - 1U)));
+        const auto y = static_cast<std::size_t>(
+            std::clamp(
+                std::lround(
+                    sample.v *
+                    static_cast<double>(
+                        texture_dimension - 1U)),
+                0L,
+                static_cast<long>(
+                    texture_dimension - 1U)));
+        const auto offset =
+            (y * texture_side + x) * 4U;
+        const auto encoded = [&](std::size_t channel)
+        {
+            return static_cast<double>(
+                       std::to_integer<std::uint8_t>(
+                           preview_albedo_rgba[
+                               offset + channel])) /
+                   255.0;
+        };
+        candidates.push_back(
+            PaintAppearanceReadbackReference{
+                sample.raster_pixel,
+                AppearanceRgb{
+                    appearance_srgb_to_linear(encoded(0U)),
+                    appearance_srgb_to_linear(encoded(1U)),
+                    appearance_srgb_to_linear(encoded(2U)),
+                },
+            });
+    }
+    std::ranges::sort(
+        candidates,
+        {},
+        &PaintAppearanceReadbackReference::raster_pixel);
+    auto output =
+        std::vector<PaintAppearanceReadbackReference>{};
+    output.reserve(candidates.size());
+    for (auto begin = std::size_t{};
+         begin < candidates.size();)
+    {
+        auto end = begin + 1U;
+        auto unambiguous = true;
+        while (end < candidates.size() &&
+               candidates[end].raster_pixel ==
+                   candidates[begin].raster_pixel)
+        {
+            unambiguous =
+                unambiguous &&
+                candidates[end].expected_linear ==
+                    candidates[begin].expected_linear;
+            ++end;
+        }
+        if (unambiguous)
+        {
+            output.push_back(candidates[begin]);
+        }
+        begin = end;
+    }
+    if (output.empty())
+    {
+        return std::unexpected(
+            PaintAppearanceCaptureError::NoSupportedSamples);
+    }
+    return output;
+}
+
+auto prepare_paint_appearance_feedback(
+    const PaintAppearanceCameraFingerprint& source_camera,
+    std::span<const PaintAppearanceReadbackReference>
+        readback_references,
+    const PaintAppearanceFeedbackEvidence& evidence,
+    std::stop_token cancellation)
+    -> std::expected<
+        PaintAppearanceFeedback,
+        PaintAppearanceCaptureError>
+{
+    if (cancellation.stop_requested())
+    {
+        return std::unexpected(
+            PaintAppearanceCaptureError::Cancelled);
+    }
+    const auto count = pixel_count(source_camera);
+    if (!count || !camera_valid(source_camera) ||
+        !valid_pass(evidence.base_color, *count) ||
+        !valid_pass(evidence.final_hdr, *count) ||
+        readback_references.empty() ||
+        readback_references.size() >
+            MaximumPaintAppearanceSamples)
+    {
+        return std::unexpected(
+            PaintAppearanceCaptureError::InvalidEvidence);
+    }
+    if (!camera_matches(
+            source_camera,
+            evidence.base_color.camera) ||
+        !camera_matches(
+            source_camera,
+            evidence.final_hdr.camera) ||
+        !camera_matches(
+            evidence.base_color.camera,
+            evidence.final_hdr.camera))
+    {
+        return std::unexpected(
+            PaintAppearanceCaptureError::CameraChanged);
+    }
+
+    auto expected = std::vector<AppearanceRgb>{};
+    auto raw = std::vector<AppearanceRgb>{};
+    expected.reserve(readback_references.size());
+    raw.reserve(readback_references.size());
+    for (auto index = std::size_t{};
+         index < readback_references.size();
+         ++index)
+    {
+        if ((index % 256U) == 0U &&
+            cancellation.stop_requested())
+        {
+            return std::unexpected(
+                PaintAppearanceCaptureError::Cancelled);
+        }
+        const auto& reference = readback_references[index];
+        if (reference.raster_pixel >= *count ||
+            !appearance_rgb_finite(
+                reference.expected_linear))
+        {
+            return std::unexpected(
+                PaintAppearanceCaptureError::InvalidEvidence);
+        }
+        const auto base =
+            (*evidence.base_color.pixels)[
+                reference.raster_pixel];
+        const auto final =
+            (*evidence.final_hdr.pixels)[
+                reference.raster_pixel];
+        if (!appearance_rgb_finite(base) ||
+            !appearance_rgb_finite(final))
+        {
+            return std::unexpected(
+                PaintAppearanceCaptureError::InvalidEvidence);
+        }
+        expected.push_back(reference.expected_linear);
+        raw.push_back(base);
+    }
+    const auto calibration =
+        appearance_calibrate_linear_readback(
+            expected,
+            raw);
+    return PaintAppearanceFeedback{
+        evidence.final_hdr.pixels,
+        calibration,
+        true,
+    };
+}
 } // namespace meccha::core

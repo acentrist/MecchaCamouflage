@@ -40,6 +40,16 @@ appearance model. This avoids a game-thread full-raster object query and
 keeps all deformation, observation, clustering, and fitting work outside the
 HUD callback.
 
+Scene-capture subject visibility is explicit rather than inferred. Every
+source-evidence pass is `BackgroundOnly` and must hide the target mesh; the
+bounded feedback plan contains target-visible FinalColor HDR, BaseColor E0,
+and intrinsic-emission E0 passes while continuing to hide the brush-plane
+visuals. The candidate worker samples the composed preview albedo bytes at
+the exact model UVs, drops ambiguous duplicate raster references, and returns
+immutable readback references. Target feedback must match the source camera
+and both feedback-pass cameras, then calibrates identity versus red/blue
+swapped linear readback before evaluation can report a calibrated response.
+
 ## Immutable capture-to-plan contract
 
 The game-thread boundary may now return either a complete
@@ -412,10 +422,11 @@ unchanged. This is build evidence, not a live Paint pass.
   paths now compile. Exact current-World brush-plane visual discovery/hiding
   also compiles from current cooked-package evidence. The immutable seven-pass
   evidence, camera-stability gate, bounded projected-pixel query, observation
-  builder, and cancellable preparation worker are complete. The production
-  multi-HUD-frame source-pass session, target-visible trial-preview feedback
-  and exact restoration, a bounded frame budget, and live brush-plane/
-  orientation/color/cleanup evidence remain.
+  builder, cancellable preparation worker, typed target-visible feedback
+  passes, preview-byte readback references, and response calibration are
+  complete. The production multi-HUD-frame pass scheduler, trial-preview
+  apply/capture/restore transaction, a bounded frame budget, and live
+  brush-plane/orientation/color/cleanup evidence remain.
 - Implement the remaining production UE4SS capture contracts, connect the
   completed sender and queue observer through the exported composition root,
   and connect the completed preview adapter through that same root.

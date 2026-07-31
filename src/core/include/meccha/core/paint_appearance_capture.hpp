@@ -3,6 +3,7 @@
 #include <meccha/core/paint_appearance_fit.hpp>
 #include <meccha/core/paint_capture_geometry.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <memory>
@@ -70,6 +71,30 @@ struct PaintAppearanceCaptureEvidence
         source_pixels{};
 };
 
+struct PaintAppearanceReadbackReference
+{
+    std::size_t raster_pixel{};
+    AppearanceRgb expected_linear{};
+
+    auto operator==(
+        const PaintAppearanceReadbackReference&) const
+        -> bool = default;
+};
+
+struct PaintAppearanceFeedbackEvidence
+{
+    PaintAppearanceCapturedPass<AppearanceRgb> base_color{};
+    PaintAppearanceCapturedPass<AppearanceRgb> final_hdr{};
+};
+
+struct PaintAppearanceFeedback
+{
+    std::shared_ptr<const std::vector<AppearanceRgb>>
+        target_hdr{};
+    AppearanceReadbackCalibration readback{};
+    bool camera_stable{};
+};
+
 enum class PaintAppearanceCaptureError : std::uint8_t
 {
     InvalidEvidence,
@@ -95,5 +120,24 @@ enum class PaintAppearanceCaptureError : std::uint8_t
     std::stop_token cancellation = {})
     -> std::expected<
         std::vector<PaintAppearanceObservation>,
+        PaintAppearanceCaptureError>;
+
+[[nodiscard]] auto build_paint_appearance_readback_references(
+    const PaintAppearanceModel& model,
+    std::uint32_t texture_dimension,
+    std::span<const std::byte> preview_albedo_rgba,
+    std::stop_token cancellation = {})
+    -> std::expected<
+        std::vector<PaintAppearanceReadbackReference>,
+        PaintAppearanceCaptureError>;
+
+[[nodiscard]] auto prepare_paint_appearance_feedback(
+    const PaintAppearanceCameraFingerprint& source_camera,
+    std::span<const PaintAppearanceReadbackReference>
+        readback_references,
+    const PaintAppearanceFeedbackEvidence& evidence,
+    std::stop_token cancellation = {})
+    -> std::expected<
+        PaintAppearanceFeedback,
         PaintAppearanceCaptureError>;
 } // namespace meccha::core

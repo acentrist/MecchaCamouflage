@@ -1,5 +1,7 @@
 #include <meccha/core/paint_appearance_capture.hpp>
 
+#include <cstddef>
+#include <cstdint>
 #include <cmath>
 #include <iostream>
 #include <memory>
@@ -205,6 +207,141 @@ auto main() -> int
             std::unexpected(
                 PaintAppearanceCaptureError::CameraChanged),
         "capture passes from a moved camera were combined");
+
+    const auto feedback_fingerprint =
+        make_paint_appearance_camera_fingerprint(
+            EspView{
+                EspWorldPoint{0.0, -10.0, 0.0},
+                0.0,
+                90.0,
+                0.0,
+                90.0,
+                1.0,
+                EspAspectConstraint::MaintainXFov,
+                1.0,
+                1.0,
+            },
+            EspViewport{4.0, 4.0},
+            4U,
+            4U);
+    if (!feedback_fingerprint)
+    {
+        return 1;
+    }
+    auto feedback_model = PaintAppearanceModel{};
+    feedback_model.width = 4U;
+    feedback_model.height = 4U;
+    for (auto pixel = std::size_t{}; pixel < 16U; ++pixel)
+    {
+        auto sample = PaintAppearanceModelSample{};
+        sample.raster_pixel = pixel;
+        sample.u = static_cast<double>(pixel % 4U) / 3.0;
+        sample.v = static_cast<double>(pixel / 4U) / 3.0;
+        feedback_model.samples.push_back(sample);
+    }
+    auto preview_albedo = std::vector<std::byte>(
+        16U * 4U,
+        std::byte{0xFF});
+    for (auto pixel = std::size_t{}; pixel < 16U; ++pixel)
+    {
+        const auto offset = pixel * 4U;
+        preview_albedo[offset] = std::byte{200U};
+        preview_albedo[offset + 1U] = std::byte{100U};
+        preview_albedo[offset + 2U] = std::byte{20U};
+    }
+    const auto references =
+        build_paint_appearance_readback_references(
+            feedback_model,
+            4U,
+            preview_albedo);
+    const auto expected_linear = AppearanceRgb{
+        appearance_srgb_to_linear(200.0 / 255.0),
+        appearance_srgb_to_linear(100.0 / 255.0),
+        appearance_srgb_to_linear(20.0 / 255.0),
+    };
+    const auto target_hdr = std::make_shared<
+        const std::vector<AppearanceRgb>>(
+        16U,
+        AppearanceRgb{1.0, 0.5, 0.25});
+    const auto feedback = references
+                              ? prepare_paint_appearance_feedback(
+                                    *feedback_fingerprint,
+                                    *references,
+                                    PaintAppearanceFeedbackEvidence{
+                                        PaintAppearanceCapturedPass<
+                                            AppearanceRgb>{
+                                            *feedback_fingerprint,
+                                            std::make_shared<
+                                                const std::vector<
+                                                    AppearanceRgb>>(
+                                                16U,
+                                                expected_linear),
+                                        },
+                                        PaintAppearanceCapturedPass<
+                                            AppearanceRgb>{
+                                            *feedback_fingerprint,
+                                            target_hdr,
+                                        },
+                                    })
+                              : std::expected<
+                                    PaintAppearanceFeedback,
+                                    PaintAppearanceCaptureError>{
+                                    std::unexpected(
+                                        PaintAppearanceCaptureError::
+                                            InvalidEvidence)};
+    passed &= expect(
+        references && references->size() == 16U &&
+            feedback && feedback->target_hdr == target_hdr &&
+            feedback->readback.ok &&
+            feedback->readback.transform ==
+                AppearanceReadbackTransform::Identity &&
+            feedback->camera_stable,
+        "target-visible feedback was not camera-checked and calibrated");
+
+    auto swapped_base = std::vector<AppearanceRgb>(
+        16U,
+        AppearanceRgb{
+            expected_linear.b,
+            expected_linear.g,
+            expected_linear.r,
+        });
+    auto swapped_evidence = PaintAppearanceFeedbackEvidence{
+        PaintAppearanceCapturedPass<AppearanceRgb>{
+            *feedback_fingerprint,
+            std::make_shared<const std::vector<AppearanceRgb>>(
+                std::move(swapped_base)),
+        },
+        PaintAppearanceCapturedPass<AppearanceRgb>{
+            *feedback_fingerprint,
+            target_hdr,
+        },
+    };
+    const auto swapped_feedback = references
+                                      ? prepare_paint_appearance_feedback(
+                                            *feedback_fingerprint,
+                                            *references,
+                                            swapped_evidence)
+                                      : std::expected<
+                                            PaintAppearanceFeedback,
+                                            PaintAppearanceCaptureError>{
+                                            std::unexpected(
+                                                PaintAppearanceCaptureError::
+                                                    InvalidEvidence)};
+    passed &= expect(
+        swapped_feedback && swapped_feedback->readback.ok &&
+            swapped_feedback->readback.transform ==
+                AppearanceReadbackTransform::SwapRedBlue,
+        "swapped target BaseColor readback was not calibrated");
+    swapped_evidence.final_hdr.camera.location.x += 1.01;
+    passed &= expect(
+        references &&
+            prepare_paint_appearance_feedback(
+                *feedback_fingerprint,
+                *references,
+                swapped_evidence) ==
+                std::unexpected(
+                    PaintAppearanceCaptureError::CameraChanged),
+        "target-visible feedback from a moved camera was accepted");
 
     if (passed)
     {

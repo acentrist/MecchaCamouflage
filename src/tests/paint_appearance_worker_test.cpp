@@ -221,7 +221,9 @@ auto main(int argc, char** argv) -> int
             candidate && candidate->appearances &&
             candidate->appearances->size() == 256U &&
             candidate->preview &&
-            candidate->preview->dimension == 16U,
+            candidate->preview->dimension == 16U &&
+            candidate->readback_references &&
+            candidate->readback_references->size() == 256U,
         "candidate work did not publish an immutable raster and preview");
     if (!candidate)
     {
@@ -233,7 +235,8 @@ auto main(int argc, char** argv) -> int
                   3U,
                   PaintAppearanceEvaluateWork{
                       prepared->model,
-                      std::vector<core::AppearanceRgb>(
+                      std::make_shared<const std::vector<
+                          core::AppearanceRgb>>(
                           256U,
                           core::AppearanceRgb{
                               1.0,

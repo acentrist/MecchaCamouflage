@@ -410,6 +410,17 @@ auto PaintAppearanceWorker::run(
                                 composed.error(),
                             });
                     }
+                    auto readback_references =
+                        core::build_paint_appearance_readback_references(
+                            *work.model,
+                            composed->dimension,
+                            composed->albedo_rgba,
+                            cancellation);
+                    if (!readback_references)
+                    {
+                        return capture_evidence_failure(
+                            readback_references.error());
+                    }
                     auto owned_appearances =
                         std::make_shared<
                             const std::vector<
@@ -431,23 +442,29 @@ auto PaintAppearanceWorker::run(
                                         composed
                                             ->packed_pbr_rgba)),
                             });
+                    auto owned_readback_references =
+                        std::make_shared<const std::vector<
+                            core::PaintAppearanceReadbackReference>>(
+                            std::move(*readback_references));
                     return PaintAppearanceWorkValue{
                         PaintAppearanceCandidate{
                             std::move(owned_appearances),
                             std::move(preview),
+                            std::move(
+                                owned_readback_references),
                             std::move(work.parameters),
                         }};
                 }
                 else
                 {
-                    if (!work.model)
+                    if (!work.model || !work.target_hdr)
                     {
                         return invalid_request();
                     }
                     auto evaluation =
                         core::evaluate_paint_appearance_response(
                             *work.model,
-                            work.target_hdr,
+                            *work.target_hdr,
                             work.camera_stable,
                             work.readback_calibrated,
                             work.transform,

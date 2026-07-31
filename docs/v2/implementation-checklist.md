@@ -472,6 +472,10 @@ Evidence:
         game-thread object queries.
       - [x] Preserve finite raw HDR and scene-depth readback channels in the
         runtime codec without display normalization or clamping.
+      - [x] Distinguish background-only source passes from target-visible
+        feedback passes, build immutable preview-byte readback references on
+        the worker, and require stable source/feedback cameras plus calibrated
+        identity or red/blue-swapped linear response before evaluation.
       - [x] Freeze the exact 0x10
         `SceneCaptureComponent.SetShowFlagSettings` array schema and require
         exact ordered readback of the reviewed 33 intrinsic-emission flags.

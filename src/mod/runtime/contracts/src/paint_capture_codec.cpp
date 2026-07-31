@@ -276,6 +276,40 @@ auto build_paint_scene_capture_plan(
     return plan;
 }
 
+auto paint_appearance_feedback_capture_plan()
+    -> std::array<PaintSceneCapturePass, 3U>
+{
+    return {
+        PaintSceneCapturePass{
+            PaintSceneCapturePassKind::FinalColorHdr,
+            PaintSceneCaptureSource::FinalColorHdr,
+            PaintCaptureRenderTargetFormat::Rgba16Float,
+            PaintSceneCaptureProfile::Standard,
+            false,
+            true,
+            PaintSceneCaptureSubject::TargetVisible,
+        },
+        PaintSceneCapturePass{
+            PaintSceneCapturePassKind::BaseColor,
+            PaintSceneCaptureSource::BaseColor,
+            PaintCaptureRenderTargetFormat::Rgba8Srgb,
+            PaintSceneCaptureProfile::Standard,
+            false,
+            false,
+            PaintSceneCaptureSubject::TargetVisible,
+        },
+        PaintSceneCapturePass{
+            PaintSceneCapturePassKind::IntrinsicEmissionHdr,
+            PaintSceneCaptureSource::FinalColorHdr,
+            PaintCaptureRenderTargetFormat::Rgba16Float,
+            PaintSceneCaptureProfile::IntrinsicEmission,
+            false,
+            true,
+            PaintSceneCaptureSubject::TargetVisible,
+        },
+    };
+}
+
 auto encode_paint_scene_capture_camera(
     const core::EspView& view,
     std::uint32_t width,

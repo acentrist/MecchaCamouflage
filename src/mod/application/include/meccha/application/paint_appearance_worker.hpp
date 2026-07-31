@@ -64,7 +64,8 @@ struct PaintAppearanceCapturePrepareWork
 struct PaintAppearanceEvaluateWork
 {
     std::shared_ptr<const core::PaintAppearanceModel> model{};
-    std::vector<core::AppearanceRgb> target_hdr{};
+    std::shared_ptr<const std::vector<core::AppearanceRgb>>
+        target_hdr{};
     bool camera_stable{};
     bool readback_calibrated{};
     core::AppearanceReadbackTransform transform{
@@ -99,6 +100,9 @@ struct PaintAppearanceCandidate
         const std::vector<core::ResolvedPaintAppearance>>
         appearances{};
     std::shared_ptr<const PaintTextureImage> preview{};
+    std::shared_ptr<const std::vector<
+        core::PaintAppearanceReadbackReference>>
+        readback_references{};
     std::vector<double> parameters{};
 };
 

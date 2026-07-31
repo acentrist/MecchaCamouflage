@@ -720,6 +720,8 @@ auto main() -> int
     automatic_settings.auto_material = true;
     const auto automatic_capture_plan =
         build_paint_scene_capture_plan(automatic_settings);
+    const auto feedback_capture_plan =
+        paint_appearance_feedback_capture_plan();
     const auto intrinsic_show_flags =
         paint_intrinsic_emission_show_flags();
     auto invalid_capture_settings = core::PaintSettings{};
@@ -773,6 +775,32 @@ auto main() -> int
                 PaintSceneCaptureSource::SceneDepth &&
             automatic_capture_plan->passes[6].source ==
                 PaintSceneCaptureSource::FinalColorLdr &&
+            std::ranges::all_of(
+                automatic_capture_plan->passes,
+                [](const PaintSceneCapturePass& pass)
+                {
+                    return pass.subject ==
+                           PaintSceneCaptureSubject::
+                               BackgroundOnly;
+                }) &&
+            feedback_capture_plan.size() == 3U &&
+            feedback_capture_plan[0].kind ==
+                PaintSceneCapturePassKind::FinalColorHdr &&
+            feedback_capture_plan[0].preserve_hdr &&
+            feedback_capture_plan[1].kind ==
+                PaintSceneCapturePassKind::BaseColor &&
+            feedback_capture_plan[2].kind ==
+                PaintSceneCapturePassKind::
+                    IntrinsicEmissionHdr &&
+            feedback_capture_plan[2].profile ==
+                PaintSceneCaptureProfile::IntrinsicEmission &&
+            std::ranges::all_of(
+                feedback_capture_plan,
+                [](const PaintSceneCapturePass& pass)
+                {
+                    return pass.subject ==
+                           PaintSceneCaptureSubject::TargetVisible;
+                }) &&
             intrinsic_show_flags.size() == 33U &&
             intrinsic_show_flags.front() ==
                 PaintShowFlagSetting{"Lighting", false} &&

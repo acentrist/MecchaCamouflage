@@ -116,6 +116,12 @@ enum class PaintSceneCaptureProfile : std::uint8_t
     IntrinsicEmission,
 };
 
+enum class PaintSceneCaptureSubject : std::uint8_t
+{
+    BackgroundOnly,
+    TargetVisible,
+};
+
 struct PaintSceneCapturePass
 {
     PaintSceneCapturePassKind kind{};
@@ -126,6 +132,8 @@ struct PaintSceneCapturePass
         PaintSceneCaptureProfile::Standard};
     bool normalize_readback{};
     bool preserve_hdr{};
+    PaintSceneCaptureSubject subject{
+        PaintSceneCaptureSubject::BackgroundOnly};
 
     auto operator==(const PaintSceneCapturePass&) const
         -> bool = default;
@@ -289,6 +297,9 @@ enum class PaintCaptureEncodingError : std::uint8_t
     -> std::expected<
         PaintSceneCapturePlan,
         PaintCaptureEncodingError>;
+
+[[nodiscard]] auto paint_appearance_feedback_capture_plan()
+    -> std::array<PaintSceneCapturePass, 3U>;
 
 [[nodiscard]] auto encode_paint_scene_capture_camera(
     const core::EspView& view,
