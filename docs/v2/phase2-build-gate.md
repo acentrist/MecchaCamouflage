@@ -17,10 +17,18 @@ build-only source stage. The accepted gitlink remains pristine, Cargo remains
 lock, overlay, Git binary-diff, and manifest hashes.
 
 The staging tool, real accepted checkout, repeated reuse, offline locked Cargo
-metadata, and post-command verification now pass locally. Phase 2 is still
-open until a protected native-Windows build produces same-stage binary
-provenance and the resolved dependency evidence receives license approval.
+metadata, and post-command verification pass locally. A clean native-Windows
+checkout at project commit
+`a5290f693d45c54b6229d84c0a5afe40e09115d8` also built the complete root graph
+from that exact stage, passed all 95 registered tests, passed binary/provenance
+verification, and produced a closed 39-target/75-component dependency report.
 The earlier diagnostic binaries remain rejected.
+
+The technical source/build blocker is closed locally. Phase 2 remains open
+until the protected workflow reproduces and uploads that evidence and a
+maintainer approves every resolved component's license expression and exact
+license files. The generated 75-component audit template deliberately has no
+approved fields and cannot pass notice assembly.
 
 ## Target graph
 
@@ -170,11 +178,12 @@ Diagnostic result:
   not close the gate.
 
 The verifier accepts the current `dumpbin` export-alias display while still
-requiring exactly the two approved export names. It reads the resolved
-`cl.exe` file version rather than treating the compiler's expected nonzero
-no-argument exit as a verification failure. It must be rerun only after a
-clean source build exists; running it against another clean checkout is not
-valid provenance for these diagnostic binaries.
+requiring exactly the two approved export names. It reads the compiler path,
+version, ID, and architecture from CMake's generated compiler metadata and
+requires the verification shell to resolve that same `cl.exe`. A VS18 shell
+against the VS2022-built graph is rejected. It must be rerun only after a clean
+source build exists; running it against another clean checkout is not valid
+provenance.
 
 Approved source-stage verification:
 
@@ -196,6 +205,38 @@ python tools/v2/prepare_ue4ss_source_stage.py --verify-only \
 
 Result: preparation, no-accumulation reuse, locked offline resolution, and
 post-command one-diff verification pass against the accepted real graph.
+
+## Accepted local immutable-stage evidence
+
+The local proof used a detached, tracked-clean checkout including the exact
+root gitlink. The restricted nested sources were materialized only in the
+independent verified stage.
+
+| Evidence | Result |
+| --- | --- |
+| Project commit | `a5290f693d45c54b6229d84c0a5afe40e09115d8` |
+| UE4SS commit | `6c26f038751b3d96059d4a9148f5d093012d55ad` |
+| Configuration | Windows x64 `Game__Shipping__Win64`, dynamic MSVC runtime |
+| Compiler | MSVC `19.44.35228.0` from `C:\BuildTools\VS2022` |
+| CMake | `4.4.0` |
+| Source-stage manifest SHA-256 | `8fb26d4469e621d273ad338e4a48489c87217e8abad11b5ec89ca7967ccc595d` |
+| Source-stage policy SHA-256 | `3f840353b6900f8f34342dc7baf98386df0cebc22e337ef930cc156645a567c7` |
+| `main.dll` SHA-256 | `695125cde386a30ec66ca68107d578f5a1e892f2ccf32577c7a1b395858039ef` |
+| `UE4SS.dll` SHA-256 | `0f7e2dca3f710ddcb7bc9be1242d77145f3d46b22bba87dc03ef7930d7103a9b` |
+| `dwmapi.dll` SHA-256 | `55c12d793dff0758a03fba9c6c9bfc5356ba28f1ea3da522b0076560b2318869` |
+| Provenance report SHA-256 | `0fb00c306c400f5772d274c05e6cbaba3a5069430e36a56e42fd78dd8a59dfaf` |
+| Tests | 95/95 passed |
+| Dependency evidence | 39 CMake targets, 75 components; SHA-256 `2536feb0bd603ba33a6473eee5d988a1ec41503332f4c37edce5854db4be568a` |
+| Unapproved audit template | 75/75 review entries empty; SHA-256 `d86e9e4b5aa3410caf6a38ff95077cd69492155423236f7a6632560f2d0475ed` |
+
+The collector verifies current Cargo registry packages through the retained
+`.crate` archive when Cargo no longer writes `.cargo-checksum.json`; in both
+layouts the archive/package digest must match the exact `Cargo.lock` checksum.
+Tampered archives fail the same contract.
+
+This evidence proves only the build, dependency, and binary contracts at the
+listed checkpoint. It does not claim a protected CI run, license approval, or
+any live UE4SS/game acceptance result.
 
 ## Protected full-build evidence
 
@@ -227,7 +268,7 @@ After approval, it must:
 ## Open exit evidence
 
 Phase 2 remains externally gated until the protected evidence workflow
-provides:
+reproduces and provides:
 
 - a locked build of the accepted candidate from the exact approved immutable
   source stage, with no mutation beyond its manifest-bound Cargo lock;

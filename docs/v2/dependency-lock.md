@@ -4,9 +4,11 @@ This document records the locked Phase 2 source graph. It is both a build input
 and a release audit record. The restricted graph has been initialized from the
 exact commits below. One project-owned canonical Cargo lock overlay has been
 approved for an independent build-only source stage; it resolves locally under
-Cargo `--locked` without modifying the accepted gitlink. The protected
-full-build must still prove the resulting native binaries and closed dependency
-graph, and a separate license manifest must be approved before Phase 2 closes.
+Cargo `--locked` without modifying the accepted gitlink. A clean local native
+build has proved the resulting binaries and closed dependency graph at the
+recorded checkpoint. The protected workflow must reproduce and upload that
+evidence, and a separate license manifest must be approved before Phase 2
+closes.
 
 ## Root gitlinks
 
@@ -129,7 +131,7 @@ character. The trusted runtime assembler reruns that verification before
 copying either atlas file. The original 18.6 MiB OTC and ImageMagick are
 generation inputs only and are not linked, loaded, or distributed.
 
-## Protected full-build completion
+## Immutable-stage full-build completion
 
 The available maintainer-authorized checkout established:
 
@@ -148,17 +150,29 @@ The available maintainer-authorized checkout established:
    Preparation, repeated reuse, `cargo metadata --locked --offline` for
    `x86_64-pc-windows-msvc`, and post-command stage verification pass against
    the accepted real graph.
+7. A detached, tracked-clean checkout at project commit
+   `a5290f693d45c54b6229d84c0a5afe40e09115d8` built the root graph from that
+   exact stage with MSVC `19.44.35228.0`, Windows x64
+   `Game__Shipping__Win64`, and CMake `4.4.0`.
+8. All 95 registered tests passed. The binary verifier bound the clean project
+   checkout, stage manifest, configured compiler, x64 ABI, dynamic runtime,
+   exact two exports, and direct `UE4SS.dll` import. A mismatched VS18
+   verification shell was rejected.
+9. The closed production graph contains 39 CMake targets and 75 resolved
+   components. Its evidence SHA-256 is
+   `2536feb0bd603ba33a6473eee5d988a1ec41503332f4c37edce5854db4be568a`.
+   The evidence-bound audit template contains 75 empty review entries and
+   therefore remains deliberately unapproved.
 
-The diagnostic binary inspection is not stage-bound provenance and is not
-accepted. The protected build must now produce binaries from the approved
-stage before the following work can pass:
+The diagnostic binary inspection remains rejected. The accepted local proof
+closes the technical source/build blocker, but it does not replace the
+protected run or license review. The remaining Phase 2 work is:
 
-1. Capture the closed production-target identities and target-filtered Cargo
-   closure.
-2. Prove binary ABI and provenance from that same clean checkout.
-3. Review every corresponding license and notice file.
-4. Approve the audit only when its component identities and evidence hash
-   exactly match.
+1. Reproduce and upload provenance, dependency evidence, and the unapproved
+   audit template through the protected workflow.
+2. Review every corresponding license expression and exact notice file.
+3. Approve the audit only when its component identities and evidence hash
+   exactly match the protected output.
 
 `tools/v2/build_dependency_notices.py` is the fail-closed consumer for that
 future report. It requires the resolved evidence and a separate approved
@@ -169,8 +183,10 @@ dependency summary as approval or as a complete packaging inventory.
 boundary from the closed production-target CMake File API codemodel, actual git
 roots and tracked diffs, and the target-filtered Cargo resolve closure. Registry
 packages are bound to both `Cargo.lock` and Cargo's package checksum evidence;
-resolved feature sets are part of each source identity. The protected workflow
-uploads this evidence for separate license review.
+resolved feature sets are part of each source identity. For Cargo layouts that
+no longer retain `.cargo-checksum.json`, the collector hashes the retained
+registry `.crate` archive and requires the digest to equal the lock checksum.
+The protected workflow uploads this evidence for separate license review.
 
 `tools/v2/generate_dependency_audit_template.py` copies only those validated
 component identities and the evidence SHA-256 into a canonical review

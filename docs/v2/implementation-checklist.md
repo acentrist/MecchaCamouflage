@@ -70,15 +70,19 @@ Evidence:
   - [x] Carry the verified immutable UE4SS source-stage root through dependency
     evidence and notice assembly so UE4SS licenses cannot be read from the
     pristine gitlink or another checkout.
-  - [x] Generate and upload an exact evidence-bound, deliberately unapproved
-    audit template whose empty review fields cannot pass notice assembly.
-  - [ ] Run the collector on the protected recursive graph and approve every
-    corresponding license file.
+  - [x] Generate an exact evidence-bound, deliberately unapproved audit
+    template whose empty review fields cannot pass notice assembly, and make
+    the protected workflow upload it as evidence only.
+  - [x] Run the collector against the locally initialized restricted graph:
+    39 closed CMake targets and 75 exact components produced canonical
+    dependency evidence and a deliberately unapproved audit template.
+  - [ ] Re-run the collector in the protected workflow, upload its evidence,
+    and approve every corresponding license file.
 - [x] Add secret-free fork CI with `MECCHA_WITH_UE4SS=OFF`.
   - [x] Run the complete Linux graph under AddressSanitizer and
     UndefinedBehaviorSanitizer in addition to the Windows MSVC Release graph.
 - [x] Add the maintainer-approved protected-ref full-build workflow.
-- [ ] Build UE4SS and the minimal mod from the same source/configuration.
+- [x] Build UE4SS and the minimal mod from the same source/configuration.
   - [x] Reach `UE4SS.dll`, `dwmapi.dll`, and `main.dll` in a diagnostic build
     and inspect their x64 Shipping binary shape.
   - [x] Resolve the reviewed Cargo lock defect through a project-owned
@@ -87,18 +91,22 @@ Evidence:
     preparation, reuse, offline locked metadata, and post-command identity.
   - [x] Require the pinned proxy target and make every `meccha_mod` build depend
     on that exact configured proxy target.
-  - [ ] Run the native protected build and bind its binaries to that exact
-    source-stage manifest.
-- [ ] Verify x64 Release ABI, imports, exports, runtime library, and provenance.
+  - [x] Run the native immutable-stage build from a clean exact checkout and
+    bind its binaries to that exact source-stage manifest.
+  - [ ] Re-run and upload the same evidence through the protected GitHub
+    environment.
+- [x] Verify x64 Release ABI, imports, exports, runtime library, and provenance.
   - [x] Verify the binary architecture, imports, exports, and dynamic MSVC
     runtime from the diagnostic build.
   - [x] Bind protected provenance input to an explicit lowercase project commit
     and require the configured CMake source root, checkout HEAD, and tracked
     project/submodule state to match before reporting it.
-  - [ ] Bind those binaries to a clean, immutable source checkout.
+  - [x] Bind those binaries to a clean, immutable source checkout and reject a
+    verifier shell whose MSVC path/version differs from the configured CMake
+    compiler.
 - [x] Keep the accepted UE4SS gitlink and nested checkouts pristine; pin and
   enforce the explicitly approved build-stage Cargo lock as the only diff.
-- [ ] Confirm a clean full source build with the required Epic-linked GitHub
+- [x] Confirm a clean full source build with the required Epic-linked GitHub
   access.
 
 Evidence:
@@ -109,6 +117,8 @@ Evidence:
 - `.github/workflows/v2-full-build.yml`
 - `tools/v2/verify_source_graph.py`
 - `tools/v2/verify-full-build.ps1`
+- `tools/v2/collect_dependency_evidence.py`
+- `tools/v2/generate_dependency_audit_template.py`
 
 ## Phase 3 — Safe isolated deployment and loading gate
 
