@@ -9,8 +9,10 @@ an owned off-thread I/O worker, and one editor session now coordinates those
 operations with decode/composition, draft persistence, immutable snapshots,
 and `ApplicationRoot`. Startup recovery is now part of root initialization.
 One production Windows lifetime owner now constructs the complete native
-persistence/decoder/compositor/editor-session graph. Production UCanvas
-binding and glyph coverage are not yet complete.
+persistence/decoder/compositor/editor-session graph. The exported mod now owns
+that graph and binds its ready content and effects to the production HUD-frame
+coordinator. Production game-font/fallback drawing and live persistence/UI
+evidence are not yet complete.
 
 ## Configuration contract
 
@@ -258,8 +260,9 @@ The portable suite passes on Linux and Windows MSVC Release.
 
 ## Remaining gate
 
-- Bind the constructed native editor services and their ready content to the
-  final UCanvas/UE4SS composition root.
-- The final v2-only UI key set and game/OFL fallback glyph coverage remain.
+- Live-prove the constructed native editor services and ready content through
+  the final UCanvas/UE4SS callback path.
+- Bind and live-prove game-font-first/OFL-fallback drawing; the packaged glyph
+  inventory and coverage gate are already complete.
 - Complete per-step fault injection, power-loss/antivirus-lock simulation, and
   native file-picker coverage before Phase 7 closes.

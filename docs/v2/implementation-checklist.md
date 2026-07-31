@@ -208,8 +208,10 @@ Evidence:
   - [x] Compile a production adapter against the pinned UE4SS generic hook API,
     retain its exact callback ID pair, and validate the complete
     `ReceiveDrawHUD` reflected signature before registration.
-  - [ ] Own the adapter from the exported mod composition root and live-prove
-    exact callback removal plus in-flight drain before destruction.
+  - [x] Own the adapter and application/UI graph from the exported mod
+    composition root before any HUD callback registration.
+  - [ ] Live-prove exact callback removal plus in-flight drain before
+    destruction.
 - [x] Implement the bounded game-thread scheduler.
 - [x] Keep `on_update()` free of UObject and ProcessEvent access.
 - [x] Implement project-owned generation-checked
@@ -217,7 +219,7 @@ Evidence:
   - [x] Derive each production identity member from a validated live
     `FWeakObjectPtr` serial and object index on the UE4SS game thread.
 - [x] Implement structured compatibility failures and bounded diagnostics.
-- [ ] Implement representative retained Paint and Image Paint runtime
+- [x] Implement representative retained Paint and Image Paint runtime
   operations on the game-thread path.
   - [x] Connect typed Paint capture, planning, dispatch, queue observation, and
     completion through `ApplicationRoot` with a fake game-thread runtime.
@@ -236,7 +238,7 @@ Evidence:
   - [x] Validate the exact preview export/import byte-array schemas and compile
     a generation-bound game-thread capture/apply/restore adapter with bounded
     Unreal-owned output cleanup and byte-for-byte post-import readback.
-  - [ ] Connect production Paint capture and representative Image Paint
+  - [x] Connect production Paint capture and representative Image Paint
     texture operations.
 - [x] Implement restore-before-unregister explicit unload ordering.
   - [x] Cancel the active Paint generation and wait for local plus observed
@@ -546,15 +548,15 @@ Evidence:
     component; capture Albedo plus packed PBR on the game thread; free
     Unreal-owned output through the pinned allocator; and verify every import
     through exact byte readback before reporting success.
-  - [ ] Connect the production adapter to the exported composition root and
-    complete live preview/restore evidence.
-- [ ] Dispatch only through game-owned `PaintAtUVWithBrush`.
+  - [x] Connect the production adapter to the exported composition root.
+  - [ ] Complete live preview/restore evidence.
+- [x] Dispatch only through game-owned `PaintAtUVWithBrush`.
   - [x] Make the production Paint-stroke port resolve only
     `/Script/PenguinHotel.RuntimePaintableComponent:PaintAtUVWithBrush`,
     reject schema/owner/object-generation drift, and invoke it on the UE4SS
     game thread without a second sender.
-  - [ ] Connect that port to the exported production composition root and
-    complete single-/two-client live evidence.
+  - [x] Connect that port to the exported production composition root.
+  - [ ] Complete single-/two-client live evidence.
 - [x] Implement bounded per-frame pacing, progress, cancellation, and terminal
   queue drain.
 - [ ] Preserve valid jobs through freecam/controller-pawn changes.
@@ -672,7 +674,7 @@ Evidence:
     - [x] Inject the retained profile catalog and shared input queue into one
       exported-mod-owned runtime adapter without registering callbacks or
       touching UObjects during construction.
-    - [ ] Complete exported composition-root ownership, consume the retained
+    - [x] Complete exported composition-root ownership, consume the retained
       localization and guides in the UI graph, and initialize the whole graph
       before callback registration.
     - [x] On the game thread, validate the live RuntimePaintable target mesh
@@ -681,7 +683,7 @@ Evidence:
     - [ ] Prove the reflected target-mesh and asset-identity gate against the
       supported live game through replacement, travel, freecam, spectator, and
       unload transitions.
-- [ ] Integrate v2 project/preset management.
+- [x] Integrate v2 project/preset management.
   - [x] Connect the v2-only project store and session transaction boundary to
     the application command variant and composition root.
   - [x] Connect persisted startup recovery to the root initialization boundary
@@ -694,7 +696,7 @@ Evidence:
     confirmation.
   - [x] Connect native picker/import/load and the portable UCanvas project
     controls through latest-snapshot effect execution.
-  - [ ] Bind those effects and controls to the production callback boundary.
+  - [x] Bind those effects and controls to the production callback boundary.
 - [ ] Pass decoder, layer, guide, atlas, mapping, preset, fake-runtime, and
   resource-limit tests.
   - [x] Pass portable editor gesture/crop/order and guide overlay isolation/
@@ -878,7 +880,7 @@ Evidence:
     edge-only function-key callback into one ordered Pressed/Released pair,
     rejects an overflowing frame without partial publication, discards input
     on focus loss, and makes callbacks inert on stop.
-  - [ ] Register all supported keys once and connect the production UE4SS input
+  - [x] Register all supported keys once and connect the production UE4SS input
     callbacks to the router.
     - [x] Implement a one-shot F1–F24 registration owner with bounded typed
       failure, partial-registration fail closure, callback-safe shared queue
@@ -891,8 +893,9 @@ Evidence:
       publish exact press/hold/release edges, discard pending input on focus
       loss, and fail closed on stale frame, invalid window/client/DPI, stopped
       queue, or bounded overflow.
-    - [ ] Start registration only after the exported composition root owns the
-      matching HUD-frame queue consumer, and live-prove UE4SS callback removal.
+    - [x] Start registration only after the exported composition root owns the
+      matching HUD-frame queue consumer.
+    - [ ] Live-prove UE4SS callback removal.
 - [ ] Complete progress, backpressure, compatibility, and diagnostics display.
   - [x] Publish validated progress fractions, queue pressure/utilization,
     compatibility state, and newest bounded ordered diagnostics as portable
@@ -902,7 +905,7 @@ Evidence:
     inventing an unavailable ETA.
   - [x] Draw localized runtime/compatibility/queue summaries and bounded
     actionable diagnostic entries through the portable Canvas panel.
-  - [ ] Bind those values through the production UCanvas adapter.
+  - [x] Bind those values through the production UCanvas adapter.
 - [ ] Complete responsive themes, DPI, clipping, fonts, and all 16 languages.
   - [x] Apply safe-area, viewport, DPI, configured scale, clipping, and theme
     accent to the portable panel shell and compose its labels for every one of

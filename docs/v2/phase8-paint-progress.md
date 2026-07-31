@@ -7,10 +7,11 @@ reflected `PaintAtUVWithBrush` contract and production game-thread sender now
 compile against the pinned UE4SS graph. The exact production queue observer
 and preview channel adapter also compile against that graph. A fail-closed
 manual-color scene-capture seed and generation-tagged Auto Material source
-session now compile against the same graph. Its exact original-preview,
-zero-emission target-E0 apply/capture/restore transaction also compiles.
-Repeated SPSA trial evaluation, final appearance publication,
-composition-root ownership, and live evidence remain.
+session now compile against the same graph. Exact original-preview restore,
+endpoint calibration, projected-pixel hit visibility, six-trial SPSA,
+accepted-or-safe-fallback resolution, and final post-restore publication are
+implemented. The exported composition root owns and connects every production
+Paint port. Measured live capture cost and single-/two-client evidence remain.
 
 The Auto Material numerical boundary is now project-owned and independently
 testable. It preserves finite HDR values up to the reviewed 64.0 rejection
@@ -453,11 +454,10 @@ Paint pass.
   The exact target-E0 preview apply/capture/restore transaction now compiles,
   calibrates its feedback on the worker, and cannot advance to final model
   preparation before verified restoration. Exact projected-pixel visibility/
-  surface identity, repeated bounded SPSA trial fitting and final resolved-
-  appearance publication, a measured bounded frame budget, and live brush-
-  plane/orientation/color/cleanup evidence remain.
-- Implement the remaining production UE4SS capture contracts, connect the
-  completed sender and queue observer through the exported composition root,
-  and connect the completed preview adapter through that same root.
+  surface identity, repeated bounded SPSA trial fitting, and final resolved-
+  appearance publication are complete. A measured bounded frame budget and
+  live brush-plane/orientation/color/cleanup evidence remain.
+- Live-prove the connected production capture, sender, queue observer, and
+  preview adapter without weakening their fail-closed contracts.
 - Complete fake-runtime failures and the deferred single-/two-client live
   matrix before Phase 8 can close.

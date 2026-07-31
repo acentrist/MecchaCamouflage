@@ -8,10 +8,12 @@ shell, native file-selection boundary, latest-snapshot effect executor, and
 v2-only preset import/activation path. The three exact body guides, portable
 game-thread texture lifetime boundary, and complete project-owned HUD-frame
 coordinator are also implemented and attached to `ApplicationRoot` through one
-project-owned frame-extension contract. Production UCanvas rendering, Unreal
-input registration/lease, callback composition, game-font/fallback selection,
-and live verification remain open. The reflected Unreal texture port is
-implemented but still requires live travel and teardown evidence.
+project-owned frame-extension contract. The exported mod now owns and attaches
+that coordinator, registers the one-shot F1--F24 binding only after its shared
+queue consumer exists, and initializes the production HUD callback last.
+Production navigation/text input, game-font/fallback drawing, and live
+render/input/lease verification remain open. The reflected Unreal texture port
+is connected but still requires live travel and teardown evidence.
 
 ## Ownership and dependency direction
 
@@ -65,9 +67,9 @@ event. Invalid viewport, client, cursor, DPI, window, stale-frame, stopped
 queue, and bounded-overflow observations fail without partially publishing
 input.
 
-The remaining callback connection must start the one-shot binding only after
-the exported composition root owns this consumer. Navigation and text-edit
-producers also remain to be connected without installing a window or graphics
+The callback connection now starts the one-shot binding only after the
+exported composition root owns this consumer. Navigation and text-edit
+producers remain to be connected without installing a window or graphics
 hook.
 
 ## Hotkey command contract
@@ -570,11 +572,9 @@ drawing remain part of the production UCanvas adapter and live gate.
 
 ## Remaining work
 
-- Bind the root-owned HUD-frame callback and attached frame coordinator to the
-  production UE4SS callback registration adapter.
 - Implement production navigation/text-edit event production, live-verify the
-  compiled pointer and Unreal input-lease ports, and connect registered UE4SS
-  key callbacks only when the frame consumer is owned by the composition root.
+  compiled pointer and Unreal input-lease ports, and live-prove the connected
+  registered UE4SS key callbacks and inert teardown.
 - Select and bind the game-font/OFL fallback path, then live-verify the already
   bound reflected texture creation/release across travel and teardown.
 - Complete fake-runtime and live UI verification across all languages,

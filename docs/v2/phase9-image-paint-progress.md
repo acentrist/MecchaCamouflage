@@ -11,9 +11,12 @@ session now coordinates the derived pipeline, active draft, typed project
 operations, and application root. The production Windows service owner
 constructs that session from the isolated native stores, hasher, decoder, and
 composer. Exact-profile guide generation, the project-owned game-thread texture
-coordinator, and its reflected Unreal texture port are implemented. Their
-exported composition-root wiring and the complete in-game editor lifecycle
-remain open, so Phase 9 is not complete.
+coordinator, and its reflected Unreal texture port are implemented. The
+exported composition root now owns the native service graph, texture
+coordinator, ready-content/effect executor, localization, and guide catalog,
+and binds them to the HUD-frame coordinator before HUD callback registration.
+The complete live in-game editor lifecycle remains open, so Phase 9 is not
+complete.
 
 The packaged raw profiles now decode into project-owned immutable Paint
 sampling profiles containing only exact identity, ordered UV vertices, ordered
@@ -471,10 +474,11 @@ full fake-store load/edit/draft/save/rename/delete lifecycle plus consecutive
 in-flight mutations, stale revision and asset/range rejection, source-metadata
 isolation, and ordered draft publication.
 
-The production runtime adapter still needs to capture validated
-triangle/barycentric anchors and real queue observations from reflected game
-contracts. Until that adapter is complete, this is a tested root boundary, not
-a live production path.
+The production runtime adapter validates the live mesh/profile identity, while
+the worker expands the accepted packaged topology into deterministic
+triangle/barycentric anchors and reuses the shared real Paint queue observer.
+That route is now connected, but remains build/automated evidence rather than
+a live production pass.
 
 On Windows, `Win32ImageEditorServices` composes the real atomic config/project
 stores, native preset hasher, WIC/libwebp decoder, core atlas composer,
@@ -485,12 +489,12 @@ reconstructs the graph and recovers that exact project after restart.
 
 ## Remaining work
 
-- Bind the constructed Windows session and its ready atlas/source/guide content
-  to the production callback composition root.
-- Verify the bound reflected game-thread texture creation/release port through
+- Verify the bound Windows session and reflected game-thread texture
+  creation/release port through
   travel, HUD replacement, and unload.
-- Capture triangle/barycentric anchors through the production runtime adapter.
-- Bind the complete portable UCanvas editor to the production callback root,
-  finish fallback-glyph and Unreal-input adapters, and pass live checks.
+- Live-prove the validated mesh/profile gate, deterministic packaged topology,
+  and shared Paint dispatch/queue path.
+- Finish game-font/fallback drawing and navigation/text input production
+  adapters, then pass the complete live UCanvas editor checks.
 
 No decoder, runtime, or UI fallback is implied by this core milestone.

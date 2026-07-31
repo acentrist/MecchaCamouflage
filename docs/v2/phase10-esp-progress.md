@@ -147,8 +147,10 @@ resource validation. The adapter then delegates the complete frame to the
 single production Canvas renderer, whose validated `K2_DrawLine` and
 `K2_DrawText` contracts are already owned by `UnrealRuntimeAdapter`.
 
-The exported composition root remains inert, so this partial production port
-cannot silently activate ESP runtime access before the remaining gates pass.
+The exported composition root now routes the production capture and draw ports
+through `ApplicationRoot` and the owned HUD-frame coordinator. Contract or
+identity failure still closes the current frame; live visual calibration and
+transition evidence remain mandatory.
 
 No DXGI, D3D11, D3D12, Present, ProcessEvent-vtable, or MinHook renderer was
 introduced.

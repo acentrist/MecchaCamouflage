@@ -1,8 +1,18 @@
 #include <Mod/CppUserModBase.hpp>
 
+#include <meccha/application/application_root.hpp>
+#include <meccha/application/image_editor_services_win32.hpp>
+#include <meccha/application/image_file_picker.hpp>
+#include <meccha/application/image_project_codec.hpp>
+#include <meccha/application/input_command_router.hpp>
+#include <meccha/application/product_ui_effect_executor.hpp>
 #include <meccha/application/production_resources.hpp>
+#include <meccha/application/runtime_operation_executor.hpp>
+#include <meccha/product_ui/image_editor_texture_coordinator.hpp>
+#include <meccha/product_ui/product_ui_frame_coordinator.hpp>
 #include <meccha/product_ui/product_ui_key_binding.hpp>
 #include <meccha/runtime/unreal_runtime_adapter.hpp>
+#include <meccha/ui/input_lease.hpp>
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -19,6 +29,7 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -36,6 +47,10 @@ static_assert(
             ProductUiFunctionKeyRegistrationCount);
 
 constinit std::byte ModuleAnchor{};
+
+inline constexpr auto RuntimeQueueCapacity = std::size_t{4096U};
+inline constexpr auto CommandQueueCapacity = std::size_t{256U};
+inline constexpr auto DiagnosticCapacity = std::size_t{256U};
 
 auto loaded_module_file()
     -> std::expected<std::filesystem::path, std::string>
@@ -103,6 +118,19 @@ auto load_owned_production_resources()
     return std::move(*resources);
 }
 
+auto load_owned_image_editor_services()
+    -> std::unique_ptr<
+        meccha::application::Win32ImageEditorServices>
+{
+    auto services =
+        meccha::application::Win32ImageEditorServices::create();
+    if (!services)
+    {
+        throw std::runtime_error{services.error().detail};
+    }
+    return std::move(*services);
+}
+
 auto ue4ss_function_key(meccha::core::FunctionKey key)
     -> std::optional<RC::Input::Key>
 {
@@ -131,11 +159,55 @@ public:
           input_queue_{
               std::make_shared<
                   meccha::product_ui::ProductUiInputQueue>()},
+          image_editor_services_{
+              load_owned_image_editor_services()},
           runtime_{
               input_queue_,
               resources_.image_paint_profiles},
+          runtime_executor_{
+              runtime_,
+              runtime_,
+              runtime_,
+              runtime_},
+          application_{
+              runtime_,
+              runtime_executor_,
+              image_editor_services_->config_storage(),
+              runtime_,
+              runtime_,
+              runtime_,
+              runtime_,
+              image_editor_services_->image_editor(),
+              runtime_,
+              RuntimeQueueCapacity,
+              CommandQueueCapacity,
+              DiagnosticCapacity},
           key_binding_{input_queue_}
     {
+        ui_effects_ = std::make_unique<
+            meccha::application::ProductUiEffectExecutor>(
+            application_,
+            file_picker_,
+            preset_hasher_);
+        image_textures_ = std::make_unique<
+            meccha::product_ui::ImageEditorTextureCoordinator>(
+            runtime_,
+            runtime_);
+        ui_frames_ = std::make_unique<
+            meccha::product_ui::ProductUiFrameCoordinator>(
+            application_,
+            application_,
+            input_router_,
+            resources_.localization,
+            input_lease_,
+            runtime_,
+            runtime_,
+            runtime_,
+            ui_effects_.get(),
+            &image_editor_services_->image_editor(),
+            image_textures_.get(),
+            std::span<const meccha::core::ImageGuideBitmap>{
+                resources_.image_guides});
         ModName = STR("MecchaCamouflage");
         ModVersion = MECCHA_EXPAND_UE_STRING(MECCHA_PRODUCT_VERSION);
         ModDescription = STR("In-game Paint, Image Paint, and ESP");
@@ -145,16 +217,47 @@ public:
     ~MecchaCamouflageMod() override
     {
         key_binding_.stop();
+        input_router_.shutdown();
     }
 
     auto on_unreal_init() -> void override
     {
-        // Key registration starts only after the frame consumer and
-        // application composition root are owned.
+        if (initialization_attempted_)
+        {
+            return;
+        }
+        initialization_attempted_ = true;
+        try
+        {
+            if (!ui_frames_ ||
+                !application_
+                     .attach_frame_extension(*ui_frames_))
+            {
+                return;
+            }
+            if (!key_binding_.start(*this))
+            {
+                return;
+            }
+            if (!application_.initialize())
+            {
+                key_binding_.stop();
+                return;
+            }
+            initialized_ = true;
+        }
+        catch (...)
+        {
+            key_binding_.stop();
+        }
     }
 
     auto on_update() -> void override
     {
+        if (initialized_)
+        {
+            application_.on_update();
+        }
     }
 
 private:
@@ -182,21 +285,57 @@ private:
     meccha::application::ProductionResources resources_;
     std::shared_ptr<meccha::product_ui::ProductUiInputQueue>
         input_queue_;
+    std::unique_ptr<
+        meccha::application::Win32ImageEditorServices>
+        image_editor_services_;
     meccha::runtime::UnrealRuntimeAdapter runtime_;
+    meccha::application::RuntimeOperationExecutor
+        runtime_executor_;
+    meccha::application::InputCommandRouter input_router_{};
+    meccha::ui::InputLeaseController input_lease_{};
+    meccha::application::NativeImageFilePicker file_picker_{};
+    meccha::application::NativePresetHasher preset_hasher_{};
+    std::unique_ptr<
+        meccha::application::ProductUiEffectExecutor>
+        ui_effects_{};
+    std::unique_ptr<
+        meccha::product_ui::ImageEditorTextureCoordinator>
+        image_textures_{};
+    std::unique_ptr<
+        meccha::product_ui::ProductUiFrameCoordinator>
+        ui_frames_{};
+    meccha::application::ApplicationRoot application_;
     meccha::product_ui::ProductUiFunctionKeyBinding
         key_binding_;
+    bool initialization_attempted_{};
+    bool initialized_{};
 };
 
 #undef MECCHA_EXPAND_UE_STRING
 #undef MECCHA_EXPAND_UE_STRING_IMPL
 } // namespace
 
-extern "C" __declspec(dllexport) RC::CppUserModBase* start_mod()
+extern "C" __declspec(dllexport) RC::CppUserModBase*
+start_mod() noexcept
 {
-    return new MecchaCamouflageMod{};
+    try
+    {
+        return new MecchaCamouflageMod{};
+    }
+    catch (...)
+    {
+        return nullptr;
+    }
 }
 
-extern "C" __declspec(dllexport) void uninstall_mod(RC::CppUserModBase* mod)
+extern "C" __declspec(dllexport) void
+uninstall_mod(RC::CppUserModBase* mod) noexcept
 {
-    delete mod;
+    try
+    {
+        delete mod;
+    }
+    catch (...)
+    {
+    }
 }

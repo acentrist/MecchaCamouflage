@@ -250,6 +250,30 @@ if(MECCHA_WITH_UE4SS)
         "${CMAKE_CURRENT_BINARY_DIR}/_ue4ss"
         EXCLUDE_FROM_ALL
     )
+    # UE4SS publishes its own /W3 policy and headers to consumers. Keep that
+    # policy for the pinned dependency itself, but let MecchaCamouflage compile
+    # its production composition root under the project-owned /W4 /WX policy.
+    # The mod target marks the dependency's public headers as external without
+    # changing their include-search order.
+    if(MSVC)
+        get_target_property(
+            _meccha_ue4ss_consumer_options
+            UE4SS
+            INTERFACE_COMPILE_OPTIONS
+        )
+        if(_meccha_ue4ss_consumer_options)
+            string(
+                REPLACE "/W3" ""
+                _meccha_ue4ss_consumer_options
+                "${_meccha_ue4ss_consumer_options}"
+            )
+            set_property(
+                TARGET UE4SS
+                PROPERTY INTERFACE_COMPILE_OPTIONS
+                    "${_meccha_ue4ss_consumer_options}"
+            )
+        endif()
+    endif()
     if(NOT COMMAND corrosion_set_cargo_flags OR
        NOT TARGET patternsleuth_bind)
         message(

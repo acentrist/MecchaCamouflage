@@ -7,9 +7,12 @@ production `UnrealRuntimeAdapter` now compiles against the pinned recursive
 UE4SS graph and implements the validated HUD callback/game-thread boundary plus
 the exact game-owned Paint stroke, queue observation, preview channel, Canvas
 texture, ESP Canvas draw, Image Paint mesh-identity capture, input, and
-transient-cleanup operations. The adapter is not yet owned by the exported mod
-composition root, production Paint mesh/sample and ESP target capture remain,
-and no live callback has been registered in the game, so Phase 4 remains open.
+transient-cleanup operations. The exported mod composition root now owns that
+adapter, the application root, native editor services, input routing, texture
+coordination, and the complete product HUD-frame coordinator. It attaches the
+frame extension and initializes the root only after the complete ownership
+graph exists. No live callback has yet been registered in the game, so the
+teardown and transition evidence keeps Phase 4 open.
 
 ## Implemented contracts
 
@@ -51,6 +54,14 @@ and no live callback has been registered in the game, so Phase 4 remains open.
   typed command queue, Paint planner/worker/coordinator, job and preview state
   machines, compatibility state, bounded diagnostics, and immutable snapshot
   publisher. Platform adapters remain injected ports.
+- The exported `MecchaCamouflageMod` owns one shared input queue, production
+  resource bundle, native editor-service owner, `UnrealRuntimeAdapter`, typed
+  runtime executor, application root, product UI/effect/texture coordinators,
+  input lease/router, and one-shot F1--F24 binding. Construction touches no
+  UObject; `on_unreal_init()` attaches the already-owned frame extension,
+  starts inert-safe key registration, and then initializes the HUD callback.
+  `on_update()` delegates only to the root's atomic heartbeat path. Exported
+  construction and deletion are exception-contained.
 - `ApplicationRoot` also owns the single admission point for an optional
   project-owned `RuntimeFrameExtensionPort`. It passes the exact validated HUD
   identity only after publishing the current runtime snapshot; the production
@@ -209,12 +220,13 @@ before lifecycle transient restore and callback finalization end to end. A
 second root fixture holds authoritative visual/outgoing queues nonempty and
 proves lifecycle quiescing cannot overtake active Paint cancellation/drain.
 
-All 85 registered secret-free tests pass in the normal Linux graph and in a
-fresh ASan/UBSan graph. At project commit `319d6cf`, all 103 Windows tests also
-pass after a complete MSVC x64 `Game__Shipping__Win64` build, including the
-production ESP Canvas draw changes.
+All 93 registered secret-free tests pass in the normal Linux graph and in a
+fresh ASan/UBSan graph. All 111 Windows tests pass after a complete MSVC x64
+`Game__Shipping__Win64` build of the same staged source, including the native
+launcher/editor services and the production runtime graph.
 
-The production adapter additionally compiles and links with the
+The production adapter and exported composition root additionally compile and
+link under the project-owned `/W4 /WX` policy with the
 manifest-verified canonical UE4SS source stage, UEPseudo, and patternsleuth
 graph at UE4SS commit `6c26f038751b3d96059d4a9148f5d093012d55ad` in MSVC
 x64 `Game__Shipping__Win64`. The stage passes exact post-build verification.
@@ -225,19 +237,14 @@ or teardown pass.
 
 ## Remaining Phase 4 work
 
-- Make the exported mod composition root own the production
-  `UnrealRuntimeAdapter`, application root, and remaining runtime services.
 - Register and unregister the implemented HUD hook in the live game, then
   prove that UE4SS removes the exact recorded callback pair and that all
   admitted callbacks drain before adapter destruction.
-- Implement production Paint capture, connect the completed Paint-stroke,
-  queue, and preview ports to the composition root, then run the controlled
-  single-/two-client calls.
-- Implement production ESP target capture, connect it and the completed Canvas
-  draw side to the composition root, and validate its weak-handle invalidation
-  across the live transition matrix.
-- Connect the implemented Image texture coordinator and production runtime
-  port through the exported composition root, then prove create/render/release
+- Run controlled single-/two-client calls through the now-connected production
+  Paint capture, stroke, queue, and preview ports.
+- Validate the now-connected production ESP capture/draw path and its
+  weak-handle invalidation across the live transition matrix.
+- Prove the now-connected Image texture coordinator's create/render/release
   behavior in the live transition matrix.
 - Prove the implemented generation-checked World/controller/HUD/Canvas
   identity invalidates and rebinds correctly in the live UE 5.6 game.
