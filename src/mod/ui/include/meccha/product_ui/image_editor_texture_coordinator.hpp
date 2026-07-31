@@ -32,7 +32,7 @@ struct ImageEditorTextureUpload
     std::uint64_t revision{};
     std::uint32_t width{};
     std::uint32_t height{};
-    std::shared_ptr<const std::vector<std::byte>> rgba{};
+    std::shared_ptr<const std::vector<std::byte>> encoded_png{};
 
     auto operator==(const ImageEditorTextureUpload&) const
         -> bool = default;

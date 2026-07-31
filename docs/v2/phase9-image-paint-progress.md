@@ -356,8 +356,8 @@ reconstructs the graph and recovers that exact project after restart.
 
 - Bind the constructed Windows session and its ready atlas/source/guide content
   to the production callback composition root.
-- Bind game-thread texture creation/release to the accepted reflected Unreal
-  runtime port and verify it through travel, HUD replacement, and unload.
+- Verify the bound reflected game-thread texture creation/release port through
+  travel, HUD replacement, and unload.
 - Capture triangle/barycentric anchors through the production runtime adapter.
 - Build the complete UCanvas editor and pass fake-runtime and live checks.
 

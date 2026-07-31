@@ -24,6 +24,7 @@ struct ImageGuideBitmap
     std::shared_ptr<const std::vector<std::byte>> rgba{};
     std::size_t projected_triangles{};
     std::size_t bone_segments{};
+    std::shared_ptr<const std::vector<std::byte>> encoded_png{};
 
     auto operator==(const ImageGuideBitmap&) const -> bool = default;
 };

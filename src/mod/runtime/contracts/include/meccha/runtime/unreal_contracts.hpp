@@ -13,6 +13,9 @@ namespace meccha::runtime
 [[nodiscard]] auto k2_draw_text_contract()
     -> ReflectionRecordDescriptor;
 
+[[nodiscard]] auto import_buffer_as_texture2d_contract()
+    -> ReflectionRecordDescriptor;
+
 [[nodiscard]] auto vector2d_contract()
     -> ReflectionRecordDescriptor;
 

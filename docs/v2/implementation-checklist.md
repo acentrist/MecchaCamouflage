@@ -273,6 +273,19 @@ Evidence:
       `K2_DrawLine`, `K2_DrawTexture`, and `K2_DrawText` reflection/ABI
       contracts; and compile a generation/viewport-bound, complete-frame
       preflighted line/filled-box adapter against the pinned UE4SS graph.
+    - [x] Inventory `/Game/UI/NotoFonts/MainFont.MainFont` as the exact cooked
+      `Font` asset, resolve/load it only on the game thread, retain a weak
+      generation identity, own strict UTF-8-to-terminated-UTF-16 storage for
+      every preflighted call, and compile `K2_DrawText` dispatch against the
+      pinned UE4SS graph.
+    - [x] Freeze the exact UE 5.6
+      `KismetRenderingLibrary.ImportBufferAsTexture2D` reflection/ABI contract
+      and implement bounded deterministic cancellable RGBA-to-PNG input for
+      the game-thread texture registry.
+    - [x] Bind the texture coordinator to a game-thread-only reflected import
+      port with project-owned non-reused handles, exact UObject generation
+      checks, bounded rooted ownership, complete-frame texture preflight,
+      partial-create rollback, retryable release, and forced teardown cleanup.
     - [ ] Bind adapter-owned texture generations and game-font-first/fallback
       text, then prove complete line/box/text/texture output without a partial
       frame mutation.
@@ -286,8 +299,9 @@ Evidence:
 - [ ] Implement localized game-font and packaged OFL fallback-glyph paths.
   - [x] Generate and package a pinned Noto-derived RGBA fallback atlas with an
     exact source/hash/OFL manifest and exact all-catalog codepoint inventory.
-  - [ ] Resolve the localized game font first and bind missing glyphs through
-    the production UCanvas texture adapter.
+  - [x] Resolve the exact localized game font first through a validated soft
+    object path and reject a stale/wrong-class font before frame mutation.
+  - [ ] Bind missing glyphs through the production UCanvas texture adapter.
 - [ ] Render representative ESP primitives while the panel is closed.
 - [x] Complete the retained portable two-layer Image Paint editor vertical
   slice with topmost selection, retained move/resize/crop/order transitions,
@@ -306,6 +320,8 @@ Evidence:
     bounded single-line UTF-8 edit/cursor/commit/cancel tests.
   - [x] Pass portable two-layer selection, move, resize, reorder, crop,
     cancellation, guide-ordering, identity, limit, and clip-unwind tests.
+  - [x] Pass deterministic canonical PNG integrity/cancellation and exact
+    texture-import ABI contract tests.
 - [ ] DEFERRED — maintainer interaction required: verify the complete Canvas
   viability checklist in the live game.
 
@@ -490,8 +506,10 @@ Evidence:
   - [x] Retain the matching immutable decoded source pixels with each ready
     atlas and own atlas/source/guide opaque handles through a game-thread-only,
     rollback-safe, bounded, retryable texture coordinator.
-  - [ ] Bind the texture coordinator's narrow port to validated reflected
-    Unreal texture creation/release and prove it through HUD replacement,
+  - [x] Bind the texture coordinator's narrow port to exact reflected
+    `ImportBufferAsTexture2D` creation, rooted project ownership, generation-
+    validated Canvas lookup, and release/teardown cleanup.
+  - [ ] Prove production texture creation/release through HUD replacement,
     travel, and unload.
 - [ ] Implement game-thread preview texture lifetime.
 - [ ] Implement all profile mappings and reuse the accepted Paint dispatch.
@@ -677,8 +695,10 @@ Evidence:
       localized Front/Right/Back/Left labels separately through Canvas, retain
       decoded crop-source content, and own atlas/source/guide handle
       generations through the game-thread texture coordinator.
-    - [ ] Bind the texture coordinator to the production Unreal runtime port
-      and validated callback teardown.
+    - [x] Bind the texture coordinator to the production Unreal runtime port
+      and require resource-free normal callback teardown.
+    - [ ] Live-verify reflected texture import, travel persistence, and
+      validated callback teardown.
 - [ ] Complete F9 and configurable F1–F8 hotkey behavior.
   - [x] Implement a bounded application-owned F1–F24 command router with the
     F9/F1–F8 defaults, validated remapping, physical-key repeat suppression

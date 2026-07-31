@@ -260,6 +260,45 @@ auto k2_draw_text_contract() -> ReflectionRecordDescriptor
     };
 }
 
+auto import_buffer_as_texture2d_contract()
+    -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "ImportBufferAsTexture2D",
+        "/Script/Engine.KismetRenderingLibrary",
+        0x20U,
+        {
+            ReflectionPropertyDescriptor{
+                "WorldContextObject",
+                ReflectionPropertyKind::Object,
+                "Object",
+                0x00U,
+                0x08U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "Buffer",
+                ReflectionPropertyKind::Array,
+                "Byte",
+                0x08U,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "ReturnValue",
+                ReflectionPropertyKind::Object,
+                "Texture2D",
+                0x18U,
+                0x08U,
+                1U,
+                ReflectionPropertyDirection::ReturnValue,
+            },
+        },
+    };
+}
+
 auto vector2d_contract() -> ReflectionRecordDescriptor
 {
     return ReflectionRecordDescriptor{

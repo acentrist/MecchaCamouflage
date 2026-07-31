@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <string_view>
+#include <vector>
 
 namespace meccha::runtime
 {
@@ -209,7 +211,13 @@ enum class CanvasCallCodecError : std::uint8_t
 {
     InvalidGeometry,
     InvalidThickness,
+    InvalidText,
 };
+
+[[nodiscard]] auto encode_canvas_utf16(std::string_view utf8)
+    -> std::expected<
+        std::vector<char16_t>,
+        CanvasCallCodecError>;
 
 [[nodiscard]] auto encode_canvas_line(
     const CanvasLineInput& line)

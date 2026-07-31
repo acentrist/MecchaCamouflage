@@ -62,20 +62,62 @@ before the adapter stores the contracts. The reflection descriptor recognizes
 `FStrProperty` explicitly; an unknown string-like property does not pass as
 text. The dependency-free encoders validate finite geometry, bounded line/text
 scales, normalized UVs, nonempty terminated UTF-16 input, sRGB-to-linear color,
-alpha, translucent blending, and the exact x64 parameter layout.
+alpha, translucent blending, and the exact x64 parameter layout. The text
+boundary converts at most 4 KiB of strict UTF-8 into owned, explicitly
+terminated UTF-16, including correct surrogate pairs; malformed UTF-8,
+embedded NUL, unterminated storage, and oversized input fail before dispatch.
 
 `UnrealRuntimeAdapter` now consumes only the render port. It records the exact
 `ReceiveDrawHUD` viewport values with the generation-scoped World/controller/
 HUD/Canvas identity, preflights the complete bounded frame, and dispatches
-validated lines plus filled boxes through `K2_DrawLine` and a null-texture
-white `K2_DrawTexture` tile. Any stale identity, viewport mismatch, invalid
-primitive, text without the reviewed game-font/fallback-glyph binding, or
-texture without adapter-owned generation tracking rejects the complete frame
-before the first `ProcessEvent`. There is no `K2_DrawText` default-font guess,
+validated lines, filled boxes, and game-font text through `K2_DrawLine`, a
+null-texture white `K2_DrawTexture` tile, and `K2_DrawText`. Opt-in CUE4Parse
+inventory of the exact cooked game files identified
+`Chameleon/Content/UI/NotoFonts/MainFont.uasset` as a `Font` export; the
+corresponding Unreal path is frozen as
+`/Game/UI/NotoFonts/MainFont.MainFont`. Contract resolution loads that soft
+path only on the game thread, requires the exact `Font` class and path, stores
+a weak generation identity, and revalidates it before admitting any text.
+Every text call owns its UTF-16 buffer through the complete dispatch.
+
+Any stale identity, viewport mismatch, invalid primitive, stale/wrong-class
+font, or texture without adapter-owned generation tracking rejects the
+complete frame before the first `ProcessEvent`. Missing-glyph fallback and
+glyph-level clipping are not claimed: the packaged fallback atlas still
+requires the production texture registry. There is no default-font guess,
 pointer-shaped texture handle, external window, or Present-hook fallback.
 
-The exact contract test passes on Linux and Windows. The modified adapter
-compiles and links under `/W4 /WX` in the pinned MSVC
+The runtime contract layer additionally freezes
+`KismetRenderingLibrary.ImportBufferAsTexture2D` at `0x20` parameter bytes:
+one World context object, one `TArray<Byte>` input, and one `Texture2D` return
+value. Core now produces a bounded deterministic RGBA8 PNG using canonical
+filter-zero scanlines and stored DEFLATE blocks, validates chunk CRCs, Adler-32,
+dimensions, resource limits, and cancellation, and exposes the encoded bytes
+without a UObject.
+
+The composition worker publishes canonical PNGs for the atlas and decoded
+source pixels; profile guide generation publishes the same bounded encoding.
+The game-thread coordinator validates those bytes and dimensions before
+requesting a runtime texture. `UnrealRuntimeAdapter` validates the exact
+Kismet library CDO/function/return class, imports against the active World,
+rejects an already-rooted or wrong-class result, roots only the returned
+transient `Texture2D`, and publishes one monotonic nonzero project handle.
+The bounded registry stores a weak UObject generation plus the exact object
+identity. Every texture primitive must resolve that registered, live, rooted
+generation before the complete frame can dispatch. Raw UObject addresses
+never become Canvas handles.
+
+Partial project/guide replacement retires every newly created handle without
+disturbing the last complete frame assets. Release clears only a matching
+project-rooted generation and retry state remains explicit. Normal callback
+unregistration refuses to discard a nonempty registry; terminal emergency
+teardown waits for in-flight callbacks, clears every still-live owned root on
+the game thread, then drops runtime contracts. These compile and portable
+lifetime tests do not yet prove that imported textures display or survive
+travel in the live game.
+
+The exact contract and PNG tests pass on Linux and Windows. The modified
+adapter compiles and links under `/W4 /WX` in the pinned MSVC
 `Game__Shipping__Win64` graph against the manifest-verified canonical UE4SS
 source stage. This is compile evidence only; live reflection resolution and
 visible Canvas output remain mandatory.
@@ -175,7 +217,10 @@ clip scopes before returning. All three packaged profiles now produce
 deterministic body/skeleton guide bitmaps, localized face names remain separate
 Canvas text, and the project-owned game-thread coordinator manages opaque
 guide, atlas, and source handle generations. Reflected Unreal texture
-creation/release and its live lifetime evidence remain open work.
+creation/release is now bound through the exact game-thread runtime port with
+bounded rooting, generation validation, rollback, retry, and teardown cleanup.
+Visible live-game output and lifetime across travel/HUD replacement remain
+open work.
 
 ## Exact input lease
 
@@ -229,8 +274,15 @@ cancel, reorder, source-aspect crop/zoom/move/apply/restore, stale-asset and
 event bounds, exact guide identity and ordering, and clip cleanup after a
 primitive-limit failure.
 
-All eight tests run in the normal Linux graph, the mandatory ASan/UBSan graph,
-and the Windows MSVC x64 Release graph.
+The canonical PNG test additionally covers deterministic output, strict
+metadata/CRC inspection, mismatched RGBA input, corruption, and cancellation;
+the runtime contract test covers the exact texture-import ABI and owned
+localized UTF-16 conversion. Composition/pipeline tests prove immutable PNG
+publication, while the texture coordinator/frame tests cover complete
+generation replacement, unchanged-revision reuse, partial-create rollback,
+bounded retry, clear, and resource-free shutdown. The complete 78-test graph
+passes in normal Linux and mandatory ASan/UBSan configurations. All seven
+modified contract targets pass in the Windows MSVC x64 Release graph.
 
 ## Immutable editor binding
 
@@ -287,11 +339,8 @@ the v2 payload because no v2 runtime path consumes them.
 
 ## Remaining feasibility work
 
-- Bind the project-owned texture coordinator to reflected Unreal texture
-  creation/release.
 - Resolve the game-localized font first and bind missing text through the
   fallback atlas in the production UCanvas adapter.
-- Complete adapter-owned text/texture rendering and the separate Unreal input
-  adapter; the line/filled-box UCanvas path alone does not pass Phase 5.
+- Complete glyph clipping/fallback and the separate Unreal input adapter.
 - Prove localized font/text, texture creation/lifetime, clipping, mouse input,
   travel/HUD replacement, and teardown in the live UE 5.6 game.

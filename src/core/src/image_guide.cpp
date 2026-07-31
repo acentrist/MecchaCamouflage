@@ -1,4 +1,5 @@
 #include <meccha/core/image_guide.hpp>
+#include <meccha/core/png_encoder.hpp>
 
 #include <algorithm>
 #include <array>
@@ -641,6 +642,18 @@ auto build_image_guide_bitmap(
             BorderAlpha);
     }
 
+    auto encoded_png = encode_png_rgba8(
+        CanonicalAtlasWidth,
+        CanonicalAtlasHeight,
+        rgba,
+        cancellation);
+    if (!encoded_png)
+    {
+        return std::unexpected(
+            encoded_png.error() == PngEncodeError::Cancelled
+                ? ImageGuideError::Cancelled
+                : ImageGuideError::ResourceLimit);
+    }
     return ImageGuideBitmap{
         ImageGuideSchemaVersion,
         geometry.identity,
@@ -650,6 +663,8 @@ auto build_image_guide_bitmap(
             std::move(rgba)),
         projected_triangles,
         bone_segments,
+        std::make_shared<const std::vector<std::byte>>(
+            std::move(*encoded_png)),
     };
 }
 } // namespace meccha::core

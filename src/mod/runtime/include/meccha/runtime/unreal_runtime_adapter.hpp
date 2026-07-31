@@ -4,6 +4,7 @@
 #include <meccha/application/paint_preview_controller.hpp>
 #include <meccha/application/runtime_lifecycle.hpp>
 #include <meccha/application/runtime_operation_executor.hpp>
+#include <meccha/product_ui/image_editor_texture_coordinator.hpp>
 #include <meccha/product_ui/product_ui_frame_coordinator.hpp>
 
 #include <memory>
@@ -17,6 +18,7 @@ class UnrealRuntimeAdapter final
       public application::PaintStrokeRuntimePort,
       public application::PaintQueueRuntimePort,
       public application::PaintPreviewRuntimePort,
+      public product_ui::ImageEditorTextureRuntimePort,
       public product_ui::ProductUiCanvasRenderPort
 {
 public:
@@ -82,6 +84,17 @@ public:
         -> std::expected<
             void,
             application::RuntimeExecutionError> override;
+
+    [[nodiscard]] auto create_texture(
+        const product_ui::ImageEditorTextureUpload& upload)
+        -> std::expected<
+            ui::CanvasTextureHandle,
+            product_ui::ImageEditorTextureRuntimeError> override;
+
+    auto release_texture(ui::CanvasTextureHandle handle)
+        -> std::expected<
+            void,
+            product_ui::ImageEditorTextureRuntimeError> override;
 
     [[nodiscard]] auto render(
         const application::HudFrameIdentity& identity,

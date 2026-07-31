@@ -1,9 +1,13 @@
 #include <meccha/runtime/canvas_call_codec.hpp>
 
+#include <meccha/core/utf8.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <expected>
 #include <limits>
+#include <string_view>
+#include <vector>
 
 namespace meccha::runtime
 {
@@ -37,6 +41,52 @@ auto encode_color(const CanvasColorInput& color)
     };
 }
 } // namespace
+
+auto encode_canvas_utf16(std::string_view utf8)
+    -> std::expected<
+        std::vector<char16_t>,
+        CanvasCallCodecError>
+{
+    constexpr auto maximum_utf8_bytes = std::size_t{4'096U};
+    if (utf8.empty() || utf8.size() > maximum_utf8_bytes)
+    {
+        return std::unexpected(
+            CanvasCallCodecError::InvalidText);
+    }
+
+    const auto codepoints = core::decode_utf8(utf8);
+    if (!codepoints)
+    {
+        return std::unexpected(
+            CanvasCallCodecError::InvalidText);
+    }
+
+    auto encoded = std::vector<char16_t>{};
+    encoded.reserve(codepoints->size() + 1U);
+    for (const auto codepoint : *codepoints)
+    {
+        if (codepoint == U'\0')
+        {
+            return std::unexpected(
+                CanvasCallCodecError::InvalidText);
+        }
+        if (codepoint <= 0xFFFFU)
+        {
+            encoded.push_back(
+                static_cast<char16_t>(codepoint));
+            continue;
+        }
+
+        const auto supplementary =
+            static_cast<std::uint32_t>(codepoint) - 0x10000U;
+        encoded.push_back(static_cast<char16_t>(
+            0xD800U + (supplementary >> 10U)));
+        encoded.push_back(static_cast<char16_t>(
+            0xDC00U + (supplementary & 0x3FFU)));
+    }
+    encoded.push_back(u'\0');
+    return encoded;
+}
 
 auto encode_canvas_line(const CanvasLineInput& line)
     -> std::expected<
@@ -165,25 +215,32 @@ auto encode_canvas_text(const CanvasTextInput& text)
         K2DrawTextParametersAbi,
         CanvasCallCodecError>
 {
-    if (text.font == nullptr ||
-        text.text.data == nullptr ||
-        text.text.count < 2 ||
-        text.text.capacity < text.text.count ||
-        text.text.data[text.text.count - 1] != u'\0' ||
-        !finite_point(text.anchor))
+    if (text.font == nullptr || !finite_point(text.anchor))
     {
         return std::unexpected(
             CanvasCallCodecError::InvalidGeometry);
     }
+    if (text.text.data == nullptr ||
+        text.text.count < 2 ||
+        text.text.capacity < text.text.count ||
+        text.text.data[text.text.count - 1] != u'\0')
+    {
+        return std::unexpected(
+            CanvasCallCodecError::InvalidText);
+    }
     if (!std::isfinite(text.scale) ||
         text.scale < 0.25 ||
-        text.scale > 8.0 ||
-        text.text.count >
+        text.scale > 8.0)
+    {
+        return std::unexpected(
+            CanvasCallCodecError::InvalidGeometry);
+    }
+    if (text.text.count >
             static_cast<std::int32_t>(
                 std::numeric_limits<std::uint16_t>::max()))
     {
         return std::unexpected(
-            CanvasCallCodecError::InvalidGeometry);
+            CanvasCallCodecError::InvalidText);
     }
 
     auto parameters = K2DrawTextParametersAbi{};

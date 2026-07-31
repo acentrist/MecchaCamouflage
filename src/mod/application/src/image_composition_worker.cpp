@@ -1,6 +1,7 @@
 #include <meccha/application/image_composition_worker.hpp>
 
 #include <expected>
+#include <cstddef>
 #include <memory>
 #include <mutex>
 #include <stop_token>
@@ -188,14 +189,91 @@ auto ImageCompositionWorker::run(
         }
         else
         {
-            result = ImageCompositionCompletion{
-                generation,
-                request.project_id,
-                request.project_revision,
-                std::make_shared<
-                    const core::ImageAtlasComposition>(
-                    std::move(*composed)),
-            };
+            auto atlas_png = core::encode_png_rgba8(
+                core::CanonicalAtlasWidth,
+                core::CanonicalAtlasHeight,
+                composed->rgba,
+                cancellation);
+            if (!atlas_png)
+            {
+                result = ImageCompositionCompletion{
+                    generation,
+                    request.project_id,
+                    request.project_revision,
+                    std::unexpected(ImageCompositionFailure{
+                        ImageCompositionFailureKind::Encoder,
+                        std::nullopt,
+                        atlas_png.error(),
+                        std::nullopt,
+                    }),
+                };
+            }
+            else
+            {
+                auto source_textures =
+                    std::vector<ImageCompositionSourceTexture>{};
+                source_textures.reserve(request.sources.size());
+                for (auto index = std::size_t{};
+                     index < request.sources.size();
+                     ++index)
+                {
+                    const auto& source = request.sources[index];
+                    auto encoded = core::encode_png_rgba8(
+                        source.width,
+                        source.height,
+                        source.rgba
+                            ? std::span<const std::byte>{
+                                  *source.rgba}
+                            : std::span<const std::byte>{},
+                        cancellation);
+                    if (!encoded)
+                    {
+                        result = ImageCompositionCompletion{
+                            generation,
+                            request.project_id,
+                            request.project_revision,
+                            std::unexpected(
+                                ImageCompositionFailure{
+                                    ImageCompositionFailureKind::
+                                        Encoder,
+                                    std::nullopt,
+                                    encoded.error(),
+                                    index,
+                                }),
+                        };
+                        break;
+                    }
+                    source_textures.push_back(
+                        ImageCompositionSourceTexture{
+                            source.asset_id,
+                            source.width,
+                            source.height,
+                            std::make_shared<
+                                const std::vector<std::byte>>(
+                                std::move(*encoded)),
+                        });
+                }
+                if (!result)
+                {
+                    result = ImageCompositionCompletion{
+                        generation,
+                        request.project_id,
+                        request.project_revision,
+                        std::make_shared<
+                            const ImageCompositionArtifacts>(
+                            ImageCompositionArtifacts{
+                                std::move(*composed),
+                                std::make_shared<
+                                    const std::vector<std::byte>>(
+                                    std::move(*atlas_png)),
+                                std::make_shared<
+                                    const std::vector<
+                                        ImageCompositionSourceTexture>>(
+                                    std::move(source_textures)),
+                            }),
+                    };
+                }
+            }
         }
     }
     catch (...)
@@ -206,6 +284,8 @@ auto ImageCompositionWorker::run(
             request.project_revision,
             std::unexpected(ImageCompositionFailure{
                 ImageCompositionFailureKind::WorkerException,
+                std::nullopt,
+                std::nullopt,
                 std::nullopt,
             }),
         };

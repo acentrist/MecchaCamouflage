@@ -234,10 +234,23 @@ auto main() -> int
             completed->generation == 12U &&
             completed->project_revision == 8U &&
             completed->result &&
-            completed->result.value()->rgba.size() ==
+            completed->result.value()->atlas.rgba.size() ==
                 core::CanonicalAtlasByteLength &&
             std::to_integer<std::uint8_t>(
-                completed->result.value()->rgba.front()) == 0x44U,
+                completed->result.value()->atlas.rgba.front()) ==
+                0x44U &&
+            completed->result.value()->atlas_encoded_png &&
+            core::inspect_canonical_png_rgba8(
+                *completed->result.value()->atlas_encoded_png)
+                .has_value() &&
+            completed->result.value()->source_textures &&
+            completed->result.value()->source_textures->size() ==
+                1U &&
+            core::inspect_canonical_png_rgba8(
+                *completed->result.value()
+                     ->source_textures->front()
+                     .encoded_png)
+                .has_value(),
         "successful composition did not publish an immutable tagged atlas");
 
     composer.reset_entered();

@@ -6,6 +6,7 @@ add_library(
         src/paint_call_codec.cpp
         src/paint_preview_codec.cpp
         src/paint_queue_codec.cpp
+        src/texture_import_codec.cpp
         src/unreal_contracts.cpp
 )
 add_library(

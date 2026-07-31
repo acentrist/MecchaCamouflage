@@ -1,4 +1,5 @@
 #include <meccha/product_ui/image_editor_texture_coordinator.hpp>
+#include <meccha/core/png_encoder.hpp>
 
 #include <algorithm>
 #include <array>
@@ -114,6 +115,10 @@ auto guide(core::BodyProfile body)
         core::CanonicalAtlasByteLength,
         std::byte{});
     rgba[3U] = std::byte{0xFF};
+    const auto encoded_png = core::encode_png_rgba8(
+        core::CanonicalAtlasWidth,
+        core::CanonicalAtlasHeight,
+        rgba);
     return core::ImageGuideBitmap{
         core::ImageGuideSchemaVersion,
         core::expected_mesh_profile(
@@ -125,6 +130,8 @@ auto guide(core::BodyProfile body)
             std::move(rgba)),
         1U,
         1U,
+        std::make_shared<const std::vector<std::byte>>(
+            encoded_png.value()),
     };
 }
 
@@ -142,6 +149,10 @@ auto content(
         std::make_shared<const std::vector<std::byte>>(
             core::CanonicalAtlasByteLength,
             static_cast<std::byte>(revision));
+    const auto atlas_png = core::encode_png_rgba8(
+        core::CanonicalAtlasWidth,
+        core::CanonicalAtlasHeight,
+        *atlas);
     auto project =
         std::make_shared<const core::ImageProject>(
             core::ImageProject{
@@ -163,6 +174,12 @@ auto content(
                 }},
                 std::move(atlas),
             });
+    auto source_rgba =
+        std::make_shared<const std::vector<std::byte>>(
+            8U,
+            std::byte{0x44});
+    const auto source_png =
+        core::encode_png_rgba8(2U, 1U, *source_rgba);
     auto decoded =
         std::make_shared<
             const std::vector<core::DecodedImageSource>>(
@@ -171,16 +188,29 @@ auto content(
                     std::string{AssetId},
                     2U,
                     1U,
-                    std::make_shared<
-                        const std::vector<std::byte>>(
-                        8U,
-                        std::byte{0x44}),
+                    source_rgba,
                 },
             });
+    auto source_textures = std::make_shared<
+        const std::vector<ImageCompositionSourceTexture>>(
+        std::initializer_list<ImageCompositionSourceTexture>{
+            ImageCompositionSourceTexture{
+                std::string{AssetId},
+                2U,
+                1U,
+                std::make_shared<
+                    const std::vector<std::byte>>(
+                    source_png.value()),
+            },
+        });
     return std::make_shared<const ImageEditorReadyContent>(
         ImageEditorReadyContent{
             std::move(project),
             std::move(decoded),
+            std::move(source_textures),
+            std::make_shared<
+                const std::vector<std::byte>>(
+                atlas_png.value()),
         });
 }
 } // namespace

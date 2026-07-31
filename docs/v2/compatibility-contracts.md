@@ -175,10 +175,28 @@ The source contract now freezes `K2_DrawLine` at `0x38`,
 including every property offset/direction and the exact `Vector2D`,
 `LinearColor`, and `FString` property kinds. `UnrealRuntimeAdapter` validates
 those records before retaining them and currently admits only complete frames
-containing validated lines and filled white-texture tiles. Text and opaque
-texture handles remain fail-closed until font fallback and adapter-owned
-texture generations are bound. These are compiled contracts, not live-game
-compatibility evidence.
+containing validated lines, filled white-texture tiles, and text backed by the
+exact `/Game/UI/NotoFonts/MainFont.MainFont` cooked `Font` asset. That asset
+path/export type comes from opt-in CUE4Parse inventory of the current game.
+Resolution/load occurs only on the game thread; the adapter retains a weak
+generation identity and rejects stale or wrong-class font state before frame
+mutation. Opaque texture handles remain fail-closed unless they resolve one
+adapter-owned, rooted, generation-checked `Texture2D`. Missing-glyph fallback
+remains open. These are compiled contracts and cooked-file inventory, not
+live-game compatibility evidence.
+
+The source contract also freezes
+`KismetRenderingLibrary.ImportBufferAsTexture2D` at `0x20` parameter bytes
+with exact World-context, byte-array, and `Texture2D` return properties. Its
+input codec accepts only bounded nonempty byte storage. A deterministic
+project-owned RGBA8 PNG encoder provides the worker-side source bytes without
+accessing UObjects. The production adapter validates the exact Kismet library
+CDO/function/return class, imports only on the game thread against the active
+World, roots only a newly returned exact `Texture2D`, publishes a bounded
+monotonic opaque handle, and revalidates its weak UObject generation and root
+ownership before complete-frame dispatch. Release and terminal teardown clear
+only matching project-owned roots. Visible Canvas output and lifetime through
+travel/HUD replacement remain open live work under GAME-HUD-007.
 
 v1 also probes `PostRender` and `ReceivePostRender`. v2 must choose one
 documented callback path for the pinned runtime/game, store its UE4SS callback

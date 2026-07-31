@@ -512,6 +512,15 @@ target_link_libraries(
 )
 add_test(NAME image_compositor COMMAND meccha_image_compositor_tests)
 
+add_executable(meccha_png_encoder_tests png_encoder_test.cpp)
+target_link_libraries(
+    meccha_png_encoder_tests
+    PRIVATE
+        MecchaCamouflage::Core
+        meccha_build_options
+)
+add_test(NAME png_encoder COMMAND meccha_png_encoder_tests)
+
 add_executable(
     meccha_image_composition_worker_tests
     image_composition_worker_test.cpp

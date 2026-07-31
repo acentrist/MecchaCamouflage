@@ -251,8 +251,12 @@ auto ImageEditorPipeline::update() -> void
     }
 
     const auto composition = completed->result.value();
-    if (composition->rgba.size() !=
-        core::CanonicalAtlasByteLength)
+    if (composition->atlas.rgba.size() !=
+            core::CanonicalAtlasByteLength ||
+        !composition->atlas_encoded_png ||
+        !composition->source_textures ||
+        composition->source_textures->size() !=
+            active_decoded_sources_->size())
     {
         fail(ImageEditorPipelineFailure{
             ImageEditorPipelineFailureKind::InvalidCompletion,
@@ -265,7 +269,7 @@ auto ImageEditorPipeline::update() -> void
     ready->canonical_atlas =
         std::shared_ptr<const std::vector<std::byte>>{
             composition,
-            &composition->rgba,
+            &composition->atlas.rgba,
         };
     if (!core::validate(*ready).empty())
     {
@@ -280,6 +284,8 @@ auto ImageEditorPipeline::update() -> void
             ImageEditorReadyContent{
                 ready_project_,
                 active_decoded_sources_,
+                composition->source_textures,
+                composition->atlas_encoded_png,
             });
     active_decoded_sources_.reset();
     work_active_ = false;

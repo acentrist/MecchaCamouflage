@@ -4,13 +4,16 @@
 #include <meccha/runtime/paint_call_codec.hpp>
 #include <meccha/runtime/paint_preview_codec.hpp>
 #include <meccha/runtime/paint_queue_codec.hpp>
+#include <meccha/runtime/texture_import_codec.hpp>
 #include <meccha/runtime/unreal_contracts.hpp>
+#include <meccha/core/png_encoder.hpp>
 
 #include "unreal_reflection_validation.hpp"
 
 #include <Unreal/CoreUObject/UObject/Class.hpp>
 #include <Unreal/CoreUObject/UObject/UnrealType.hpp>
 #include <Unreal/FMemory.hpp>
+#include <Unreal/FSoftObjectPath.hpp>
 #include <Unreal/FWeakObjectPtr.hpp>
 #include <Unreal/UFunctionStructs.hpp>
 #include <Unreal/UObject.hpp>
@@ -29,7 +32,9 @@
 #include <mutex>
 #include <optional>
 #include <span>
+#include <string>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -49,12 +54,22 @@ constexpr auto PlayerControllerClassPath =
     STR("/Script/Engine.PlayerController");
 constexpr auto PawnClassPath = STR("/Script/Engine.Pawn");
 constexpr auto CanvasClassPath = STR("/Script/Engine.Canvas");
+constexpr auto FontClassPath = STR("/Script/Engine.Font");
+constexpr auto GameFontAssetPath =
+    STR("/Game/UI/NotoFonts/MainFont.MainFont");
 constexpr auto K2DrawLinePath =
     STR("/Script/Engine.Canvas:K2_DrawLine");
 constexpr auto K2DrawTexturePath =
     STR("/Script/Engine.Canvas:K2_DrawTexture");
 constexpr auto K2DrawTextPath =
     STR("/Script/Engine.Canvas:K2_DrawText");
+constexpr auto KismetRenderingLibraryClassPath =
+    STR("/Script/Engine.KismetRenderingLibrary");
+constexpr auto ImportBufferAsTexture2DPath =
+    STR("/Script/Engine.KismetRenderingLibrary:"
+        "ImportBufferAsTexture2D");
+constexpr auto Texture2dClassPath =
+    STR("/Script/Engine.Texture2D");
 constexpr auto RuntimePaintableClassPath =
     STR("/Script/PenguinHotel.RuntimePaintableComponent");
 constexpr auto PaintAtUvWithBrushPath =
@@ -120,6 +135,12 @@ struct CanvasContracts
     UFunction* draw_text{};
     UScriptStruct* vector2d{};
     UScriptStruct* linear_color{};
+    UClass* font_class{};
+    FWeakObjectPtr game_font{};
+    UClass* kismet_rendering_library_class{};
+    UObject* kismet_rendering_library_cdo{};
+    UClass* texture2d_class{};
+    UFunction* import_buffer_as_texture2d{};
 };
 
 struct PaintContracts
@@ -151,6 +172,54 @@ struct ActiveFrame
     UObject* canvas{};
     std::int32_t viewport_width{};
     std::int32_t viewport_height{};
+};
+
+struct OwnedCanvasTextCall
+{
+    std::vector<char16_t> storage{};
+    K2DrawTextParametersAbi parameters{};
+};
+
+struct OwnedCanvasTexture
+{
+    FWeakObjectPtr object{};
+    std::uint64_t object_identity{};
+};
+
+class RootedObjectGuard final
+{
+public:
+    explicit RootedObjectGuard(UObject* object)
+        : object_{object}
+    {
+    }
+    RootedObjectGuard(const RootedObjectGuard&) = delete;
+    auto operator=(const RootedObjectGuard&)
+        -> RootedObjectGuard& = delete;
+    ~RootedObjectGuard() noexcept
+    {
+        if (object_ != nullptr)
+        {
+            try
+            {
+                if (object_->IsRootSet())
+                {
+                    object_->ClearRootSet();
+                }
+            }
+            catch (...)
+            {
+            }
+        }
+    }
+
+    auto dismiss() noexcept -> void
+    {
+        object_ = nullptr;
+    }
+
+private:
+    UObject* object_{};
 };
 
 struct BoundFrame
@@ -341,6 +410,14 @@ auto canvas_failure(const char* detail)
         product_ui::ProductUiFrameRuntimeError{detail});
 }
 
+auto texture_failure(const char* detail)
+    -> std::unexpected<
+        product_ui::ImageEditorTextureRuntimeError>
+{
+    return std::unexpected(
+        product_ui::ImageEditorTextureRuntimeError{detail});
+}
+
 auto resolve_canvas_contracts(UClass* canvas_class)
     -> std::expected<
         CanvasContracts,
@@ -373,10 +450,30 @@ auto resolve_canvas_contracts(UClass* canvas_class)
             nullptr,
             nullptr,
             LinearColorPath);
+    contracts.font_class = find_class(FontClassPath);
+    contracts.kismet_rendering_library_class =
+        find_class(KismetRenderingLibraryClassPath);
+    contracts.texture2d_class = find_class(Texture2dClassPath);
+    contracts.import_buffer_as_texture2d =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            ImportBufferAsTexture2DPath);
+    if (contracts.kismet_rendering_library_class != nullptr)
+    {
+        contracts.kismet_rendering_library_cdo =
+            contracts.kismet_rendering_library_class
+                ->GetClassDefaultObject()
+                .Get();
+    }
 
     if (contracts.canvas_class == nullptr ||
         contracts.vector2d == nullptr ||
-        contracts.linear_color == nullptr)
+        contracts.linear_color == nullptr ||
+        contracts.font_class == nullptr ||
+        contracts.kismet_rendering_library_class == nullptr ||
+        contracts.kismet_rendering_library_cdo == nullptr ||
+        contracts.texture2d_class == nullptr)
     {
         return runtime_failure(
             application::RuntimeContractId::Canvas,
@@ -384,7 +481,8 @@ auto resolve_canvas_contracts(UClass* canvas_class)
     }
     if (contracts.draw_line == nullptr ||
         contracts.draw_texture == nullptr ||
-        contracts.draw_text == nullptr)
+        contracts.draw_text == nullptr ||
+        contracts.import_buffer_as_texture2d == nullptr)
     {
         return runtime_failure(
             application::RuntimeContractId::Canvas,
@@ -395,7 +493,18 @@ auto resolve_canvas_contracts(UClass* canvas_class)
         contracts.draw_texture->GetOuterPrivate() !=
             contracts.canvas_class ||
         contracts.draw_text->GetOuterPrivate() !=
-            contracts.canvas_class)
+            contracts.canvas_class ||
+        contracts.import_buffer_as_texture2d
+                ->GetOuterPrivate() !=
+            contracts.kismet_rendering_library_class ||
+        contracts.kismet_rendering_library_cdo
+                ->GetClassPrivate() !=
+            contracts.kismet_rendering_library_class ||
+        !contracts.kismet_rendering_library_cdo
+             ->HasAnyFlags(RF_ClassDefaultObject) ||
+        !object_is_live(
+            contracts.kismet_rendering_library_cdo,
+            contracts.kismet_rendering_library_class))
     {
         return runtime_failure(
             application::RuntimeContractId::Canvas,
@@ -442,6 +551,37 @@ auto resolve_canvas_contracts(UClass* canvas_class)
     {
         return std::unexpected(text_result.error());
     }
+    const auto import_result = validate_unreal_record(
+        contracts.import_buffer_as_texture2d,
+        import_buffer_as_texture2d_contract(),
+        application::RuntimeContractId::Canvas);
+    if (!import_result)
+    {
+        return std::unexpected(import_result.error());
+    }
+
+    const auto game_font_path =
+        FSoftObjectPath{FString{GameFontAssetPath}};
+    auto* game_font = game_font_path.ResolveObject();
+    if (game_font == nullptr)
+    {
+        game_font = game_font_path.TryLoad();
+    }
+    if (!object_is_live_exact(
+        game_font,
+            contracts.font_class) ||
+        game_font->GetPathName() !=
+            RC::StringType{GameFontAssetPath})
+    {
+        return runtime_failure(
+            application::RuntimeContractId::Canvas,
+            game_font == nullptr
+                ? application::ContractFailureKind::
+                      MissingObject
+                : application::ContractFailureKind::
+                      WrongClass);
+    }
+    contracts.game_font = FWeakObjectPtr{game_font};
     return contracts;
 }
 
@@ -1002,7 +1142,8 @@ public:
         {
             const auto lock = std::scoped_lock{mutex_};
             if (id != HudCallbackId || !hook_ids_ ||
-                !hud_contracts_ || detaching_)
+                !hud_contracts_ || detaching_ ||
+                !canvas_textures_.empty())
             {
                 return std::unexpected(
                     application::CallbackPortError::
@@ -1630,6 +1771,193 @@ public:
             snapshot.original);
     }
 
+    auto create_canvas_texture(
+        const product_ui::ImageEditorTextureUpload& upload)
+        -> std::expected<
+            ui::CanvasTextureHandle,
+            product_ui::ImageEditorTextureRuntimeError>
+    {
+        if (!IsInGameThreadRaw())
+        {
+            return texture_failure("texture.wrong_thread");
+        }
+        if (upload.identity.empty() ||
+            upload.identity.size() > 256U ||
+            upload.revision == 0U ||
+            upload.width == 0U ||
+            upload.height == 0U ||
+            !upload.encoded_png)
+        {
+            return texture_failure("texture.invalid_upload");
+        }
+        const auto inspected =
+            core::inspect_canonical_png_rgba8(
+                *upload.encoded_png);
+        if (!inspected ||
+            inspected->width != upload.width ||
+            inspected->height != upload.height)
+        {
+            return texture_failure("texture.invalid_upload");
+        }
+
+        try
+        {
+            auto contracts = std::optional<CanvasContracts>{};
+            auto hud = std::optional<HudContracts>{};
+            auto active = std::optional<ActiveFrame>{};
+            {
+                const auto lock = std::scoped_lock{mutex_};
+                if (detaching_)
+                {
+                    return texture_failure(
+                        "texture.runtime_stopping");
+                }
+                contracts = canvas_contracts_;
+                hud = hud_contracts_;
+                active = active_frame_;
+            }
+            if (!contracts || !hud || !active ||
+                !object_is_live(
+                    active->world,
+                    hud->world_class) ||
+                !object_is_live(
+                    contracts->kismet_rendering_library_cdo,
+                    contracts
+                        ->kismet_rendering_library_class))
+            {
+                return texture_failure(
+                    "texture.runtime_unavailable");
+            }
+            auto parameters = encode_texture_import(
+                active->world,
+                *upload.encoded_png);
+            if (!parameters)
+            {
+                return texture_failure(
+                    "texture.invalid_upload");
+            }
+            contracts->kismet_rendering_library_cdo
+                ->ProcessEvent(
+                    contracts->import_buffer_as_texture2d,
+                    &*parameters);
+            auto* texture = static_cast<UObject*>(
+                parameters->return_value);
+            if (!object_is_live_exact(
+                    texture,
+                    contracts->texture2d_class) ||
+                texture->IsRootSet())
+            {
+                return texture_failure(
+                    "texture.import_failed");
+            }
+            texture->SetRootSet();
+            if (!texture->IsRootSet())
+            {
+                return texture_failure(
+                    "texture.root_failed");
+            }
+            auto rooted = RootedObjectGuard{texture};
+
+            auto handle = ui::CanvasTextureHandle{};
+            {
+                const auto lock = std::scoped_lock{mutex_};
+                if (detaching_ || !active_frame_ ||
+                    active_frame_->identity !=
+                        active->identity ||
+                    active_frame_->world != active->world ||
+                    canvas_textures_.size() >= 1024U ||
+                    next_texture_handle_ == 0U ||
+                    next_texture_handle_ ==
+                        std::numeric_limits<
+                            std::uint64_t>::max())
+                {
+                    return texture_failure(
+                        "texture.registry_unavailable");
+                }
+                handle.identity = next_texture_handle_++;
+                canvas_textures_.emplace(
+                    handle.identity,
+                    OwnedCanvasTexture{
+                        FWeakObjectPtr{texture},
+                        object_identity(texture),
+                    });
+            }
+            rooted.dismiss();
+            return handle;
+        }
+        catch (...)
+        {
+            return texture_failure(
+                "texture.execution_failed");
+        }
+    }
+
+    auto release_canvas_texture(ui::CanvasTextureHandle handle)
+        -> std::expected<
+            void,
+            product_ui::ImageEditorTextureRuntimeError>
+    {
+        if (!IsInGameThreadRaw())
+        {
+            return texture_failure("texture.wrong_thread");
+        }
+        if (handle.identity == 0U)
+        {
+            return texture_failure("texture.invalid_handle");
+        }
+        try
+        {
+            auto contracts = std::optional<CanvasContracts>{};
+            auto owned = std::optional<OwnedCanvasTexture>{};
+            {
+                const auto lock = std::scoped_lock{mutex_};
+                contracts = canvas_contracts_;
+                const auto found =
+                    canvas_textures_.find(handle.identity);
+                if (found != canvas_textures_.end())
+                {
+                    owned = found->second;
+                }
+            }
+            if (!contracts || !owned)
+            {
+                return texture_failure("texture.invalid_handle");
+            }
+            auto* texture = owned->object.Get();
+            if (!object_is_live_exact(
+                    texture,
+                    contracts->texture2d_class) ||
+                object_identity(texture) !=
+                    owned->object_identity ||
+                !texture->IsRootSet())
+            {
+                return texture_failure("texture.stale_handle");
+            }
+            texture->ClearRootSet();
+            if (texture->IsRootSet())
+            {
+                return texture_failure(
+                    "texture.release_failed");
+            }
+            const auto lock = std::scoped_lock{mutex_};
+            const auto found =
+                canvas_textures_.find(handle.identity);
+            if (found == canvas_textures_.end() ||
+                found->second.object_identity !=
+                    owned->object_identity)
+            {
+                return texture_failure("texture.stale_handle");
+            }
+            canvas_textures_.erase(found);
+            return {};
+        }
+        catch (...)
+        {
+            return texture_failure(
+                "texture.execution_failed");
+        }
+    }
+
     auto render_canvas(
         const application::HudFrameIdentity& identity,
         const ui::CanvasFrame& frame)
@@ -1679,7 +2007,8 @@ public:
 
             using EncodedCall = std::variant<
                 K2DrawLineParametersAbi,
-                K2DrawTextureParametersAbi>;
+                K2DrawTextureParametersAbi,
+                OwnedCanvasTextCall>;
             auto calls = std::vector<EncodedCall>{};
             calls.reserve(frame.primitives.size());
             for (const auto& primitive : frame.primitives)
@@ -1745,10 +2074,129 @@ public:
                     continue;
                 }
 
-                // Text requires the reviewed game-font-first/fallback-glyph
-                // binding, and texture handles require adapter-owned
-                // generation tracking. Reject the complete frame before any
-                // ProcessEvent call until those contracts are installed.
+                if (const auto* texture =
+                        std::get_if<
+                            ui::CanvasTexturePrimitive>(
+                            &primitive))
+                {
+                    auto owned =
+                        std::optional<OwnedCanvasTexture>{};
+                    {
+                        const auto lock =
+                            std::scoped_lock{mutex_};
+                        const auto found =
+                            canvas_textures_.find(
+                                texture->texture.identity);
+                        if (found != canvas_textures_.end())
+                        {
+                            owned = found->second;
+                        }
+                    }
+                    auto* runtime_texture =
+                        owned ? owned->object.Get() : nullptr;
+                    if (!owned ||
+                        !object_is_live_exact(
+                            runtime_texture,
+                            contracts->texture2d_class) ||
+                        object_identity(runtime_texture) !=
+                            owned->object_identity ||
+                        !runtime_texture->IsRootSet())
+                    {
+                        return canvas_failure(
+                            "canvas.texture_stale");
+                    }
+                    const auto encoded = encode_canvas_texture(
+                        CanvasTextureInput{
+                            runtime_texture,
+                            {
+                                texture->rect.x,
+                                texture->rect.y,
+                                texture->rect.width,
+                                texture->rect.height,
+                            },
+                            {
+                                texture->uv.left,
+                                texture->uv.top,
+                                texture->uv.right,
+                                texture->uv.bottom,
+                            },
+                            {
+                                texture->tint.red,
+                                texture->tint.green,
+                                texture->tint.blue,
+                                texture->tint.alpha,
+                            },
+                        });
+                    if (!encoded)
+                    {
+                        return canvas_failure(
+                            "canvas.invalid_texture");
+                    }
+                    calls.emplace_back(*encoded);
+                    continue;
+                }
+
+                if (const auto* text =
+                        std::get_if<
+                            ui::CanvasTextPrimitive>(
+                            &primitive))
+                {
+                    auto* game_font =
+                        contracts->game_font.Get();
+                    if (!object_is_live_exact(
+                            game_font,
+                            contracts->font_class) ||
+                        game_font->GetPathName() !=
+                            RC::StringType{
+                                GameFontAssetPath})
+                    {
+                        return canvas_failure(
+                            "canvas.font_stale");
+                    }
+                    auto storage =
+                        encode_canvas_utf16(text->utf8);
+                    if (!storage)
+                    {
+                        return canvas_failure(
+                            "canvas.invalid_text");
+                    }
+                    auto call = OwnedCanvasTextCall{
+                        std::move(*storage),
+                        {},
+                    };
+                    const auto count =
+                        static_cast<std::int32_t>(
+                            call.storage.size());
+                    const auto encoded = encode_canvas_text(
+                        CanvasTextInput{
+                            game_font,
+                            RuntimeStringAbi{
+                                call.storage.data(),
+                                count,
+                                count,
+                            },
+                            {
+                                text->anchor.x,
+                                text->anchor.y,
+                            },
+                            {
+                                text->color.red,
+                                text->color.green,
+                                text->color.blue,
+                                text->color.alpha,
+                            },
+                            text->scale,
+                        });
+                    if (!encoded)
+                    {
+                        return canvas_failure(
+                            "canvas.invalid_text");
+                    }
+                    call.parameters = *encoded;
+                    calls.emplace_back(std::move(call));
+                    continue;
+                }
+
                 return canvas_failure(
                     "canvas.resource_unbound");
             }
@@ -1771,22 +2219,30 @@ public:
                         using Parameters =
                             std::decay_t<
                                 decltype(parameters)>;
-                        auto* function =
-                            static_cast<UFunction*>(nullptr);
                         if constexpr (
                             std::is_same_v<
                                 Parameters,
                                 K2DrawLineParametersAbi>)
                         {
-                            function = contracts->draw_line;
+                            active->canvas->ProcessEvent(
+                                contracts->draw_line,
+                                &parameters);
+                        }
+                        else if constexpr (
+                            std::is_same_v<
+                                Parameters,
+                                K2DrawTextureParametersAbi>)
+                        {
+                            active->canvas->ProcessEvent(
+                                contracts->draw_texture,
+                                &parameters);
                         }
                         else
                         {
-                            function = contracts->draw_texture;
+                            active->canvas->ProcessEvent(
+                                contracts->draw_text,
+                                &parameters.parameters);
                         }
-                        active->canvas->ProcessEvent(
-                            function,
-                            &parameters);
                     },
                     call);
             }
@@ -1986,6 +2442,43 @@ private:
         detaching_ = false;
     }
 
+    auto release_all_canvas_textures_noexcept() noexcept -> void
+    {
+        if (!IsInGameThreadRaw())
+        {
+            return;
+        }
+        auto textures = std::vector<OwnedCanvasTexture>{};
+        {
+            const auto lock = std::scoped_lock{mutex_};
+            textures.reserve(canvas_textures_.size());
+            for (const auto& [identity, texture] :
+                 canvas_textures_)
+            {
+                static_cast<void>(identity);
+                textures.push_back(texture);
+            }
+            canvas_textures_.clear();
+        }
+        for (const auto& owned : textures)
+        {
+            try
+            {
+                auto* texture = owned.object.Get();
+                if (texture != nullptr &&
+                    object_identity(texture) ==
+                        owned.object_identity &&
+                    texture->IsRootSet())
+                {
+                    texture->ClearRootSet();
+                }
+            }
+            catch (...)
+            {
+            }
+        }
+    }
+
     auto detach_noexcept() noexcept -> void
     {
         auto function = static_cast<UFunction*>(nullptr);
@@ -2013,6 +2506,9 @@ private:
 
         auto lock = std::unique_lock{mutex_};
         idle_.wait(lock, [this] { return in_flight_ == 0U; });
+        lock.unlock();
+        release_all_canvas_textures_noexcept();
+        lock.lock();
         clear_state_locked();
     }
 
@@ -2024,12 +2520,17 @@ private:
     std::optional<ActiveFrame> active_frame_{};
     std::optional<BoundFrame> bound_frame_{};
     PaintQueueObservationTracker queue_tracker_{};
+    std::unordered_map<
+        std::uint64_t,
+        OwnedCanvasTexture>
+        canvas_textures_{};
     std::optional<std::pair<int, int>> hook_ids_{};
     void* callback_context_{};
     application::HudCallback callback_{};
     std::size_t in_flight_{};
     std::uint64_t dispatch_sequence_{};
     std::uint64_t active_frame_sequence_{};
+    std::uint64_t next_texture_handle_{1U};
     bool detaching_{};
 };
 
@@ -2126,6 +2627,24 @@ auto UnrealRuntimeAdapter::restore(
         application::RuntimeExecutionError>
 {
     return impl_->restore_preview(snapshot);
+}
+
+auto UnrealRuntimeAdapter::create_texture(
+    const product_ui::ImageEditorTextureUpload& upload)
+    -> std::expected<
+        ui::CanvasTextureHandle,
+        product_ui::ImageEditorTextureRuntimeError>
+{
+    return impl_->create_canvas_texture(upload);
+}
+
+auto UnrealRuntimeAdapter::release_texture(
+    ui::CanvasTextureHandle handle)
+    -> std::expected<
+        void,
+        product_ui::ImageEditorTextureRuntimeError>
+{
+    return impl_->release_canvas_texture(handle);
 }
 
 auto UnrealRuntimeAdapter::render(

@@ -1,5 +1,7 @@
 #include <meccha/product_ui/image_editor_texture_coordinator.hpp>
 
+#include <meccha/core/png_encoder.hpp>
+
 #include <meccha/core/image_compositor.hpp>
 #include <meccha/core/image_project.hpp>
 
@@ -77,6 +79,22 @@ auto valid_rgba(
            bytes == rgba->size();
 }
 
+auto valid_png(
+    std::uint32_t width,
+    std::uint32_t height,
+    const std::shared_ptr<const std::vector<std::byte>>& encoded)
+    -> bool
+{
+    if (!encoded)
+    {
+        return false;
+    }
+    const auto inspected =
+        core::inspect_canonical_png_rgba8(*encoded);
+    return inspected && inspected->width == width &&
+           inspected->height == height;
+}
+
 auto valid_guide(const core::ImageGuideBitmap& guide) -> bool
 {
     if (guide.schema_version !=
@@ -91,6 +109,10 @@ auto valid_guide(const core::ImageGuideBitmap& guide) -> bool
             guide.height,
             guide.rgba,
             core::CanonicalAtlasByteLength) ||
+        !valid_png(
+            guide.width,
+            guide.height,
+            guide.encoded_png) ||
         guide.projected_triangles == 0U ||
         guide.projected_triangles >
             guide.profile.triangle_count * 4U ||
@@ -115,11 +137,19 @@ auto valid_content(
     if (!content.project || !content.decoded_sources ||
         !core::validate(*content.project).empty() ||
         !content.project->canonical_atlas ||
+        !content.atlas_encoded_png ||
+        !content.source_textures ||
         content.project->canonical_atlas->size() !=
             core::CanonicalAtlasByteLength ||
+        !valid_png(
+            core::CanonicalAtlasWidth,
+            core::CanonicalAtlasHeight,
+            content.atlas_encoded_png) ||
         content.decoded_sources->empty() ||
         content.decoded_sources->size() !=
             content.project->sources.size() ||
+        content.source_textures->size() !=
+            content.decoded_sources->size() ||
         content.decoded_sources->size() >
             core::MaximumImageSources)
     {
@@ -137,7 +167,16 @@ auto valid_content(
                 return candidate.asset_id ==
                        decoded.asset_id;
             });
+        const auto texture = std::ranges::find_if(
+            *content.source_textures,
+            [&decoded](
+                const application::ImageCompositionSourceTexture&
+                    candidate)
+            {
+                return candidate.asset_id == decoded.asset_id;
+            });
         if (source == content.project->sources.end() ||
+            texture == content.source_textures->end() ||
             decoded.width >
                 core::MaximumDecodedImageDimension ||
             decoded.height >
@@ -147,6 +186,12 @@ auto valid_content(
                 decoded.height,
                 decoded.rgba,
                 core::MaximumDecodedImageBytes) ||
+            texture->width != decoded.width ||
+            texture->height != decoded.height ||
+            !valid_png(
+                texture->width,
+                texture->height,
+                texture->encoded_png) ||
             std::ranges::find(
                 identities,
                 decoded.asset_id) != identities.end())
@@ -241,7 +286,7 @@ auto ImageEditorTextureCoordinator::install_guides(
                 guide.schema_version,
                 guide.width,
                 guide.height,
-                guide.rgba,
+                guide.encoded_png,
             });
         if (!uploaded)
         {
@@ -374,7 +419,7 @@ auto ImageEditorTextureCoordinator::synchronize(
         content->project->revision,
         core::CanonicalAtlasWidth,
         core::CanonicalAtlasHeight,
-        content->project->canonical_atlas,
+        content->atlas_encoded_png,
     });
     if (!atlas)
     {
@@ -385,7 +430,7 @@ auto ImageEditorTextureCoordinator::synchronize(
 
     auto sources = std::vector<ImageSourceFrameAsset>{};
     sources.reserve(content->decoded_sources->size());
-    for (const auto& source : *content->decoded_sources)
+    for (const auto& source : *content->source_textures)
     {
         const auto texture = create(ImageEditorTextureUpload{
             ImageEditorTextureKind::Source,
@@ -393,7 +438,7 @@ auto ImageEditorTextureCoordinator::synchronize(
             content->project->revision,
             source.width,
             source.height,
-            source.rgba,
+            source.encoded_png,
         });
         if (!texture)
         {

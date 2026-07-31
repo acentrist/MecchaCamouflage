@@ -1,4 +1,5 @@
 #include <meccha/product_ui/product_ui_frame_coordinator.hpp>
+#include <meccha/core/png_encoder.hpp>
 
 #include <meccha/application/image_project_codec.hpp>
 
@@ -106,6 +107,10 @@ auto guide(core::BodyProfile body) -> core::ImageGuideBitmap
         core::CanonicalAtlasByteLength,
         std::byte{});
     rgba[3U] = std::byte{0xFF};
+    const auto encoded_png = core::encode_png_rgba8(
+        core::CanonicalAtlasWidth,
+        core::CanonicalAtlasHeight,
+        rgba);
     return {
         core::ImageGuideSchemaVersion,
         core::expected_mesh_profile(
@@ -117,6 +122,8 @@ auto guide(core::BodyProfile body) -> core::ImageGuideBitmap
             std::move(rgba)),
         1U,
         1U,
+        std::make_shared<const std::vector<std::byte>>(
+            encoded_png.value()),
     };
 }
 
@@ -167,8 +174,34 @@ auto ready_content()
                         std::byte{0x33}),
                 },
             });
+    const auto atlas_png = core::encode_png_rgba8(
+        core::CanonicalAtlasWidth,
+        core::CanonicalAtlasHeight,
+        *atlas);
+    const auto source_png = core::encode_png_rgba8(
+        1U,
+        1U,
+        *decoded->front().rgba);
+    const auto source_textures = std::make_shared<
+        const std::vector<ImageCompositionSourceTexture>>(
+        std::initializer_list<ImageCompositionSourceTexture>{
+            ImageCompositionSourceTexture{
+                std::string{AssetId},
+                1U,
+                1U,
+                std::make_shared<
+                    const std::vector<std::byte>>(
+                    source_png.value()),
+            },
+        });
     return std::make_shared<const ImageEditorReadyContent>(
-        ImageEditorReadyContent{project, decoded});
+        ImageEditorReadyContent{
+            project,
+            decoded,
+            source_textures,
+            std::make_shared<const std::vector<std::byte>>(
+                atlas_png.value()),
+        });
 }
 
 class ReadyContentPort final : public ImageEditorReadyContentPort

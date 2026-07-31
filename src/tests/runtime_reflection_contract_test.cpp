@@ -3,6 +3,7 @@
 #include <meccha/runtime/paint_call_codec.hpp>
 #include <meccha/runtime/paint_preview_codec.hpp>
 #include <meccha/runtime/paint_queue_codec.hpp>
+#include <meccha/runtime/texture_import_codec.hpp>
 #include <meccha/runtime/unreal_contracts.hpp>
 
 #include <array>
@@ -12,6 +13,7 @@
 #include <iostream>
 #include <limits>
 #include <span>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -209,6 +211,74 @@ auto main() -> int
                 k2_draw_text_contract(),
                 k2_draw_text_contract()).has_value(),
         "the reviewed UCanvas text contract drifted");
+    passed &= expect(
+        import_buffer_as_texture2d_contract().owner_name ==
+                "/Script/Engine.KismetRenderingLibrary" &&
+            import_buffer_as_texture2d_contract().size == 0x20U &&
+            validate_reflection_contract(
+                import_buffer_as_texture2d_contract(),
+                import_buffer_as_texture2d_contract())
+                .has_value(),
+        "the reviewed texture-import contract drifted");
+    const auto import_world =
+        reinterpret_cast<void*>(0x1000U);
+    const auto import_bytes = std::array{
+        std::byte{0x89},
+        std::byte{'P'},
+        std::byte{'N'},
+        std::byte{'G'},
+    };
+    const auto encoded_texture_import = encode_texture_import(
+        import_world,
+        import_bytes);
+    passed &= expect(
+        encoded_texture_import &&
+            encoded_texture_import->world_context_object ==
+                import_world &&
+            encoded_texture_import->buffer.data ==
+                import_bytes.data() &&
+            encoded_texture_import->buffer.count == 4 &&
+            encoded_texture_import->buffer.capacity == 4 &&
+            encoded_texture_import->return_value == nullptr,
+        "a texture import did not encode to the UE5.6 ABI");
+    passed &= expect(
+        encode_texture_import(nullptr, import_bytes) ==
+            std::unexpected(
+                TextureImportCodecError::InvalidWorld) &&
+            encode_texture_import(import_world, {}) ==
+                std::unexpected(
+                    TextureImportCodecError::InvalidBuffer),
+        "an invalid texture import ABI was accepted");
+    const auto localized_units = encode_canvas_utf16(
+        "\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E"
+        "\xF0\x9F\xA6\x8E");
+    passed &= expect(
+        localized_units ==
+            std::vector<char16_t>{
+                u'\u65E5',
+                u'\u672C',
+                u'\u8A9E',
+                static_cast<char16_t>(0xD83EU),
+                static_cast<char16_t>(0xDD8EU),
+                u'\0',
+            },
+        "localized UTF-8 text did not become an owned terminated "
+        "UTF-16 FString buffer");
+    passed &= expect(
+        encode_canvas_utf16(
+            std::string_view{"A\0B", 3U}) ==
+                std::unexpected(
+                    CanvasCallCodecError::InvalidText) &&
+            encode_canvas_utf16(
+                "\xF0\x28\x8C\x28") ==
+                std::unexpected(
+                    CanvasCallCodecError::InvalidText) &&
+            encode_canvas_utf16(
+                std::string(4'097U, 'a')) ==
+                std::unexpected(
+                    CanvasCallCodecError::InvalidText),
+        "an invalid or unbounded Canvas string reached the "
+        "FString ABI");
     const auto text_units =
         std::array{u'日', u'本', u'語', u'\0'};
     const auto font_identity =
@@ -282,7 +352,7 @@ auto main() -> int
     passed &= expect(
         encode_canvas_text(unterminated_text) ==
             std::unexpected(
-                CanvasCallCodecError::InvalidGeometry),
+                CanvasCallCodecError::InvalidText),
         "unterminated Canvas text reached the FString ABI");
     auto wrong_text_kind = k2_draw_text_contract();
     wrong_text_kind.properties[1].kind =

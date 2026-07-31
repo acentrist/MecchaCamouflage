@@ -303,7 +303,19 @@ auto main() -> int
                 4U &&
             std::to_integer<std::uint8_t>(
                 ready_content->decoded_sources->front()
-                    .rgba->front()) == 0x44U,
+                    .rgba->front()) == 0x44U &&
+            ready_content->atlas_encoded_png &&
+            core::inspect_canonical_png_rgba8(
+                *ready_content->atlas_encoded_png)
+                .has_value() &&
+            ready_content->source_textures &&
+            ready_content->source_textures->size() == 1U &&
+            ready_content->source_textures->front().asset_id ==
+                AssetId &&
+            core::inspect_canonical_png_rgba8(
+                *ready_content->source_textures->front()
+                     .encoded_png)
+                .has_value(),
         "decode and composition did not publish matching immutable "
         "project and source content");
     passed &= expect(

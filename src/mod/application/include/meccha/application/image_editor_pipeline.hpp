@@ -62,6 +62,11 @@ struct ImageEditorReadyContent
     std::shared_ptr<
         const std::vector<core::DecodedImageSource>>
         decoded_sources{};
+    std::shared_ptr<
+        const std::vector<ImageCompositionSourceTexture>>
+        source_textures{};
+    std::shared_ptr<const std::vector<std::byte>>
+        atlas_encoded_png{};
 
     auto operator==(const ImageEditorReadyContent&) const
         -> bool = default;
