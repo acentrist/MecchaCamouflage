@@ -619,7 +619,7 @@ Evidence:
 ## Phase 10 — ESP
 
 - [ ] Implement coherent game-thread target/role/avatar/pose capture.
-- [ ] Implement project-owned projection and Canvas primitive rendering.
+- [x] Implement project-owned projection and Canvas primitive rendering.
   - [x] Implement bounded project-owned target values, role/spectator
     filtering, projection, clipping, capsule/pose bounds, and line/text
     primitive construction without graphics or Unreal dependencies.
@@ -627,12 +627,15 @@ Evidence:
     port and publish immutable frame diagnostics.
   - [x] Implement production UCanvas line/text drawing through the one
     validated, complete-frame Canvas renderer with exact HUD-frame identity.
-  - [ ] Implement the production UE4SS target capture adapter.
+  - [x] Implement the production UE4SS target capture adapter.
     - [x] Capture the exact current-build cLeon GameState roster, role,
       spectator state, PlayerState/Pawn identity, bounded UTF-8 name, camera
       view, and character capsule samples on the game thread through validated
       reflection contracts.
-    - [ ] Capture and validate the game-specific skeletal pose and topology.
+    - [x] Calibrate independent projection axes through the exact reflected
+      engine projection function and fail closed on inconsistent results.
+    - [x] Capture and validate the game-specific skeletal pose and topology
+      selected by exact packaged-profile asset path.
 - [ ] Implement every scope, primitive, role color, and clipping rule.
   - [x] Cover every configured scope, primitive toggle, role color, and
     viewport/behind-camera clipping rule in the pure builder.
@@ -647,8 +650,9 @@ Evidence:
   - [x] Pass pure projection/filtering/skeleton/resource tests, coordinator
     failure tests, and root integration proving ESP remains active while the
     panel is closed.
-  - [x] Pass production capture ABI/codec and weak-directory refresh-policy
-    tests plus the Windows UE4SS production-adapter build.
+  - [x] Pass production capture/projection/skeleton ABI, topology,
+    weak-directory refresh-policy tests, the forbidden-hook source audit, and
+    the Windows UE4SS production-adapter build.
 - [ ] DEFERRED — maintainer interaction required: complete all live ESP and
   lifecycle checks.
 
