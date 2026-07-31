@@ -168,6 +168,9 @@ constexpr auto InitializePaintPath =
 constexpr auto GetInitializedPaintMeshPath =
     STR("/Script/PenguinHotel.RuntimePaintableComponent:"
         "GetInitializedPaintMesh");
+constexpr auto HitTestAtScreenPositionPath =
+    STR("/Script/PenguinHotel.RuntimePaintableComponent:"
+        "HitTestAtScreenPosition");
 constexpr auto GetSocketTransformPath =
     STR("/Script/Engine.SceneComponent:GetSocketTransform");
 constexpr auto PaintAtUvWithBrushPath =
@@ -195,6 +198,8 @@ constexpr auto ImportChannelFromBytesPath =
         "ImportChannelFromBytes");
 constexpr auto RuntimePaintReplicationPressurePath =
     STR("/Script/PenguinHotel.RuntimePaintReplicationPressure");
+constexpr auto ScreenSpacePaintResultPath =
+    STR("/Script/PenguinHotel.ScreenSpacePaintResult");
 constexpr auto Vector2dPath =
     STR("/Script/CoreUObject.Vector2D");
 constexpr auto LinearColorPath =
@@ -253,6 +258,8 @@ constexpr auto MaximumOwnedCanvasTextures = std::size_t{1024U};
 constexpr auto EspAvatarRefreshIntervalMs = std::uint64_t{1000U};
 constexpr auto MaximumEspAvatarCandidates =
     core::MaximumEspTargets * 2U;
+constexpr auto PaintAppearanceSourceQueriesPerFrame =
+    std::size_t{32U};
 
 struct ReceiveDrawHudParametersAbi
 {
@@ -311,6 +318,7 @@ struct PaintContracts
     UFunction* is_initialized{};
     UFunction* initialize_paint{};
     UFunction* get_initialized_paint_mesh{};
+    UFunction* hit_test_at_screen_position{};
     UFunction* get_socket_transform{};
     UFunction* paint_at_uv_with_brush{};
     UFunction* get_recorded_stroke_count{};
@@ -320,6 +328,8 @@ struct PaintContracts
     UFunction* export_channel_to_bytes{};
     UFunction* import_channel_from_bytes{};
     UScriptStruct* vector2d{};
+    UScriptStruct* vector{};
+    UScriptStruct* screen_space_paint_result{};
     UScriptStruct* paint_channel_data{};
     UScriptStruct* runtime_brush_settings{};
     UScriptStruct* runtime_paint_replication_pressure{};
@@ -2165,6 +2175,11 @@ auto resolve_paint_contracts(UClass* player_controller_class)
             nullptr,
             nullptr,
             GetInitializedPaintMeshPath);
+    contracts.hit_test_at_screen_position =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            HitTestAtScreenPositionPath);
     contracts.get_socket_transform =
         UObjectGlobals::StaticFindObject<UFunction*>(
             nullptr,
@@ -2210,6 +2225,16 @@ auto resolve_paint_contracts(UClass* player_controller_class)
             nullptr,
             nullptr,
             Vector2dPath);
+    contracts.vector =
+        UObjectGlobals::StaticFindObject<UScriptStruct*>(
+            nullptr,
+            nullptr,
+            VectorPath);
+    contracts.screen_space_paint_result =
+        UObjectGlobals::StaticFindObject<UScriptStruct*>(
+            nullptr,
+            nullptr,
+            ScreenSpacePaintResultPath);
     contracts.paint_channel_data =
         UObjectGlobals::StaticFindObject<UScriptStruct*>(
             nullptr,
@@ -2225,6 +2250,13 @@ auto resolve_paint_contracts(UClass* player_controller_class)
             nullptr,
             nullptr,
             RuntimePaintReplicationPressurePath);
+    if (contracts.vector == nullptr ||
+        contracts.screen_space_paint_result == nullptr)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::MissingObject);
+    }
     if (player_controller_class == nullptr ||
         contracts.pawn_class == nullptr ||
         contracts.mesh_component_class == nullptr ||
@@ -2243,6 +2275,7 @@ auto resolve_paint_contracts(UClass* player_controller_class)
     if (contracts.is_initialized == nullptr ||
         contracts.initialize_paint == nullptr ||
         contracts.get_initialized_paint_mesh == nullptr ||
+        contracts.hit_test_at_screen_position == nullptr ||
         contracts.get_socket_transform == nullptr)
     {
         return runtime_failure(
@@ -2286,6 +2319,9 @@ auto resolve_paint_contracts(UClass* player_controller_class)
         contracts.initialize_paint->GetOuterPrivate() !=
             contracts.runtime_paintable_class ||
         contracts.get_initialized_paint_mesh
+                ->GetOuterPrivate() !=
+            contracts.runtime_paintable_class ||
+        contracts.hit_test_at_screen_position
                 ->GetOuterPrivate() !=
             contracts.runtime_paintable_class)
     {
@@ -2337,6 +2373,22 @@ auto resolve_paint_contracts(UClass* player_controller_class)
     {
         return std::unexpected(vector_result.error());
     }
+    const auto vector3_result = validate_unreal_record(
+        contracts.vector,
+        vector_contract(),
+        application::RuntimeContractId::PaintCapture);
+    if (!vector3_result)
+    {
+        return std::unexpected(vector3_result.error());
+    }
+    const auto screen_result = validate_unreal_record(
+        contracts.screen_space_paint_result,
+        screen_space_paint_result_contract(),
+        application::RuntimeContractId::PaintCapture);
+    if (!screen_result)
+    {
+        return std::unexpected(screen_result.error());
+    }
     const auto channel_result = validate_unreal_record(
         contracts.paint_channel_data,
         paint_channel_data_contract(),
@@ -2386,6 +2438,14 @@ auto resolve_paint_contracts(UClass* player_controller_class)
     {
         return std::unexpected(
             initialized_mesh_result.error());
+    }
+    const auto hit_test_result = validate_unreal_record(
+        contracts.hit_test_at_screen_position,
+        hit_test_at_screen_position_contract(),
+        application::RuntimeContractId::PaintCapture);
+    if (!hit_test_result)
+    {
+        return std::unexpected(hit_test_result.error());
     }
     const auto socket_transform_result =
         validate_unreal_record(
@@ -3824,6 +3884,7 @@ struct PreparedPaintCaptureSeed
 enum class AutomaticPaintCaptureStage : std::uint8_t
 {
     GeometryPending,
+    SourceQuery,
     SourceCapture,
     PreliminaryModelPending,
     SnapshotPending,
@@ -3858,6 +3919,12 @@ struct AutomaticPaintCaptureSession
     std::shared_ptr<const std::vector<
         core::PaintCaptureGeometrySample>>
         geometry{};
+    std::shared_ptr<const std::vector<
+        core::PaintAppearanceSourceQuery>>
+        source_queries{};
+    std::vector<core::PaintAppearanceSourceSample>
+        source_samples{};
+    std::size_t next_source_query{};
     std::shared_ptr<const core::PaintAppearanceModel> model{};
     std::vector<double> parameters{};
     AutomaticPaintCandidatePurpose candidate_purpose{
@@ -5803,7 +5870,9 @@ public:
                         : nullptr;
                 if (prepared == nullptr ||
                     !prepared->geometry ||
-                    !prepared->source_query_pixels)
+                    prepared->geometry->empty() ||
+                    !prepared->source_queries ||
+                    prepared->source_queries->empty())
                 {
                     session.stage =
                         AutomaticPaintCaptureStage::Failed;
@@ -5813,14 +5882,56 @@ public:
                         application::ContractFailureKind::
                             InvalidValue);
                 }
-                const auto width = static_cast<std::size_t>(
-                    session.seed.camera.width);
-                const auto height = static_cast<std::size_t>(
-                    session.seed.camera.height);
-                if (width == 0U || height == 0U ||
-                    width >
-                        std::numeric_limits<std::size_t>::max() /
-                            height)
+                session.geometry = prepared->geometry;
+                session.source_queries =
+                    prepared->source_queries;
+                session.source_samples.assign(
+                    session.geometry->size(),
+                    core::PaintAppearanceSourceSample{});
+                session.stage =
+                    AutomaticPaintCaptureStage::SourceQuery;
+                return std::optional<
+                    application::CapturedPaintJob>{};
+            }
+            case AutomaticPaintCaptureStage::SourceQuery:
+            {
+                if (!session.geometry ||
+                    !session.source_queries ||
+                    session.source_queries->empty() ||
+                    session.source_samples.size() !=
+                        session.geometry->size() ||
+                    session.next_source_query >
+                        session.source_queries->size() ||
+                    !object_is_live(
+                        session.seed.component,
+                        session.seed.paint.runtime_paintable_class) ||
+                    !object_is_live(
+                        session.seed.mesh,
+                        session.seed.paint.mesh_component_class) ||
+                    !object_is_live(
+                        session.seed.active.controller,
+                        session.seed.paint.player_controller_class))
+                {
+                    session.stage =
+                        AutomaticPaintCaptureStage::Failed;
+                    return runtime_failure(
+                        application::RuntimeContractId::
+                            PaintCapture,
+                        application::ContractFailureKind::
+                            StaleObject);
+                }
+                const auto fingerprint =
+                    current_paint_capture_fingerprint(
+                        session.seed);
+                if (!fingerprint)
+                {
+                    session.stage =
+                        AutomaticPaintCaptureStage::Failed;
+                    return std::unexpected(fingerprint.error());
+                }
+                if (!core::paint_appearance_camera_matches(
+                        session.seed.camera_fingerprint,
+                        *fingerprint))
                 {
                     session.stage =
                         AutomaticPaintCaptureStage::Failed;
@@ -5830,13 +5941,18 @@ public:
                         application::ContractFailureKind::
                             InvalidValue);
                 }
-                auto source_pixels = std::vector<
-                    core::PaintAppearanceSourcePixel>(
-                    width * height);
-                for (const auto pixel :
-                     *prepared->source_query_pixels)
+                const auto end = std::min(
+                    session.source_queries->size(),
+                    session.next_source_query +
+                        PaintAppearanceSourceQueriesPerFrame);
+                for (; session.next_source_query < end;
+                     ++session.next_source_query)
                 {
-                    if (pixel >= source_pixels.size())
+                    const auto& query =
+                        (*session.source_queries)[
+                            session.next_source_query];
+                    if (query.geometry_index >=
+                        session.source_samples.size())
                     {
                         session.stage =
                             AutomaticPaintCaptureStage::Failed;
@@ -5846,15 +5962,101 @@ public:
                             application::ContractFailureKind::
                                 InvalidValue);
                     }
-                    source_pixels[pixel].visible = true;
+                    const auto screen = RuntimeVector2d{
+                        query.screen.x *
+                            fingerprint->viewport_width /
+                            static_cast<double>(
+                                fingerprint->width),
+                        query.screen.y *
+                            fingerprint->viewport_height /
+                            static_cast<double>(
+                                fingerprint->height),
+                    };
+                    auto parameters = encode_paint_hit_test(
+                        session.seed.mesh,
+                        session.seed.active.controller,
+                        screen);
+                    if (!parameters ||
+                        screen.x >= fingerprint->viewport_width ||
+                        screen.y >= fingerprint->viewport_height)
+                    {
+                        session.stage =
+                            AutomaticPaintCaptureStage::Failed;
+                        return runtime_failure(
+                            application::RuntimeContractId::
+                                PaintCapture,
+                            application::ContractFailureKind::
+                                InvalidValue);
+                    }
+                    session.seed.component->ProcessEvent(
+                        session.seed.paint
+                            .hit_test_at_screen_position,
+                        &*parameters);
+                    const auto& result =
+                        parameters->return_value;
+                    if (!result.success)
+                    {
+                        continue;
+                    }
+                    const auto normal_length_squared =
+                        result.hit_normal.x *
+                            result.hit_normal.x +
+                        result.hit_normal.y *
+                            result.hit_normal.y +
+                        result.hit_normal.z *
+                            result.hit_normal.z;
+                    if (!std::isfinite(result.hit_uv.x) ||
+                        !std::isfinite(result.hit_uv.y) ||
+                        !std::isfinite(result.hit_normal.x) ||
+                        !std::isfinite(result.hit_normal.y) ||
+                        !std::isfinite(result.hit_normal.z) ||
+                        !std::isfinite(normal_length_squared) ||
+                        normal_length_squared <= 1.0e-12)
+                    {
+                        session.stage =
+                            AutomaticPaintCaptureStage::Failed;
+                        return runtime_failure(
+                            application::RuntimeContractId::
+                                PaintCapture,
+                            application::ContractFailureKind::
+                                InvalidValue);
+                    }
+                    const auto resolved =
+                        core::resolve_paint_appearance_source_hit(
+                            query,
+                            core::PaintAppearanceSourceHit{
+                                true,
+                                result.hit_uv.x,
+                                result.hit_uv.y,
+                                core::Vector3d{
+                                    result.hit_world_position.x,
+                                    result.hit_world_position.y,
+                                    result.hit_world_position.z,
+                                },
+                            });
+                    if (!resolved)
+                    {
+                        session.stage =
+                            AutomaticPaintCaptureStage::Failed;
+                        return runtime_failure(
+                            application::RuntimeContractId::
+                                PaintCapture,
+                            application::ContractFailureKind::
+                                InvalidValue);
+                    }
+                    session.source_samples[
+                        query.geometry_index] = *resolved;
                 }
-                session.geometry = prepared->geometry;
-                session.evidence.source_pixels =
-                    std::make_shared<const std::vector<
-                        core::PaintAppearanceSourcePixel>>(
-                        std::move(source_pixels));
-                session.stage =
-                    AutomaticPaintCaptureStage::SourceCapture;
+                if (session.next_source_query ==
+                    session.source_queries->size())
+                {
+                    session.evidence.source_samples =
+                        std::make_shared<const std::vector<
+                            core::PaintAppearanceSourceSample>>(
+                            std::move(session.source_samples));
+                    session.stage =
+                        AutomaticPaintCaptureStage::SourceCapture;
+                }
                 return std::optional<
                     application::CapturedPaintJob>{};
             }
@@ -6504,9 +6706,10 @@ public:
                     application::CapturedPaintJob>{};
             }
             case AutomaticPaintCaptureStage::FinalResolved:
-                // Fitting is complete and every preview is restored, but
-                // exact source visibility/surface identity is not installed.
-                // No partial automatic appearance may reach planning.
+                // The bounded fit and source ownership are complete and every
+                // preview is restored, but the retained endpoint-calibration
+                // policy is not yet connected. No partial automatic
+                // appearance may reach planning.
                 return runtime_failure(
                     application::RuntimeContractId::PaintCapture,
                     application::ContractFailureKind::InvalidValue);

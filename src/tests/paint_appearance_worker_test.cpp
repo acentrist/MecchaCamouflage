@@ -460,12 +460,12 @@ auto main(int argc, char** argv) -> int
         geometry_completion &&
             geometry_completion->generation == 5U &&
             geometry_prepared && geometry_prepared->geometry &&
-            geometry_prepared->source_query_pixels &&
+            geometry_prepared->source_queries &&
             !geometry_prepared->geometry->empty() &&
-            !geometry_prepared->source_query_pixels->empty() &&
-            geometry_prepared->source_query_pixels->size() <=
+            !geometry_prepared->source_queries->empty() &&
+            geometry_prepared->source_queries->size() <=
                 geometry_prepared->geometry->size(),
-        "worker did not publish owned geometry and bounded query pixels");
+        "worker did not publish owned geometry and bounded source queries");
     if (!geometry_prepared)
     {
         return 1;
@@ -485,6 +485,19 @@ auto main(int argc, char** argv) -> int
         core::appearance_srgb_to_linear(96.0 / 255.0),
         core::appearance_srgb_to_linear(128.0 / 255.0),
     };
+    auto source_samples = std::vector<
+        core::PaintAppearanceSourceSample>{};
+    source_samples.reserve(geometry_prepared->geometry->size());
+    for (const auto& sample : *geometry_prepared->geometry)
+    {
+        source_samples.push_back(
+            core::PaintAppearanceSourceSample{
+                true,
+                static_cast<std::uint64_t>(
+                    sample.triangle_index) +
+                    1U,
+            });
+    }
     auto capture_work = PaintAppearanceCapturePrepareWork{
         geometry_prepared->geometry,
         core::PaintAppearanceCaptureEvidence{
@@ -522,9 +535,8 @@ auto main(int argc, char** argv) -> int
                     CapturePixels,
                     core::Rgb8{180U, 150U, 120U})),
             std::make_shared<const std::vector<
-                core::PaintAppearanceSourcePixel>>(
-                CapturePixels,
-                core::PaintAppearanceSourcePixel{true, 77U}),
+                core::PaintAppearanceSourceSample>>(
+                std::move(source_samples)),
         },
         true,
         std::nullopt,
@@ -533,7 +545,7 @@ auto main(int argc, char** argv) -> int
         worker.start(6U, capture_work).has_value(),
         "packaged immutable capture seed did not start");
     capture_work.geometry.reset();
-    capture_work.evidence.source_pixels.reset();
+    capture_work.evidence.source_samples.reset();
     const auto captured_completion = wait_for(worker);
     const auto* captured_prepared =
         captured_completion && captured_completion->result

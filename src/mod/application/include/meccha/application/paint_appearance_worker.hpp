@@ -114,8 +114,9 @@ struct PaintAppearanceGeometryPrepared
     std::shared_ptr<
         const std::vector<core::PaintCaptureGeometrySample>>
         geometry{};
-    std::shared_ptr<const std::vector<std::size_t>>
-        source_query_pixels{};
+    std::shared_ptr<const std::vector<
+        core::PaintAppearanceSourceQuery>>
+        source_queries{};
 };
 
 struct PaintAppearanceCandidate

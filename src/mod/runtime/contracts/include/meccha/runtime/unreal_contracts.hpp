@@ -97,6 +97,12 @@ namespace meccha::runtime
 [[nodiscard]] auto initialize_paint_contract()
     -> ReflectionRecordDescriptor;
 
+[[nodiscard]] auto screen_space_paint_result_contract()
+    -> ReflectionRecordDescriptor;
+
+[[nodiscard]] auto hit_test_at_screen_position_contract()
+    -> ReflectionRecordDescriptor;
+
 [[nodiscard]] auto is_paint_initialized_contract()
     -> ReflectionRecordDescriptor;
 

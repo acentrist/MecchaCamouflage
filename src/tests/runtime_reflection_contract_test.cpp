@@ -118,6 +118,131 @@ auto main() -> int
                 return_value) == 0x08U &&
             !encode_initialize_paint(nullptr).has_value(),
         "the typed InitializePaint parameter encoder drifted");
+    const auto screen_result =
+        screen_space_paint_result_contract();
+    const auto hit_test =
+        hit_test_at_screen_position_contract();
+    passed &= expect(
+        screen_result.size == 0x48U &&
+            screen_result.properties ==
+                std::vector<ReflectionPropertyDescriptor>{
+                    ReflectionPropertyDescriptor{
+                        "bSuccess",
+                        ReflectionPropertyKind::Bool,
+                        {},
+                        0x00U,
+                        0x01U,
+                    },
+                    ReflectionPropertyDescriptor{
+                        "HitUV",
+                        ReflectionPropertyKind::Struct,
+                        "Vector2D",
+                        0x08U,
+                        0x10U,
+                    },
+                    ReflectionPropertyDescriptor{
+                        "HitWorldPosition",
+                        ReflectionPropertyKind::Struct,
+                        "Vector",
+                        0x18U,
+                        0x18U,
+                    },
+                    ReflectionPropertyDescriptor{
+                        "HitNormal",
+                        ReflectionPropertyKind::Struct,
+                        "Vector",
+                        0x30U,
+                        0x18U,
+                    },
+                } &&
+            hit_test.size == 0x70U &&
+            hit_test.properties ==
+                std::vector<ReflectionPropertyDescriptor>{
+                    ReflectionPropertyDescriptor{
+                        "MeshComponent",
+                        ReflectionPropertyKind::Object,
+                        "MeshComponent",
+                        0x00U,
+                        0x08U,
+                        1U,
+                        ReflectionPropertyDirection::Input,
+                    },
+                    ReflectionPropertyDescriptor{
+                        "ScreenPosition",
+                        ReflectionPropertyKind::Struct,
+                        "Vector2D",
+                        0x08U,
+                        0x10U,
+                        1U,
+                        ReflectionPropertyDirection::Input,
+                    },
+                    ReflectionPropertyDescriptor{
+                        "PlayerController",
+                        ReflectionPropertyKind::Object,
+                        "PlayerController",
+                        0x18U,
+                        0x08U,
+                        1U,
+                        ReflectionPropertyDirection::Input,
+                    },
+                    ReflectionPropertyDescriptor{
+                        "bUseCachedTriangles",
+                        ReflectionPropertyKind::Bool,
+                        {},
+                        0x20U,
+                        0x01U,
+                        1U,
+                        ReflectionPropertyDirection::Input,
+                    },
+                    ReflectionPropertyDescriptor{
+                        "ReturnValue",
+                        ReflectionPropertyKind::Struct,
+                        "ScreenSpacePaintResult",
+                        0x28U,
+                        0x48U,
+                        1U,
+                        ReflectionPropertyDirection::ReturnValue,
+                    },
+                } &&
+            validate_reflection_contract(
+                screen_result,
+                screen_result)
+                .has_value() &&
+            validate_reflection_contract(hit_test, hit_test)
+                .has_value(),
+        "the exact screen-space Paint hit contracts drifted");
+    auto* const player_controller =
+        reinterpret_cast<void*>(std::uintptr_t{0x5678U});
+    const auto hit_parameters = encode_paint_hit_test(
+        mesh_component,
+        player_controller,
+        RuntimeVector2d{320.5, 180.25});
+    passed &= expect(
+        hit_parameters &&
+            hit_parameters->mesh_component == mesh_component &&
+            hit_parameters->screen_position ==
+                RuntimeVector2d{320.5, 180.25} &&
+            hit_parameters->player_controller ==
+                player_controller &&
+            hit_parameters->use_cached_triangles &&
+            sizeof(ScreenSpacePaintResult) == 0x48U &&
+            sizeof(HitTestAtScreenPositionParameters) == 0x70U &&
+            offsetof(
+                HitTestAtScreenPositionParameters,
+                return_value) == 0x28U &&
+            !encode_paint_hit_test(
+                 nullptr,
+                 player_controller,
+                 RuntimeVector2d{})
+                 .has_value() &&
+            !encode_paint_hit_test(
+                 mesh_component,
+                 player_controller,
+                 RuntimeVector2d{
+                     std::numeric_limits<double>::quiet_NaN(),
+                     0.0})
+                 .has_value(),
+        "the typed screen-space Paint hit encoder drifted");
     const auto is_initialized = is_paint_initialized_contract();
     const auto initialized_mesh =
         get_initialized_paint_mesh_contract();

@@ -467,9 +467,9 @@ Evidence:
         evidence with per-pass camera fingerprints, exact projected-raster
         observation construction, and changed-camera rejection.
       - [x] Split cancellable appearance preparation into owned deformation/
-        projection plus deduplicated source-query pixels, followed by
-        immutable evidence-to-model preparation, without full-raster
-        game-thread object queries.
+        projection plus a deduplicated nearest-depth source-query plan,
+        followed by immutable evidence-to-model preparation, without
+        full-raster game-thread object queries.
       - [x] Preserve finite raw HDR and scene-depth readback channels in the
         runtime codec without display normalization or clamping.
       - [x] Distinguish background-only source passes from target-visible
@@ -497,9 +497,18 @@ Evidence:
         after verified exact restoration, enforce stable-camera/calibrated-
         readback/minimum-pair response gates, and resolve either the strictly
         accepted best response or the exact safe fallback on the worker. The
-        resolved raster remains deliberately fail-closed until target-visible
-        source ownership and surface identity are proven for every admitted
-        observation.
+        resolved raster remains deliberately fail-closed until the retained
+        endpoint-calibration/non-emission policy and live evidence gates are
+        complete.
+      - [x] Freeze the exact `HitTestAtScreenPosition` 0x70 parameter and
+        `FScreenSpacePaintResult` 0x48 result contracts; retain at most the
+        nearest packaged sample per projected raster pixel, cap the evenly
+        selected query plan at 8192 entries, execute at most 32 cached hit
+        tests per later HUD frame, and admit a non-zero topology triangle
+        surface key only when the game-owned hit returns to that sample within
+        the retained one-centimetre same-surface tolerance and its returned UV
+        lies inside the same packaged topology triangle. Camera drift, invalid
+        hit vectors, and unqueried/occluded samples remain fail-closed.
 - [x] Validate round, cube, and fukuyoka profiles.
 - [x] Implement immutable planning for Paint/Fill/Skip, lighting, Auto Material,
   PBR, compression, and Fill-first ordering.

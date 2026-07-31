@@ -15,6 +15,9 @@ namespace meccha::core
 {
 namespace
 {
+constexpr auto SourceTriangleDenominatorEpsilon = 1.0e-12;
+constexpr auto SourceTriangleBarycentricEpsilon = -1.0e-5;
+
 auto pixel_count(
     const PaintAppearanceCameraFingerprint& camera)
     -> std::optional<std::size_t>
@@ -178,13 +181,14 @@ auto make_paint_appearance_camera_fingerprint(
     };
 }
 
-auto build_paint_appearance_source_query_pixels(
+auto build_paint_appearance_source_queries(
     std::span<const PaintCaptureGeometrySample> geometry,
+    const PaintSamplingProfile& sampling_profile,
     std::uint32_t width,
     std::uint32_t height,
     std::stop_token cancellation)
     -> std::expected<
-        std::vector<std::size_t>,
+        std::vector<PaintAppearanceSourceQuery>,
         PaintAppearanceCaptureError>
 {
     if (cancellation.stop_requested())
@@ -192,7 +196,10 @@ auto build_paint_appearance_source_query_pixels(
         return std::unexpected(
             PaintAppearanceCaptureError::Cancelled);
     }
-    if (geometry.empty())
+    if (geometry.empty() || !sampling_profile.vertices ||
+        !sampling_profile.triangles ||
+        sampling_profile.vertices->empty() ||
+        sampling_profile.triangles->empty())
     {
         return std::unexpected(
             PaintAppearanceCaptureError::InvalidGeometry);
@@ -212,8 +219,12 @@ auto build_paint_appearance_source_query_pixels(
         return std::unexpected(
             PaintAppearanceCaptureError::InvalidEvidence);
     }
-    auto output = std::vector<std::size_t>{};
-    output.reserve(geometry.size());
+    auto nearest_geometry = std::vector<std::size_t>(
+        *count,
+        std::numeric_limits<std::size_t>::max());
+    auto nearest_depth = std::vector<double>(
+        *count,
+        std::numeric_limits<double>::infinity());
     for (auto index = std::size_t{};
          index < geometry.size();
          ++index)
@@ -225,6 +236,12 @@ auto build_paint_appearance_source_query_pixels(
                 PaintAppearanceCaptureError::Cancelled);
         }
         const auto& sample = geometry[index];
+        if (sample.triangle_index >=
+            sampling_profile.triangles->size())
+        {
+            return std::unexpected(
+                PaintAppearanceCaptureError::InvalidGeometry);
+        }
         if (!sample.projected ||
             !std::isfinite(sample.screen.x) ||
             !std::isfinite(sample.screen.y) ||
@@ -235,22 +252,163 @@ auto build_paint_appearance_source_query_pixels(
         {
             continue;
         }
+        if (!std::isfinite(sample.world_position.x) ||
+            !std::isfinite(sample.world_position.y) ||
+            !std::isfinite(sample.world_position.z) ||
+            !std::isfinite(sample.view_depth) ||
+            sample.view_depth < 1.0)
+        {
+            return std::unexpected(
+                PaintAppearanceCaptureError::InvalidGeometry);
+        }
         const auto x = static_cast<std::uint32_t>(
             std::floor(sample.screen.x));
         const auto y = static_cast<std::uint32_t>(
             std::floor(sample.screen.y));
-        output.push_back(
-            static_cast<std::size_t>(y) * width + x);
+        const auto pixel =
+            static_cast<std::size_t>(y) * width + x;
+        if (sample.view_depth < nearest_depth[pixel])
+        {
+            nearest_depth[pixel] = sample.view_depth;
+            nearest_geometry[pixel] = index;
+        }
     }
-    std::ranges::sort(output);
-    const auto unique = std::ranges::unique(output);
-    output.erase(unique.begin(), unique.end());
+    auto candidates = std::vector<PaintAppearanceSourceQuery>{};
+    candidates.reserve(std::min(geometry.size(), *count));
+    for (auto pixel = std::size_t{};
+         pixel < nearest_geometry.size();
+         ++pixel)
+    {
+        const auto index = nearest_geometry[pixel];
+        if (index == std::numeric_limits<std::size_t>::max())
+        {
+            continue;
+        }
+        const auto& sample = geometry[index];
+        const auto& triangle =
+            (*sampling_profile.triangles)[
+                sample.triangle_index];
+        if (triangle.first >= sampling_profile.vertices->size() ||
+            triangle.second >= sampling_profile.vertices->size() ||
+            triangle.third >= sampling_profile.vertices->size())
+        {
+            return std::unexpected(
+                PaintAppearanceCaptureError::InvalidGeometry);
+        }
+        candidates.push_back(PaintAppearanceSourceQuery{
+            index,
+            pixel,
+            sample.screen,
+            sample.world_position,
+            static_cast<std::uint64_t>(
+                sample.triangle_index) +
+                1U,
+            (*sampling_profile.vertices)[triangle.first],
+            (*sampling_profile.vertices)[triangle.second],
+            (*sampling_profile.vertices)[triangle.third],
+        });
+    }
+    auto output = std::vector<PaintAppearanceSourceQuery>{};
+    if (candidates.size() <=
+        MaximumPaintAppearanceSourceQueries)
+    {
+        output = std::move(candidates);
+    }
+    else
+    {
+        output.reserve(MaximumPaintAppearanceSourceQueries);
+        for (auto probe = std::size_t{};
+             probe < MaximumPaintAppearanceSourceQueries;
+             ++probe)
+        {
+            const auto selected =
+                probe * candidates.size() /
+                MaximumPaintAppearanceSourceQueries;
+            output.push_back(candidates[selected]);
+        }
+    }
     if (output.empty())
     {
         return std::unexpected(
             PaintAppearanceCaptureError::NoSupportedSamples);
     }
     return output;
+}
+
+auto resolve_paint_appearance_source_hit(
+    const PaintAppearanceSourceQuery& query,
+    const PaintAppearanceSourceHit& hit)
+    -> std::expected<
+        PaintAppearanceSourceSample,
+        PaintAppearanceCaptureError>
+{
+    if (query.surface_key == 0U ||
+        !std::isfinite(query.world_position.x) ||
+        !std::isfinite(query.world_position.y) ||
+        !std::isfinite(query.world_position.z))
+    {
+        return std::unexpected(
+            PaintAppearanceCaptureError::InvalidGeometry);
+    }
+    if (!hit.hit)
+    {
+        return PaintAppearanceSourceSample{};
+    }
+    if (!std::isfinite(hit.u) || !std::isfinite(hit.v) ||
+        !std::isfinite(hit.world_position.x) ||
+        !std::isfinite(hit.world_position.y) ||
+        !std::isfinite(hit.world_position.z))
+    {
+        return std::unexpected(
+            PaintAppearanceCaptureError::InvalidEvidence);
+    }
+    const auto dx =
+        hit.world_position.x - query.world_position.x;
+    const auto dy =
+        hit.world_position.y - query.world_position.y;
+    const auto dz =
+        hit.world_position.z - query.world_position.z;
+    const auto distance = std::sqrt(
+        dx * dx + dy * dy + dz * dz);
+    const auto denominator =
+        (query.second_uv.v - query.third_uv.v) *
+            (query.first_uv.u - query.third_uv.u) +
+        (query.third_uv.u - query.second_uv.u) *
+            (query.first_uv.v - query.third_uv.v);
+    if (!std::isfinite(denominator) ||
+        std::abs(denominator) <=
+            SourceTriangleDenominatorEpsilon)
+    {
+        return std::unexpected(
+            PaintAppearanceCaptureError::InvalidGeometry);
+    }
+    const auto first_weight =
+        ((query.second_uv.v - query.third_uv.v) *
+             (hit.u - query.third_uv.u) +
+         (query.third_uv.u - query.second_uv.u) *
+             (hit.v - query.third_uv.v)) /
+        denominator;
+    const auto second_weight =
+        ((query.third_uv.v - query.first_uv.v) *
+             (hit.u - query.third_uv.u) +
+         (query.first_uv.u - query.third_uv.u) *
+             (hit.v - query.third_uv.v)) /
+        denominator;
+    const auto third_weight =
+        1.0 - first_weight - second_weight;
+    const auto same_triangle =
+        std::isfinite(first_weight) &&
+        std::isfinite(second_weight) &&
+        std::isfinite(third_weight) &&
+        first_weight >= SourceTriangleBarycentricEpsilon &&
+        second_weight >= SourceTriangleBarycentricEpsilon &&
+        third_weight >= SourceTriangleBarycentricEpsilon;
+    return distance <= 1.0 && same_triangle
+               ? PaintAppearanceSourceSample{
+                     true,
+                     query.surface_key,
+                 }
+               : PaintAppearanceSourceSample{};
 }
 
 auto build_paint_appearance_observations(
@@ -287,8 +445,8 @@ auto build_paint_appearance_observations(
         !valid_pass(evidence.normal, *count) ||
         !valid_pass(evidence.scene_depth, *count) ||
         !valid_pass(evidence.final_ldr, *count) ||
-        evidence.source_pixels == nullptr ||
-        evidence.source_pixels->size() != *count)
+        evidence.source_samples == nullptr ||
+        evidence.source_samples->size() != geometry.size())
     {
         return std::unexpected(
             PaintAppearanceCaptureError::InvalidEvidence);
@@ -352,9 +510,14 @@ auto build_paint_appearance_observations(
             sample.world_normal,
             evidence.base_color.camera.direction);
         const auto& source =
-            (*evidence.source_pixels)[pixel];
+            (*evidence.source_samples)[index];
+        const auto expected_surface_key =
+            static_cast<std::uint64_t>(
+                sample.triangle_index) +
+            1U;
         const auto safe =
             source.visible &&
+            source.surface_key == expected_surface_key &&
             std::isfinite(facing) &&
             facing < -0.001;
         supported += safe ? 1U : 0U;

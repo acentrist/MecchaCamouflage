@@ -1164,6 +1164,103 @@ auto initialize_paint_contract()
     };
 }
 
+auto screen_space_paint_result_contract()
+    -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "ScreenSpacePaintResult",
+        "/Script/PenguinHotel.ScreenSpacePaintResult",
+        0x48U,
+        {
+            ReflectionPropertyDescriptor{
+                "bSuccess",
+                ReflectionPropertyKind::Bool,
+                {},
+                0x00U,
+                0x01U,
+            },
+            ReflectionPropertyDescriptor{
+                "HitUV",
+                ReflectionPropertyKind::Struct,
+                "Vector2D",
+                0x08U,
+                0x10U,
+            },
+            ReflectionPropertyDescriptor{
+                "HitWorldPosition",
+                ReflectionPropertyKind::Struct,
+                "Vector",
+                0x18U,
+                0x18U,
+            },
+            ReflectionPropertyDescriptor{
+                "HitNormal",
+                ReflectionPropertyKind::Struct,
+                "Vector",
+                0x30U,
+                0x18U,
+            },
+        },
+    };
+}
+
+auto hit_test_at_screen_position_contract()
+    -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "HitTestAtScreenPosition",
+        "/Script/PenguinHotel.RuntimePaintableComponent",
+        0x70U,
+        {
+            ReflectionPropertyDescriptor{
+                "MeshComponent",
+                ReflectionPropertyKind::Object,
+                "MeshComponent",
+                0x00U,
+                0x08U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "ScreenPosition",
+                ReflectionPropertyKind::Struct,
+                "Vector2D",
+                0x08U,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "PlayerController",
+                ReflectionPropertyKind::Object,
+                "PlayerController",
+                0x18U,
+                0x08U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "bUseCachedTriangles",
+                ReflectionPropertyKind::Bool,
+                {},
+                0x20U,
+                0x01U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "ReturnValue",
+                ReflectionPropertyKind::Struct,
+                "ScreenSpacePaintResult",
+                0x28U,
+                0x48U,
+                1U,
+                ReflectionPropertyDirection::ReturnValue,
+            },
+        },
+    };
+}
+
 auto is_paint_initialized_contract()
     -> ReflectionRecordDescriptor
 {

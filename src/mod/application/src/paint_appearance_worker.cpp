@@ -281,31 +281,33 @@ auto PaintAppearanceWorker::run(
                             core::PaintAppearanceCaptureError::
                                 InvalidEvidence);
                     }
-                    auto query_pixels =
-                        core::build_paint_appearance_source_query_pixels(
+                    auto source_queries =
+                        core::build_paint_appearance_source_queries(
                             *geometry,
+                            work.sampling_profile,
                             static_cast<std::uint32_t>(
                                 work.viewport.width),
                             static_cast<std::uint32_t>(
                                 work.viewport.height),
                             cancellation);
-                    if (!query_pixels)
+                    if (!source_queries)
                     {
                         return capture_evidence_failure(
-                            query_pixels.error());
+                            source_queries.error());
                     }
                     auto owned_geometry =
                         std::make_shared<const std::vector<
                             core::PaintCaptureGeometrySample>>(
                             std::move(*geometry));
-                    auto owned_query_pixels =
+                    auto owned_source_queries =
                         std::make_shared<
-                            const std::vector<std::size_t>>(
-                            std::move(*query_pixels));
+                            const std::vector<
+                                core::PaintAppearanceSourceQuery>>(
+                            std::move(*source_queries));
                     return PaintAppearanceWorkValue{
                         PaintAppearanceGeometryPrepared{
                             std::move(owned_geometry),
-                            std::move(owned_query_pixels),
+                            std::move(owned_source_queries),
                         }};
                 }
                 else if constexpr (

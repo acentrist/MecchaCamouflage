@@ -39,6 +39,18 @@ struct RuntimeVector2d
 {
     double x{};
     double y{};
+
+    auto operator==(const RuntimeVector2d&) const -> bool = default;
+};
+
+struct RuntimePaintHitVector3d
+{
+    double x{};
+    double y{};
+    double z{};
+
+    auto operator==(const RuntimePaintHitVector3d&) const
+        -> bool = default;
 };
 
 struct RuntimeLinearColor
@@ -105,6 +117,25 @@ struct GetInitializedPaintMeshParameters
     void* return_value{};
 };
 
+struct ScreenSpacePaintResult
+{
+    bool success{};
+    std::uint8_t padding_01[0x07]{};
+    RuntimeVector2d hit_uv{};
+    RuntimePaintHitVector3d hit_world_position{};
+    RuntimePaintHitVector3d hit_normal{};
+};
+
+struct HitTestAtScreenPositionParameters
+{
+    void* mesh_component{};
+    RuntimeVector2d screen_position{};
+    void* player_controller{};
+    bool use_cached_triangles{true};
+    std::uint8_t padding_21[0x07]{};
+    ScreenSpacePaintResult return_value{};
+};
+
 static_assert(sizeof(void*) == 0x08U);
 static_assert(sizeof(InitializePaintParameters) == 0x10U);
 static_assert(
@@ -112,6 +143,33 @@ static_assert(
 static_assert(sizeof(IsPaintInitializedParameters) == 0x01U);
 static_assert(sizeof(GetInitializedPaintMeshParameters) == 0x08U);
 static_assert(sizeof(RuntimeVector2d) == 0x10U);
+static_assert(sizeof(RuntimePaintHitVector3d) == 0x18U);
+static_assert(sizeof(ScreenSpacePaintResult) == 0x48U);
+static_assert(
+    offsetof(ScreenSpacePaintResult, hit_uv) == 0x08U);
+static_assert(
+    offsetof(ScreenSpacePaintResult, hit_world_position) ==
+    0x18U);
+static_assert(
+    offsetof(ScreenSpacePaintResult, hit_normal) == 0x30U);
+static_assert(
+    sizeof(HitTestAtScreenPositionParameters) == 0x70U);
+static_assert(
+    offsetof(
+        HitTestAtScreenPositionParameters,
+        screen_position) == 0x08U);
+static_assert(
+    offsetof(
+        HitTestAtScreenPositionParameters,
+        player_controller) == 0x18U);
+static_assert(
+    offsetof(
+        HitTestAtScreenPositionParameters,
+        use_cached_triangles) == 0x20U);
+static_assert(
+    offsetof(
+        HitTestAtScreenPositionParameters,
+        return_value) == 0x28U);
 static_assert(sizeof(RuntimeLinearColor) == 0x10U);
 static_assert(sizeof(RuntimeBrushSettings) == 0x28U);
 static_assert(
@@ -148,6 +206,14 @@ enum class PaintCallEncodingError : std::uint8_t
     void* mesh_component)
     -> std::expected<
         InitializePaintParameters,
+        PaintCallEncodingError>;
+
+[[nodiscard]] auto encode_paint_hit_test(
+    void* mesh_component,
+    void* player_controller,
+    RuntimeVector2d screen_position)
+    -> std::expected<
+        HitTestAtScreenPositionParameters,
         PaintCallEncodingError>;
 
 [[nodiscard]] auto encode_paint_call(

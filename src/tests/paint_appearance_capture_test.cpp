@@ -104,9 +104,9 @@ auto main() -> int
                 Rgb8{}, Rgb8{},
             }),
         std::make_shared<
-            const std::vector<PaintAppearanceSourcePixel>>(
-            std::vector<PaintAppearanceSourcePixel>{
-                {}, {true, 77U}, {}, {},
+            const std::vector<PaintAppearanceSourceSample>>(
+            std::vector<PaintAppearanceSourceSample>{
+                {true, 77U},
             }),
     };
     const auto observations =
@@ -123,46 +123,170 @@ auto main() -> int
                     EspScreenPoint{1.2, 0.7},
                     0.0,
                     0.0,
+                    76U,
+                    10.0,
                 },
             },
             evidence);
-    const auto query_pixels =
-        build_paint_appearance_source_query_pixels(
+    const auto source_vertices =
+        std::make_shared<const std::vector<PaintSamplingVertex>>(
+            std::vector<PaintSamplingVertex>{
+                {0.0, 0.0},
+                {1.0, 0.0},
+                {0.0, 1.0},
+            });
+    const auto source_triangles =
+        std::make_shared<const std::vector<PaintSamplingTriangle>>(
+            std::vector<PaintSamplingTriangle>{
+                {0U, 1U, 2U, 3U},
+                {0U, 1U, 2U, 4U},
+            });
+    const auto source_profile = PaintSamplingProfile{
+        {},
+        source_vertices,
+        source_triangles,
+    };
+    const auto source_queries =
+        build_paint_appearance_source_queries(
             std::vector<PaintCaptureGeometrySample>{
                 PaintCaptureGeometrySample{
                     Region::Front,
                     3,
                     0.25,
                     0.75,
-                    Vector3d{},
+                    Vector3d{1.0, 2.0, 3.0},
                     Vector3d{0.0, -1.0, 0.0},
                     true,
                     EspScreenPoint{1.2, 0.7},
                     0.0,
                     0.0,
+                    0U,
+                    20.0,
                 },
                 PaintCaptureGeometrySample{
                     Region::Side,
                     4,
                     0.5,
                     0.5,
-                    Vector3d{},
+                    Vector3d{4.0, 5.0, 6.0},
                     Vector3d{0.0, -1.0, 0.0},
                     true,
                     EspScreenPoint{1.8, 0.2},
                     0.0,
                     0.0,
+                    1U,
+                    10.0,
                 },
             },
+            source_profile,
             2U,
             2U);
     passed &= expect(
         observations && observations->size() == 1U,
         "valid immutable pass evidence did not produce one observation");
     passed &= expect(
-        query_pixels &&
-            *query_pixels == std::vector<std::size_t>{1U},
-        "projected geometry did not produce a deduplicated query pixel set");
+        source_queries && source_queries->size() == 1U &&
+            source_queries->front().geometry_index == 1U &&
+            source_queries->front().raster_pixel == 1U &&
+            source_queries->front().screen ==
+                EspScreenPoint{1.8, 0.2} &&
+            source_queries->front().world_position ==
+                Vector3d{4.0, 5.0, 6.0} &&
+            source_queries->front().surface_key == 2U &&
+            source_queries->front().first_uv ==
+                PaintSamplingVertex{0.0, 0.0} &&
+            source_queries->front().second_uv ==
+                PaintSamplingVertex{1.0, 0.0} &&
+            source_queries->front().third_uv ==
+                PaintSamplingVertex{0.0, 1.0},
+        "projected geometry did not retain the nearest exact source query");
+    if (source_queries && !source_queries->empty())
+    {
+        const auto visible = resolve_paint_appearance_source_hit(
+            source_queries->front(),
+            PaintAppearanceSourceHit{
+                true,
+                0.25,
+                0.25,
+                Vector3d{5.0, 5.0, 6.0},
+            });
+        const auto wrong_world =
+            resolve_paint_appearance_source_hit(
+                source_queries->front(),
+                PaintAppearanceSourceHit{
+                    true,
+                    0.25,
+                    0.25,
+                    Vector3d{5.01, 5.0, 6.0},
+                });
+        const auto wrong_triangle =
+            resolve_paint_appearance_source_hit(
+                source_queries->front(),
+                PaintAppearanceSourceHit{
+                    true,
+                    0.75,
+                    0.75,
+                    Vector3d{4.0, 5.0, 6.0},
+                });
+        passed &= expect(
+            visible &&
+                *visible ==
+                    PaintAppearanceSourceSample{true, 2U} &&
+                wrong_world && !wrong_world->visible &&
+                wrong_world->surface_key == 0U &&
+                wrong_triangle && !wrong_triangle->visible &&
+                wrong_triangle->surface_key == 0U,
+            "source ownership did not require the same one-centimetre topology triangle hit");
+    }
+    auto bounded_geometry =
+        std::vector<PaintCaptureGeometrySample>{};
+    bounded_geometry.reserve(
+        MaximumPaintAppearanceSourceQueries + 1U);
+    for (auto index = std::size_t{};
+         index < MaximumPaintAppearanceSourceQueries + 1U;
+         ++index)
+    {
+        bounded_geometry.push_back(PaintCaptureGeometrySample{
+            Region::Front,
+            0,
+            0.5,
+            0.5,
+            Vector3d{static_cast<double>(index), 0.0, 0.0},
+            Vector3d{0.0, -1.0, 0.0},
+            true,
+            EspScreenPoint{
+                static_cast<double>(index % 2048U) + 0.25,
+                static_cast<double>(index / 2048U) + 0.25,
+            },
+            0.0,
+            0.0,
+            static_cast<std::uint32_t>(index),
+            static_cast<double>(index) + 1.0,
+        });
+    }
+    const auto bounded_triangles =
+        std::make_shared<const std::vector<PaintSamplingTriangle>>(
+            MaximumPaintAppearanceSourceQueries + 1U,
+            PaintSamplingTriangle{0U, 1U, 2U, 0U});
+    const auto bounded_profile = PaintSamplingProfile{
+        {},
+        source_vertices,
+        bounded_triangles,
+    };
+    const auto bounded_queries =
+        build_paint_appearance_source_queries(
+            bounded_geometry,
+            bounded_profile,
+            2048U,
+            5U);
+    passed &= expect(
+        bounded_queries &&
+            bounded_queries->size() ==
+                MaximumPaintAppearanceSourceQueries &&
+            bounded_queries->front().geometry_index == 0U &&
+            bounded_queries->back().geometry_index ==
+                MaximumPaintAppearanceSourceQueries - 1U,
+        "the deterministic game-thread source-query ceiling drifted");
     if (observations && observations->size() == 1U)
     {
         const auto& observation = observations->front();

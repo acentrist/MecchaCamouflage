@@ -44,6 +44,36 @@ auto encode_initialize_paint(void* mesh_component)
     return parameters;
 }
 
+auto encode_paint_hit_test(
+    void* mesh_component,
+    void* player_controller,
+    RuntimeVector2d screen_position)
+    -> std::expected<
+        HitTestAtScreenPositionParameters,
+        PaintCallEncodingError>
+{
+    if (mesh_component == nullptr ||
+        player_controller == nullptr)
+    {
+        return std::unexpected(
+            PaintCallEncodingError::InvalidRequest);
+    }
+    if (!std::isfinite(screen_position.x) ||
+        !std::isfinite(screen_position.y) ||
+        screen_position.x < 0.0 ||
+        screen_position.y < 0.0)
+    {
+        return std::unexpected(
+            PaintCallEncodingError::InvalidCoordinates);
+    }
+    auto parameters = HitTestAtScreenPositionParameters{};
+    parameters.mesh_component = mesh_component;
+    parameters.screen_position = screen_position;
+    parameters.player_controller = player_controller;
+    parameters.use_cached_triangles = true;
+    return parameters;
+}
+
 auto encode_paint_call(
     const application::PaintAtUvWithBrush& request)
     -> std::expected<

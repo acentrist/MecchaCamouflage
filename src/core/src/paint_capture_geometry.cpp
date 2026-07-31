@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstddef>
 #include <expected>
+#include <limits>
 #include <span>
 #include <stop_token>
 #include <vector>
@@ -16,6 +17,7 @@ namespace meccha::core
 namespace
 {
 constexpr auto GeometryEpsilon = 1.0e-12;
+constexpr auto Pi = 3.14159265358979323846;
 
 auto finite(Vector3d value) -> bool
 {
@@ -205,6 +207,14 @@ auto build_paint_capture_geometry(
 
     auto output = std::vector<PaintCaptureGeometrySample>{};
     output.reserve(sampled->size());
+    const auto pitch = view.pitch_degrees * Pi / 180.0;
+    const auto yaw = view.yaw_degrees * Pi / 180.0;
+    const auto cosine_pitch = std::cos(pitch);
+    const auto view_direction = Vector3d{
+        cosine_pitch * std::cos(yaw),
+        cosine_pitch * std::sin(yaw),
+        std::sin(pitch),
+    };
     for (auto index = std::size_t{};
          index < sampled->size();
          ++index)
@@ -217,7 +227,9 @@ auto build_paint_capture_geometry(
         }
         const auto& sample = (*sampled)[index];
         if (sample.image_anchor.triangle_index >=
-            sampling_profile.triangles->size())
+                sampling_profile.triangles->size() ||
+            sample.image_anchor.triangle_index >
+                std::numeric_limits<std::uint32_t>::max())
         {
             return std::unexpected(
                 PaintCaptureGeometryError::InvalidSample);
@@ -277,6 +289,13 @@ auto build_paint_capture_geometry(
             projected->x < viewport.width &&
             projected->y >= 0.0 &&
             projected->y < viewport.height;
+        const auto view_depth =
+            (position.x - view.location.x) *
+                view_direction.x +
+            (position.y - view.location.y) *
+                view_direction.y +
+            (position.z - view.location.z) *
+                view_direction.z;
         output.push_back(PaintCaptureGeometrySample{
             region(sample.image.face),
             sample.uv_island,
@@ -288,6 +307,9 @@ auto build_paint_capture_geometry(
             inside ? *projected : EspScreenPoint{},
             position.z,
             position.x,
+            static_cast<std::uint32_t>(
+                sample.image_anchor.triangle_index),
+            view_depth,
         });
     }
     if (output.empty())

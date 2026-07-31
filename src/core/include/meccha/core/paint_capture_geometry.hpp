@@ -23,6 +23,8 @@ struct PaintCaptureGeometrySample
     EspScreenPoint screen{};
     double fallback_view_vertical{};
     double fallback_view_horizontal{};
+    std::uint32_t triangle_index{};
+    double view_depth{};
 
     auto operator==(const PaintCaptureGeometrySample&) const
         -> bool = default;

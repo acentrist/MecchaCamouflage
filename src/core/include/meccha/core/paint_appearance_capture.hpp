@@ -50,12 +50,41 @@ struct PaintAppearanceCapturedPass
     std::shared_ptr<const std::vector<Pixel>> pixels{};
 };
 
-struct PaintAppearanceSourcePixel
+inline constexpr std::size_t MaximumPaintAppearanceSourceQueries =
+    8192U;
+
+struct PaintAppearanceSourceSample
 {
     bool visible{};
     std::uint64_t surface_key{};
 
-    auto operator==(const PaintAppearanceSourcePixel&) const
+    auto operator==(const PaintAppearanceSourceSample&) const
+        -> bool = default;
+};
+
+struct PaintAppearanceSourceQuery
+{
+    std::size_t geometry_index{};
+    std::size_t raster_pixel{};
+    EspScreenPoint screen{};
+    Vector3d world_position{};
+    std::uint64_t surface_key{};
+    PaintSamplingVertex first_uv{};
+    PaintSamplingVertex second_uv{};
+    PaintSamplingVertex third_uv{};
+
+    auto operator==(const PaintAppearanceSourceQuery&) const
+        -> bool = default;
+};
+
+struct PaintAppearanceSourceHit
+{
+    bool hit{};
+    double u{};
+    double v{};
+    Vector3d world_position{};
+
+    auto operator==(const PaintAppearanceSourceHit&) const
         -> bool = default;
 };
 
@@ -71,8 +100,8 @@ struct PaintAppearanceCaptureEvidence
     PaintAppearanceCapturedPass<double> scene_depth{};
     PaintAppearanceCapturedPass<Rgb8> final_ldr{};
     std::shared_ptr<
-        const std::vector<PaintAppearanceSourcePixel>>
-        source_pixels{};
+        const std::vector<PaintAppearanceSourceSample>>
+        source_samples{};
 };
 
 struct PaintAppearanceReadbackReference
@@ -123,13 +152,21 @@ enum class PaintAppearanceCaptureError : std::uint8_t
     Cancelled,
 };
 
-[[nodiscard]] auto build_paint_appearance_source_query_pixels(
+[[nodiscard]] auto build_paint_appearance_source_queries(
     std::span<const PaintCaptureGeometrySample> geometry,
+    const PaintSamplingProfile& sampling_profile,
     std::uint32_t width,
     std::uint32_t height,
     std::stop_token cancellation = {})
     -> std::expected<
-        std::vector<std::size_t>,
+        std::vector<PaintAppearanceSourceQuery>,
+        PaintAppearanceCaptureError>;
+
+[[nodiscard]] auto resolve_paint_appearance_source_hit(
+    const PaintAppearanceSourceQuery& query,
+    const PaintAppearanceSourceHit& hit)
+    -> std::expected<
+        PaintAppearanceSourceSample,
         PaintAppearanceCaptureError>;
 
 [[nodiscard]] auto build_paint_appearance_observations(
