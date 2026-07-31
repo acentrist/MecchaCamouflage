@@ -244,6 +244,30 @@ auto main(int argc, char** argv) -> int
                 std::vector{core::MeshProfileField::IndexBounds},
         "an out-of-bounds packaged triangle index was accepted");
 
+    auto invalid_uv =
+        read_file(root / "paintman.mesh-profile-v2.json");
+    const auto uv_position =
+        invalid_uv.find(R"("U":  0.5292969)");
+    if (uv_position != std::string::npos)
+    {
+        invalid_uv.replace(
+            uv_position,
+            std::string_view{R"("U":  0.5292969)"}.size(),
+            R"("U":  1.5)");
+    }
+    const auto rejected_uv =
+        application::decode_paint_sampling_profile(
+            invalid_uv,
+            core::BodyProfile::Round);
+    passed &= expect(
+        uv_position != std::string::npos &&
+            !rejected_uv &&
+            rejected_uv.error().code ==
+                application::MeshProfileCodecErrorCode::InvalidProfile &&
+            rejected_uv.error().fields ==
+                std::vector{core::MeshProfileField::Dimensions},
+        "an out-of-range packaged Paint UV was accepted");
+
     const auto oversized =
         application::decode_mesh_profile_identity(
             std::string(

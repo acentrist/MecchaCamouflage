@@ -13,6 +13,7 @@ add_library(
         src/paint.cpp
         src/paint_plan.cpp
         src/paint_preview.cpp
+        src/paint_sampling_profile.cpp
         src/png_encoder.cpp
         src/utf8.cpp
 )

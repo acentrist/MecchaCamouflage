@@ -1,6 +1,7 @@
 #include <meccha/application/mesh_profile_codec.hpp>
 #include <meccha/core/image_paint_plan.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <filesystem>
@@ -159,6 +160,20 @@ auto main(int argc, char** argv) -> int
             std::unexpected(
                 core::ImagePaintPlanError::InvalidProfile),
         "a raw/image topology mismatch was accepted");
+
+    auto malformed_identity = request(root, cases.front());
+    malformed_identity.sampling_profile.identity.index_count = 1U;
+    const auto malformed_fields = core::validate_pair(
+        malformed_identity.sampling_profile,
+        malformed_identity.image_profile);
+    passed &= expect(
+        std::ranges::contains(
+            malformed_fields,
+            core::PaintSamplingProfileField::Triangles) &&
+            std::ranges::contains(
+                malformed_fields,
+                core::PaintSamplingProfileField::PairTopology),
+        "malformed index arithmetic did not fail closed");
 
     auto invalid_uv = request(root, cases.front());
     auto vertices = std::vector<core::PaintSamplingVertex>{

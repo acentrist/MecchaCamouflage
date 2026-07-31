@@ -166,55 +166,7 @@ auto valid_sampling_profile(
     const PaintSamplingProfile& sampling,
     const CanonicalImageProfile& image) -> bool
 {
-    const auto& identity = sampling.identity;
-    const auto& image_identity = image.geometry.identity;
-    if (!validate(identity).empty() ||
-        identity.role != MeshProfileRole::Raw ||
-        !validate(image_identity).empty() ||
-        image_identity.role != MeshProfileRole::ImageReference ||
-        identity.body != image_identity.body ||
-        image_identity.base_profile_id != identity.profile_id ||
-        image_identity.base_profile_hash != identity.profile_hash ||
-        !sampling.vertices || !sampling.triangles ||
-        sampling.vertices->size() != identity.vertex_count ||
-        sampling.triangles->size() != identity.triangle_count ||
-        !image.geometry.indices ||
-        image.geometry.indices->size() != identity.index_count ||
-        identity.index_count != identity.triangle_count * 3U)
-    {
-        return false;
-    }
-
-    for (const auto& vertex : *sampling.vertices)
-    {
-        if (!unit(vertex.u) || !unit(vertex.v))
-        {
-            return false;
-        }
-    }
-    for (auto index = std::size_t{};
-         index < sampling.triangles->size();
-         ++index)
-    {
-        const auto& triangle = sampling.triangles->at(index);
-        if (triangle.first >= sampling.vertices->size() ||
-            triangle.second >= sampling.vertices->size() ||
-            triangle.third >= sampling.vertices->size() ||
-            triangle.uv_island >= identity.uv_island_count)
-        {
-            return false;
-        }
-        const auto base = index * 3U;
-        if (image.geometry.indices->at(base) != triangle.first ||
-            image.geometry.indices->at(base + 1U) !=
-                triangle.second ||
-            image.geometry.indices->at(base + 2U) !=
-                triangle.third)
-        {
-            return false;
-        }
-    }
-    return true;
+    return validate_pair(sampling, image).empty();
 }
 
 auto barycentric(

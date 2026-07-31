@@ -1,6 +1,6 @@
 #pragma once
 
-#include <meccha/core/mesh_profile.hpp>
+#include <meccha/core/image_profile_mapping.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -32,4 +32,22 @@ struct PaintSamplingProfile
     std::shared_ptr<const std::vector<PaintSamplingVertex>> vertices{};
     std::shared_ptr<const std::vector<PaintSamplingTriangle>> triangles{};
 };
+
+enum class PaintSamplingProfileField : std::uint8_t
+{
+    Identity,
+    Vertices,
+    Triangles,
+    Topology,
+    PairIdentity,
+    PairTopology,
+};
+
+[[nodiscard]] auto validate(const PaintSamplingProfile& profile)
+    -> std::vector<PaintSamplingProfileField>;
+
+[[nodiscard]] auto validate_pair(
+    const PaintSamplingProfile& sampling,
+    const CanonicalImageProfile& image)
+    -> std::vector<PaintSamplingProfileField>;
 } // namespace meccha::core
