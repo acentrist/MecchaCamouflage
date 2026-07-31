@@ -6,6 +6,10 @@ MecchaCamouflage v2 will completely replace the v1 runtime while preserving all 
 
 - Keep the existing repository, issues, releases, and project identity.
 - Preserve v1 at tag `v1.6.7` and branch `release/v1.x`.
+- While the rewrite is active, synchronize v2 to the latest stable v1 release
+  at maintainer-requested checkpoints. Each checkpoint replaces the previous
+  v1 behavior and resource target; superseded v1 releases remain preserved as
+  history, not as concurrent v2 compatibility targets.
 - Develop v2 on `rewrite/ue4ss-v2` through one public Draft PR.
 - Do not create duplicated `v1.x/` and `v2.x/` source directories.
 - Keep `main` on v1 until the complete v2 acceptance matrix passes.

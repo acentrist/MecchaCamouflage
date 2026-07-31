@@ -1,7 +1,8 @@
 {
   "schema_version": 1,
-  "source_commit": "caac4da8a4d49ca6360b38513bff38ebd6921b02",
-  "source_tag": "v1.6.7",
+  "tracking_policy": "latest-stable-v1-on-maintainer-request",
+  "source_commit": "d56de6741613be86f9254cffc1ae7a362f1764a1",
+  "source_tag": "v1.7.1",
   "profile_source_commit": "a11ce0577eaeb6e924f310a80231791f261faae9",
   "profile_source_release": "v1.7.1",
   "fixtures": [

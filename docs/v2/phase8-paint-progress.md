@@ -37,7 +37,12 @@ evidence. Raw HDR conversion preserves finite negative and greater-than-one
 channels, while depth conversion preserves the finite raw red channel rather
 than applying display normalization.
 
-## v1.7.1 compatibility refresh
+## Latest-v1 tracking checkpoint: v1.7.1
+
+Until v2 is stable, maintainer-requested checkpoints advance this rewrite to
+the latest stable v1 release. A new checkpoint supersedes the previous v1
+behavior and resource target; historical v1 releases are not simultaneous v2
+compatibility targets. The current checkpoint is v1.7.1.
 
 The packaged Round raw and image-reference profiles now use the game 3.3.0
 identity shipped on the v1.7.1 line: 1,668 vertices, 8,352 indices, and profile

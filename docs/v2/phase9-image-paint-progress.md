@@ -23,8 +23,8 @@ sampling profiles containing only exact identity, ordered UV vertices, ordered
 triangle indices, and UV-island identity. Decoder validation proves that every
 triangle agrees with the serialized LOD index buffer. Image Paint runtime
 capture and the application worker no longer accept runtime-produced triangle
-samples. The Round pair is the game 3.3.0/v1.7.1 identity with 1,668 vertices,
-8,352 indices, and profile hash
+samples. At the current latest-v1 tracking checkpoint, v1.7.1, the Round pair
+uses the game 3.3.0 identity with 1,668 vertices, 8,352 indices, and profile hash
 `cd469e35ad0cbd1e483bd82b2406849429d24037807bd7a294534fb79633f55b`.
 
 The owned planning worker expands each validated raw/image profile pair on a
