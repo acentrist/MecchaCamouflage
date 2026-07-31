@@ -29,6 +29,21 @@ auto srgb_to_linear(std::uint8_t encoded) -> float
 }
 } // namespace
 
+auto encode_initialize_paint(void* mesh_component)
+    -> std::expected<
+        InitializePaintParameters,
+        PaintCallEncodingError>
+{
+    if (mesh_component == nullptr)
+    {
+        return std::unexpected(
+            PaintCallEncodingError::InvalidRequest);
+    }
+    auto parameters = InitializePaintParameters{};
+    parameters.mesh_component = mesh_component;
+    return parameters;
+}
+
 auto encode_paint_call(
     const application::PaintAtUvWithBrush& request)
     -> std::expected<

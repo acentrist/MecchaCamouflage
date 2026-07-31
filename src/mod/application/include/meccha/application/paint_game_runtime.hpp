@@ -1,8 +1,8 @@
 #pragma once
 
 #include <meccha/application/paint_dispatch.hpp>
+#include <meccha/application/paint_planning_request.hpp>
 #include <meccha/application/runtime_operation_executor.hpp>
-#include <meccha/core/paint_plan.hpp>
 
 #include <expected>
 
@@ -11,7 +11,7 @@ namespace meccha::application
 struct CapturedPaintJob
 {
     RuntimeObjectHandle component{};
-    core::PaintPlanRequest plan{};
+    PaintPlanningRequest planning{};
     core::ReplicationPacingPlan pacing{};
 };
 

@@ -24,6 +24,7 @@ enum class RuntimeContractId : std::uint8_t
     Canvas,
     EspFrame,
     PaintAtUvWithBrush,
+    PaintCapture,
     PaintQueueObservation,
     ImagePaintTexture,
     TextureMutation,

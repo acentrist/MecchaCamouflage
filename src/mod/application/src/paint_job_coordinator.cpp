@@ -30,7 +30,7 @@ PaintJobCoordinator::PaintJobCoordinator(
 auto PaintJobCoordinator::start(
     CommandId command_id,
     RuntimeObjectHandle component,
-    core::PaintPlanRequest request,
+    PaintPlanningRequest request,
     core::ReplicationPacingPlan pacing,
     std::uint64_t start_ms)
     -> std::expected<JobGeneration, PaintJobCoordinatorError>

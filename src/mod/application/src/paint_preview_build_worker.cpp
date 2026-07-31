@@ -21,6 +21,7 @@ auto composer_failure(core::PaintPreviewComposeError error)
         PaintPreviewBuildFailureKind::Composer,
         std::nullopt,
         error,
+        std::nullopt,
     });
 }
 } // namespace
@@ -162,7 +163,52 @@ auto PaintPreviewBuildWorker::run(
         std::optional<PaintPreviewBuildCompletion>{};
     try
     {
-        auto planned = builder_.build(request.plan, cancellation);
+        auto plan_request =
+            std::optional<core::PaintPlanRequest>{};
+        if (auto* captured =
+                std::get_if<core::PaintCaptureInput>(
+                    &request.planning.value))
+        {
+            auto built = core::build_paint_capture_request(
+                *captured,
+                cancellation);
+            if (!built)
+            {
+                completion = PaintPreviewBuildCompletion{
+                    generation,
+                    std::unexpected(PaintPreviewBuildFailure{
+                        PaintPreviewBuildFailureKind::Capture,
+                        std::nullopt,
+                        std::nullopt,
+                        built.error(),
+                    }),
+                };
+            }
+            else
+            {
+                plan_request.emplace(std::move(*built));
+            }
+        }
+        else
+        {
+            plan_request.emplace(std::move(
+                std::get<core::PaintPlanRequest>(
+                    request.planning.value)));
+        }
+        if (completion)
+        {
+            const auto lock = std::scoped_lock{mutex_};
+            if (state_ == State::Running &&
+                active_generation_ == generation)
+            {
+                completion_ = std::move(completion);
+                state_ = State::Completed;
+            }
+            return;
+        }
+
+        auto planned =
+            builder_.build(*plan_request, cancellation);
         if (!planned)
         {
             completion = PaintPreviewBuildCompletion{
@@ -170,6 +216,7 @@ auto PaintPreviewBuildWorker::run(
                 std::unexpected(PaintPreviewBuildFailure{
                     PaintPreviewBuildFailureKind::Planner,
                     planned.error(),
+                    std::nullopt,
                     std::nullopt,
                 }),
             };
@@ -224,6 +271,7 @@ auto PaintPreviewBuildWorker::run(
             generation,
             std::unexpected(PaintPreviewBuildFailure{
                 PaintPreviewBuildFailureKind::WorkerException,
+                std::nullopt,
                 std::nullopt,
                 std::nullopt,
             }),

@@ -29,7 +29,7 @@ PaintPlanningWorker::~PaintPlanningWorker()
 
 auto PaintPlanningWorker::start(
     JobGeneration generation,
-    core::PaintPlanRequest request)
+    PaintPlanningRequest request)
     -> std::expected<void, PaintPlanningStartError>
 {
     const auto lock = std::scoped_lock{mutex_};
@@ -145,14 +145,58 @@ auto PaintPlanningWorker::shutdown() noexcept -> void
 
 auto PaintPlanningWorker::run(
     JobGeneration generation,
-    core::PaintPlanRequest request,
+    PaintPlanningRequest request,
     std::stop_token cancellation) noexcept -> void
 {
     auto completion =
         std::optional<PaintPlanningCompletion>{};
     try
     {
-        auto planned = builder_.build(request, cancellation);
+        auto plan_request =
+            std::optional<core::PaintPlanRequest>{};
+        if (auto* captured =
+                std::get_if<core::PaintCaptureInput>(
+                    &request.value))
+        {
+            auto built = core::build_paint_capture_request(
+                *captured,
+                cancellation);
+            if (!built)
+            {
+                completion = PaintPlanningCompletion{
+                    generation,
+                    std::unexpected(PaintPlanningFailure{
+                        PaintPlanningFailureKind::Capture,
+                        std::nullopt,
+                        built.error(),
+                    }),
+                };
+            }
+            else
+            {
+                plan_request.emplace(std::move(*built));
+            }
+        }
+        else
+        {
+            plan_request.emplace(std::move(
+                std::get<core::PaintPlanRequest>(
+                    request.value)));
+        }
+        if (completion)
+        {
+            const auto lock = std::scoped_lock{mutex_};
+            if (state_ == State::Running &&
+                active_generation_ == generation)
+            {
+                completion_ = std::move(completion);
+                state_ = State::Completed;
+            }
+            return;
+        }
+
+        auto planned =
+            builder_.build(*plan_request, cancellation);
         if (planned)
         {
             completion = PaintPlanningCompletion{
@@ -168,6 +212,7 @@ auto PaintPlanningWorker::run(
                 std::unexpected(PaintPlanningFailure{
                     PaintPlanningFailureKind::Planner,
                     planned.error(),
+                    std::nullopt,
                 }),
             };
         }
@@ -178,6 +223,7 @@ auto PaintPlanningWorker::run(
             generation,
             std::unexpected(PaintPlanningFailure{
                 PaintPlanningFailureKind::WorkerException,
+                std::nullopt,
                 std::nullopt,
             }),
         };

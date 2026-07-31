@@ -142,6 +142,50 @@ auto main(int argc, char** argv) -> int
                         "foot_R_end" &&
                     sampling->bones->back().parent ==
                         std::optional<std::size_t>{26U} &&
+                    sampling->deformation_vertices &&
+                    sampling->deformation_vertices->size() ==
+                        sampling->identity.vertex_count &&
+                    sampling->deformation_triangles &&
+                    sampling->deformation_triangles->size() ==
+                        sampling->identity.triangle_count &&
+                    sampling->reference_bone_transforms &&
+                    sampling->reference_bone_transforms->size() ==
+                        sampling->identity.bone_count &&
+                    (test.body != core::BodyProfile::Round ||
+                     (std::abs(
+                          sampling->deformation_vertices->front()
+                                  .position.x -
+                              -14.917195) <
+                          0.000001 &&
+                      sampling->deformation_vertices->front()
+                              .influence_count ==
+                          3U &&
+                      sampling->deformation_vertices->front()
+                              .influences[0U]
+                              .bone ==
+                          13U &&
+                      sampling->deformation_vertices->front()
+                              .influences[0U]
+                              .raw_weight ==
+                          152U &&
+                      std::abs(
+                          sampling->deformation_vertices->front()
+                                  .influences[0U]
+                                  .weight -
+                              0.59607846) <
+                          0.000001 &&
+                      sampling->deformation_triangles->front()
+                              .dominant_bone ==
+                          14U &&
+                      sampling->deformation_triangles->front()
+                              .body_region ==
+                          "arm" &&
+                      std::abs(
+                          (*sampling->reference_bone_transforms)[13U]
+                                  .translation.y -
+                              -18.170628) <
+                          0.000001)) &&
+                    core::validate_deformation(*sampling).empty() &&
                     std::ranges::all_of(
                         *sampling->vertices,
                         [](const auto& vertex)

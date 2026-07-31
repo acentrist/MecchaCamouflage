@@ -368,6 +368,156 @@ auto import_buffer_as_texture2d_contract()
     };
 }
 
+auto create_render_target_2d_contract()
+    -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "CreateRenderTarget2D",
+        "/Script/Engine.KismetRenderingLibrary",
+        0x38U,
+        {
+            ReflectionPropertyDescriptor{
+                "WorldContextObject",
+                ReflectionPropertyKind::Object,
+                "Object",
+                0x00U,
+                0x08U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "Width",
+                ReflectionPropertyKind::Int32,
+                {},
+                0x08U,
+                0x04U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "Height",
+                ReflectionPropertyKind::Int32,
+                {},
+                0x0CU,
+                0x04U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "Slices",
+                ReflectionPropertyKind::Int32,
+                {},
+                0x10U,
+                0x04U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "Format",
+                ReflectionPropertyKind::Enum,
+                "ETextureRenderTargetFormat",
+                0x14U,
+                0x01U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "ClearColor",
+                ReflectionPropertyKind::Struct,
+                "LinearColor",
+                0x18U,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "bAutoGenerateMipMaps",
+                ReflectionPropertyKind::Bool,
+                {},
+                0x28U,
+                0x01U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "bSupportUAVs",
+                ReflectionPropertyKind::Bool,
+                {},
+                0x29U,
+                0x01U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "ReturnValue",
+                ReflectionPropertyKind::Object,
+                "TextureRenderTarget2D",
+                0x30U,
+                0x08U,
+                1U,
+                ReflectionPropertyDirection::ReturnValue,
+            },
+        },
+    };
+}
+
+auto read_render_target_raw_contract()
+    -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "ReadRenderTargetRaw",
+        "/Script/Engine.KismetRenderingLibrary",
+        0x28U,
+        {
+            ReflectionPropertyDescriptor{
+                "WorldContextObject",
+                ReflectionPropertyKind::Object,
+                "Object",
+                0x00U,
+                0x08U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "TextureRenderTarget",
+                ReflectionPropertyKind::Object,
+                "TextureRenderTarget2D",
+                0x08U,
+                0x08U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "OutLinearSamples",
+                ReflectionPropertyKind::Array,
+                "LinearColor",
+                0x10U,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::Output,
+            },
+            ReflectionPropertyDescriptor{
+                "bNormalize",
+                ReflectionPropertyKind::Bool,
+                {},
+                0x20U,
+                0x01U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "ReturnValue",
+                ReflectionPropertyKind::Bool,
+                {},
+                0x21U,
+                0x01U,
+                1U,
+                ReflectionPropertyDirection::ReturnValue,
+            },
+        },
+    };
+}
+
 auto vector_contract() -> ReflectionRecordDescriptor
 {
     return ReflectionRecordDescriptor{
@@ -558,6 +708,45 @@ auto get_socket_location_contract()
                 "Vector",
                 0x10U,
                 0x18U,
+                1U,
+                ReflectionPropertyDirection::ReturnValue,
+            },
+        },
+    };
+}
+
+auto get_socket_transform_contract()
+    -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "GetSocketTransform",
+        "/Script/Engine.SceneComponent",
+        0x70U,
+        {
+            ReflectionPropertyDescriptor{
+                "InSocketName",
+                ReflectionPropertyKind::Name,
+                {},
+                0x00U,
+                0x08U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "TransformSpace",
+                ReflectionPropertyKind::Enum,
+                "ERelativeTransformSpace",
+                0x08U,
+                0x01U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "ReturnValue",
+                ReflectionPropertyKind::Struct,
+                "Transform",
+                0x10U,
+                0x60U,
                 1U,
                 ReflectionPropertyDirection::ReturnValue,
             },
@@ -878,6 +1067,78 @@ auto paint_at_uv_with_brush_contract()
                 0x01U,
                 1U,
                 ReflectionPropertyDirection::Input,
+            },
+        },
+    };
+}
+
+auto initialize_paint_contract()
+    -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "InitializePaint",
+        "/Script/PenguinHotel.RuntimePaintableComponent",
+        0x10U,
+        {
+            ReflectionPropertyDescriptor{
+                "MeshComponent",
+                ReflectionPropertyKind::Object,
+                "MeshComponent",
+                0x00U,
+                0x08U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "ReturnValue",
+                ReflectionPropertyKind::Bool,
+                {},
+                0x08U,
+                0x01U,
+                1U,
+                ReflectionPropertyDirection::ReturnValue,
+            },
+        },
+    };
+}
+
+auto is_paint_initialized_contract()
+    -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "IsInitialized",
+        "/Script/PenguinHotel.RuntimePaintableComponent",
+        0x01U,
+        {
+            ReflectionPropertyDescriptor{
+                "ReturnValue",
+                ReflectionPropertyKind::Bool,
+                {},
+                0x00U,
+                0x01U,
+                1U,
+                ReflectionPropertyDirection::ReturnValue,
+            },
+        },
+    };
+}
+
+auto get_initialized_paint_mesh_contract()
+    -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "GetInitializedPaintMesh",
+        "/Script/PenguinHotel.RuntimePaintableComponent",
+        0x08U,
+        {
+            ReflectionPropertyDescriptor{
+                "ReturnValue",
+                ReflectionPropertyKind::Object,
+                "MeshComponent",
+                0x00U,
+                0x08U,
+                1U,
+                ReflectionPropertyDirection::ReturnValue,
             },
         },
     };

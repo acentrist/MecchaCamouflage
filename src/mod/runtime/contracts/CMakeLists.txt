@@ -5,6 +5,7 @@ add_library(
         src/esp_capture_codec.cpp
         src/reflection_contract.cpp
         src/paint_call_codec.cpp
+        src/paint_capture_codec.cpp
         src/paint_preview_codec.cpp
         src/paint_queue_codec.cpp
         src/texture_import_codec.cpp

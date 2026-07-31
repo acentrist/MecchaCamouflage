@@ -88,7 +88,29 @@ struct PaintAtUvWithBrushParameters
     std::uint8_t padding_61[0x07]{};
 };
 
+struct InitializePaintParameters
+{
+    void* mesh_component{};
+    bool return_value{};
+    std::uint8_t padding_09[0x07]{};
+};
+
+struct IsPaintInitializedParameters
+{
+    bool return_value{};
+};
+
+struct GetInitializedPaintMeshParameters
+{
+    void* return_value{};
+};
+
 static_assert(sizeof(void*) == 0x08U);
+static_assert(sizeof(InitializePaintParameters) == 0x10U);
+static_assert(
+    offsetof(InitializePaintParameters, return_value) == 0x08U);
+static_assert(sizeof(IsPaintInitializedParameters) == 0x01U);
+static_assert(sizeof(GetInitializedPaintMeshParameters) == 0x08U);
 static_assert(sizeof(RuntimeVector2d) == 0x10U);
 static_assert(sizeof(RuntimeLinearColor) == 0x10U);
 static_assert(sizeof(RuntimeBrushSettings) == 0x28U);
@@ -121,6 +143,12 @@ enum class PaintCallEncodingError : std::uint8_t
     InvalidBrush,
     InvalidMaterial,
 };
+
+[[nodiscard]] auto encode_initialize_paint(
+    void* mesh_component)
+    -> std::expected<
+        InitializePaintParameters,
+        PaintCallEncodingError>;
 
 [[nodiscard]] auto encode_paint_call(
     const application::PaintAtUvWithBrush& request)

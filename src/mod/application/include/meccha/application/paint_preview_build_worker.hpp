@@ -16,12 +16,13 @@ namespace meccha::application
 {
 struct PaintPreviewBuildRequest
 {
-    core::PaintPlanRequest plan{};
+    PaintPlanningRequest planning{};
     PaintTextureImage original{};
 };
 
 enum class PaintPreviewBuildFailureKind : std::uint8_t
 {
+    Capture,
     Planner,
     Composer,
     WorkerException,
@@ -33,6 +34,7 @@ struct PaintPreviewBuildFailure
         PaintPreviewBuildFailureKind::Planner};
     std::optional<core::PaintPlanError> planner_error{};
     std::optional<core::PaintPreviewComposeError> compose_error{};
+    std::optional<core::PaintCaptureRequestError> capture_error{};
 
     auto operator==(const PaintPreviewBuildFailure&) const -> bool =
         default;

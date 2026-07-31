@@ -777,6 +777,55 @@ target_link_libraries(
 add_test(NAME paint_planner COMMAND meccha_paint_planner_tests)
 
 add_executable(
+    meccha_paint_deformation_tests
+    paint_deformation_test.cpp
+)
+target_link_libraries(
+    meccha_paint_deformation_tests
+    PRIVATE
+        MecchaCamouflage::Core
+        meccha_build_options
+)
+add_test(
+    NAME paint_deformation
+    COMMAND meccha_paint_deformation_tests
+)
+
+add_executable(
+    meccha_paint_capture_geometry_tests
+    paint_capture_geometry_test.cpp
+)
+target_link_libraries(
+    meccha_paint_capture_geometry_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(
+    NAME paint_capture_geometry
+    COMMAND
+        meccha_paint_capture_geometry_tests
+        "${PROJECT_SOURCE_DIR}/resources/mesh-profiles"
+)
+
+add_executable(
+    meccha_paint_capture_request_tests
+    paint_capture_request_test.cpp
+)
+target_link_libraries(
+    meccha_paint_capture_request_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(
+    NAME paint_capture_request
+    COMMAND
+        meccha_paint_capture_request_tests
+        "${PROJECT_SOURCE_DIR}/resources/mesh-profiles"
+)
+
+add_executable(
     meccha_paint_preview_composer_tests
     paint_preview_composer_test.cpp
 )

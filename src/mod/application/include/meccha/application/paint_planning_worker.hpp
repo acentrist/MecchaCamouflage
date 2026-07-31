@@ -1,6 +1,7 @@
 #pragma once
 
 #include <meccha/application/job_state.hpp>
+#include <meccha/application/paint_planning_request.hpp>
 #include <meccha/core/paint_plan.hpp>
 
 #include <cstdint>
@@ -40,6 +41,7 @@ public:
 
 enum class PaintPlanningFailureKind : std::uint8_t
 {
+    Capture,
     Planner,
     WorkerException,
 };
@@ -48,6 +50,7 @@ struct PaintPlanningFailure
 {
     PaintPlanningFailureKind kind{PaintPlanningFailureKind::Planner};
     std::optional<core::PaintPlanError> planner_error{};
+    std::optional<core::PaintCaptureRequestError> capture_error{};
 
     auto operator==(const PaintPlanningFailure&) const -> bool = default;
 };
@@ -88,7 +91,7 @@ public:
 
     [[nodiscard]] auto start(
         JobGeneration generation,
-        core::PaintPlanRequest request)
+        PaintPlanningRequest request)
         -> std::expected<void, PaintPlanningStartError>;
 
     [[nodiscard]] auto request_cancel(JobGeneration generation)
@@ -109,7 +112,7 @@ private:
 
     auto run(
         JobGeneration generation,
-        core::PaintPlanRequest request,
+        PaintPlanningRequest request,
         std::stop_token cancellation) noexcept -> void;
 
     PaintPlanBuilder& builder_;

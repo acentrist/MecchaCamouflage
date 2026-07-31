@@ -926,7 +926,7 @@ auto ApplicationRoot::begin_paint(
         return;
     }
     if (!captured->component.valid() ||
-        captured->plan.settings != request.settings)
+        paint_settings(captured->planning) != request.settings)
     {
         record_command_error(request.id);
         return;
@@ -935,7 +935,7 @@ auto ApplicationRoot::begin_paint(
     const auto started = paint_jobs_.start(
         request.id,
         component,
-        std::move(captured->plan),
+        std::move(captured->planning),
         captured->pacing,
         now_ms);
     if (!started)
@@ -1066,7 +1066,7 @@ auto ApplicationRoot::begin_paint_preview(
         return;
     }
     if (!captured->component.valid() ||
-        captured->plan.settings != request.settings)
+        paint_settings(captured->planning) != request.settings)
     {
         record_command_error(request.id);
         return;
@@ -1106,7 +1106,7 @@ auto ApplicationRoot::begin_paint_preview(
     const auto started = paint_preview_builder_.start(
         generation,
         PaintPreviewBuildRequest{
-            std::move(captured->plan),
+            std::move(captured->planning),
             std::move(*original),
         });
     if (!started)

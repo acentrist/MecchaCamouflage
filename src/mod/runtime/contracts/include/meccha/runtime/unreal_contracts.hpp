@@ -16,6 +16,12 @@ namespace meccha::runtime
 [[nodiscard]] auto import_buffer_as_texture2d_contract()
     -> ReflectionRecordDescriptor;
 
+[[nodiscard]] auto create_render_target_2d_contract()
+    -> ReflectionRecordDescriptor;
+
+[[nodiscard]] auto read_render_target_raw_contract()
+    -> ReflectionRecordDescriptor;
+
 [[nodiscard]] auto vector_contract()
     -> ReflectionRecordDescriptor;
 
@@ -49,6 +55,9 @@ namespace meccha::runtime
 [[nodiscard]] auto get_socket_location_contract()
     -> ReflectionRecordDescriptor;
 
+[[nodiscard]] auto get_socket_transform_contract()
+    -> ReflectionRecordDescriptor;
+
 [[nodiscard]] auto is_look_input_ignored_contract()
     -> ReflectionRecordDescriptor;
 
@@ -71,6 +80,15 @@ namespace meccha::runtime
     -> ReflectionRecordDescriptor;
 
 [[nodiscard]] auto runtime_brush_settings_contract()
+    -> ReflectionRecordDescriptor;
+
+[[nodiscard]] auto initialize_paint_contract()
+    -> ReflectionRecordDescriptor;
+
+[[nodiscard]] auto is_paint_initialized_contract()
+    -> ReflectionRecordDescriptor;
+
+[[nodiscard]] auto get_initialized_paint_mesh_contract()
     -> ReflectionRecordDescriptor;
 
 [[nodiscard]] auto paint_at_uv_with_brush_contract()

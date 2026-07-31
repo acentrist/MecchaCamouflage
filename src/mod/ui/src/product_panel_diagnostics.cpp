@@ -86,6 +86,8 @@ auto contract_name(
         return "EspFrame";
     case application::RuntimeContractId::PaintAtUvWithBrush:
         return "PaintAtUvWithBrush";
+    case application::RuntimeContractId::PaintCapture:
+        return "PaintCapture";
     case application::RuntimeContractId::PaintQueueObservation:
         return "PaintQueueObservation";
     case application::RuntimeContractId::ImagePaintTexture:

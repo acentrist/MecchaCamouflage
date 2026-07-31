@@ -2,6 +2,8 @@
 
 #include "strict_json.hpp"
 
+#include <meccha/core/utf8.hpp>
+
 #include <glaze/glaze.hpp>
 #include <glaze/json/generic.hpp>
 
@@ -462,11 +464,23 @@ auto decode_mesh_profile(
         std::vector<core::PaintSamplingVertex>{};
     auto decoded_sampling_triangles =
         std::vector<core::PaintSamplingTriangle>{};
+    auto decoded_deformation_vertices =
+        std::vector<core::PaintDeformationVertex>{};
+    auto decoded_deformation_triangles =
+        std::vector<core::PaintDeformationTriangle>{};
+    auto decoded_reference_bone_transforms =
+        std::vector<core::PaintReferenceBoneTransform>{};
     if (sampling_output != nullptr)
     {
         decoded_sampling_vertices.reserve(vertices->get().size());
         decoded_sampling_triangles.reserve(
             triangles->get().size());
+        decoded_deformation_vertices.reserve(
+            vertices->get().size());
+        decoded_deformation_triangles.reserve(
+            triangles->get().size());
+        decoded_reference_bone_transforms.reserve(
+            bones->get().size());
     }
     const auto validate_nested_indices =
         [&]() -> std::expected<void, MeshProfileCodecError>
@@ -487,7 +501,20 @@ auto decode_mesh_profile(
                 const auto name = reader.string(*bone, "Name");
                 const auto parent =
                     reader.integer(*bone, "ParentIndex");
-                if (!index || !name || !parent)
+                const auto x = reader.number(*bone, "X");
+                const auto y = reader.number(*bone, "Y");
+                const auto z = reader.number(*bone, "Z");
+                const auto rotation_x =
+                    reader.number(*bone, "RotationX");
+                const auto rotation_y =
+                    reader.number(*bone, "RotationY");
+                const auto rotation_z =
+                    reader.number(*bone, "RotationZ");
+                const auto rotation_w =
+                    reader.number(*bone, "RotationW");
+                if (!index || !name || !parent || !x || !y ||
+                    !z || !rotation_x || !rotation_y ||
+                    !rotation_z || !rotation_w)
                 {
                     if (!index)
                     {
@@ -497,8 +524,24 @@ auto decode_mesh_profile(
                     {
                         return std::unexpected(name.error());
                     }
-                    return std::unexpected(parent.error());
+                    if (!parent)
+                        return std::unexpected(parent.error());
+                    if (!x) return std::unexpected(x.error());
+                    if (!y) return std::unexpected(y.error());
+                    if (!z) return std::unexpected(z.error());
+                    if (!rotation_x)
+                        return std::unexpected(rotation_x.error());
+                    if (!rotation_y)
+                        return std::unexpected(rotation_y.error());
+                    if (!rotation_z)
+                        return std::unexpected(rotation_z.error());
+                    return std::unexpected(rotation_w.error());
                 }
+                const auto rotation_length_squared =
+                    *rotation_x * *rotation_x +
+                    *rotation_y * *rotation_y +
+                    *rotation_z * *rotation_z +
+                    *rotation_w * *rotation_w;
                 const auto duplicate_name =
                     std::ranges::any_of(
                         decoded_sampling_bones,
@@ -509,6 +552,10 @@ auto decode_mesh_profile(
                 if (*index != position ||
                     name->empty() || name->size() > 128U ||
                     duplicate_name ||
+                    !std::isfinite(rotation_length_squared) ||
+                    rotation_length_squared <= 1.0e-12 ||
+                    std::abs(rotation_length_squared - 1.0) >
+                        1.0e-3 ||
                     (position == 0U && *parent != -1) ||
                     (position != 0U &&
                      (*parent < 0 ||
@@ -530,6 +577,19 @@ auto decode_mesh_profile(
                         std::move(*name),
                         decoded_parent,
                     });
+                if (sampling_output != nullptr)
+                {
+                    decoded_reference_bone_transforms.push_back(
+                        core::PaintReferenceBoneTransform{
+                            core::Vector3d{*x, *y, *z},
+                            core::PaintQuaternion{
+                                *rotation_x,
+                                *rotation_y,
+                                *rotation_z,
+                                *rotation_w,
+                            },
+                        });
+                }
             }
 
             for (auto position = std::size_t{};
@@ -552,8 +612,18 @@ auto decode_mesh_profile(
                     reader.size(*triangle, "UvIsland");
                 const auto dominant_bone =
                     reader.size(*triangle, "DominantBone");
+                const auto body_region =
+                    reader.string(*triangle, "BodyRegion");
+                const auto normal_x =
+                    reader.number(*triangle, "LocalNormalX");
+                const auto normal_y =
+                    reader.number(*triangle, "LocalNormalY");
+                const auto normal_z =
+                    reader.number(*triangle, "LocalNormalZ");
                 if (!index || !first || !second || !third ||
-                    !island || !dominant_bone)
+                    !island || !dominant_bone ||
+                    !body_region || !normal_x || !normal_y ||
+                    !normal_z)
                 {
                     if (!index)
                         return std::unexpected(index.error());
@@ -565,15 +635,32 @@ auto decode_mesh_profile(
                         return std::unexpected(third.error());
                     if (!island)
                         return std::unexpected(island.error());
-                    return std::unexpected(
-                        dominant_bone.error());
+                    if (!dominant_bone)
+                        return std::unexpected(
+                            dominant_bone.error());
+                    if (!body_region)
+                        return std::unexpected(body_region.error());
+                    if (!normal_x)
+                        return std::unexpected(normal_x.error());
+                    if (!normal_y)
+                        return std::unexpected(normal_y.error());
+                    return std::unexpected(normal_z.error());
                 }
+                const auto normal_length_squared =
+                    *normal_x * *normal_x +
+                    *normal_y * *normal_y +
+                    *normal_z * *normal_z;
                 if (*index != position ||
                     *first >= *vertex_count ||
                     *second >= *vertex_count ||
                     *third >= *vertex_count ||
                     *island >= *uv_island_count ||
-                    *dominant_bone >= bone_count)
+                    *dominant_bone >= bone_count ||
+                    body_region->empty() ||
+                    body_region->size() > 128U ||
+                    !core::valid_utf8(*body_region) ||
+                    !std::isfinite(normal_length_squared) ||
+                    normal_length_squared <= 1.0e-12)
                 {
                     return invalid_profile(
                         core::MeshProfileField::IndexBounds,
@@ -598,6 +685,17 @@ auto decode_mesh_profile(
                             static_cast<std::uint32_t>(*second),
                             static_cast<std::uint32_t>(*third),
                             static_cast<std::uint32_t>(*island),
+                        });
+                    decoded_deformation_triangles.push_back(
+                        core::PaintDeformationTriangle{
+                            static_cast<std::uint32_t>(
+                                *dominant_bone),
+                            std::move(*body_region),
+                            core::Vector3d{
+                                *normal_x,
+                                *normal_y,
+                                *normal_z,
+                            },
                         });
                 }
             }
@@ -624,19 +722,61 @@ auto decode_mesh_profile(
                         core::MeshProfileField::IndexBounds,
                         "Mesh profile vertex has no bone influence.");
                 }
+                if (influences->get().size() >
+                    core::MaximumPaintBoneInfluences)
+                {
+                    return invalid_profile(
+                        core::MeshProfileField::IndexBounds,
+                        "Mesh profile vertex has too many bone "
+                        "influences.");
+                }
+                auto deformation_vertex =
+                    core::PaintDeformationVertex{};
                 if (sampling_output != nullptr)
                 {
                     const auto u =
                         reader.number(*vertex_object, "U");
                     const auto v =
                         reader.number(*vertex_object, "V");
-                    if (!u || !v)
+                    const auto x =
+                        reader.number(*vertex_object, "X");
+                    const auto y =
+                        reader.number(*vertex_object, "Y");
+                    const auto z =
+                        reader.number(*vertex_object, "Z");
+                    const auto normal_x =
+                        reader.number(*vertex_object, "NormalX");
+                    const auto normal_y =
+                        reader.number(*vertex_object, "NormalY");
+                    const auto normal_z =
+                        reader.number(*vertex_object, "NormalZ");
+                    if (!u || !v || !x || !y || !z ||
+                        !normal_x || !normal_y || !normal_z)
                     {
-                        return std::unexpected(
-                            !u ? u.error() : v.error());
+                        if (!u)
+                            return std::unexpected(u.error());
+                        if (!v)
+                            return std::unexpected(v.error());
+                        if (!x)
+                            return std::unexpected(x.error());
+                        if (!y)
+                            return std::unexpected(y.error());
+                        if (!z)
+                            return std::unexpected(z.error());
+                        if (!normal_x)
+                            return std::unexpected(normal_x.error());
+                        if (!normal_y)
+                            return std::unexpected(normal_y.error());
+                        return std::unexpected(normal_z.error());
                     }
+                    const auto normal_length_squared =
+                        *normal_x * *normal_x +
+                        *normal_y * *normal_y +
+                        *normal_z * *normal_z;
                     if (*u < 0.0 || *u > 1.0 ||
-                        *v < 0.0 || *v > 1.0)
+                        *v < 0.0 || *v > 1.0 ||
+                        !std::isfinite(normal_length_squared) ||
+                        normal_length_squared <= 1.0e-12)
                     {
                         return invalid_profile(
                             core::MeshProfileField::Dimensions,
@@ -645,7 +785,20 @@ auto decode_mesh_profile(
                     }
                     decoded_sampling_vertices.push_back(
                         core::PaintSamplingVertex{*u, *v});
+                    deformation_vertex.position =
+                        core::Vector3d{*x, *y, *z};
+                    deformation_vertex.normal =
+                        core::Vector3d{
+                            *normal_x,
+                            *normal_y,
+                            *normal_z,
+                        };
+                    deformation_vertex.influence_count =
+                        influences->get().size();
                 }
+                auto influence_position = std::size_t{};
+                auto raw_weight_sum = std::uint32_t{};
+                auto weight_sum = 0.0;
                 for (const auto& influence : influences->get())
                 {
                     const auto* influence_object =
@@ -657,16 +810,70 @@ auto decode_mesh_profile(
                     }
                     const auto bone =
                         reader.size(*influence_object, "Bone");
-                    if (!bone)
+                    const auto raw_weight =
+                        reader.size(*influence_object, "RawWeight");
+                    const auto weight =
+                        reader.number(*influence_object, "Weight");
+                    if (!bone || !raw_weight || !weight)
                     {
-                        return std::unexpected(bone.error());
+                        if (!bone)
+                            return std::unexpected(bone.error());
+                        if (!raw_weight)
+                            return std::unexpected(
+                                raw_weight.error());
+                        return std::unexpected(weight.error());
                     }
-                    if (*bone >= bone_count)
+                    const auto duplicate =
+                        sampling_output != nullptr &&
+                        std::ranges::any_of(
+                            deformation_vertex.influences.begin(),
+                            deformation_vertex.influences.begin() +
+                                static_cast<std::ptrdiff_t>(
+                                    influence_position),
+                            [&](const core::PaintBoneInfluence&
+                                    previous)
+                            {
+                                return previous.bone == *bone;
+                            });
+                    if (*bone >= bone_count ||
+                        *raw_weight == 0U ||
+                        *raw_weight >
+                            std::numeric_limits<std::uint8_t>::max() ||
+                        *weight <= 0.0 || *weight > 1.0 ||
+                        duplicate)
                     {
                         return invalid_profile(
                             core::MeshProfileField::IndexBounds,
                             "Mesh profile influence is out of bounds.");
                     }
+                    if (sampling_output != nullptr)
+                    {
+                        deformation_vertex
+                            .influences[influence_position] =
+                            core::PaintBoneInfluence{
+                                static_cast<std::uint32_t>(*bone),
+                                static_cast<std::uint8_t>(
+                                    *raw_weight),
+                                *weight,
+                            };
+                    }
+                    raw_weight_sum +=
+                        static_cast<std::uint32_t>(*raw_weight);
+                    weight_sum += *weight;
+                    ++influence_position;
+                }
+                if (raw_weight_sum != 255U ||
+                    std::abs(weight_sum - 1.0) > 1.0e-4)
+                {
+                    return invalid_profile(
+                        core::MeshProfileField::IndexBounds,
+                        "Mesh profile influence weights are "
+                        "invalid.");
+                }
+                if (sampling_output != nullptr)
+                {
+                    decoded_deformation_vertices.push_back(
+                        deformation_vertex);
                 }
             }
             return {};
@@ -914,7 +1121,24 @@ auto decode_mesh_profile(
             std::make_shared<
                 const std::vector<core::PaintSamplingBone>>(
                 std::move(decoded_sampling_bones)),
+            std::make_shared<
+                const std::vector<core::PaintDeformationVertex>>(
+                std::move(decoded_deformation_vertices)),
+            std::make_shared<
+                const std::vector<
+                    core::PaintDeformationTriangle>>(
+                std::move(decoded_deformation_triangles)),
+            std::make_shared<
+                const std::vector<
+                    core::PaintReferenceBoneTransform>>(
+                std::move(decoded_reference_bone_transforms)),
         };
+        if (!core::validate_deformation(*sampling_output).empty())
+        {
+            return invalid_profile(
+                core::MeshProfileField::ReferencePose,
+                "Mesh profile deformation data is invalid.");
+        }
     }
     return identity;
 }

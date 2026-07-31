@@ -118,6 +118,17 @@ constexpr auto SkeletalMeshComponentClassPath =
     STR("/Script/Engine.SkeletalMeshComponent");
 constexpr auto SkinnedAssetClassPath =
     STR("/Script/Engine.SkinnedAsset");
+constexpr auto IsPaintInitializedPath =
+    STR("/Script/PenguinHotel.RuntimePaintableComponent:"
+        "IsInitialized");
+constexpr auto InitializePaintPath =
+    STR("/Script/PenguinHotel.RuntimePaintableComponent:"
+        "InitializePaint");
+constexpr auto GetInitializedPaintMeshPath =
+    STR("/Script/PenguinHotel.RuntimePaintableComponent:"
+        "GetInitializedPaintMesh");
+constexpr auto GetSocketTransformPath =
+    STR("/Script/Engine.SceneComponent:GetSocketTransform");
 constexpr auto PaintAtUvWithBrushPath =
     STR("/Script/PenguinHotel.RuntimePaintableComponent:"
         "PaintAtUVWithBrush");
@@ -252,9 +263,14 @@ struct PaintContracts
 {
     UClass* player_controller_class{};
     UClass* pawn_class{};
+    UClass* mesh_component_class{};
     UClass* runtime_paintable_class{};
     UClass* replication_manager_class{};
     FObjectPropertyBase* acknowledged_pawn{};
+    UFunction* is_initialized{};
+    UFunction* initialize_paint{};
+    UFunction* get_initialized_paint_mesh{};
+    UFunction* get_socket_transform{};
     UFunction* paint_at_uv_with_brush{};
     UFunction* get_recorded_stroke_count{};
     UFunction* get_queued_stroke_count{};
@@ -1875,10 +1891,32 @@ auto resolve_paint_contracts(UClass* player_controller_class)
     auto contracts = PaintContracts{};
     contracts.player_controller_class = player_controller_class;
     contracts.pawn_class = find_class(PawnClassPath);
+    contracts.mesh_component_class =
+        find_class(MeshComponentClassPath);
     contracts.runtime_paintable_class =
         find_class(RuntimePaintableClassPath);
     contracts.replication_manager_class =
         find_class(RuntimePaintReplicationManagerClassPath);
+    contracts.is_initialized =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            IsPaintInitializedPath);
+    contracts.initialize_paint =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            InitializePaintPath);
+    contracts.get_initialized_paint_mesh =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            GetInitializedPaintMeshPath);
+    contracts.get_socket_transform =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            GetSocketTransformPath);
     contracts.paint_at_uv_with_brush =
         UObjectGlobals::StaticFindObject<UFunction*>(
             nullptr,
@@ -1936,6 +1974,7 @@ auto resolve_paint_contracts(UClass* player_controller_class)
             RuntimePaintReplicationPressurePath);
     if (player_controller_class == nullptr ||
         contracts.pawn_class == nullptr ||
+        contracts.mesh_component_class == nullptr ||
         contracts.runtime_paintable_class == nullptr ||
         contracts.replication_manager_class == nullptr ||
         contracts.vector2d == nullptr ||
@@ -1947,6 +1986,15 @@ auto resolve_paint_contracts(UClass* player_controller_class)
             application::RuntimeContractId::
                 PaintAtUvWithBrush,
             application::ContractFailureKind::MissingObject);
+    }
+    if (contracts.is_initialized == nullptr ||
+        contracts.initialize_paint == nullptr ||
+        contracts.get_initialized_paint_mesh == nullptr ||
+        contracts.get_socket_transform == nullptr)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::MissingFunction);
     }
     if (contracts.paint_at_uv_with_brush == nullptr)
     {
@@ -1978,6 +2026,18 @@ auto resolve_paint_contracts(UClass* player_controller_class)
         return runtime_failure(
             application::RuntimeContractId::
                 PaintAtUvWithBrush,
+            application::ContractFailureKind::WrongClass);
+    }
+    if (contracts.is_initialized->GetOuterPrivate() !=
+            contracts.runtime_paintable_class ||
+        contracts.initialize_paint->GetOuterPrivate() !=
+            contracts.runtime_paintable_class ||
+        contracts.get_initialized_paint_mesh
+                ->GetOuterPrivate() !=
+            contracts.runtime_paintable_class)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
             application::ContractFailureKind::WrongClass);
     }
     if (contracts.get_recorded_stroke_count->GetOuterPrivate() !=
@@ -2047,6 +2107,42 @@ auto resolve_paint_contracts(UClass* player_controller_class)
     if (!function_result)
     {
         return std::unexpected(function_result.error());
+    }
+    const auto initialized_result = validate_unreal_record(
+        contracts.is_initialized,
+        is_paint_initialized_contract(),
+        application::RuntimeContractId::PaintCapture);
+    if (!initialized_result)
+    {
+        return std::unexpected(initialized_result.error());
+    }
+    const auto initialize_result = validate_unreal_record(
+        contracts.initialize_paint,
+        initialize_paint_contract(),
+        application::RuntimeContractId::PaintCapture);
+    if (!initialize_result)
+    {
+        return std::unexpected(initialize_result.error());
+    }
+    const auto initialized_mesh_result =
+        validate_unreal_record(
+            contracts.get_initialized_paint_mesh,
+            get_initialized_paint_mesh_contract(),
+            application::RuntimeContractId::PaintCapture);
+    if (!initialized_mesh_result)
+    {
+        return std::unexpected(
+            initialized_mesh_result.error());
+    }
+    const auto socket_transform_result =
+        validate_unreal_record(
+            contracts.get_socket_transform,
+            get_socket_transform_contract(),
+            application::RuntimeContractId::PaintCapture);
+    if (!socket_transform_result)
+    {
+        return std::unexpected(
+            socket_transform_result.error());
     }
     const auto recorded_result = validate_unreal_record(
         contracts.get_recorded_stroke_count,

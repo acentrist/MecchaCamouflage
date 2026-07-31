@@ -140,16 +140,38 @@ auto describe_property(FProperty* property)
              array_property != nullptr)
     {
         auto* inner = array_property->GetInner();
-        if (inner == nullptr ||
-            CastField<FByteProperty>(inner) == nullptr ||
-            !reflected_enum_name(inner).empty() ||
-            inner->GetElementSize() != 1 ||
-            inner->GetArrayDim() != 1)
+        if (inner == nullptr || inner->GetArrayDim() != 1)
+        {
+            return std::nullopt;
+        }
+        if (auto* inner_byte_property =
+                CastField<FByteProperty>(inner);
+            inner_byte_property != nullptr &&
+            reflected_enum_name(inner_byte_property).empty() &&
+            inner->GetElementSize() == 1)
+        {
+            type_name = "Byte";
+        }
+        else if (auto* inner_struct_property =
+                     CastField<FStructProperty>(inner);
+                 inner_struct_property != nullptr)
+        {
+            auto* script_struct =
+                inner_struct_property->GetStruct().Get();
+            if (script_struct == nullptr ||
+                inner->GetElementSize() !=
+                    script_struct->GetPropertiesSize())
+            {
+                return std::nullopt;
+            }
+            type_name =
+                RC::to_string(script_struct->GetName());
+        }
+        else
         {
             return std::nullopt;
         }
         kind = ReflectionPropertyKind::Array;
-        type_name = "Byte";
     }
     else
     {

@@ -186,12 +186,30 @@ auto main() -> int
             !failed->result &&
             failed->result.error().kind ==
                 PaintPlanningFailureKind::WorkerException &&
+            !failed->result.error().capture_error &&
             !failed->result.error().planner_error,
         "a planner exception crossed the worker boundary");
 
+    builder.reset_entered();
+    passed &= expect(
+        worker.start(14U, core::PaintCaptureInput{}).has_value(),
+        "an immutable Paint capture input did not start");
+    const auto capture_failed = wait_for_completion(worker);
+    passed &= expect(
+        capture_failed &&
+            capture_failed->generation == 14U &&
+            !capture_failed->result &&
+            capture_failed->result.error().kind ==
+                PaintPlanningFailureKind::Capture &&
+            capture_failed->result.error().capture_error ==
+                core::PaintCaptureRequestError::InvalidRaster &&
+            !capture_failed->result.error().planner_error &&
+            !builder.wait_until_entered(),
+        "capture geometry was not validated inside the worker");
+
     worker.shutdown();
     const auto stopped_start =
-        worker.start(14U, core::PaintPlanRequest{});
+        worker.start(15U, core::PaintPlanRequest{});
     passed &= expect(
         !stopped_start &&
             stopped_start.error() ==

@@ -11,6 +11,9 @@ add_library(
         src/image_project.cpp
         src/mesh_profile.cpp
         src/paint.cpp
+        src/paint_capture_geometry.cpp
+        src/paint_capture_request.cpp
+        src/paint_deformation.cpp
         src/paint_plan.cpp
         src/paint_preview.cpp
         src/paint_sampling_profile.cpp

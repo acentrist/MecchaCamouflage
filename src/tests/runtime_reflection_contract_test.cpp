@@ -2,6 +2,7 @@
 #include <meccha/runtime/input_control_codec.hpp>
 #include <meccha/runtime/reflection_contract.hpp>
 #include <meccha/runtime/paint_call_codec.hpp>
+#include <meccha/runtime/paint_capture_codec.hpp>
 #include <meccha/runtime/paint_preview_codec.hpp>
 #include <meccha/runtime/paint_queue_codec.hpp>
 #include <meccha/runtime/texture_import_codec.hpp>
@@ -72,6 +73,145 @@ auto main() -> int
     passed &= expect(
         validate_reflection_contract(expected, expected).has_value(),
         "the exact Paint contract was rejected");
+    const auto initialize = initialize_paint_contract();
+    passed &= expect(
+        initialize.owner_name ==
+                "/Script/PenguinHotel.RuntimePaintableComponent" &&
+            initialize.size == 0x10U &&
+            initialize.properties ==
+                std::vector<ReflectionPropertyDescriptor>{
+                    ReflectionPropertyDescriptor{
+                        "MeshComponent",
+                        ReflectionPropertyKind::Object,
+                        "MeshComponent",
+                        0x00U,
+                        0x08U,
+                        1U,
+                        ReflectionPropertyDirection::Input,
+                    },
+                    ReflectionPropertyDescriptor{
+                        "ReturnValue",
+                        ReflectionPropertyKind::Bool,
+                        {},
+                        0x08U,
+                        0x01U,
+                        1U,
+                        ReflectionPropertyDirection::ReturnValue,
+                    },
+                } &&
+            validate_reflection_contract(initialize, initialize)
+                .has_value(),
+        "the exact InitializePaint contract drifted");
+    auto* const mesh_component =
+        reinterpret_cast<void*>(std::uintptr_t{0x1234U});
+    const auto initialize_parameters =
+        encode_initialize_paint(mesh_component);
+    passed &= expect(
+        initialize_parameters.has_value() &&
+            initialize_parameters->mesh_component ==
+                mesh_component &&
+            !initialize_parameters->return_value &&
+            sizeof(InitializePaintParameters) == 0x10U &&
+            offsetof(
+                InitializePaintParameters,
+                return_value) == 0x08U &&
+            !encode_initialize_paint(nullptr).has_value(),
+        "the typed InitializePaint parameter encoder drifted");
+    const auto is_initialized = is_paint_initialized_contract();
+    const auto initialized_mesh =
+        get_initialized_paint_mesh_contract();
+    passed &= expect(
+        is_initialized.size == 0x01U &&
+            is_initialized.properties ==
+                std::vector<ReflectionPropertyDescriptor>{
+                    ReflectionPropertyDescriptor{
+                        "ReturnValue",
+                        ReflectionPropertyKind::Bool,
+                        {},
+                        0x00U,
+                        0x01U,
+                        1U,
+                        ReflectionPropertyDirection::ReturnValue,
+                    },
+                } &&
+            initialized_mesh.size == 0x08U &&
+            initialized_mesh.properties ==
+                std::vector<ReflectionPropertyDescriptor>{
+                    ReflectionPropertyDescriptor{
+                        "ReturnValue",
+                        ReflectionPropertyKind::Object,
+                        "MeshComponent",
+                        0x00U,
+                        0x08U,
+                        1U,
+                        ReflectionPropertyDirection::ReturnValue,
+                    },
+                } &&
+            sizeof(IsPaintInitializedParameters) == 0x01U &&
+            sizeof(GetInitializedPaintMeshParameters) == 0x08U,
+        "the exact paint initialization query contracts drifted");
+    const auto socket_transform = get_socket_transform_contract();
+    passed &= expect(
+        socket_transform.owner_name ==
+                "/Script/Engine.SceneComponent" &&
+            socket_transform.size == 0x70U &&
+            socket_transform.properties ==
+                std::vector<ReflectionPropertyDescriptor>{
+                    ReflectionPropertyDescriptor{
+                        "InSocketName",
+                        ReflectionPropertyKind::Name,
+                        {},
+                        0x00U,
+                        0x08U,
+                        1U,
+                        ReflectionPropertyDirection::Input,
+                    },
+                    ReflectionPropertyDescriptor{
+                        "TransformSpace",
+                        ReflectionPropertyKind::Enum,
+                        "ERelativeTransformSpace",
+                        0x08U,
+                        0x01U,
+                        1U,
+                        ReflectionPropertyDirection::Input,
+                    },
+                    ReflectionPropertyDescriptor{
+                        "ReturnValue",
+                        ReflectionPropertyKind::Struct,
+                        "Transform",
+                        0x10U,
+                        0x60U,
+                        1U,
+                        ReflectionPropertyDirection::ReturnValue,
+                    },
+                } &&
+            sizeof(RuntimeTransform) == 0x60U &&
+            sizeof(GetSocketTransformParameters) == 0x70U &&
+            offsetof(
+                GetSocketTransformParameters,
+                return_value) == 0x10U,
+        "the exact world-space socket transform contract drifted");
+    auto runtime_transform = RuntimeTransform{};
+    runtime_transform.rotation =
+        RuntimeQuaternion{0.0, 0.0, 0.0, 2.0};
+    runtime_transform.translation =
+        RuntimeVector3d{1.0, 2.0, 3.0, 0.0};
+    runtime_transform.scale =
+        RuntimeVector3d{1.0, 2.0, 3.0, 0.0};
+    const auto decoded_transform =
+        decode_runtime_transform(runtime_transform);
+    runtime_transform.scale.x = 0.0;
+    passed &= expect(
+        decoded_transform &&
+            decoded_transform->translation ==
+                core::Vector3d{1.0, 2.0, 3.0} &&
+            decoded_transform->rotation ==
+                core::PaintQuaternion{0.0, 0.0, 0.0, 1.0} &&
+            decoded_transform->scale ==
+                core::Vector3d{1.0, 2.0, 3.0} &&
+            !decode_runtime_transform(runtime_transform)
+                 .has_value(),
+        "world-space socket transform decoding did not fail closed");
     passed &= expect(
         expected.owner_name ==
                 "/Script/PenguinHotel.RuntimePaintableComponent" &&
@@ -221,6 +361,266 @@ auto main() -> int
                 import_buffer_as_texture2d_contract())
                 .has_value(),
         "the reviewed texture-import contract drifted");
+    const auto create_capture_target =
+        create_render_target_2d_contract();
+    passed &= expect(
+        create_capture_target ==
+            ReflectionRecordDescriptor{
+                "CreateRenderTarget2D",
+                "/Script/Engine.KismetRenderingLibrary",
+                0x38U,
+                {
+                    ReflectionPropertyDescriptor{
+                        "WorldContextObject",
+                        ReflectionPropertyKind::Object,
+                        "Object",
+                        0x00U,
+                        0x08U,
+                        1U,
+                        ReflectionPropertyDirection::Input,
+                    },
+                    ReflectionPropertyDescriptor{
+                        "Width",
+                        ReflectionPropertyKind::Int32,
+                        {},
+                        0x08U,
+                        0x04U,
+                        1U,
+                        ReflectionPropertyDirection::Input,
+                    },
+                    ReflectionPropertyDescriptor{
+                        "Height",
+                        ReflectionPropertyKind::Int32,
+                        {},
+                        0x0CU,
+                        0x04U,
+                        1U,
+                        ReflectionPropertyDirection::Input,
+                    },
+                    ReflectionPropertyDescriptor{
+                        "Slices",
+                        ReflectionPropertyKind::Int32,
+                        {},
+                        0x10U,
+                        0x04U,
+                        1U,
+                        ReflectionPropertyDirection::Input,
+                    },
+                    ReflectionPropertyDescriptor{
+                        "Format",
+                        ReflectionPropertyKind::Enum,
+                        "ETextureRenderTargetFormat",
+                        0x14U,
+                        0x01U,
+                        1U,
+                        ReflectionPropertyDirection::Input,
+                    },
+                    ReflectionPropertyDescriptor{
+                        "ClearColor",
+                        ReflectionPropertyKind::Struct,
+                        "LinearColor",
+                        0x18U,
+                        0x10U,
+                        1U,
+                        ReflectionPropertyDirection::Input,
+                    },
+                    ReflectionPropertyDescriptor{
+                        "bAutoGenerateMipMaps",
+                        ReflectionPropertyKind::Bool,
+                        {},
+                        0x28U,
+                        0x01U,
+                        1U,
+                        ReflectionPropertyDirection::Input,
+                    },
+                    ReflectionPropertyDescriptor{
+                        "bSupportUAVs",
+                        ReflectionPropertyKind::Bool,
+                        {},
+                        0x29U,
+                        0x01U,
+                        1U,
+                        ReflectionPropertyDirection::Input,
+                    },
+                    ReflectionPropertyDescriptor{
+                        "ReturnValue",
+                        ReflectionPropertyKind::Object,
+                        "TextureRenderTarget2D",
+                        0x30U,
+                        0x08U,
+                        1U,
+                        ReflectionPropertyDirection::ReturnValue,
+                    },
+                },
+            } &&
+            validate_reflection_contract(
+                create_capture_target,
+                create_capture_target)
+                .has_value(),
+        "the current CreateRenderTarget2D contract drifted");
+    const auto read_capture_target =
+        read_render_target_raw_contract();
+    passed &= expect(
+        read_capture_target ==
+            ReflectionRecordDescriptor{
+                "ReadRenderTargetRaw",
+                "/Script/Engine.KismetRenderingLibrary",
+                0x28U,
+                {
+                    ReflectionPropertyDescriptor{
+                        "WorldContextObject",
+                        ReflectionPropertyKind::Object,
+                        "Object",
+                        0x00U,
+                        0x08U,
+                        1U,
+                        ReflectionPropertyDirection::Input,
+                    },
+                    ReflectionPropertyDescriptor{
+                        "TextureRenderTarget",
+                        ReflectionPropertyKind::Object,
+                        "TextureRenderTarget2D",
+                        0x08U,
+                        0x08U,
+                        1U,
+                        ReflectionPropertyDirection::Input,
+                    },
+                    ReflectionPropertyDescriptor{
+                        "OutLinearSamples",
+                        ReflectionPropertyKind::Array,
+                        "LinearColor",
+                        0x10U,
+                        0x10U,
+                        1U,
+                        ReflectionPropertyDirection::Output,
+                    },
+                    ReflectionPropertyDescriptor{
+                        "bNormalize",
+                        ReflectionPropertyKind::Bool,
+                        {},
+                        0x20U,
+                        0x01U,
+                        1U,
+                        ReflectionPropertyDirection::Input,
+                    },
+                    ReflectionPropertyDescriptor{
+                        "ReturnValue",
+                        ReflectionPropertyKind::Bool,
+                        {},
+                        0x21U,
+                        0x01U,
+                        1U,
+                        ReflectionPropertyDirection::ReturnValue,
+                    },
+                },
+            } &&
+            validate_reflection_contract(
+                read_capture_target,
+                read_capture_target)
+                .has_value(),
+        "the current ReadRenderTargetRaw contract drifted");
+    auto* const capture_world =
+        reinterpret_cast<void*>(std::uintptr_t{0x1234U});
+    auto* const render_target =
+        reinterpret_cast<void*>(std::uintptr_t{0x5678U});
+    const auto encoded_capture_target =
+        encode_create_paint_capture_render_target(
+            PaintCaptureRenderTargetInput{
+                capture_world,
+                1920U,
+                1080U,
+                PaintCaptureRenderTargetFormat::Rgba16Float,
+            });
+    const auto encoded_capture_read =
+        encode_read_paint_capture_render_target(
+            capture_world,
+            render_target,
+            false);
+    passed &= expect(
+        encoded_capture_target &&
+            encoded_capture_target->world_context_object ==
+                capture_world &&
+            encoded_capture_target->width == 1920 &&
+            encoded_capture_target->height == 1080 &&
+            encoded_capture_target->slices == 1 &&
+            encoded_capture_target->format ==
+                PaintCaptureRenderTargetFormat::Rgba16Float &&
+            encoded_capture_target->clear_color.alpha == 1.0F &&
+            !encoded_capture_target->auto_generate_mip_maps &&
+            !encoded_capture_target->support_uavs &&
+            encoded_capture_target->return_value == nullptr &&
+            encoded_capture_read &&
+            encoded_capture_read->world_context_object ==
+                capture_world &&
+            encoded_capture_read->texture_render_target ==
+                render_target &&
+            !encoded_capture_read->normalize &&
+            !encoded_capture_read->return_value &&
+            sizeof(CreatePaintCaptureRenderTargetParameters) ==
+                0x38U &&
+            offsetof(
+                CreatePaintCaptureRenderTargetParameters,
+                return_value) == 0x30U &&
+            sizeof(ReadPaintCaptureRenderTargetParameters) ==
+                0x28U,
+        "the typed SceneCapture render-target codecs drifted");
+    passed &= expect(
+        !encode_create_paint_capture_render_target(
+             PaintCaptureRenderTargetInput{
+                 nullptr,
+                 1920U,
+                 1080U,
+                 PaintCaptureRenderTargetFormat::Rgba8Srgb,
+             }) &&
+            !encode_create_paint_capture_render_target(
+                PaintCaptureRenderTargetInput{
+                    capture_world,
+                    core::MaximumPaintCaptureDimension + 1U,
+                    1080U,
+                    PaintCaptureRenderTargetFormat::Rgba8Srgb,
+                }) &&
+            !encode_read_paint_capture_render_target(
+                nullptr,
+                render_target,
+                false) &&
+            !encode_read_paint_capture_render_target(
+                capture_world,
+                nullptr,
+                false),
+        "invalid SceneCapture render-target input was accepted");
+    auto capture_pixels = std::array{
+        PaintCaptureLinearColor{0.25F, 0.5F, 0.75F, 1.0F},
+        PaintCaptureLinearColor{2.0F, 1.5F, 1.0F, 1.0F},
+    };
+    auto captured_readback = *encoded_capture_read;
+    captured_readback.out_linear_samples =
+        PaintCaptureLinearColorArray{
+            capture_pixels.data(),
+            2,
+            2,
+        };
+    captured_readback.return_value = true;
+    const auto decoded_capture =
+        decode_paint_capture_linear_colors(
+            captured_readback,
+            2U,
+            1U);
+    capture_pixels[1].red =
+        std::numeric_limits<float>::infinity();
+    passed &= expect(
+        decoded_capture &&
+            decoded_capture->size() == 2U &&
+            (*decoded_capture)[0].green == 0.5F &&
+            (*decoded_capture)[1].red == 2.0F &&
+            !decode_paint_capture_linear_colors(
+                 captured_readback,
+                 2U,
+                 1U) &&
+            !decode_paint_capture_linear_colors(
+                 captured_readback,
+                 1U,
+                 1U),
+        "SceneCapture linear readback validation drifted");
     passed &= expect(
         is_look_input_ignored_contract().owner_name ==
                 "/Script/Engine.Controller" &&

@@ -165,7 +165,9 @@ auto main() -> int
         core::PaintPlanRequest{},
         image(),
     };
-    request.plan.samples.resize(7U);
+    std::get<core::PaintPlanRequest>(
+        request.planning.value)
+        .samples.resize(7U);
 
     const auto invalid_start = worker.start(0U, request);
     passed &= expect(
@@ -177,7 +179,9 @@ auto main() -> int
         worker.start(11U, request).has_value() &&
             builder.wait_until_entered(),
         "the first immutable preview request did not start");
-    request.plan.samples.clear();
+    std::get<core::PaintPlanRequest>(
+        request.planning.value)
+        .samples.clear();
     passed &= expect(
         builder.last_sample_count() == 7U,
         "the worker retained caller-owned mutable planning state");
@@ -246,7 +250,8 @@ auto main() -> int
             failed->result.error().kind ==
                 PaintPreviewBuildFailureKind::WorkerException &&
             !failed->result.error().planner_error &&
-            !failed->result.error().compose_error,
+            !failed->result.error().compose_error &&
+            !failed->result.error().capture_error,
         "a planner exception crossed the preview worker boundary");
 
     auto invalid_builder = ImmediateBuilder{};
@@ -274,6 +279,28 @@ auto main() -> int
             invalid->result.error().compose_error ==
                 core::PaintPreviewComposeError::InvalidBuffer,
         "malformed immutable channels were not a typed composition failure");
+
+    passed &= expect(
+        invalid_worker
+            .start(
+                22U,
+                PaintPreviewBuildRequest{
+                    core::PaintCaptureInput{},
+                    image()})
+            .has_value(),
+        "an immutable preview capture input did not start");
+    const auto capture_failed =
+        wait_for_completion(invalid_worker);
+    passed &= expect(
+        capture_failed &&
+            !capture_failed->result &&
+            capture_failed->result.error().kind ==
+                PaintPreviewBuildFailureKind::Capture &&
+            capture_failed->result.error().capture_error ==
+                core::PaintCaptureRequestError::InvalidRaster &&
+            !capture_failed->result.error().planner_error &&
+            !capture_failed->result.error().compose_error,
+        "preview capture geometry was not validated inside the worker");
 
     worker.shutdown();
     const auto stopped_start = worker.start(14U, request);

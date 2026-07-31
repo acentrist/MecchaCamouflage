@@ -27,6 +27,20 @@ auto unit(double value) -> bool
     return std::isfinite(value) &&
            value >= 0.0 && value <= 1.0;
 }
+
+auto finite(const Vector3d& value) -> bool
+{
+    return std::isfinite(value.x) &&
+           std::isfinite(value.y) &&
+           std::isfinite(value.z);
+}
+
+auto length_squared(const Vector3d& value) -> double
+{
+    return value.x * value.x +
+           value.y * value.y +
+           value.z * value.z;
+}
 } // namespace
 
 auto validate(const PaintSamplingProfile& profile)
@@ -101,6 +115,154 @@ auto validate(const PaintSamplingProfile& profile)
                 add_once(
                     fields,
                     PaintSamplingProfileField::Topology);
+                break;
+            }
+        }
+    }
+    return fields;
+}
+
+auto validate_deformation(const PaintSamplingProfile& profile)
+    -> std::vector<PaintSamplingProfileField>
+{
+    auto fields = std::vector<PaintSamplingProfileField>{};
+    const auto& identity = profile.identity;
+    if (!profile.deformation_vertices ||
+        profile.deformation_vertices->size() !=
+            identity.vertex_count)
+    {
+        add_once(
+            fields,
+            PaintSamplingProfileField::DeformationVertices);
+    }
+    else
+    {
+        for (const auto& vertex : *profile.deformation_vertices)
+        {
+            if (!finite(vertex.position) ||
+                !finite(vertex.normal) ||
+                length_squared(vertex.normal) <= 1.0e-12 ||
+                vertex.influence_count == 0U ||
+                vertex.influence_count >
+                    MaximumPaintBoneInfluences)
+            {
+                add_once(
+                    fields,
+                    PaintSamplingProfileField::
+                        DeformationVertices);
+                break;
+            }
+            auto raw_sum = std::uint32_t{};
+            auto weight_sum = 0.0;
+            auto valid = true;
+            for (auto index = std::size_t{};
+                 index < vertex.influence_count;
+                 ++index)
+            {
+                const auto& influence =
+                    vertex.influences[index];
+                if (influence.bone >= identity.bone_count ||
+                    influence.raw_weight == 0U ||
+                    !std::isfinite(influence.weight) ||
+                    influence.weight <= 0.0 ||
+                    influence.weight > 1.0)
+                {
+                    valid = false;
+                    break;
+                }
+                for (auto previous = std::size_t{};
+                     previous < index;
+                     ++previous)
+                {
+                    if (vertex.influences[previous].bone ==
+                        influence.bone)
+                    {
+                        valid = false;
+                        break;
+                    }
+                }
+                raw_sum += influence.raw_weight;
+                weight_sum += influence.weight;
+            }
+            if (!valid || raw_sum != 255U ||
+                std::abs(weight_sum - 1.0) > 1.0e-4)
+            {
+                add_once(
+                    fields,
+                    PaintSamplingProfileField::
+                        DeformationVertices);
+                break;
+            }
+        }
+    }
+
+    if (!profile.deformation_triangles ||
+        profile.deformation_triangles->size() !=
+            identity.triangle_count)
+    {
+        add_once(
+            fields,
+            PaintSamplingProfileField::DeformationTriangles);
+    }
+    else
+    {
+        for (const auto& triangle :
+             *profile.deformation_triangles)
+        {
+            if (triangle.dominant_bone >= identity.bone_count ||
+                triangle.body_region.empty() ||
+                triangle.body_region.size() > 128U ||
+                !valid_utf8(triangle.body_region) ||
+                !finite(triangle.local_normal) ||
+                length_squared(triangle.local_normal) <=
+                    1.0e-12)
+            {
+                add_once(
+                    fields,
+                    PaintSamplingProfileField::
+                        DeformationTriangles);
+                break;
+            }
+        }
+    }
+
+    if (!profile.reference_bone_transforms ||
+        profile.reference_bone_transforms->size() !=
+            identity.bone_count)
+    {
+        add_once(
+            fields,
+            PaintSamplingProfileField::
+                ReferenceBoneTransforms);
+    }
+    else
+    {
+        for (const auto& transform :
+             *profile.reference_bone_transforms)
+        {
+            const auto& rotation = transform.rotation;
+            const auto rotation_length_squared =
+                rotation.x * rotation.x +
+                rotation.y * rotation.y +
+                rotation.z * rotation.z +
+                rotation.w * rotation.w;
+            if (!finite(transform.translation) ||
+                !finite(transform.scale) ||
+                !std::isfinite(rotation.x) ||
+                !std::isfinite(rotation.y) ||
+                !std::isfinite(rotation.z) ||
+                !std::isfinite(rotation.w) ||
+                rotation_length_squared <= 1.0e-12 ||
+                std::abs(rotation_length_squared - 1.0) >
+                    1.0e-3 ||
+                std::abs(transform.scale.x) <= 1.0e-12 ||
+                std::abs(transform.scale.y) <= 1.0e-12 ||
+                std::abs(transform.scale.z) <= 1.0e-12)
+            {
+                add_once(
+                    fields,
+                    PaintSamplingProfileField::
+                        ReferenceBoneTransforms);
                 break;
             }
         }
