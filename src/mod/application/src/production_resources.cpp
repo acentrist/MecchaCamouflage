@@ -63,6 +63,63 @@ auto read_localization(const std::filesystem::path& path)
 }
 } // namespace
 
+auto derive_production_resource_root(
+    const std::filesystem::path& module_file)
+    -> std::expected<
+        std::filesystem::path,
+        ProductionResourceError>
+{
+    try
+    {
+        if (module_file.empty() ||
+            !module_file.is_absolute() ||
+            module_file.lexically_normal() != module_file ||
+            module_file.filename() != "main.dll")
+        {
+            return error(
+                ProductionResourceErrorCode::InvalidModulePath,
+                "The production module path is invalid.");
+        }
+        const auto dll_directory = module_file.parent_path();
+        const auto mod_directory = dll_directory.parent_path();
+        if (dll_directory.filename() != "dlls" ||
+            mod_directory.filename() != "MecchaCamouflage")
+        {
+            return error(
+                ProductionResourceErrorCode::InvalidModulePath,
+                "The production module layout is invalid.");
+        }
+        const auto resource_root =
+            mod_directory / "resources";
+        if (!resource_root.is_absolute() ||
+            resource_root.lexically_normal() != resource_root)
+        {
+            return error(
+                ProductionResourceErrorCode::InvalidModulePath,
+                "The production resource path is invalid.");
+        }
+        return resource_root;
+    }
+    catch (const std::filesystem::filesystem_error&)
+    {
+        return error(
+            ProductionResourceErrorCode::InvalidModulePath,
+            "The production module path could not be inspected.");
+    }
+    catch (const std::system_error&)
+    {
+        return error(
+            ProductionResourceErrorCode::InvalidModulePath,
+            "The production module path could not be constructed.");
+    }
+    catch (...)
+    {
+        return error(
+            ProductionResourceErrorCode::Construction,
+            "The production resource path could not be derived.");
+    }
+}
+
 auto load_production_resources(
     const std::filesystem::path& resource_root)
     -> std::expected<

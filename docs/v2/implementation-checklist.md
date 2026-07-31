@@ -568,9 +568,13 @@ Evidence:
       absolute resource root, including the exact profile catalog, all 16
       localization catalogs, and the three generated guide bitmaps, with
       bounded reads and typed fail-closed construction errors.
-    - [ ] In the exported production composition root, resolve the packaged
-      profile directory, construct the catalog before callback registration,
-      and inject it into the single runtime adapter.
+    - [x] Derive the exact resource root from the loaded
+      `Mods/MecchaCamouflage/dlls/main.dll` module path and make the exported
+      mod owner construct and retain that bundle before any callback or key
+      registration.
+    - [ ] Inject the retained catalog and resources into the single runtime
+      adapter and complete exported composition-root ownership before
+      callback registration.
     - [x] On the game thread, validate the live RuntimePaintable target mesh
       and exact `SkinnedAsset` path/export against the selected catalog entry
       before returning the acknowledged component and pacing.

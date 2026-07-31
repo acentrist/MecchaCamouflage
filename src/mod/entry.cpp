@@ -1,12 +1,26 @@
 #include <Mod/CppUserModBase.hpp>
 
+#include <meccha/application/production_resources.hpp>
 #include <meccha/product_ui/product_ui_key_binding.hpp>
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+
+#include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <filesystem>
 #include <memory>
 #include <optional>
+#include <stdexcept>
+#include <string>
 #include <utility>
+#include <vector>
 
 namespace
 {
@@ -19,6 +33,74 @@ static_assert(
             1U ==
         meccha::product_ui::
             ProductUiFunctionKeyRegistrationCount);
+
+constinit std::byte ModuleAnchor{};
+
+auto loaded_module_file()
+    -> std::expected<std::filesystem::path, std::string>
+{
+    auto module = HMODULE{};
+    constexpr auto flags =
+        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+        GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT;
+    if (GetModuleHandleExW(
+            flags,
+            reinterpret_cast<LPCWSTR>(&ModuleAnchor),
+            &module) == FALSE)
+    {
+        return std::unexpected(
+            "The loaded mod module could not be resolved.");
+    }
+
+    constexpr auto MaximumModulePathCharacters =
+        std::size_t{32768U};
+    auto path = std::vector<wchar_t>(
+        MaximumModulePathCharacters,
+        L'\0');
+    const auto length = GetModuleFileNameW(
+        module,
+        path.data(),
+        static_cast<DWORD>(path.size()));
+    if (length == 0U ||
+        static_cast<std::size_t>(length) >= path.size())
+    {
+        return std::unexpected(
+            "The loaded mod module path is unavailable.");
+    }
+    path.resize(length);
+    auto result = std::filesystem::path{
+        std::wstring{path.begin(), path.end()}};
+    if (!result.is_absolute())
+    {
+        return std::unexpected(
+            "The loaded mod module path is not absolute.");
+    }
+    return result;
+}
+
+auto load_owned_production_resources()
+    -> meccha::application::ProductionResources
+{
+    const auto module = loaded_module_file();
+    if (!module)
+    {
+        throw std::runtime_error{module.error()};
+    }
+    const auto root =
+        meccha::application::derive_production_resource_root(
+            *module);
+    if (!root)
+    {
+        throw std::runtime_error{root.error().detail};
+    }
+    auto resources =
+        meccha::application::load_production_resources(*root);
+    if (!resources)
+    {
+        throw std::runtime_error{resources.error().detail};
+    }
+    return std::move(*resources);
+}
 
 auto ue4ss_function_key(meccha::core::FunctionKey key)
     -> std::optional<RC::Input::Key>
@@ -44,7 +126,8 @@ class MecchaCamouflageMod final
 {
 public:
     MecchaCamouflageMod()
-        : input_queue_{
+        : resources_{load_owned_production_resources()},
+          input_queue_{
               std::make_shared<
                   meccha::product_ui::ProductUiInputQueue>()},
           key_binding_{input_queue_}
@@ -92,6 +175,7 @@ private:
         return {};
     }
 
+    meccha::application::ProductionResources resources_;
     std::shared_ptr<meccha::product_ui::ProductUiInputQueue>
         input_queue_;
     meccha::product_ui::ProductUiFunctionKeyBinding

@@ -32,6 +32,40 @@ auto main(int argc, char** argv) -> int
     auto passed = true;
     const auto root =
         std::filesystem::absolute(std::filesystem::path{argv[1]});
+
+    const auto module =
+        root.parent_path() /
+        "runtime-layout" /
+        "Mods" /
+        "MecchaCamouflage" /
+        "dlls" /
+        "main.dll";
+    const auto derived =
+        application::derive_production_resource_root(module);
+    passed &= expect(
+        derived &&
+            *derived ==
+                module.parent_path().parent_path() /
+                    "resources",
+        "the packaged main.dll path did not resolve its resource root");
+    for (const auto& invalid : std::array{
+             std::filesystem::path{"relative/Mods/"
+                                   "MecchaCamouflage/dlls/main.dll"},
+             module.parent_path() / "other.dll",
+             module.parent_path().parent_path() /
+                 "other" / "main.dll",
+             module.parent_path().parent_path()
+                     .parent_path() /
+                 "OtherMod" / "dlls" / "main.dll",
+             module.parent_path() / ".." / "dlls" / "main.dll",
+         })
+    {
+        passed &= expect(
+            !application::derive_production_resource_root(
+                invalid),
+            "a non-canonical mod module path was accepted");
+    }
+
     const auto loaded =
         application::load_production_resources(root);
     passed &= expect(

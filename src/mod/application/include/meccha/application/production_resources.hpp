@@ -23,6 +23,7 @@ struct ProductionResources
 
 enum class ProductionResourceErrorCode : std::uint8_t
 {
+    InvalidModulePath,
     InvalidRoot,
     ProfileCatalog,
     LocalizationRead,
@@ -39,6 +40,12 @@ struct ProductionResourceError
     auto operator==(const ProductionResourceError&) const
         -> bool = default;
 };
+
+[[nodiscard]] auto derive_production_resource_root(
+    const std::filesystem::path& module_file)
+    -> std::expected<
+        std::filesystem::path,
+        ProductionResourceError>;
 
 [[nodiscard]] auto load_production_resources(
     const std::filesystem::path& resource_root)

@@ -88,8 +88,12 @@ all 16 catalogs, loads the exact immutable profile catalog, and builds all
 three guide bitmaps before returning one move-only resource bundle. Relative
 roots, missing profile trees, catalog failures, localization failures, guide
 failures, allocation failures, and filesystem failures are typed and fail
-closed. The exported root still has to derive the actual
-`Mods/MecchaCamouflage/resources` path and own the returned bundle.
+closed. The exported mod owner resolves its loaded module through Win32,
+requires the exact canonical
+`Mods/MecchaCamouflage/dlls/main.dll` package layout, derives the sibling
+`resources` directory, and retains the completed bundle before any callback
+or key registration. The remaining composition work is to inject those owned
+resources into the single runtime/application/UI graph before starting it.
 
 `UnrealRuntimeAdapter` consumes that catalog through
 `ImagePaintGameRuntimePort`. Initial contract resolution requires the exact
