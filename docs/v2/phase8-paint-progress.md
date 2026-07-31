@@ -7,8 +7,10 @@ reflected `PaintAtUVWithBrush` contract and production game-thread sender now
 compile against the pinned UE4SS graph. The exact production queue observer
 and preview channel adapter also compile against that graph. A fail-closed
 manual-color scene-capture seed and generation-tagged Auto Material source
-session now compile against the same graph. Exact trial-preview mutation,
-feedback restoration, composition-root ownership, and live evidence remain.
+session now compile against the same graph. Its exact original-preview,
+zero-emission target-E0 apply/capture/restore transaction also compiles.
+Repeated SPSA trial evaluation, final appearance publication,
+composition-root ownership, and live evidence remain.
 
 The Auto Material numerical boundary is now project-owned and independently
 testable. It preserves finite HDR values up to the reviewed 64.0 rejection
@@ -49,6 +51,12 @@ the exact model UVs, drops ambiguous duplicate raster references, and returns
 immutable readback references. Target feedback must match the source camera
 and both feedback-pass cameras, then calibrates identity versus red/blue
 swapped linear readback before evaluation can report a calibrated response.
+The production session now snapshots exact albedo and packed-PBR bytes,
+composes a zero-emission candidate on the worker, begins restoration ownership
+before the first import can mutate, verifies both imported channels, waits at
+least 48 milliseconds across later HUD frames, and captures at most one of the
+three target-visible feedback passes per frame. It then verifies exact
+restoration before target-E0 analysis or final model preparation can start.
 
 ## Immutable capture-to-plan contract
 
@@ -180,12 +188,20 @@ viewport even when the bounded capture raster is scaled, so a window resize is
 not hidden by fixed render-target dimensions. The intrinsic-emission pass
 applies the reviewed 33 all-disabled show flags through a borrowed
 call-lifetime array and requires exact ordered component readback. Generation-
-owned cancellation drains either worker stage before releasing the session.
-The completed source model still fails closed before any texture mutation
-because the exact target-E0/trial-preview feedback and restoration transaction
-is not implemented. The composition root does not expose the production
-scene-capture path, and live brush-plane hiding, readback orientation, color
-semantics, cleanup, and frame-budget behavior remain unverified.
+owned cancellation drains every worker stage before releasing the session.
+After source-model preparation, the session captures and verifies the original
+preview, composes and applies one immutable zero-emission target candidate,
+settles it across HUD frames, captures FinalColor HDR, BaseColor E0, and
+intrinsic-emission E0 separately, and restores both original channels before
+calibrating readback and target emission noise on the worker. A failed or
+partially mutating apply, feedback failure, explicit cancellation, or normal
+shutdown retains the same snapshot until verified restoration succeeds; the
+destructor also makes three game-thread restoration attempts before other
+transient cleanup. The completed final model still fails closed before any
+SPSA fitting result or Paint plan can publish. The composition root does not
+expose the production scene-capture path, and exact projected-pixel
+visibility/surface identity plus live brush-plane hiding, readback orientation,
+color semantics, cleanup, and frame-budget behavior remain unverified.
 
 The application boundary for that transaction is now fixed even though the
 production appearance stages remain fail-closed. `ApplicationRoot` routes
@@ -408,16 +424,19 @@ ordering, packed-PBR quantization, edge clipping, original immutability,
 invalid plan/buffer rejection, cancellation, and resource-limit evidence.
 `paint_appearance_capture` covers exact pass-value preservation,
 deduplicated projected-pixel queries, front-facing visibility, and camera
-movement and viewport-resize rejection. `paint_appearance_worker` additionally proves owned
-profile/transform/evidence lifetimes across both worker stages and typed
-geometry/evidence failures. The secret-free Linux normal and fresh
-ASan/UBSan suites currently pass all 93 registered tests. The production
+movement and viewport-resize rejection plus calibrated target-E0 noise from
+256 paired samples. `paint_appearance_worker` additionally proves owned
+profile/transform/evidence lifetimes, immutable candidate raster ownership,
+combined feedback/target-E0 preparation, and typed failures. The secret-free
+Linux normal and fresh ASan/UBSan suites currently pass all 93 registered
+tests. The production
 adapter, exact sender, queue observer, preview channel adapter, capture codecs,
 and struct-array reflection bridge also compile with `/WX` in the pinned
 Windows MSVC `Game__Shipping__Win64` graph. The exact Windows
-reflection-contract, appearance-capture, and appearance-worker tests pass,
-and post-build verification confirms the immutable UE4SS stage remains
-unchanged. This is build evidence, not a live Paint pass.
+reflection-contract, application-root-Paint, appearance-capture, and
+appearance-worker tests pass, and post-build verification confirms the
+immutable UE4SS stage remains unchanged. This is build evidence, not a live
+Paint pass.
 
 ## Remaining gate
 
@@ -431,9 +450,12 @@ unchanged. This is build evidence, not a live Paint pass.
   passes, preview-byte readback references, and response calibration are
   complete. The production generation-tagged source session and one-pass-per-
   HUD-frame scheduler now compile and drain cancellation without publishing.
-  Exact projected-pixel visibility/surface identity, the target-E0 and trial-
-  preview apply/capture/restore transaction, a measured bounded frame budget,
-  and live brush-plane/orientation/color/cleanup evidence remain.
+  The exact target-E0 preview apply/capture/restore transaction now compiles,
+  calibrates its feedback on the worker, and cannot advance to final model
+  preparation before verified restoration. Exact projected-pixel visibility/
+  surface identity, repeated bounded SPSA trial fitting and final resolved-
+  appearance publication, a measured bounded frame budget, and live brush-
+  plane/orientation/color/cleanup evidence remain.
 - Implement the remaining production UE4SS capture contracts, connect the
   completed sender and queue observer through the exported composition root,
   and connect the completed preview adapter through that same root.

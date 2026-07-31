@@ -185,11 +185,11 @@ auto main(int argc, char** argv) -> int
     }
 
     auto base =
-        std::vector<core::Rgb8>(
+        std::make_shared<const std::vector<core::Rgb8>>(
             256U,
             core::Rgb8{64U, 96U, 128U});
     auto scene =
-        std::vector<core::Rgb8>(
+        std::make_shared<const std::vector<core::Rgb8>>(
             256U,
             core::Rgb8{180U, 150U, 120U});
     passed &= expect(
@@ -206,8 +206,8 @@ auto main(int argc, char** argv) -> int
                   })
                 .has_value(),
         "candidate composition did not start");
-    base.clear();
-    scene.clear();
+    base.reset();
+    scene.reset();
     const auto candidate_completion = wait_for(worker);
     const auto* candidate =
         candidate_completion &&
@@ -229,6 +229,79 @@ auto main(int argc, char** argv) -> int
     {
         return 1;
     }
+
+    const auto feedback_camera =
+        core::PaintAppearanceCameraFingerprint{
+            16U,
+            16U,
+            32.0,
+            32.0,
+            core::EspWorldPoint{0.0, -10.0, 0.0},
+            core::EspWorldPoint{0.0, 1.0, 0.0},
+            90.0,
+        };
+    auto target_base = std::vector<core::AppearanceRgb>(256U);
+    auto target_intrinsic =
+        std::vector<core::AppearanceRgb>(256U);
+    for (const auto& reference :
+         *candidate->readback_references)
+    {
+        target_base[reference.raster_pixel] =
+            reference.expected_linear;
+        target_intrinsic[reference.raster_pixel] =
+            core::AppearanceRgb{
+                reference.expected_linear.r + 0.002,
+                reference.expected_linear.g + 0.002,
+                reference.expected_linear.b + 0.002,
+            };
+    }
+    passed &= expect(
+        worker.start(
+                  30U,
+                  PaintAppearanceTargetE0PrepareWork{
+                      feedback_camera,
+                      candidate->readback_references,
+                      core::PaintAppearanceFeedbackEvidence{
+                          captured(
+                              feedback_camera,
+                              target_base),
+                          captured(
+                              feedback_camera,
+                              std::vector<
+                                  core::AppearanceRgb>(
+                                  256U,
+                                  core::AppearanceRgb{
+                                      1.0,
+                                      0.5,
+                                      0.25,
+                                  })),
+                      },
+                      core::PaintAppearanceTargetE0Evidence{
+                          captured(
+                              feedback_camera,
+                              std::move(target_base)),
+                          captured(
+                              feedback_camera,
+                              std::move(target_intrinsic)),
+                      },
+                  })
+                .has_value(),
+        "target E0 preparation did not start");
+    const auto target_e0_completion = wait_for(worker);
+    const auto* target_e0 =
+        target_e0_completion && target_e0_completion->result
+            ? std::get_if<PaintAppearanceTargetE0Prepared>(
+                  &*target_e0_completion->result)
+            : nullptr;
+    passed &= expect(
+        target_e0_completion &&
+            target_e0_completion->generation == 30U &&
+            target_e0 && target_e0->feedback.camera_stable &&
+            target_e0->feedback.readback.ok &&
+            target_e0->target_e0.camera_stable &&
+            target_e0->target_e0.paired_samples == 256U &&
+            target_e0->target_e0.noise.ok,
+        "worker did not publish calibrated target E0 feedback");
 
     passed &= expect(
         worker.start(

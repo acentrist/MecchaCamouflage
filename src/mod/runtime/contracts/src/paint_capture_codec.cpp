@@ -277,37 +277,39 @@ auto build_paint_scene_capture_plan(
 }
 
 auto paint_appearance_feedback_capture_plan()
-    -> std::array<PaintSceneCapturePass, 3U>
+    -> const std::array<PaintSceneCapturePass, 3U>&
 {
-    return {
-        PaintSceneCapturePass{
-            PaintSceneCapturePassKind::FinalColorHdr,
-            PaintSceneCaptureSource::FinalColorHdr,
-            PaintCaptureRenderTargetFormat::Rgba16Float,
-            PaintSceneCaptureProfile::Standard,
-            false,
-            true,
-            PaintSceneCaptureSubject::TargetVisible,
-        },
-        PaintSceneCapturePass{
-            PaintSceneCapturePassKind::BaseColor,
-            PaintSceneCaptureSource::BaseColor,
-            PaintCaptureRenderTargetFormat::Rgba8Srgb,
-            PaintSceneCaptureProfile::Standard,
-            false,
-            false,
-            PaintSceneCaptureSubject::TargetVisible,
-        },
-        PaintSceneCapturePass{
-            PaintSceneCapturePassKind::IntrinsicEmissionHdr,
-            PaintSceneCaptureSource::FinalColorHdr,
-            PaintCaptureRenderTargetFormat::Rgba16Float,
-            PaintSceneCaptureProfile::IntrinsicEmission,
-            false,
-            true,
-            PaintSceneCaptureSubject::TargetVisible,
-        },
-    };
+    static constexpr auto Plan =
+        std::array<PaintSceneCapturePass, 3U>{
+            PaintSceneCapturePass{
+                PaintSceneCapturePassKind::FinalColorHdr,
+                PaintSceneCaptureSource::FinalColorHdr,
+                PaintCaptureRenderTargetFormat::Rgba16Float,
+                PaintSceneCaptureProfile::Standard,
+                false,
+                true,
+                PaintSceneCaptureSubject::TargetVisible,
+            },
+            PaintSceneCapturePass{
+                PaintSceneCapturePassKind::BaseColor,
+                PaintSceneCaptureSource::BaseColor,
+                PaintCaptureRenderTargetFormat::Rgba8Srgb,
+                PaintSceneCaptureProfile::Standard,
+                false,
+                false,
+                PaintSceneCaptureSubject::TargetVisible,
+            },
+            PaintSceneCapturePass{
+                PaintSceneCapturePassKind::IntrinsicEmissionHdr,
+                PaintSceneCaptureSource::FinalColorHdr,
+                PaintCaptureRenderTargetFormat::Rgba16Float,
+                PaintSceneCaptureProfile::IntrinsicEmission,
+                false,
+                true,
+                PaintSceneCaptureSubject::TargetVisible,
+            },
+        };
+    return Plan;
 }
 
 auto encode_paint_scene_capture_camera(

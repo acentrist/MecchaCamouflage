@@ -31,12 +31,24 @@ struct PaintAppearancePrepareWork
 struct PaintAppearanceCandidateWork
 {
     std::shared_ptr<const core::PaintAppearanceModel> model{};
-    std::vector<core::Rgb8> base_colors{};
-    std::vector<core::Rgb8> scene_colors{};
+    std::shared_ptr<const std::vector<core::Rgb8>>
+        base_colors{};
+    std::shared_ptr<const std::vector<core::Rgb8>>
+        scene_colors{};
     std::vector<double> parameters{};
     double brush_size_texels{};
     std::uint32_t texture_dimension{};
     PaintTextureImage original{};
+};
+
+struct PaintAppearanceTargetE0PrepareWork
+{
+    core::PaintAppearanceCameraFingerprint source_camera{};
+    std::shared_ptr<const std::vector<
+        core::PaintAppearanceReadbackReference>>
+        readback_references{};
+    core::PaintAppearanceFeedbackEvidence feedback_evidence{};
+    core::PaintAppearanceTargetE0Evidence target_e0_evidence{};
 };
 
 struct PaintAppearanceGeometryPrepareWork
@@ -77,6 +89,7 @@ using PaintAppearanceWorkRequest = std::variant<
     PaintAppearanceGeometryPrepareWork,
     PaintAppearanceCapturePrepareWork,
     PaintAppearanceCandidateWork,
+    PaintAppearanceTargetE0PrepareWork,
     PaintAppearanceEvaluateWork>;
 
 struct PaintAppearancePrepared
@@ -106,6 +119,12 @@ struct PaintAppearanceCandidate
     std::vector<double> parameters{};
 };
 
+struct PaintAppearanceTargetE0Prepared
+{
+    core::PaintAppearanceFeedback feedback{};
+    core::PaintAppearanceTargetE0 target_e0{};
+};
+
 struct PaintAppearanceEvaluated
 {
     core::PaintAppearanceEvaluation evaluation{};
@@ -115,6 +134,7 @@ using PaintAppearanceWorkValue = std::variant<
     PaintAppearancePrepared,
     PaintAppearanceGeometryPrepared,
     PaintAppearanceCandidate,
+    PaintAppearanceTargetE0Prepared,
     PaintAppearanceEvaluated>;
 
 enum class PaintAppearanceWorkFailureKind : std::uint8_t

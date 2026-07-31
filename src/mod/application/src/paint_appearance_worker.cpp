@@ -362,6 +362,8 @@ auto PaintAppearanceWorker::run(
                         PaintAppearanceCandidateWork>)
                 {
                     if (!work.model ||
+                        !work.base_colors ||
+                        !work.scene_colors ||
                         !work.original.albedo_rgba ||
                         !work.original.packed_pbr_rgba)
                     {
@@ -370,8 +372,8 @@ auto PaintAppearanceWorker::run(
                     auto appearances =
                         core::resolve_paint_appearance_raster(
                             *work.model,
-                            work.base_colors,
-                            work.scene_colors,
+                            *work.base_colors,
+                            *work.scene_colors,
                             work.parameters,
                             cancellation);
                     if (!appearances)
@@ -453,6 +455,44 @@ auto PaintAppearanceWorker::run(
                             std::move(
                                 owned_readback_references),
                             std::move(work.parameters),
+                        }};
+                }
+                else if constexpr (
+                    std::is_same_v<
+                        Work,
+                        PaintAppearanceTargetE0PrepareWork>)
+                {
+                    if (!work.readback_references)
+                    {
+                        return invalid_request();
+                    }
+                    auto feedback =
+                        core::prepare_paint_appearance_feedback(
+                            work.source_camera,
+                            *work.readback_references,
+                            work.feedback_evidence,
+                            cancellation);
+                    if (!feedback)
+                    {
+                        return capture_evidence_failure(
+                            feedback.error());
+                    }
+                    auto target_e0 =
+                        core::prepare_paint_appearance_target_e0(
+                            work.source_camera,
+                            *work.readback_references,
+                            work.target_e0_evidence,
+                            feedback->readback,
+                            cancellation);
+                    if (!target_e0)
+                    {
+                        return capture_evidence_failure(
+                            target_e0.error());
+                    }
+                    return PaintAppearanceWorkValue{
+                        PaintAppearanceTargetE0Prepared{
+                            std::move(*feedback),
+                            std::move(*target_e0),
                         }};
                 }
                 else

@@ -604,4 +604,124 @@ auto prepare_paint_appearance_feedback(
         true,
     };
 }
+
+auto prepare_paint_appearance_target_e0(
+    const PaintAppearanceCameraFingerprint& source_camera,
+    std::span<const PaintAppearanceReadbackReference>
+        readback_references,
+    const PaintAppearanceTargetE0Evidence& evidence,
+    const AppearanceReadbackCalibration& readback,
+    std::stop_token cancellation)
+    -> std::expected<
+        PaintAppearanceTargetE0,
+        PaintAppearanceCaptureError>
+{
+    if (cancellation.stop_requested())
+    {
+        return std::unexpected(
+            PaintAppearanceCaptureError::Cancelled);
+    }
+    const auto count = pixel_count(source_camera);
+    if (!count || !camera_valid(source_camera) ||
+        !valid_pass(evidence.base_color, *count) ||
+        !valid_pass(
+            evidence.intrinsic_emission_hdr,
+            *count) ||
+        readback_references.empty() ||
+        readback_references.size() >
+            MaximumPaintAppearanceSamples ||
+        !readback.ok ||
+        !std::isfinite(readback.median_error) ||
+        !std::isfinite(readback.runner_up_median))
+    {
+        return std::unexpected(
+            PaintAppearanceCaptureError::InvalidEvidence);
+    }
+    if (!camera_matches(
+            source_camera,
+            evidence.base_color.camera) ||
+        !camera_matches(
+            source_camera,
+            evidence.intrinsic_emission_hdr.camera) ||
+        !camera_matches(
+            evidence.base_color.camera,
+            evidence.intrinsic_emission_hdr.camera))
+    {
+        return std::unexpected(
+            PaintAppearanceCaptureError::CameraChanged);
+    }
+
+    auto residual_luminance = std::vector<double>{};
+    residual_luminance.reserve(readback_references.size());
+    auto previous_pixel = std::size_t{};
+    auto have_previous = false;
+    for (auto index = std::size_t{};
+         index < readback_references.size();
+         ++index)
+    {
+        if ((index % 256U) == 0U &&
+            cancellation.stop_requested())
+        {
+            return std::unexpected(
+                PaintAppearanceCaptureError::Cancelled);
+        }
+        const auto& reference = readback_references[index];
+        if (reference.raster_pixel >= *count ||
+            !appearance_rgb_finite(
+                reference.expected_linear) ||
+            (have_previous &&
+             reference.raster_pixel <= previous_pixel))
+        {
+            return std::unexpected(
+                PaintAppearanceCaptureError::InvalidEvidence);
+        }
+        previous_pixel = reference.raster_pixel;
+        have_previous = true;
+
+        auto base = (*evidence.base_color.pixels)[
+            reference.raster_pixel];
+        auto intrinsic =
+            (*evidence.intrinsic_emission_hdr.pixels)[
+                reference.raster_pixel];
+        if (readback.transform ==
+            AppearanceReadbackTransform::SwapRedBlue)
+        {
+            std::swap(base.r, base.b);
+            std::swap(intrinsic.r, intrinsic.b);
+        }
+        const auto sanitized_base =
+            appearance_sanitize_hdr(base);
+        const auto sanitized_intrinsic =
+            appearance_sanitize_hdr(intrinsic);
+        if (!sanitized_base.finite ||
+            sanitized_base.clipped ||
+            !sanitized_intrinsic.finite ||
+            sanitized_intrinsic.clipped)
+        {
+            continue;
+        }
+        const auto residual = AppearanceRgb{
+            std::max(
+                0.0,
+                sanitized_intrinsic.value.r -
+                    sanitized_base.value.r),
+            std::max(
+                0.0,
+                sanitized_intrinsic.value.g -
+                    sanitized_base.value.g),
+            std::max(
+                0.0,
+                sanitized_intrinsic.value.b -
+                    sanitized_base.value.b),
+        };
+        residual_luminance.push_back(
+            appearance_luminance(residual));
+    }
+    return PaintAppearanceTargetE0{
+        appearance_emission_noise_model(
+            residual_luminance),
+        residual_luminance.size(),
+        true,
+    };
+}
 } // namespace meccha::core

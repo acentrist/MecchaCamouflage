@@ -95,6 +95,20 @@ struct PaintAppearanceFeedback
     bool camera_stable{};
 };
 
+struct PaintAppearanceTargetE0Evidence
+{
+    PaintAppearanceCapturedPass<AppearanceRgb> base_color{};
+    PaintAppearanceCapturedPass<AppearanceRgb>
+        intrinsic_emission_hdr{};
+};
+
+struct PaintAppearanceTargetE0
+{
+    AppearanceEmissionNoiseModel noise{};
+    std::size_t paired_samples{};
+    bool camera_stable{};
+};
+
 enum class PaintAppearanceCaptureError : std::uint8_t
 {
     InvalidEvidence,
@@ -139,5 +153,16 @@ enum class PaintAppearanceCaptureError : std::uint8_t
     std::stop_token cancellation = {})
     -> std::expected<
         PaintAppearanceFeedback,
+        PaintAppearanceCaptureError>;
+
+[[nodiscard]] auto prepare_paint_appearance_target_e0(
+    const PaintAppearanceCameraFingerprint& source_camera,
+    std::span<const PaintAppearanceReadbackReference>
+        readback_references,
+    const PaintAppearanceTargetE0Evidence& evidence,
+    const AppearanceReadbackCalibration& readback,
+    std::stop_token cancellation = {})
+    -> std::expected<
+        PaintAppearanceTargetE0,
         PaintAppearanceCaptureError>;
 } // namespace meccha::core

@@ -486,6 +486,12 @@ Evidence:
       - [x] Freeze the exact 0x10
         `SceneCaptureComponent.SetShowFlagSettings` array schema and require
         exact ordered readback of the reviewed 33 intrinsic-emission flags.
+      - [x] Capture the exact original preview channels, compose an immutable
+        zero-emission E0 candidate on the worker, apply and verify both trial
+        channels, wait across later HUD frames, capture at most one of the
+        three target-visible feedback passes per frame, restore and verify the
+        original channels before worker analysis, and retain restoration
+        ownership through failure, cancellation, and game-thread teardown.
 - [x] Validate round, cube, and fukuyoka profiles.
 - [x] Implement immutable planning for Paint/Fill/Skip, lighting, Auto Material,
   PBR, compression, and Fill-first ordering.

@@ -299,7 +299,7 @@ enum class PaintCaptureEncodingError : std::uint8_t
         PaintCaptureEncodingError>;
 
 [[nodiscard]] auto paint_appearance_feedback_capture_plan()
-    -> std::array<PaintSceneCapturePass, 3U>;
+    -> const std::array<PaintSceneCapturePass, 3U>&;
 
 [[nodiscard]] auto encode_paint_scene_capture_camera(
     const core::EspView& view,

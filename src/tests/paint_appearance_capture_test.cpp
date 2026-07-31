@@ -355,6 +355,110 @@ auto main() -> int
                     PaintAppearanceCaptureError::CameraChanged),
         "target-visible feedback from a moved camera was accepted");
 
+    constexpr auto E0Dimension = std::uint32_t{16U};
+    constexpr auto E0PixelCount =
+        static_cast<std::size_t>(E0Dimension) * E0Dimension;
+    const auto e0_fingerprint =
+        make_paint_appearance_camera_fingerprint(
+            EspView{
+                EspWorldPoint{0.0, -10.0, 0.0},
+                0.0,
+                90.0,
+                0.0,
+                90.0,
+                1.0,
+                EspAspectConstraint::MaintainXFov,
+                1.0,
+                1.0,
+            },
+            EspViewport{32.0, 32.0},
+            E0Dimension,
+            E0Dimension);
+    auto e0_references =
+        std::vector<PaintAppearanceReadbackReference>{};
+    e0_references.reserve(E0PixelCount);
+    for (auto pixel = std::size_t{};
+         pixel < E0PixelCount;
+         ++pixel)
+    {
+        e0_references.push_back(
+            PaintAppearanceReadbackReference{
+                pixel,
+                AppearanceRgb{0.2, 0.3, 0.4},
+            });
+    }
+    const auto swapped_base_linear =
+        AppearanceRgb{0.4, 0.3, 0.2};
+    const auto swapped_intrinsic_linear =
+        AppearanceRgb{0.402, 0.302, 0.202};
+    const auto e0 = e0_fingerprint
+                        ? prepare_paint_appearance_target_e0(
+                              *e0_fingerprint,
+                              e0_references,
+                              PaintAppearanceTargetE0Evidence{
+                                  captured(
+                                      *e0_fingerprint,
+                                      std::vector<AppearanceRgb>(
+                                          E0PixelCount,
+                                          swapped_base_linear)),
+                                  captured(
+                                      *e0_fingerprint,
+                                      std::vector<AppearanceRgb>(
+                                          E0PixelCount,
+                                          swapped_intrinsic_linear)),
+                              },
+                              AppearanceReadbackCalibration{
+                                  true,
+                                  AppearanceReadbackTransform::
+                                      SwapRedBlue,
+                                  0.0,
+                                  0.2,
+                              })
+                        : std::expected<
+                              PaintAppearanceTargetE0,
+                              PaintAppearanceCaptureError>{
+                              std::unexpected(
+                                  PaintAppearanceCaptureError::
+                                      InvalidEvidence)};
+    passed &= expect(
+        e0 && e0->camera_stable &&
+            e0->paired_samples == E0PixelCount &&
+            e0->noise.ok &&
+            std::abs(e0->noise.median - 0.002) < 1.0e-12 &&
+            std::abs(e0->noise.threshold - 0.012) < 1.0e-12,
+        "target E0 captures did not produce calibrated emission noise");
+    if (e0_fingerprint)
+    {
+        auto changed_e0 = PaintAppearanceTargetE0Evidence{
+            captured(
+                *e0_fingerprint,
+                std::vector<AppearanceRgb>(
+                    E0PixelCount,
+                    swapped_base_linear)),
+            captured(
+                *e0_fingerprint,
+                std::vector<AppearanceRgb>(
+                    E0PixelCount,
+                    swapped_intrinsic_linear)),
+        };
+        changed_e0.intrinsic_emission_hdr.camera.viewport_height =
+            31.0;
+        passed &= expect(
+            prepare_paint_appearance_target_e0(
+                *e0_fingerprint,
+                e0_references,
+                changed_e0,
+                AppearanceReadbackCalibration{
+                    true,
+                    AppearanceReadbackTransform::Identity,
+                    0.0,
+                    0.2,
+                }) ==
+                std::unexpected(
+                    PaintAppearanceCaptureError::CameraChanged),
+            "target E0 evidence from a changed camera was accepted");
+    }
+
     if (passed)
     {
         std::cout << "PASS paint_appearance_capture\n";
