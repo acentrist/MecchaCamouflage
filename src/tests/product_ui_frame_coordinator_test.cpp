@@ -568,14 +568,18 @@ auto main(int argc, char** argv) -> int
                 ui::InputLeasePhase::Released,
         "a closed snapshot did not keep the input lease released");
 
+    const auto shutdown = coordinator.shutdown();
     passed &= expect(
-        coordinator.shutdown().has_value() &&
-            coordinator.snapshot().stopped &&
-            coordinator.tick(frame_identity) ==
-                std::unexpected(
-                    ProductUiFrameError{
-                        ProductUiFrameErrorCode::Stopped,
-                    }),
+        shutdown.has_value(),
+        "terminal shutdown did not complete");
+    passed &= expect(
+        coordinator.snapshot().stopped,
+        "terminal shutdown did not publish stopped state");
+    const auto stopped_frame = coordinator.tick(frame_identity);
+    passed &= expect(
+        !stopped_frame &&
+            stopped_frame.error().code ==
+                ProductUiFrameErrorCode::Stopped,
         "terminal shutdown did not close UI frame admission");
 
     auto texture_snapshots = SnapshotPort{};
