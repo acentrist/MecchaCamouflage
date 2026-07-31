@@ -68,7 +68,7 @@ mapping refusal, invalid/event-limit refusal, exact command-ID exhaustion,
 input-loss release, and terminal shutdown.
 
 The complete Linux, Linux ASan/UBSan, and Windows MSVC Release graphs pass 74,
-74, and 91 tests respectively.
+74, and 92 tests respectively.
 
 ## Immutable product presentation
 

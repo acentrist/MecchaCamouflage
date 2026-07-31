@@ -222,7 +222,7 @@ HUD-frame coordinator additionally proves localized composition, exact
 input-lease acquisition and render-failure rollback, render-before-action
 ordering, ready-texture synchronization, and resource-free shutdown through a
 fake runtime port. The normal Linux, ASan/UBSan, and Windows Release graphs pass
-74, 74, and 91 tests respectively.
+74, 74, and 92 tests respectively.
 
 ## Remaining feasibility work
 
