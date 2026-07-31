@@ -16,6 +16,33 @@ namespace meccha::runtime
 [[nodiscard]] auto import_buffer_as_texture2d_contract()
     -> ReflectionRecordDescriptor;
 
+[[nodiscard]] auto vector_contract()
+    -> ReflectionRecordDescriptor;
+
+[[nodiscard]] auto rotator_contract()
+    -> ReflectionRecordDescriptor;
+
+[[nodiscard]] auto get_camera_location_contract()
+    -> ReflectionRecordDescriptor;
+
+[[nodiscard]] auto get_camera_rotation_contract()
+    -> ReflectionRecordDescriptor;
+
+[[nodiscard]] auto get_fov_angle_contract()
+    -> ReflectionRecordDescriptor;
+
+[[nodiscard]] auto k2_get_component_location_contract()
+    -> ReflectionRecordDescriptor;
+
+[[nodiscard]] auto k2_get_component_rotation_contract()
+    -> ReflectionRecordDescriptor;
+
+[[nodiscard]] auto get_scaled_capsule_radius_contract()
+    -> ReflectionRecordDescriptor;
+
+[[nodiscard]] auto get_scaled_capsule_half_height_contract()
+    -> ReflectionRecordDescriptor;
+
 [[nodiscard]] auto is_look_input_ignored_contract()
     -> ReflectionRecordDescriptor;
 

@@ -1,6 +1,7 @@
 #include <meccha/runtime/unreal_runtime_adapter.hpp>
 
 #include <meccha/runtime/canvas_call_codec.hpp>
+#include <meccha/runtime/esp_capture_codec.hpp>
 #include <meccha/runtime/input_control_codec.hpp>
 #include <meccha/runtime/paint_call_codec.hpp>
 #include <meccha/runtime/paint_preview_codec.hpp>
@@ -14,6 +15,7 @@
 #include "unreal_reflection_validation.hpp"
 
 #include <Unreal/CoreUObject/UObject/Class.hpp>
+#include <Unreal/CoreUObject/UObject/FStrProperty.hpp>
 #include <Unreal/CoreUObject/UObject/UnrealType.hpp>
 #include <Unreal/FMemory.hpp>
 #include <Unreal/FSoftObjectPath.hpp>
@@ -35,6 +37,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <chrono>
 #include <condition_variable>
 #include <cmath>
 #include <cstdint>
@@ -67,6 +70,19 @@ constexpr auto PlayerControllerClassPath =
 constexpr auto ControllerClassPath =
     STR("/Script/Engine.Controller");
 constexpr auto PawnClassPath = STR("/Script/Engine.Pawn");
+constexpr auto CharacterClassPath = STR("/Script/Engine.Character");
+constexpr auto SpectatorPawnClassPath =
+    STR("/Script/Engine.SpectatorPawn");
+constexpr auto GameStateBaseClassPath =
+    STR("/Script/Engine.GameStateBase");
+constexpr auto PlayerStateClassPath =
+    STR("/Script/Engine.PlayerState");
+constexpr auto SceneComponentClassPath =
+    STR("/Script/Engine.SceneComponent");
+constexpr auto CapsuleComponentClassPath =
+    STR("/Script/Engine.CapsuleComponent");
+constexpr auto PlayerCameraManagerClassPath =
+    STR("/Script/Engine.PlayerCameraManager");
 constexpr auto CanvasClassPath = STR("/Script/Engine.Canvas");
 constexpr auto FontClassPath = STR("/Script/Engine.Font");
 constexpr auto GameFontAssetPath =
@@ -129,6 +145,45 @@ constexpr auto Vector2dPath =
     STR("/Script/CoreUObject.Vector2D");
 constexpr auto LinearColorPath =
     STR("/Script/CoreUObject.LinearColor");
+constexpr auto VectorPath = STR("/Script/CoreUObject.Vector");
+constexpr auto RotatorPath = STR("/Script/CoreUObject.Rotator");
+constexpr auto GetCameraLocationPath =
+    STR("/Script/Engine.PlayerCameraManager:GetCameraLocation");
+constexpr auto GetCameraRotationPath =
+    STR("/Script/Engine.PlayerCameraManager:GetCameraRotation");
+constexpr auto GetFovAnglePath =
+    STR("/Script/Engine.PlayerCameraManager:GetFOVAngle");
+constexpr auto K2GetComponentLocationPath =
+    STR("/Script/Engine.SceneComponent:K2_GetComponentLocation");
+constexpr auto K2GetComponentRotationPath =
+    STR("/Script/Engine.SceneComponent:K2_GetComponentRotation");
+constexpr auto GetScaledCapsuleRadiusPath =
+    STR("/Script/Engine.CapsuleComponent:GetScaledCapsuleRadius");
+constexpr auto GetScaledCapsuleHalfHeightPath =
+    STR("/Script/Engine.CapsuleComponent:"
+        "GetScaledCapsuleHalfHeight");
+constexpr auto GameStateCLeonClassPath =
+    STR("/Game/BluePrints/cLeon/BP_GameState_cLeon."
+        "BP_GameState_cLeon_C");
+constexpr auto PlayerStateOnlineClassPath =
+    STR("/Game/FirstPerson/Blueprints/"
+        "BP_FirstPersonPlayerState_Online."
+        "BP_FirstPersonPlayerState_Online_C");
+constexpr auto PlayerStateCLeonClassPath =
+    STR("/Game/BluePrints/cLeon/"
+        "BP_FirstPersonPlayerState_Online_cLeon."
+        "BP_FirstPersonPlayerState_Online_cLeon_C");
+constexpr auto HunterCharacterClassPath =
+    STR("/Game/BluePrints/cLeon/"
+        "BP_FirstPersonCharacter_cLeon_Character_Hunter."
+        "BP_FirstPersonCharacter_cLeon_Character_Hunter_C");
+constexpr auto SurvivorCharacterClassPath =
+    STR("/Game/BluePrints/cLeon/"
+        "BP_FirstPersonCharacter_cLeon_Character_Survivor."
+        "BP_FirstPersonCharacter_cLeon_Character_Survivor_C");
+constexpr auto SpectatePawnCLeonClassPath =
+    STR("/Game/BluePrints/cLeon/BP_SpectatePawn_cLeon."
+        "BP_SpectatePawn_cLeon_C");
 constexpr auto PaintChannelDataPath =
     STR("/Script/PenguinHotel.PaintChannelData");
 constexpr auto RuntimeBrushSettingsPath =
@@ -136,6 +191,9 @@ constexpr auto RuntimeBrushSettingsPath =
 constexpr auto ReceiveDrawHudParameterBytes = 8;
 constexpr auto FailureMessage = "error.operation.failed";
 constexpr auto MaximumOwnedCanvasTextures = std::size_t{1024U};
+constexpr auto EspAvatarRefreshIntervalMs = std::uint64_t{1000U};
+constexpr auto MaximumEspAvatarCandidates =
+    core::MaximumEspTargets * 2U;
 
 struct ReceiveDrawHudParametersAbi
 {
@@ -213,6 +271,64 @@ struct ImagePaintContracts
     UClass* skinned_asset_class{};
     FWeakObjectProperty* target_mesh_component{};
     FObjectProperty* skinned_asset{};
+};
+
+struct EspContracts
+{
+    UClass* world_class{};
+    UClass* controller_class{};
+    UClass* player_controller_class{};
+    UClass* game_state_base_class{};
+    UClass* player_state_class{};
+    UClass* pawn_class{};
+    UClass* character_class{};
+    UClass* spectator_pawn_class{};
+    UClass* scene_component_class{};
+    UClass* capsule_component_class{};
+    UClass* player_camera_manager_class{};
+    UClass* game_state_cleon_class{};
+    UClass* player_state_online_class{};
+    UClass* player_state_cleon_class{};
+    UClass* hunter_character_class{};
+    UClass* survivor_character_class{};
+    UClass* spectate_pawn_cleon_class{};
+    UScriptStruct* vector{};
+    UScriptStruct* rotator{};
+    UFunction* get_camera_location{};
+    UFunction* get_camera_rotation{};
+    UFunction* get_fov_angle{};
+    UFunction* k2_get_component_location{};
+    UFunction* k2_get_component_rotation{};
+    UFunction* get_scaled_capsule_radius{};
+    UFunction* get_scaled_capsule_half_height{};
+    FObjectPropertyBase* world_game_state{};
+    FObjectPropertyBase* controller_player_state{};
+    FObjectPropertyBase* player_state_pawn{};
+    FObjectPropertyBase* pawn_player_state{};
+    FObjectPropertyBase* character_capsule{};
+    FObjectPropertyBase* player_camera_manager{};
+    FArrayProperty* player_array{};
+    FArrayProperty* live_survivor_player_states{};
+    FArrayProperty* hunter_player_states{};
+    FBoolProperty* is_spectator{};
+    FBoolProperty* only_spectator{};
+    FStrProperty* custom_player_name{};
+};
+
+struct EspAvatarBinding
+{
+    FWeakObjectPtr player_state{};
+    FWeakObjectPtr avatar{};
+    core::EspRole role{core::EspRole::Unknown};
+    bool avatar_resolved{};
+};
+
+struct EspAvatarDirectory
+{
+    std::uint64_t world_identity{};
+    std::uint64_t hud_identity{};
+    std::uint64_t refresh_ms{};
+    std::vector<EspAvatarBinding> bindings{};
 };
 
 struct ActiveFrame
@@ -399,6 +515,90 @@ auto find_weak_object_property(
     return property;
 }
 
+auto find_exact_object_property(
+    UClass* lookup_class,
+    UClass* declared_owner,
+    const TCHAR* name,
+    UClass* expected_class) -> FObjectPropertyBase*
+{
+    if (lookup_class == nullptr || declared_owner == nullptr ||
+        expected_class == nullptr)
+    {
+        return nullptr;
+    }
+    auto* property = CastField<FObjectPropertyBase>(
+        lookup_class->FindProperty(FName{name, FNAME_Find}));
+    if (property == nullptr ||
+        property->GetOwner<UClass>() != declared_owner ||
+        property->GetArrayDim() != 1 ||
+        property->GetElementSize() !=
+            static_cast<int>(sizeof(void*)) ||
+        property->GetPropertyClass().Get() != expected_class ||
+        !property->IsInContainer(lookup_class))
+    {
+        return nullptr;
+    }
+    return property;
+}
+
+auto find_exact_object_array_property(
+    UClass* lookup_class,
+    UClass* declared_owner,
+    const TCHAR* name,
+    UClass* expected_element_class) -> FArrayProperty*
+{
+    if (lookup_class == nullptr || declared_owner == nullptr ||
+        expected_element_class == nullptr)
+    {
+        return nullptr;
+    }
+    auto* property = CastField<FArrayProperty>(
+        lookup_class->FindProperty(FName{name, FNAME_Find}));
+    auto* inner =
+        property == nullptr
+            ? nullptr
+            : CastField<FObjectPropertyBase>(
+                  property->GetInner());
+    if (property == nullptr || inner == nullptr ||
+        property->GetOwner<UClass>() != declared_owner ||
+        property->GetArrayDim() != 1 ||
+        property->GetElementSize() !=
+            static_cast<int>(sizeof(FScriptArray)) ||
+        !property->IsInContainer(lookup_class) ||
+        inner->GetArrayDim() != 1 ||
+        inner->GetElementSize() !=
+            static_cast<int>(sizeof(void*)) ||
+        inner->GetPropertyClass().Get() !=
+            expected_element_class)
+    {
+        return nullptr;
+    }
+    return property;
+}
+
+auto find_exact_string_property(
+    UClass* lookup_class,
+    UClass* declared_owner,
+    const TCHAR* name) -> FStrProperty*
+{
+    if (lookup_class == nullptr || declared_owner == nullptr)
+    {
+        return nullptr;
+    }
+    auto* property = CastField<FStrProperty>(
+        lookup_class->FindProperty(FName{name, FNAME_Find}));
+    if (property == nullptr ||
+        property->GetOwner<UClass>() != declared_owner ||
+        property->GetArrayDim() != 1 ||
+        property->GetElementSize() !=
+            static_cast<int>(sizeof(FString)) ||
+        !property->IsInContainer(lookup_class))
+    {
+        return nullptr;
+    }
+    return property;
+}
+
 auto resolve_hud_contracts() -> std::optional<HudContracts>
 {
     auto contracts = HudContracts{};
@@ -525,6 +725,544 @@ auto runtime_failure(
             FailureMessage,
         },
     });
+}
+
+auto resolve_esp_contracts()
+    -> std::expected<
+        EspContracts,
+        application::RuntimeExecutionError>
+{
+    auto contracts = EspContracts{};
+    contracts.world_class = find_class(WorldClassPath);
+    contracts.controller_class = find_class(ControllerClassPath);
+    contracts.player_controller_class =
+        find_class(PlayerControllerClassPath);
+    contracts.game_state_base_class =
+        find_class(GameStateBaseClassPath);
+    contracts.player_state_class =
+        find_class(PlayerStateClassPath);
+    contracts.pawn_class = find_class(PawnClassPath);
+    contracts.character_class = find_class(CharacterClassPath);
+    contracts.spectator_pawn_class =
+        find_class(SpectatorPawnClassPath);
+    contracts.scene_component_class =
+        find_class(SceneComponentClassPath);
+    contracts.capsule_component_class =
+        find_class(CapsuleComponentClassPath);
+    contracts.player_camera_manager_class =
+        find_class(PlayerCameraManagerClassPath);
+    contracts.game_state_cleon_class =
+        find_class(GameStateCLeonClassPath);
+    contracts.player_state_online_class =
+        find_class(PlayerStateOnlineClassPath);
+    contracts.player_state_cleon_class =
+        find_class(PlayerStateCLeonClassPath);
+    contracts.hunter_character_class =
+        find_class(HunterCharacterClassPath);
+    contracts.survivor_character_class =
+        find_class(SurvivorCharacterClassPath);
+    contracts.spectate_pawn_cleon_class =
+        find_class(SpectatePawnCLeonClassPath);
+    contracts.vector =
+        UObjectGlobals::StaticFindObject<UScriptStruct*>(
+            nullptr,
+            nullptr,
+            VectorPath);
+    contracts.rotator =
+        UObjectGlobals::StaticFindObject<UScriptStruct*>(
+            nullptr,
+            nullptr,
+            RotatorPath);
+    contracts.get_camera_location =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            GetCameraLocationPath);
+    contracts.get_camera_rotation =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            GetCameraRotationPath);
+    contracts.get_fov_angle =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            GetFovAnglePath);
+    contracts.k2_get_component_location =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            K2GetComponentLocationPath);
+    contracts.k2_get_component_rotation =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            K2GetComponentRotationPath);
+    contracts.get_scaled_capsule_radius =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            GetScaledCapsuleRadiusPath);
+    contracts.get_scaled_capsule_half_height =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            GetScaledCapsuleHalfHeightPath);
+
+    const auto required_objects = std::array{
+        static_cast<UObject*>(contracts.world_class),
+        static_cast<UObject*>(contracts.controller_class),
+        static_cast<UObject*>(contracts.player_controller_class),
+        static_cast<UObject*>(contracts.game_state_base_class),
+        static_cast<UObject*>(contracts.player_state_class),
+        static_cast<UObject*>(contracts.pawn_class),
+        static_cast<UObject*>(contracts.character_class),
+        static_cast<UObject*>(contracts.spectator_pawn_class),
+        static_cast<UObject*>(contracts.scene_component_class),
+        static_cast<UObject*>(contracts.capsule_component_class),
+        static_cast<UObject*>(contracts.player_camera_manager_class),
+        static_cast<UObject*>(contracts.game_state_cleon_class),
+        static_cast<UObject*>(contracts.player_state_online_class),
+        static_cast<UObject*>(contracts.player_state_cleon_class),
+        static_cast<UObject*>(contracts.hunter_character_class),
+        static_cast<UObject*>(contracts.survivor_character_class),
+        static_cast<UObject*>(contracts.spectate_pawn_cleon_class),
+        static_cast<UObject*>(contracts.vector),
+        static_cast<UObject*>(contracts.rotator),
+    };
+    if (std::ranges::any_of(
+            required_objects,
+            [](UObject* object) { return object == nullptr; }))
+    {
+        return runtime_failure(
+            application::RuntimeContractId::EspFrame,
+            application::ContractFailureKind::MissingObject);
+    }
+    if (!contracts.game_state_cleon_class->IsChildOf(
+            contracts.game_state_base_class) ||
+        !contracts.player_state_online_class->IsChildOf(
+            contracts.player_state_class) ||
+        !contracts.player_state_cleon_class->IsChildOf(
+            contracts.player_state_online_class) ||
+        !contracts.hunter_character_class->IsChildOf(
+            contracts.character_class) ||
+        !contracts.survivor_character_class->IsChildOf(
+            contracts.character_class) ||
+        !contracts.spectate_pawn_cleon_class->IsChildOf(
+            contracts.spectator_pawn_class) ||
+        !contracts.capsule_component_class->IsChildOf(
+            contracts.scene_component_class))
+    {
+        return runtime_failure(
+            application::RuntimeContractId::EspFrame,
+            application::ContractFailureKind::WrongClass);
+    }
+    const auto required_functions = std::array{
+        contracts.get_camera_location,
+        contracts.get_camera_rotation,
+        contracts.get_fov_angle,
+        contracts.k2_get_component_location,
+        contracts.k2_get_component_rotation,
+        contracts.get_scaled_capsule_radius,
+        contracts.get_scaled_capsule_half_height,
+    };
+    if (std::ranges::any_of(
+            required_functions,
+            [](UFunction* function)
+            {
+                return function == nullptr;
+            }))
+    {
+        return runtime_failure(
+            application::RuntimeContractId::EspFrame,
+            application::ContractFailureKind::MissingFunction);
+    }
+
+    contracts.world_game_state = find_exact_object_property(
+        contracts.world_class,
+        contracts.world_class,
+        STR("GameState"),
+        contracts.game_state_base_class);
+    contracts.controller_player_state =
+        find_exact_object_property(
+            contracts.player_controller_class,
+            contracts.controller_class,
+            STR("PlayerState"),
+            contracts.player_state_class);
+    contracts.player_state_pawn = find_exact_object_property(
+        contracts.player_state_cleon_class,
+        contracts.player_state_class,
+        STR("PawnPrivate"),
+        contracts.pawn_class);
+    contracts.pawn_player_state = find_exact_object_property(
+        contracts.pawn_class,
+        contracts.pawn_class,
+        STR("PlayerState"),
+        contracts.player_state_class);
+    contracts.character_capsule = find_exact_object_property(
+        contracts.character_class,
+        contracts.character_class,
+        STR("CapsuleComponent"),
+        contracts.capsule_component_class);
+    contracts.player_camera_manager =
+        find_exact_object_property(
+            contracts.player_controller_class,
+            contracts.player_controller_class,
+            STR("PlayerCameraManager"),
+            contracts.player_camera_manager_class);
+    contracts.player_array = find_exact_object_array_property(
+        contracts.game_state_cleon_class,
+        contracts.game_state_base_class,
+        STR("PlayerArray"),
+        contracts.player_state_class);
+    contracts.live_survivor_player_states =
+        find_exact_object_array_property(
+            contracts.game_state_cleon_class,
+            contracts.game_state_cleon_class,
+            STR("LiveSurvivors_PlayerState"),
+            contracts.player_state_cleon_class);
+    contracts.hunter_player_states =
+        find_exact_object_array_property(
+            contracts.game_state_cleon_class,
+            contracts.game_state_cleon_class,
+            STR("HuntersPlayerState"),
+            contracts.player_state_cleon_class);
+    contracts.is_spectator = find_bool_property(
+        contracts.player_state_class,
+        STR("bIsSpectator"));
+    contracts.only_spectator = find_bool_property(
+        contracts.player_state_class,
+        STR("bOnlySpectator"));
+    contracts.custom_player_name = find_exact_string_property(
+        contracts.player_state_cleon_class,
+        contracts.player_state_online_class,
+        STR("CustomPlayerName"));
+    const auto required_properties = std::array{
+        static_cast<FProperty*>(contracts.world_game_state),
+        static_cast<FProperty*>(contracts.controller_player_state),
+        static_cast<FProperty*>(contracts.player_state_pawn),
+        static_cast<FProperty*>(contracts.pawn_player_state),
+        static_cast<FProperty*>(contracts.character_capsule),
+        static_cast<FProperty*>(contracts.player_camera_manager),
+        static_cast<FProperty*>(contracts.player_array),
+        static_cast<FProperty*>(
+            contracts.live_survivor_player_states),
+        static_cast<FProperty*>(contracts.hunter_player_states),
+        static_cast<FProperty*>(contracts.is_spectator),
+        static_cast<FProperty*>(contracts.only_spectator),
+        static_cast<FProperty*>(contracts.custom_player_name),
+    };
+    if (std::ranges::any_of(
+            required_properties,
+            [](FProperty* property)
+            {
+                return property == nullptr;
+            }))
+    {
+        return runtime_failure(
+            application::RuntimeContractId::EspFrame,
+            application::ContractFailureKind::MissingProperty);
+    }
+
+    const auto validations = std::array{
+        std::pair{
+            static_cast<UStruct*>(contracts.vector),
+            vector_contract()},
+        std::pair{
+            static_cast<UStruct*>(contracts.rotator),
+            rotator_contract()},
+        std::pair{
+            static_cast<UStruct*>(contracts.get_camera_location),
+            get_camera_location_contract()},
+        std::pair{
+            static_cast<UStruct*>(contracts.get_camera_rotation),
+            get_camera_rotation_contract()},
+        std::pair{
+            static_cast<UStruct*>(contracts.get_fov_angle),
+            get_fov_angle_contract()},
+        std::pair{
+            static_cast<UStruct*>(
+                contracts.k2_get_component_location),
+            k2_get_component_location_contract()},
+        std::pair{
+            static_cast<UStruct*>(
+                contracts.k2_get_component_rotation),
+            k2_get_component_rotation_contract()},
+        std::pair{
+            static_cast<UStruct*>(
+                contracts.get_scaled_capsule_radius),
+            get_scaled_capsule_radius_contract()},
+        std::pair{
+            static_cast<UStruct*>(
+                contracts.get_scaled_capsule_half_height),
+            get_scaled_capsule_half_height_contract()},
+    };
+    for (const auto& [record, expected] : validations)
+    {
+        const auto validation = validate_unreal_record(
+            record,
+            expected,
+            application::RuntimeContractId::EspFrame);
+        if (!validation)
+        {
+            return std::unexpected(validation.error());
+        }
+    }
+    return contracts;
+}
+
+auto read_object_array(
+    FArrayProperty* property,
+    UObject* container,
+    UClass* expected_class)
+    -> std::optional<std::vector<UObject*>>
+{
+    if (property == nullptr || container == nullptr ||
+        expected_class == nullptr)
+    {
+        return std::nullopt;
+    }
+    auto* inner = CastField<FObjectPropertyBase>(
+        property->GetInner());
+    if (inner == nullptr ||
+        inner->GetPropertyClass().Get() != expected_class)
+    {
+        return std::nullopt;
+    }
+    auto helper = FScriptArrayHelper_InContainer{
+        property,
+        container};
+    const auto count = helper.Num();
+    if (count < 0 ||
+        count > static_cast<std::int32_t>(
+                    core::MaximumEspTargets))
+    {
+        return std::nullopt;
+    }
+    auto values = std::vector<UObject*>{};
+    values.reserve(static_cast<std::size_t>(count));
+    for (auto index = std::int32_t{}; index < count; ++index)
+    {
+        auto* value = inner->GetObjectPropertyValue(
+            helper.GetRawPtr(index));
+        if (!object_is_live(value, expected_class) ||
+            std::ranges::find(values, value) != values.end())
+        {
+            return std::nullopt;
+        }
+        values.push_back(value);
+    }
+    return values;
+}
+
+auto contains_object(
+    std::span<UObject* const> values,
+    UObject* object) -> bool
+{
+    return std::ranges::find(values, object) != values.end();
+}
+
+auto classify_esp_pawn(
+    UObject* pawn,
+    const EspContracts& contracts) -> core::EspRole
+{
+    if (object_is_live(pawn, contracts.hunter_character_class))
+    {
+        return core::EspRole::Hunter;
+    }
+    if (object_is_live(
+            pawn,
+            contracts.survivor_character_class))
+    {
+        return core::EspRole::Hider;
+    }
+    if (object_is_live(
+            pawn,
+            contracts.spectate_pawn_cleon_class) ||
+        object_is_live(pawn, contracts.spectator_pawn_class))
+    {
+        return core::EspRole::Spectator;
+    }
+    return core::EspRole::Unknown;
+}
+
+auto read_esp_display_name(
+    FStrProperty* property,
+    UObject* player_state) -> std::string
+{
+    if (property == nullptr || player_state == nullptr)
+    {
+        return {};
+    }
+    const auto& value =
+        property->GetPropertyValueInContainer(player_state);
+    const auto& characters = value.GetCharArray();
+    const auto count = characters.Num();
+    if (count <= 1 || count > 257 ||
+        characters.Max() < count ||
+        characters.Max() > 512 ||
+        characters.GetData() == nullptr ||
+        characters.GetData()[count - 1] != STR('\0'))
+    {
+        return {};
+    }
+    const auto character_count = count - 1;
+    const auto byte_count = WideCharToMultiByte(
+        CP_UTF8,
+        WC_ERR_INVALID_CHARS,
+        characters.GetData(),
+        character_count,
+        nullptr,
+        0,
+        nullptr,
+        nullptr);
+    if (byte_count <= 0 ||
+        byte_count >
+            static_cast<int>(core::MaximumEspNameBytes))
+    {
+        return {};
+    }
+    auto utf8 = std::string(
+        static_cast<std::size_t>(byte_count),
+        '\0');
+    if (WideCharToMultiByte(
+            CP_UTF8,
+            WC_ERR_INVALID_CHARS,
+            characters.GetData(),
+            character_count,
+            utf8.data(),
+            byte_count,
+            nullptr,
+            nullptr) != byte_count)
+    {
+        return {};
+    }
+    return utf8;
+}
+
+auto call_esp_vector(UObject* object, UFunction* function)
+    -> EspVector3dAbi
+{
+    auto parameters = EspVectorReturnParametersAbi{};
+    object->ProcessEvent(function, &parameters);
+    return parameters.return_value;
+}
+
+auto call_esp_rotator(UObject* object, UFunction* function)
+    -> EspRotatorAbi
+{
+    auto parameters = EspRotatorReturnParametersAbi{};
+    object->ProcessEvent(function, &parameters);
+    return parameters.return_value;
+}
+
+auto call_esp_float(UObject* object, UFunction* function)
+    -> float
+{
+    auto parameters = EspFloatReturnParametersAbi{};
+    object->ProcessEvent(function, &parameters);
+    return parameters.return_value;
+}
+
+struct EspUnresolvedAvatar
+{
+    UObject* player_state{};
+    core::EspRole role{core::EspRole::Unknown};
+};
+
+auto build_esp_avatar_directory(
+    UObject* world,
+    const EspContracts& contracts,
+    std::span<const EspUnresolvedAvatar> unresolved)
+    -> std::optional<std::vector<EspAvatarBinding>>
+{
+    constexpr auto rejected_flags = static_cast<EObjectFlags>(
+        RF_ClassDefaultObject | RF_ArchetypeObject |
+        RF_BeginDestroyed | RF_FinishDestroyed);
+    auto candidates = std::vector<
+        std::pair<UObject*, UObject*>>{};
+    candidates.reserve(unresolved.size());
+    auto overflow = false;
+    UObjectGlobals::ForEachUObject(
+        [&](UObject* object, std::int32_t, std::int32_t)
+            -> RC::LoopAction
+        {
+            const auto role = classify_esp_pawn(object, contracts);
+            if ((role != core::EspRole::Hider &&
+                 role != core::EspRole::Hunter) ||
+                object->HasAnyFlags(rejected_flags) ||
+                object->GetWorld() != world)
+            {
+                return RC::LoopAction::Continue;
+            }
+            auto* player_state = read_object(
+                contracts.pawn_player_state,
+                object);
+            const auto relevant = std::ranges::find_if(
+                unresolved,
+                [&](const EspUnresolvedAvatar& value)
+                {
+                    return value.player_state == player_state &&
+                           value.role == role;
+                });
+            if (relevant == unresolved.end())
+            {
+                return RC::LoopAction::Continue;
+            }
+            if (candidates.size() >=
+                MaximumEspAvatarCandidates)
+            {
+                overflow = true;
+                return RC::LoopAction::Break;
+            }
+            candidates.emplace_back(player_state, object);
+            return RC::LoopAction::Continue;
+        });
+    if (overflow)
+    {
+        return std::nullopt;
+    }
+
+    auto bindings = std::vector<EspAvatarBinding>{};
+    bindings.reserve(unresolved.size());
+    for (const auto& value : unresolved)
+    {
+        auto match = static_cast<UObject*>(nullptr);
+        auto count = std::size_t{};
+        for (const auto& [player_state, avatar] : candidates)
+        {
+            if (player_state == value.player_state)
+            {
+                match = avatar;
+                ++count;
+            }
+        }
+        if (count == 1U)
+        {
+            bindings.push_back(EspAvatarBinding{
+                FWeakObjectPtr{value.player_state},
+                FWeakObjectPtr{match},
+                value.role,
+                true,
+            });
+            continue;
+        }
+        bindings.push_back(EspAvatarBinding{
+            FWeakObjectPtr{value.player_state},
+            {},
+            value.role,
+            false,
+        });
+    }
+    return bindings;
+}
+
+auto steady_milliseconds() -> std::uint64_t
+{
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count());
 }
 
 auto canvas_failure(const char* detail)
@@ -3193,9 +3931,552 @@ public:
                         WrongThread,
                 });
         }
-        return runtime_failure(
-            application::RuntimeContractId::EspFrame,
-            application::ContractFailureKind::InvalidValue);
+        try
+        {
+            auto active = std::optional<ActiveFrame>{};
+            auto hud = std::optional<HudContracts>{};
+            auto cached_directory =
+                std::optional<EspAvatarDirectory>{};
+            {
+                const auto lock = std::scoped_lock{mutex_};
+                active = active_frame_;
+                hud = hud_contracts_;
+                cached_directory = esp_avatar_directory_;
+            }
+            if (!active || !hud ||
+                !active->identity.valid() ||
+                active->viewport_width < 1 ||
+                active->viewport_height < 1)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::EspFrame,
+                    application::ContractFailureKind::StaleObject);
+            }
+
+            const auto resolved = resolve_esp_contracts();
+            if (!resolved)
+            {
+                return std::unexpected(resolved.error());
+            }
+            const auto& contracts = *resolved;
+            if (!object_is_live(
+                    active->world,
+                    contracts.world_class) ||
+                !object_is_live(
+                    active->controller,
+                    contracts.player_controller_class) ||
+                !object_is_live(
+                    active->hud,
+                    hud->hud_class) ||
+                !object_is_live(
+                    active->canvas,
+                    hud->canvas_class) ||
+                object_identity(active->world) !=
+                    active->identity.world ||
+                object_identity(active->controller) !=
+                    active->identity.controller ||
+                object_identity(active->hud) !=
+                    active->identity.hud ||
+                object_identity(active->canvas) !=
+                    active->identity.canvas ||
+                active->hud->GetWorld() != active->world ||
+                read_object(
+                    hud->player_owner,
+                    active->hud) != active->controller ||
+                read_object(
+                    hud->canvas,
+                    active->hud) != active->canvas)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::EspFrame,
+                    application::ContractFailureKind::StaleObject);
+            }
+
+            auto* game_state = read_object(
+                contracts.world_game_state,
+                active->world);
+            auto* local_player_state = read_object(
+                contracts.controller_player_state,
+                active->controller);
+            auto* camera_manager = read_object(
+                contracts.player_camera_manager,
+                active->controller);
+            if (!object_is_live_exact(
+                    game_state,
+                    contracts.game_state_cleon_class) ||
+                !object_is_live(
+                    local_player_state,
+                    contracts.player_state_class) ||
+                !object_is_live(
+                    camera_manager,
+                    contracts.player_camera_manager_class) ||
+                game_state->GetWorld() != active->world ||
+                camera_manager->GetWorld() != active->world)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::EspFrame,
+                    application::ContractFailureKind::MissingObject);
+            }
+
+            const auto player_states = read_object_array(
+                contracts.player_array,
+                game_state,
+                contracts.player_state_class);
+            const auto survivor_states = read_object_array(
+                contracts.live_survivor_player_states,
+                game_state,
+                contracts.player_state_cleon_class);
+            const auto hunter_states = read_object_array(
+                contracts.hunter_player_states,
+                game_state,
+                contracts.player_state_cleon_class);
+            if (!player_states || !survivor_states ||
+                !hunter_states ||
+                local_player_state->GetWorld() !=
+                    active->world ||
+                std::ranges::any_of(
+                    *player_states,
+                    [&](UObject* player_state)
+                    {
+                        return player_state->GetWorld() !=
+                               active->world;
+                    }))
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::EspFrame,
+                    application::ContractFailureKind::InvalidValue);
+            }
+            const auto player_span = std::span<UObject* const>{
+                player_states->data(),
+                player_states->size()};
+            for (auto* player_state : *survivor_states)
+            {
+                if (!contains_object(player_span, player_state) ||
+                    contains_object(
+                        std::span<UObject* const>{
+                            hunter_states->data(),
+                            hunter_states->size()},
+                        player_state))
+                {
+                    return runtime_failure(
+                        application::RuntimeContractId::EspFrame,
+                        application::ContractFailureKind::
+                            InvalidValue);
+                }
+            }
+            for (auto* player_state : *hunter_states)
+            {
+                if (!contains_object(player_span, player_state))
+                {
+                    return runtime_failure(
+                        application::RuntimeContractId::EspFrame,
+                        application::ContractFailureKind::
+                            InvalidValue);
+                }
+            }
+
+            const auto view = decode_esp_view(
+                call_esp_vector(
+                    camera_manager,
+                    contracts.get_camera_location),
+                call_esp_rotator(
+                    camera_manager,
+                    contracts.get_camera_rotation),
+                call_esp_float(
+                    camera_manager,
+                    contracts.get_fov_angle),
+                active->viewport_width,
+                active->viewport_height);
+            if (!view)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::EspFrame,
+                    application::ContractFailureKind::InvalidValue);
+            }
+
+            struct Subject
+            {
+                UObject* player_state{};
+                UObject* avatar{};
+                core::EspRole roster_role{
+                    core::EspRole::Unknown};
+                core::EspRole current_pawn_role{
+                    core::EspRole::Unknown};
+                bool needs_role_avatar{};
+            };
+            auto subjects = std::vector<Subject>{};
+            auto unresolved =
+                std::vector<EspUnresolvedAvatar>{};
+            subjects.reserve(player_states->size());
+            unresolved.reserve(player_states->size());
+            const auto survivor_span = std::span<UObject* const>{
+                survivor_states->data(),
+                survivor_states->size()};
+            const auto hunter_span = std::span<UObject* const>{
+                hunter_states->data(),
+                hunter_states->size()};
+            for (auto* player_state : *player_states)
+            {
+                if (player_state == local_player_state ||
+                    !object_is_live(
+                        player_state,
+                        contracts.player_state_cleon_class))
+                {
+                    continue;
+                }
+                const auto is_survivor =
+                    contains_object(
+                        survivor_span,
+                        player_state);
+                const auto is_hunter =
+                    contains_object(
+                        hunter_span,
+                        player_state);
+                if (is_survivor && is_hunter)
+                {
+                    return runtime_failure(
+                        application::RuntimeContractId::EspFrame,
+                        application::ContractFailureKind::
+                            InvalidValue);
+                }
+                auto roster_role =
+                    is_survivor
+                        ? core::EspRole::Hider
+                        : is_hunter
+                              ? core::EspRole::Hunter
+                              : core::EspRole::Unknown;
+                auto* pawn = read_object(
+                    contracts.player_state_pawn,
+                    player_state);
+                if (!object_is_live(pawn, contracts.pawn_class))
+                {
+                    pawn = nullptr;
+                }
+                const auto current_role =
+                    classify_esp_pawn(pawn, contracts);
+                const auto spectator =
+                    contracts.is_spectator
+                        ->GetPropertyValueInContainer(
+                            player_state) ||
+                    contracts.only_spectator
+                        ->GetPropertyValueInContainer(
+                            player_state);
+                if (roster_role == core::EspRole::Unknown &&
+                    (spectator ||
+                     current_role ==
+                         core::EspRole::Spectator))
+                {
+                    roster_role = core::EspRole::Spectator;
+                }
+                if (roster_role == core::EspRole::Unknown &&
+                    current_role == core::EspRole::Unknown)
+                {
+                    continue;
+                }
+                const auto active_roster_role =
+                    roster_role == core::EspRole::Hider ||
+                    roster_role == core::EspRole::Hunter;
+                const auto needs_role_avatar =
+                    active_roster_role &&
+                    (current_role == core::EspRole::Unknown ||
+                     current_role ==
+                         core::EspRole::Spectator);
+                subjects.push_back(Subject{
+                    player_state,
+                    needs_role_avatar ? nullptr : pawn,
+                    roster_role,
+                    current_role,
+                    needs_role_avatar,
+                });
+                if (needs_role_avatar)
+                {
+                    unresolved.push_back(
+                        EspUnresolvedAvatar{
+                            player_state,
+                            roster_role,
+                        });
+                }
+            }
+
+            const auto now_ms = steady_milliseconds();
+            const auto same_directory_scope =
+                cached_directory &&
+                cached_directory->world_identity ==
+                    active->identity.world &&
+                cached_directory->hud_identity ==
+                    active->identity.hud;
+            const auto cached_avatar =
+                [&](const EspUnresolvedAvatar& value)
+                    -> UObject*
+            {
+                if (!same_directory_scope)
+                {
+                    return nullptr;
+                }
+                for (const auto& binding :
+                     cached_directory->bindings)
+                {
+                    auto* cached_player_state =
+                        binding.player_state.Get();
+                    auto* avatar = binding.avatar.Get();
+                    const auto candidate_role =
+                        classify_esp_pawn(
+                            avatar,
+                            contracts);
+                    const auto candidate_live =
+                        cached_player_state ==
+                            value.player_state &&
+                        avatar != nullptr &&
+                        avatar->GetWorld() ==
+                            active->world &&
+                        read_object(
+                            contracts.pawn_player_state,
+                            avatar) ==
+                            value.player_state;
+                    if (cached_player_state ==
+                            value.player_state &&
+                        core::esp_cached_avatar_binding_usable(
+                            binding.avatar_resolved,
+                            same_directory_scope,
+                            true,
+                            candidate_live,
+                            value.role,
+                            candidate_role))
+                    {
+                        return avatar;
+                    }
+                }
+                return nullptr;
+            };
+            const auto invalid_cached_binding =
+                std::ranges::any_of(
+                    unresolved,
+                    [&](const EspUnresolvedAvatar& value)
+                    {
+                        if (!same_directory_scope)
+                        {
+                            return false;
+                        }
+                        const auto player_binding =
+                            std::ranges::find_if(
+                                cached_directory->bindings,
+                                [&](const EspAvatarBinding& candidate)
+                                {
+                                    return candidate.player_state.Get() ==
+                                           value.player_state;
+                                });
+                        if (player_binding ==
+                                cached_directory->bindings.end() ||
+                            player_binding->role != value.role)
+                        {
+                            return true;
+                        }
+                        return player_binding->avatar_resolved &&
+                               cached_avatar(value) == nullptr;
+                    });
+            const auto refresh_directory =
+                should_refresh_esp_capture_directory(
+                    !unresolved.empty(),
+                    same_directory_scope,
+                    invalid_cached_binding,
+                    now_ms,
+                    cached_directory
+                        ? cached_directory->refresh_ms
+                        : 0U,
+                    EspAvatarRefreshIntervalMs);
+            if (refresh_directory)
+            {
+                auto bindings = build_esp_avatar_directory(
+                    active->world,
+                    contracts,
+                    std::span<const EspUnresolvedAvatar>{
+                        unresolved});
+                if (!bindings)
+                {
+                    return runtime_failure(
+                        application::RuntimeContractId::EspFrame,
+                        application::ContractFailureKind::
+                            InvalidValue);
+                }
+                cached_directory = EspAvatarDirectory{
+                    active->identity.world,
+                    active->identity.hud,
+                    now_ms,
+                    std::move(*bindings),
+                };
+                {
+                    const auto lock =
+                        std::scoped_lock{mutex_};
+                    if (!active_frame_ ||
+                        active_frame_->identity !=
+                            active->identity)
+                    {
+                        return runtime_failure(
+                            application::RuntimeContractId::
+                                EspFrame,
+                            application::ContractFailureKind::
+                                StaleObject);
+                    }
+                    esp_avatar_directory_ = cached_directory;
+                }
+            }
+
+            for (auto& subject : subjects)
+            {
+                if (!subject.needs_role_avatar)
+                {
+                    continue;
+                }
+                auto* role_avatar = static_cast<UObject*>(nullptr);
+                if (cached_directory)
+                {
+                    for (const auto& binding :
+                         cached_directory->bindings)
+                    {
+                        if (binding.player_state.Get() ==
+                                subject.player_state &&
+                            binding.role ==
+                                subject.roster_role)
+                        {
+                            role_avatar = binding.avatar.Get();
+                            break;
+                        }
+                    }
+                }
+                const auto role_avatar_role =
+                    classify_esp_pawn(
+                        role_avatar,
+                        contracts);
+                const auto same_player_state =
+                    role_avatar != nullptr &&
+                    role_avatar->GetWorld() == active->world &&
+                    read_object(
+                        contracts.pawn_player_state,
+                        role_avatar) == subject.player_state;
+                if (core::select_esp_pawn_source(
+                        subject.roster_role,
+                        subject.current_pawn_role,
+                        role_avatar_role,
+                        same_player_state) ==
+                    core::EspPawnSource::RoleRoster)
+                {
+                    subject.avatar = role_avatar;
+                    subject.current_pawn_role =
+                        role_avatar_role;
+                }
+            }
+
+            auto targets =
+                std::vector<core::EspTargetCapture>{};
+            targets.reserve(subjects.size());
+            for (const auto& subject : subjects)
+            {
+                auto* avatar = subject.avatar;
+                if (avatar != nullptr &&
+                    (avatar->GetWorld() != active->world ||
+                     read_object(
+                         contracts.pawn_player_state,
+                         avatar) != subject.player_state))
+                {
+                    avatar = nullptr;
+                }
+                auto origin =
+                    std::optional<core::EspWorldPoint>{};
+                auto capsule_samples =
+                    std::vector<core::EspWorldPoint>{};
+                const auto role =
+                    core::resolve_esp_target_role(
+                        subject.roster_role,
+                        subject.current_pawn_role);
+                if (avatar != nullptr &&
+                    (role == core::EspRole::Hider ||
+                     role == core::EspRole::Hunter))
+                {
+                    auto* capsule = read_object(
+                        contracts.character_capsule,
+                        avatar);
+                    if (object_is_live(
+                            capsule,
+                            contracts.capsule_component_class) &&
+                        outer_chain_contains(capsule, avatar))
+                    {
+                        const auto location = call_esp_vector(
+                            capsule,
+                            contracts.k2_get_component_location);
+                        const auto samples = sample_esp_capsule(
+                            location,
+                            call_esp_rotator(
+                                capsule,
+                                contracts
+                                    .k2_get_component_rotation),
+                            call_esp_float(
+                                capsule,
+                                contracts
+                                    .get_scaled_capsule_radius),
+                            call_esp_float(
+                                capsule,
+                                contracts
+                                    .get_scaled_capsule_half_height));
+                        if (samples)
+                        {
+                            origin = core::EspWorldPoint{
+                                location.x,
+                                location.y,
+                                location.z,
+                            };
+                            capsule_samples = *samples;
+                        }
+                    }
+                }
+                targets.push_back(core::EspTargetCapture{
+                    object_identity(subject.player_state),
+                    avatar == nullptr
+                        ? 0U
+                        : object_identity(avatar),
+                    subject.roster_role,
+                    subject.current_pawn_role,
+                    read_esp_display_name(
+                        contracts.custom_player_name,
+                        subject.player_state),
+                    origin,
+                    std::move(capsule_samples),
+                    std::nullopt,
+                });
+            }
+
+            {
+                const auto lock = std::scoped_lock{mutex_};
+                if (!active_frame_ ||
+                    active_frame_->identity !=
+                        active->identity ||
+                    active_frame_->hud != active->hud ||
+                    active_frame_->canvas != active->canvas)
+                {
+                    return runtime_failure(
+                        application::RuntimeContractId::EspFrame,
+                        application::ContractFailureKind::
+                            StaleObject);
+                }
+            }
+            return application::CapturedEspFrame{
+                active->identity,
+                *view,
+                core::EspViewport{
+                    static_cast<double>(
+                        active->viewport_width),
+                    static_cast<double>(
+                        active->viewport_height),
+                },
+                std::move(targets),
+            };
+        }
+        catch (...)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::EspFrame,
+                application::ContractFailureKind::
+                    ExecutionFailure);
+        }
     }
 
     auto draw_esp_frame(
@@ -3567,6 +4848,7 @@ private:
         image_paint_contracts_.reset();
         active_frame_.reset();
         bound_frame_.reset();
+        esp_avatar_directory_.reset();
         queue_tracker_.reset();
         input_mutation_.reset();
         callback_context_ = nullptr;
@@ -3717,6 +4999,7 @@ private:
     std::optional<ImagePaintContracts> image_paint_contracts_{};
     std::optional<ActiveFrame> active_frame_{};
     std::optional<BoundFrame> bound_frame_{};
+    std::optional<EspAvatarDirectory> esp_avatar_directory_{};
     PaintQueueObservationTracker queue_tracker_{};
     std::unordered_map<
         std::uint64_t,

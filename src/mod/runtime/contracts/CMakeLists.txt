@@ -2,6 +2,7 @@ add_library(
     meccha_runtime_contracts
     STATIC
         src/canvas_call_codec.cpp
+        src/esp_capture_codec.cpp
         src/reflection_contract.cpp
         src/paint_call_codec.cpp
         src/paint_preview_codec.cpp

@@ -290,6 +290,21 @@ add_test(
     COMMAND meccha_runtime_reflection_contract_tests
 )
 
+add_executable(
+    meccha_esp_capture_codec_tests
+    esp_capture_codec_test.cpp
+)
+target_link_libraries(
+    meccha_esp_capture_codec_tests
+    PRIVATE
+        MecchaCamouflage::RuntimeContracts
+        meccha_build_options
+)
+add_test(
+    NAME esp_capture_codec
+    COMMAND meccha_esp_capture_codec_tests
+)
+
 add_executable(meccha_ui_canvas_tests ui_canvas_test.cpp)
 target_link_libraries(
     meccha_ui_canvas_tests

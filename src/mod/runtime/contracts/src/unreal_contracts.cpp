@@ -2,6 +2,75 @@
 
 namespace meccha::runtime
 {
+namespace
+{
+auto vector_return_contract(
+    std::string name,
+    std::string owner_name) -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        std::move(name),
+        std::move(owner_name),
+        0x18U,
+        {
+            ReflectionPropertyDescriptor{
+                "ReturnValue",
+                ReflectionPropertyKind::Struct,
+                "Vector",
+                0x00U,
+                0x18U,
+                1U,
+                ReflectionPropertyDirection::ReturnValue,
+            },
+        },
+    };
+}
+
+auto rotator_return_contract(
+    std::string name,
+    std::string owner_name) -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        std::move(name),
+        std::move(owner_name),
+        0x18U,
+        {
+            ReflectionPropertyDescriptor{
+                "ReturnValue",
+                ReflectionPropertyKind::Struct,
+                "Rotator",
+                0x00U,
+                0x18U,
+                1U,
+                ReflectionPropertyDirection::ReturnValue,
+            },
+        },
+    };
+}
+
+auto float_return_contract(
+    std::string name,
+    std::string owner_name) -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        std::move(name),
+        std::move(owner_name),
+        0x04U,
+        {
+            ReflectionPropertyDescriptor{
+                "ReturnValue",
+                ReflectionPropertyKind::Float32,
+                {},
+                0x00U,
+                0x04U,
+                1U,
+                ReflectionPropertyDirection::ReturnValue,
+            },
+        },
+    };
+}
+} // namespace
+
 auto k2_draw_line_contract() -> ReflectionRecordDescriptor
 {
     return ReflectionRecordDescriptor{
@@ -297,6 +366,125 @@ auto import_buffer_as_texture2d_contract()
             },
         },
     };
+}
+
+auto vector_contract() -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "Vector",
+        "/Script/CoreUObject",
+        0x18U,
+        {
+            ReflectionPropertyDescriptor{
+                "X",
+                ReflectionPropertyKind::Float64,
+                {},
+                0x00U,
+                0x08U,
+            },
+            ReflectionPropertyDescriptor{
+                "Y",
+                ReflectionPropertyKind::Float64,
+                {},
+                0x08U,
+                0x08U,
+            },
+            ReflectionPropertyDescriptor{
+                "Z",
+                ReflectionPropertyKind::Float64,
+                {},
+                0x10U,
+                0x08U,
+            },
+        },
+    };
+}
+
+auto rotator_contract() -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "Rotator",
+        "/Script/CoreUObject",
+        0x18U,
+        {
+            ReflectionPropertyDescriptor{
+                "Pitch",
+                ReflectionPropertyKind::Float64,
+                {},
+                0x00U,
+                0x08U,
+            },
+            ReflectionPropertyDescriptor{
+                "Yaw",
+                ReflectionPropertyKind::Float64,
+                {},
+                0x08U,
+                0x08U,
+            },
+            ReflectionPropertyDescriptor{
+                "Roll",
+                ReflectionPropertyKind::Float64,
+                {},
+                0x10U,
+                0x08U,
+            },
+        },
+    };
+}
+
+auto get_camera_location_contract()
+    -> ReflectionRecordDescriptor
+{
+    return vector_return_contract(
+        "GetCameraLocation",
+        "/Script/Engine.PlayerCameraManager");
+}
+
+auto get_camera_rotation_contract()
+    -> ReflectionRecordDescriptor
+{
+    return rotator_return_contract(
+        "GetCameraRotation",
+        "/Script/Engine.PlayerCameraManager");
+}
+
+auto get_fov_angle_contract() -> ReflectionRecordDescriptor
+{
+    return float_return_contract(
+        "GetFOVAngle",
+        "/Script/Engine.PlayerCameraManager");
+}
+
+auto k2_get_component_location_contract()
+    -> ReflectionRecordDescriptor
+{
+    return vector_return_contract(
+        "K2_GetComponentLocation",
+        "/Script/Engine.SceneComponent");
+}
+
+auto k2_get_component_rotation_contract()
+    -> ReflectionRecordDescriptor
+{
+    return rotator_return_contract(
+        "K2_GetComponentRotation",
+        "/Script/Engine.SceneComponent");
+}
+
+auto get_scaled_capsule_radius_contract()
+    -> ReflectionRecordDescriptor
+{
+    return float_return_contract(
+        "GetScaledCapsuleRadius",
+        "/Script/Engine.CapsuleComponent");
+}
+
+auto get_scaled_capsule_half_height_contract()
+    -> ReflectionRecordDescriptor
+{
+    return float_return_contract(
+        "GetScaledCapsuleHalfHeight",
+        "/Script/Engine.CapsuleComponent");
 }
 
 auto is_look_input_ignored_contract()
