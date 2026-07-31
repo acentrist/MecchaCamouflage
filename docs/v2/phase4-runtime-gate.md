@@ -202,8 +202,8 @@ before lifecycle transient restore and callback finalization end to end. A
 second root fixture holds authoritative visual/outgoing queues nonempty and
 proves lifecycle quiescing cannot overtake active Paint cancellation/drain.
 
-All 83 registered secret-free tests pass in the Linux graph. At project commit
-`86f5033`, all 101 Windows tests also pass and the changed runtime graph
+All 84 registered secret-free tests pass in the Linux graph. At project commit
+`dfd8ae2`, all 102 Windows tests also pass and the changed runtime graph
 compiles in the MSVC `Game__Shipping__Win64` build with project sources under
 `/W4 /WX`.
 
