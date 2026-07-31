@@ -311,8 +311,9 @@ bytes.
 `tools/v2/build-release-candidate.ps1` accepts one fresh release root and then,
 in order:
 
-1. verifies the protected mod, UE4SS, and proxy binaries and records their
-   provenance;
+1. binds the configured source root and clean checkout to the explicit
+   protected workflow commit, verifies the mod, UE4SS, and proxy binaries, and
+   records their provenance;
 2. resolves the target-filtered locked Cargo graph and collects exact
    CMake/git/Cargo dependency evidence;
 3. requires exact agreement with the reviewed audit and builds the dependency

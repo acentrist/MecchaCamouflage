@@ -209,8 +209,8 @@ After approval, it must:
 4. run `tools/v2/verify-full-build.ps1`;
 5. prove x64 PE format, only `start_mod`/`uninstall_mod` exports, a direct
    `UE4SS.dll` import, matching proxy/mod/runtime dynamic MSVC runtime, clean
-   pristine gitlink, exact pinned commit, source-stage manifest, and approved
-   one-file staged diff;
+   exact project checkout/ref, pristine gitlinks, exact pinned UE4SS commit,
+   source-stage manifest, and approved one-file staged diff;
 6. collect the closed production CMake target graph, exact git revisions and
    tracked diffs, and target-filtered locked Cargo package/checksum/features;
 7. generate a canonical evidence-bound audit template with deliberately empty

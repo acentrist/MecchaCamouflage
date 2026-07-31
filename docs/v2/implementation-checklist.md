@@ -92,6 +92,9 @@ Evidence:
 - [ ] Verify x64 Release ABI, imports, exports, runtime library, and provenance.
   - [x] Verify the binary architecture, imports, exports, and dynamic MSVC
     runtime from the diagnostic build.
+  - [x] Bind protected provenance input to an explicit lowercase project commit
+    and require the configured CMake source root, checkout HEAD, and tracked
+    project/submodule state to match before reporting it.
   - [ ] Bind those binaries to a clean, immutable source checkout.
 - [x] Keep the accepted UE4SS gitlink and nested checkouts pristine; pin and
   enforce the explicitly approved build-stage Cargo lock as the only diff.

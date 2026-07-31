@@ -12,6 +12,7 @@ PUBLIC_WORKFLOW = ROOT / ".github/workflows/v2-ci.yml"
 TRUSTED_WORKFLOW = ROOT / ".github/workflows/v2-full-build.yml"
 RELEASE_WORKFLOW = ROOT / ".github/workflows/v2-release-candidate.yml"
 RELEASE_SCRIPT = ROOT / "tools/v2/build-release-candidate.ps1"
+FULL_BUILD_VERIFIER = ROOT / "tools/v2/verify-full-build.ps1"
 
 
 def fail(message: str) -> None:
@@ -209,12 +210,31 @@ def verify_release_script() -> None:
     )
 
 
+def verify_full_build_verifier() -> None:
+    if not FULL_BUILD_VERIFIER.exists():
+        fail(f"{FULL_BUILD_VERIFIER.relative_to(ROOT)} is missing")
+    text = FULL_BUILD_VERIFIER.read_text(encoding="utf-8")
+    require_fragments(
+        text,
+        {
+            '[string]$ProjectCommit',
+            "CMAKE_HOME_DIRECTORY:INTERNAL=",
+            "git -C $ProjectRoot",
+            "--ignore-submodules=none",
+            "$ProjectHead -cne $ProjectCommit",
+            "source_commit = $ProjectHead",
+        },
+        "full-build verifier",
+    )
+
+
 def main() -> int:
     try:
         verify_public_workflow()
         verify_trusted_workflow()
         verify_release_workflow()
         verify_release_script()
+        verify_full_build_verifier()
     except (RuntimeError, OSError) as error:
         print(f"FAIL ci_policy: {error}", file=sys.stderr)
         return 1

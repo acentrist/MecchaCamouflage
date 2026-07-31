@@ -66,6 +66,23 @@ if (-not $CacheText.Contains($ExpectedSourceCache) -or
     -not $CacheText.Contains($ExpectedProjectCache)) {
     throw "The full-build CMake graph is not bound to the verified project and UE4SS source stage."
 }
+$ProjectHead = (
+    & git -C $ProjectRoot rev-parse HEAD
+).Trim()
+if ($LASTEXITCODE -ne 0 -or $ProjectHead -cne $ProjectCommit) {
+    throw "The full-build project checkout does not match ProjectCommit."
+}
+$ProjectStatus = @(
+    & git -C $ProjectRoot `
+        -c core.filemode=false `
+        status `
+        --porcelain `
+        --untracked-files=no `
+        --ignore-submodules=none
+)
+if ($LASTEXITCODE -ne 0 -or $ProjectStatus.Count -ne 0) {
+    throw "The full-build project checkout contains a tracked modification."
+}
 
 function Get-SingleBinary {
     param(
@@ -174,7 +191,7 @@ $Compiler = "$CompilerPath $CompilerVersion"
 $Report = [ordered]@{
     schema_version = 1
     product_version = "2.0.0"
-    source_commit = $ProjectCommit
+    source_commit = $ProjectHead
     ue4ss_commit = $Ue4ssHead
     ue4ss_source_stage = [ordered]@{
         manifest_sha256 = (
