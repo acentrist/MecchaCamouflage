@@ -37,6 +37,7 @@ def canonical_json(value: object) -> bytes:
 class DependencyNoticeTests(unittest.TestCase):
     def make_fixture(self, root: Path) -> DependencyNoticeInputs:
         roots = {
+            "ue4ss": root / "ue4ss",
             "project": root / "project",
             "build": root / "build",
             "cargo": root / "cargo",
@@ -44,7 +45,7 @@ class DependencyNoticeTests(unittest.TestCase):
         for path in roots.values():
             path.mkdir()
         licenses = {
-            ("project", "third_party/ue4ss/LICENSE"): (
+            ("ue4ss", "LICENSE"): (
                 b"UE4SS MIT license\n"
             ),
             ("build", "_deps/fmt-src/LICENSE.rst"): (
@@ -125,12 +126,10 @@ class DependencyNoticeTests(unittest.TestCase):
             ],
             "UE4SS": [
                 {
-                    "root": "project",
-                    "path": "third_party/ue4ss/LICENSE",
+                    "root": "ue4ss",
+                    "path": "LICENSE",
                     "sha256": hashlib.sha256(
-                        licenses[
-                            ("project", "third_party/ue4ss/LICENSE")
-                        ]
+                        licenses[("ue4ss", "LICENSE")]
                     ).hexdigest(),
                 }
             ],

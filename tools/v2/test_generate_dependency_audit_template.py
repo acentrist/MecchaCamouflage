@@ -110,10 +110,11 @@ class DependencyAuditTemplateTests(unittest.TestCase):
             )
             self.assertEqual(output.read_bytes(), canonical_json(template))
 
+            ue4ss = root / "ue4ss"
             project = root / "project"
             build = root / "build"
             cargo = root / "cargo"
-            for path in (project, build, cargo):
+            for path in (ue4ss, project, build, cargo):
                 path.mkdir()
             with self.assertRaisesRegex(
                 DependencyNoticeError,
@@ -124,6 +125,7 @@ class DependencyAuditTemplateTests(unittest.TestCase):
                         evidence=evidence,
                         approved_audit=output,
                         roots={
+                            "ue4ss": ue4ss,
                             "project": project,
                             "build": build,
                             "cargo": cargo,

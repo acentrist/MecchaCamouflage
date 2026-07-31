@@ -36,7 +36,7 @@ _MAXIMUM_COMPONENTS = 2048
 _MAXIMUM_LICENSE_FILES = 16
 _COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
 _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
-_ROOT_NAMES = {"project", "build", "cargo"}
+_ROOT_NAMES = {"ue4ss", "project", "build", "cargo"}
 _FIXED_WINDOWS_DEVICES = {
     "CON",
     "PRN",
@@ -507,7 +507,8 @@ def _validate_audit(
 def _validate_roots(roots: dict[str, Path]) -> dict[str, Path]:
     if set(roots) != _ROOT_NAMES:
         raise DependencyNoticeError(
-            "Dependency license roots must be exactly project/build/cargo."
+            "Dependency license roots must be exactly "
+            "ue4ss/project/build/cargo."
         )
     validated: dict[str, Path] = {}
     for name, raw_path in roots.items():
@@ -725,6 +726,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--evidence", required=True, type=Path)
     parser.add_argument("--approved-audit", required=True, type=Path)
+    parser.add_argument("--ue4ss-source-root", required=True, type=Path)
     parser.add_argument("--project-root", required=True, type=Path)
     parser.add_argument("--build-root", required=True, type=Path)
     parser.add_argument("--cargo-root", required=True, type=Path)
@@ -742,6 +744,7 @@ def main(arguments: Iterable[str] | None = None) -> int:
                 evidence=options.evidence,
                 approved_audit=options.approved_audit,
                 roots={
+                    "ue4ss": options.ue4ss_source_root,
                     "project": options.project_root,
                     "build": options.build_root,
                     "cargo": options.cargo_root,

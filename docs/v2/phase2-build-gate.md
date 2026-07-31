@@ -60,6 +60,10 @@ touches no UObject, and is not a product release candidate.
 - UE4SS is added `EXCLUDE_FROM_ALL`; only UE4SS and the project mod are
   requested by the full preset.
 - UE4SS and the project both select the dynamic MSVC runtime.
+- Dependency evidence, the approved audit, and notice assembly share the
+  manifest-verified staged UE4SS root. License files for staged UE4SS
+  components cannot be substituted from the pristine gitlink or another
+  checkout.
 - The accepted UE4SS gitlink has no source edit. The only approved build-stage
   diff is the manifest-bound canonical Cargo lock; any other tracked or
   untracked entry fails pre/post-build verification.

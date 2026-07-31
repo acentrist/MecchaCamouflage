@@ -195,6 +195,7 @@ try {
         "tools\v2\build_dependency_notices.py",
         "--evidence", $DependencyEvidence,
         "--approved-audit", $ResolvedAudit,
+        "--ue4ss-source-root", $ResolvedUe4ssSourceRoot,
         "--project-root", $ResolvedProjectRoot,
         "--build-root", $ResolvedBuildRoot,
         "--cargo-root", $ResolvedCargoRoot,

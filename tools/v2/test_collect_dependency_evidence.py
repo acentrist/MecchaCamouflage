@@ -435,7 +435,7 @@ class DependencyEvidenceTests(unittest.TestCase):
                     ):
                         collect_dependency_evidence(inputs)
 
-    def test_refuses_cargo_lock_checksum_mismatch(self) -> None:
+    def test_refuses_ue4ss_source_stage_lock_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             inputs, _ = self.make_fixture(Path(temporary))
             inputs.cargo_lock.write_text(
@@ -444,6 +444,22 @@ class DependencyEvidenceTests(unittest.TestCase):
                     "3" * 64,
                 ),
                 encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                DependencyEvidenceError,
+                "Cargo.lock hash",
+            ):
+                collect_dependency_evidence(inputs)
+
+    def test_refuses_cargo_registry_checksum_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            inputs, _ = self.make_fixture(Path(temporary))
+            checksum = (
+                inputs.cargo_root
+                / "registry/src/example/serde-1.0.0/.cargo-checksum.json"
+            )
+            checksum.write_bytes(
+                canonical_json({"files": {}, "package": "3" * 64})
             )
             with self.assertRaisesRegex(
                 DependencyEvidenceError,

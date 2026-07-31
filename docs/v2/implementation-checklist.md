@@ -67,6 +67,9 @@ Evidence:
     codemodel v2, collapse its actual git roots with tracked-diff identities,
     and add the target-filtered locked Cargo resolve closure with registry
     checksum and feature identities.
+  - [x] Carry the verified immutable UE4SS source-stage root through dependency
+    evidence and notice assembly so UE4SS licenses cannot be read from the
+    pristine gitlink or another checkout.
   - [x] Generate and upload an exact evidence-bound, deliberately unapproved
     audit template whose empty review fields cannot pass notice assembly.
   - [ ] Run the collector on the protected recursive graph and approve every

@@ -183,6 +183,7 @@ def verify_release_script() -> None:
             "cargo metadata",
             "collect_dependency_evidence.py",
             "build_dependency_notices.py",
+            '"--ue4ss-source-root", $ResolvedUe4ssSourceRoot',
             "assemble_runtime.py",
             "build_payload_cab.py",
             '"-DMECCHA_PAYLOAD_MANIFEST=$PayloadManifest"',
