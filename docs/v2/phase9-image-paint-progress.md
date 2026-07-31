@@ -102,7 +102,7 @@ contract.
 
 Portable Linux verification passes all 83 tests, including exact catalog
 loading and static Image Paint sampling. Immutable Windows staging at project
-commit `ba4fdb3` builds the complete 1,131-step pinned UE4SS/MSVC x64
+commit `86f5033` builds the complete pinned UE4SS/MSVC x64
 `Game__Shipping__Win64` graph, passes all 101 Windows tests, and passes the
 full-build source, compiler, PE, export, import, and runtime provenance check.
 The verified stage contains the pinned UE4SS source plus only the approved

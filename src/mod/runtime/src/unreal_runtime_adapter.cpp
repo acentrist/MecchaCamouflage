@@ -2186,7 +2186,14 @@ public:
         try
         {
             restore_input_noexcept();
-            release_all_canvas_textures_noexcept();
+            if (!release_all_canvas_textures_noexcept())
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        TextureMutation,
+                    application::ContractFailureKind::
+                        ExecutionFailure);
+            }
             const auto lock = std::scoped_lock{mutex_};
             if (input_mutation_ || !canvas_textures_.empty())
             {
@@ -3494,41 +3501,64 @@ private:
         detaching_ = false;
     }
 
-    auto release_all_canvas_textures_noexcept() noexcept -> void
+    auto release_all_canvas_textures_noexcept() noexcept -> bool
     {
         if (!IsInGameThreadRaw())
         {
-            return;
+            return false;
         }
-        auto textures = std::vector<OwnedCanvasTexture>{};
+        auto textures = std::vector<
+            std::pair<std::uint64_t, OwnedCanvasTexture>>{};
         {
             const auto lock = std::scoped_lock{mutex_};
             textures.reserve(canvas_textures_.size());
             for (const auto& [identity, texture] :
                  canvas_textures_)
             {
-                static_cast<void>(identity);
-                textures.push_back(texture);
+                textures.emplace_back(identity, texture);
             }
-            canvas_textures_.clear();
         }
-        for (const auto& owned : textures)
+        auto released_all = true;
+        for (const auto& [handle, owned] : textures)
         {
+            auto released = false;
             try
             {
                 auto* texture = owned.object.Get();
-                if (texture != nullptr &&
-                    object_identity(texture) ==
-                        owned.object_identity &&
-                    texture->IsRootSet())
+                if (texture == nullptr)
                 {
-                    texture->ClearRootSet();
+                    released = true;
+                }
+                else if (
+                    object_identity(texture) ==
+                    owned.object_identity)
+                {
+                    if (texture->IsRootSet())
+                    {
+                        texture->ClearRootSet();
+                    }
+                    released = !texture->IsRootSet();
                 }
             }
             catch (...)
             {
             }
+            if (!released)
+            {
+                released_all = false;
+                continue;
+            }
+            const auto lock = std::scoped_lock{mutex_};
+            const auto found = canvas_textures_.find(handle);
+            if (found != canvas_textures_.end() &&
+                found->second.object_identity ==
+                    owned.object_identity)
+            {
+                canvas_textures_.erase(found);
+            }
         }
+        const auto lock = std::scoped_lock{mutex_};
+        return released_all && canvas_textures_.empty();
     }
 
     auto restore_input_noexcept() noexcept -> void
@@ -3593,7 +3623,13 @@ private:
         idle_.wait(lock, [this] { return in_flight_ == 0U; });
         lock.unlock();
         restore_input_noexcept();
-        release_all_canvas_textures_noexcept();
+        for (auto attempt = 0U; attempt < 3U; ++attempt)
+        {
+            if (release_all_canvas_textures_noexcept())
+            {
+                break;
+            }
+        }
         lock.lock();
         clear_state_locked();
     }

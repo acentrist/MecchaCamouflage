@@ -5,10 +5,11 @@
 The secret-free application runtime foundation is implemented and tested. A
 production `UnrealRuntimeAdapter` now compiles against the pinned recursive
 UE4SS graph and implements the validated HUD callback/game-thread boundary plus
-the exact game-owned Paint stroke, queue observation, and preview channel
+the exact game-owned Paint stroke, queue observation, preview channel, Canvas
+texture, Image Paint mesh-identity capture, input, and transient-cleanup
 operations. The adapter is not yet owned by the exported mod composition root,
-production Paint mesh/sample capture and Image texture creation remain, and no
-live callback has been registered in the game, so Phase 4 remains open.
+production Paint mesh/sample capture remains, and no live callback has been
+registered in the game, so Phase 4 remains open.
 
 ## Implemented contracts
 
@@ -80,18 +81,20 @@ live callback has been registered in the game, so Phase 4 remains open.
 - The HUD callback trampoline is non-throwing. Unexpected adapter exceptions
   become a closed runtime execution failure instead of crossing the UE4SS
   callback boundary.
-- The scheduler's former representative IDs are replaced by immutable
-  project-owned `PaintAtUvWithBrush` and Image preview-texture upload
-  requests. Opaque handles carry identity plus generation, each Paint request
-  carries the captured validated texture dimension required to convert texel
-  radius into Unreal UV radius, RGBA payloads are immutable shared buffers,
-  and all dimensions/ranges are checked before a runtime port is called.
+- The scheduler contains only immutable project-owned contract resolution,
+  frame rebinding, `PaintAtUvWithBrush`, and transient-state restoration
+  requests. Opaque Paint handles carry identity plus generation, each Paint
+  request carries the captured validated texture dimension required to
+  convert texel radius into Unreal UV radius, and all dimensions/ranges are
+  checked before a runtime port is called. Image editor texture ownership uses
+  its dedicated game-thread coordinator/runtime port instead of a second
+  generic scheduler operation.
 - `RuntimeOperationExecutor` is the sole typed dispatcher from scheduled
-  operations to separate frame, Paint-stroke, preview-texture, and
-  transient-state ports. It independently rejects direct off-game-thread
-  calls and preserves adapter failures unchanged. This separation prevents a
-  partial production adapter from using no-op implementations to claim
-  unsupported Image/UI responsibilities.
+  operations to separate frame, Paint-stroke, and transient-state ports. It
+  independently rejects direct off-game-thread calls and preserves adapter
+  failures unchanged. The separate texture coordinator remains the only
+  editor-texture lifetime owner, preventing a partial production adapter from
+  using no-op implementations to claim unsupported Image/UI responsibilities.
 - The runtime contract module compares reflected records exactly: owner, name,
   total byte size, property set, kind, referenced struct/class/enum, offset,
   element size, array dimension, and parameter direction. It freezes
@@ -139,6 +142,10 @@ live callback has been registered in the game, so Phase 4 remains open.
   must then restore and stop its input lease and texture ownership; typed
   failures remain retryable on later HUD frames. The root refuses callback
   unregistration until the job and all restoration layers are terminal.
+- The lifecycle's final `RestoreTransientState` call is implemented by the
+  production adapter. It refuses non-game-thread or zero-generation requests,
+  retries exact captured input restoration, and performs a final release of
+  every project-rooted Canvas texture before reporting success.
 - Finalization closes callback admission, unregisters the exact recorded
   callback ID, drains in-flight leases, and then reaches `Stopped`.
 
@@ -173,8 +180,8 @@ live callback has been registered in the game, so Phase 4 remains open.
   blocked until an already-admitted observer/composition-root notification
   returns;
 - 128 consecutive initialize/resolve/restore/unregister cycles;
-- typed Paint/Image runtime dispatch, invalid-request rejection, and direct
-  off-thread port isolation;
+- typed frame/Paint/transient runtime dispatch, invalid-request rejection, and
+  direct off-thread port isolation;
 - cancellation of queued work during shutdown;
 - restore-before-unregister ordering.
 
@@ -195,9 +202,10 @@ before lifecycle transient restore and callback finalization end to end. A
 second root fixture holds authoritative visual/outgoing queues nonempty and
 proves lifecycle quiescing cannot overtake active Paint cancellation/drain.
 
-All 78 registered secret-free tests pass in the Linux normal and ASan/UBSan
-graphs. The changed runtime graph also compiles in the Windows MSVC
-`Game__Shipping__Win64` build with project sources under `/W4 /WX`.
+All 83 registered secret-free tests pass in the Linux graph. At project commit
+`86f5033`, all 101 Windows tests also pass and the changed runtime graph
+compiles in the MSVC `Game__Shipping__Win64` build with project sources under
+`/W4 /WX`.
 
 The production adapter additionally compiles and links with the
 manifest-verified canonical UE4SS source stage, UEPseudo, and patternsleuth
@@ -217,8 +225,9 @@ or teardown pass.
 - Implement production Paint capture, connect the completed Paint-stroke,
   queue, and preview ports to the composition root, then run the controlled
   single-/two-client calls.
-- Bind Image preview texture creation/mutation/release to validated reflected
-  contracts.
+- Connect the implemented Image texture coordinator and production runtime
+  port through the exported composition root, then prove create/render/release
+  behavior in the live transition matrix.
 - Prove the implemented generation-checked World/controller/HUD/Canvas
   identity invalidates and rebinds correctly in the live UE 5.6 game.
 - Run the deferred live load, travel, HUD replacement, freecam, spectator,

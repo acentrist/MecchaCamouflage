@@ -221,8 +221,9 @@ Evidence:
   operations on the game-thread path.
   - [x] Connect typed Paint capture, planning, dispatch, queue observation, and
     completion through `ApplicationRoot` with a fake game-thread runtime.
-  - [x] Split frame, Paint-stroke, preview-texture, and transient-state
-    execution ports so a production adapter cannot claim unsupported feature
+  - [x] Split frame, Paint-stroke, and transient-state scheduler execution
+    ports, while keeping editor texture lifetime behind its single
+    game-thread coordinator port, so no partial adapter can claim unsupported
     operations through no-op implementations.
   - [x] Validate the exact game-owned `PaintAtUVWithBrush`, `Vector2D`,
     `PaintChannelData`, and `RuntimeBrushSettings` reflected layouts; encode
@@ -245,6 +246,9 @@ Evidence:
   - [x] Drive one attached project-owned frame extension from the exact HUD
     identity, retry its UI/input/texture restoration on the game thread, and
     refuse lifecycle quiescing until that extension reports terminal stop.
+  - [x] Bind the lifecycle's final transient-state operation to the production
+    adapter's exact input-lease restoration and rooted Canvas-texture cleanup,
+    rejecting wrong-thread and invalid-generation calls.
 - [x] Pass fake-runtime, thread-affinity, lifecycle fault, and concurrent
   uninstall tests.
 - [ ] DEFERRED — maintainer interaction required: verify live load, travel,
