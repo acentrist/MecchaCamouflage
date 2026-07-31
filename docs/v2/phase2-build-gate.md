@@ -4,13 +4,16 @@
 
 The secret-free source/build boundary is implemented and verified on Windows
 and on Linux with AddressSanitizer plus UndefinedBehaviorSanitizer. The exact
-restricted graph was also initialized with an already configured
-maintainer-authorized credential and built successfully on a native Windows
-source path. UE4SS, its proxy, and `main.dll` now have direct x64 Shipping
-build and ABI evidence.
+restricted graph was initialized with an already configured
+maintainer-authorized credential and reached UE4SS, proxy, and mod binaries on
+a native Windows source path.
 
-Phase 2 is not fully closed: the machine dependency evidence still requires a
-maintainer to review and approve every license file before notice assembly.
+That diagnostic build exposed a blocking reproducibility defect in the
+candidate: Corrosion's Cargo invocation rewrites the tracked
+`deps/first/patternsleuth_bind/Cargo.lock`. The project now forces
+`--locked`, which correctly stops instead of mutating the accepted source
+graph. Phase 2 therefore remains blocked before license review and none of the
+diagnostic binaries are accepted as release inputs.
 
 ## Target graph
 
@@ -36,6 +39,8 @@ touches no UObject, and is not a product release candidate.
 - `MECCHA_WITH_UE4SS=OFF` never reads the restricted nested source.
 - The full build requires Windows x64, MSVC, UEPseudo, and patternsleuth.
 - Direct FetchContent inputs are predeclared by immutable commit.
+- The patternsleuth Corrosion target receives Cargo `--locked`; a compiler or
+  feature selection that would rewrite the accepted lock fails the build.
 - UE4SS is added `EXCLUDE_FROM_ALL`; only UE4SS and the project mod are
   requested by the full preset.
 - UE4SS and the project both select the dynamic MSVC runtime.
@@ -119,7 +124,7 @@ cmake --build C:\Temp\MecchaCamouflage-v2-full-local \
   --config Game__Shipping__Win64 --target meccha_mod
 ```
 
-Result:
+Diagnostic result:
 
 - MSVC `19.44.35228.0`, CMake `4.4.0`, Windows x64,
   `Game__Shipping__Win64`.
@@ -128,15 +133,20 @@ Result:
 - `main.dll` imports that `UE4SS.dll` and exports only `start_mod` and
   `uninstall_mod`.
 - All three binaries use the dynamic MSVC runtime and pass x64 PE inspection.
-- The UE4SS checkout remains at
-  `6c26f038751b3d96059d4a9148f5d093012d55ad` with no tracked modification.
-- `tools/v2/verify-full-build.ps1` passes and emits the exact binary hashes and
-  provenance report.
+- Cargo then leaves a tracked 368-line deletion plus one-line rewrite in
+  `deps/first/patternsleuth_bind/Cargo.lock`; the binary result is rejected.
+- Reconfiguring the same graph with project-enforced `--locked` fails with
+  `the lock file ... needs to be updated but --locked was passed`.
+- Cargo `1.88.0` and `1.97.1` both reject the committed lock for this selected
+  target/features graph, so selecting an older supported stable toolchain does
+  not close the gate.
 
 The verifier accepts the current `dumpbin` export-alias display while still
 requiring exactly the two approved export names. It reads the resolved
 `cl.exe` file version rather than treating the compiler's expected nonzero
-no-argument exit as a verification failure.
+no-argument exit as a verification failure. It must be rerun only after a
+clean source build exists; running it against another clean checkout is not
+valid provenance for these diagnostic binaries.
 
 ## Protected full-build evidence
 
@@ -168,6 +178,10 @@ After approval, it must:
 Phase 2 remains externally gated until the protected evidence workflow
 provides:
 
+- a clean locked build of the accepted or explicitly reviewed replacement
+  UE4SS candidate;
+- matching x64 Shipping ABI/import/export/runtime evidence and provenance from
+  that same clean checkout;
 - the closed production target and Cargo dependency evidence;
 - a maintainer-reviewed license/notice decision for every resolved component;
 - an approved audit bound to that exact evidence hash.

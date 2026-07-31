@@ -110,6 +110,11 @@ def verify_build_pin() -> None:
         fail("secret-free/full-build boundary option is missing")
     if "MECCHA_WITH_UE4SS requires Windows x64 with MSVC" not in cmake:
         fail("full-build compiler/platform guard is missing")
+    if (
+        "corrosion_set_cargo_flags(patternsleuth_bind --locked)"
+        not in cmake
+    ):
+        fail("the protected Rust build does not enforce its accepted Cargo.lock")
     pins = (
         (ROOT / "cmake/ProjectDependencies.cmake").read_text(encoding="utf-8")
         + (ROOT / "cmake/Ue4ssDependencyPins.cmake").read_text(encoding="utf-8")

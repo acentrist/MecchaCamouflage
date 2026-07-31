@@ -75,10 +75,18 @@ Evidence:
   - [x] Run the complete Linux graph under AddressSanitizer and
     UndefinedBehaviorSanitizer in addition to the Windows MSVC Release graph.
 - [x] Add the maintainer-approved protected-ref full-build workflow.
-- [x] Build UE4SS and the minimal mod from the same source/configuration.
-- [x] Verify x64 Release ABI, imports, exports, runtime library, and provenance.
-- [x] Confirm no UE4SS source patch is required.
-- [x] Confirm a clean full source build with the required Epic-linked GitHub
+- [ ] Build UE4SS and the minimal mod from the same source/configuration.
+  - [x] Reach `UE4SS.dll`, `dwmapi.dll`, and `main.dll` in a diagnostic build
+    and inspect their x64 Shipping binary shape.
+  - [ ] BLOCKED — the candidate's Corrosion build rewrites its tracked
+    `patternsleuth_bind/Cargo.lock`; enforcing Cargo `--locked` correctly
+    rejects that graph.
+- [ ] Verify x64 Release ABI, imports, exports, runtime library, and provenance.
+  - [x] Verify the binary architecture, imports, exports, and dynamic MSVC
+    runtime from the diagnostic build.
+  - [ ] Bind those binaries to a clean, immutable source checkout.
+- [ ] Confirm no UE4SS source patch or tracked build mutation is required.
+- [ ] Confirm a clean full source build with the required Epic-linked GitHub
   access.
 
 Evidence:

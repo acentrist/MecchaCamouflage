@@ -163,6 +163,14 @@ if(MECCHA_WITH_UE4SS)
 
     include(cmake/Ue4ssDependencyPins.cmake)
     add_subdirectory(third_party/RE-UE4SS EXCLUDE_FROM_ALL)
+    if(NOT COMMAND corrosion_set_cargo_flags OR
+       NOT TARGET patternsleuth_bind)
+        message(
+            FATAL_ERROR
+            "The pinned Corrosion patternsleuth target is unavailable."
+        )
+    endif()
+    corrosion_set_cargo_flags(patternsleuth_bind --locked)
     add_subdirectory(src/mod)
 endif()
 
