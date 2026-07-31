@@ -119,7 +119,7 @@ travel in the live game.
 The exact contract and PNG tests pass on Linux and Windows. The modified
 adapter compiles and links under `/W4 /WX` in the pinned MSVC
 `Game__Shipping__Win64` graph against the manifest-verified canonical UE4SS
-source stage. The exact clean project checkout passes all 97 registered
+source stage. The exact clean project checkout passes all 98 registered
 Windows tests after building `UE4SS.dll`, `main.dll`, and the native launcher
 from that graph. Post-build verification confirms that the source stage still
 contains the pinned upstream commit plus only the approved project-owned Cargo
@@ -306,7 +306,7 @@ publication, while the texture coordinator/frame tests cover complete
 generation replacement, unchanged-revision reuse, partial-create rollback,
 bounded retry, clear, and resource-free shutdown. The complete 80-test graph
 passes in normal Linux and mandatory ASan/UBSan configurations. The complete
-97-test Windows MSVC x64 Shipping graph passes from the same exact project
+98-test Windows MSVC x64 Shipping graph passes from the same exact project
 commit and immutable UE4SS source-stage identity.
 
 ## Immutable editor binding
@@ -340,7 +340,7 @@ HUD-frame coordinator additionally proves localized composition, exact
 input-lease acquisition and render-failure rollback, render-before-action
 ordering, ready-texture synchronization, and resource-free shutdown through a
 fake runtime port. The current normal Linux and ASan/UBSan graphs pass all 80
-registered tests. The current exact clean project checkpoint passes all 97
+registered tests. The current exact clean project checkpoint passes all 98
 registered Windows x64 Shipping tests and links the production mod against the
 same manifest-verified UE4SS source graph.
 

@@ -88,11 +88,9 @@ mapping refusal, invalid/event-limit refusal, exact command-ID exhaustion,
 input-loss release, and terminal shutdown.
 
 The current complete Linux and Linux ASan/UBSan graphs pass all 80 registered
-tests. The last exact clean full Windows MSVC Release graph passes 97 tests
-with `UE4SS.dll`, `main.dll`, and the launcher bound to the
-manifest-verified immutable UE4SS source stage; the added key-binding target
-also passes a targeted Windows MSVC Release build and execution. A new
-complete clean Windows count is not claimed until that full graph is rerun.
+tests. The exact clean project checkpoint at `4dd0dff` passes all 98 Windows
+MSVC x64 Shipping tests after building `UE4SS.dll`, `main.dll`, and the
+launcher from the manifest-verified immutable UE4SS source stage.
 Post-build verification confirms that the immutable stage still contains only
 the pinned source plus the project-owned canonical Cargo lock overlay.
 
