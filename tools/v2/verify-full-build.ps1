@@ -66,6 +66,80 @@ if (-not $CacheText.Contains($ExpectedSourceCache) -or
     -not $CacheText.Contains($ExpectedProjectCache)) {
     throw "The full-build CMake graph is not bound to the verified project and UE4SS source stage."
 }
+
+function Get-CMakeSetValue {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Text,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    $Pattern = (
+        '(?m)^set\(' +
+        [Regex]::Escape($Name) +
+        ' "([^"]+)"\)\r?$'
+    )
+    $Found = [Regex]::Matches($Text, $Pattern)
+    if ($Found.Count -ne 1) {
+        throw "CMake compiler metadata is missing or ambiguous: $Name."
+    }
+    return $Found[0].Groups[1].Value
+}
+
+$CompilerMetadata = @(
+    Get-ChildItem `
+        -LiteralPath (Join-Path $ResolvedBuildRoot "CMakeFiles") `
+        -Directory |
+        ForEach-Object {
+            Join-Path $_.FullName "CMakeCXXCompiler.cmake"
+        } |
+        Where-Object {
+            Test-Path -LiteralPath $_ -PathType Leaf
+        }
+)
+if ($CompilerMetadata.Count -ne 1) {
+    throw "The full-build CMake compiler metadata is missing or ambiguous."
+}
+$CompilerMetadataText = Get-Content `
+    -LiteralPath $CompilerMetadata[0] `
+    -Raw
+$ConfiguredCompilerId = Get-CMakeSetValue `
+    -Text $CompilerMetadataText `
+    -Name "CMAKE_CXX_COMPILER_ID"
+$ConfiguredCompilerArchitecture = Get-CMakeSetValue `
+    -Text $CompilerMetadataText `
+    -Name "CMAKE_CXX_COMPILER_ARCHITECTURE_ID"
+$ConfiguredCompilerVersion = Get-CMakeSetValue `
+    -Text $CompilerMetadataText `
+    -Name "CMAKE_CXX_COMPILER_VERSION"
+$ReportedCompilerPath = (
+    Resolve-Path -LiteralPath (
+        Get-CMakeSetValue `
+            -Text $CompilerMetadataText `
+            -Name "CMAKE_CXX_COMPILER"
+    )
+).Path
+$ConfiguredCompilerPath = $ReportedCompilerPath.ToLowerInvariant()
+$CompilerPath = (
+    Resolve-Path -LiteralPath (
+        Get-Command cl -ErrorAction Stop
+    ).Source
+).Path.ToLowerInvariant()
+$CompilerVersion = (
+    Get-Item -LiteralPath $ReportedCompilerPath
+).VersionInfo.FileVersion
+if ($ConfiguredCompilerId -cne "MSVC" -or
+    $ConfiguredCompilerArchitecture -cne "x64" -or
+    $ConfiguredCompilerPath -cne $CompilerPath -or
+    $ConfiguredCompilerVersion -cne $CompilerVersion) {
+    throw (
+        "The verification compiler does not match the configured " +
+        "x64 MSVC compiler."
+    )
+}
+
 $ProjectHead = (
     & git -C $ProjectRoot rev-parse HEAD
 ).Trim()
@@ -185,9 +259,7 @@ if ($ProxyDependents -notcontains "vcruntime140.dll") {
 
 $Ue4ssHead = $StageManifest.ue4ss_commit
 
-$CompilerPath = (Get-Command cl -ErrorAction Stop).Source
-$CompilerVersion = (Get-Item -LiteralPath $CompilerPath).VersionInfo.FileVersion
-$Compiler = "$CompilerPath $CompilerVersion"
+$Compiler = "$ReportedCompilerPath $CompilerVersion"
 $Report = [ordered]@{
     schema_version = 1
     product_version = "2.0.0"
