@@ -203,7 +203,7 @@ second root fixture holds authoritative visual/outgoing queues nonempty and
 proves lifecycle quiescing cannot overtake active Paint cancellation/drain.
 
 All 84 registered secret-free tests pass in the Linux graph. At project commit
-`dfd8ae2`, all 102 Windows tests also pass and the changed runtime graph
+`f243cc3`, all 102 Windows tests also pass and the changed runtime graph
 compiles in the MSVC `Game__Shipping__Win64` build with project sources under
 `/W4 /WX`.
 

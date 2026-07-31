@@ -1,5 +1,6 @@
 #include <meccha/application/mesh_profile_codec.hpp>
 #include <meccha/core/image_paint_plan.hpp>
+#include <meccha/core/profile_paint_sampling.hpp>
 
 #include <algorithm>
 #include <array>
@@ -111,6 +112,10 @@ auto main(int argc, char** argv) -> int
     for (const auto& test : cases)
     {
         auto input = request(root, test);
+        const auto sampled = core::sample_paint_profile(
+            input.sampling_profile,
+            input.image_profile,
+            input.settings.brush_size_texels);
         const auto planned =
             core::build_image_paint_plan_from_profile(input);
         if (planned &&
@@ -121,7 +126,8 @@ auto main(int argc, char** argv) -> int
                       << planned->generated_samples << '\n';
         }
         passed &= expect(
-            planned &&
+            sampled && planned &&
+                sampled->size() == test.expected_samples &&
                 planned->generated_samples ==
                     test.expected_samples &&
                 planned->transparent_samples ==
@@ -130,6 +136,18 @@ auto main(int argc, char** argv) -> int
                 planned->paint.strokes.empty(),
             "a frozen profile did not produce its deterministic "
             "bounded UV sample inventory");
+        passed &= expect(
+            sampled && !sampled->empty() &&
+                sampled->front().paint_u >= 0.0 &&
+                sampled->front().paint_u <= 1.0 &&
+                sampled->front().paint_v >= 0.0 &&
+                sampled->front().paint_v <= 1.0 &&
+                sampled->front().image.u >= 0.0 &&
+                sampled->front().image.u <= 1.0 &&
+                sampled->front().image.v >= 0.0 &&
+                sampled->front().image.v <= 1.0,
+            "shared profile samples did not retain bounded raw and "
+            "canonical coordinates");
 
         const auto repeated =
             core::build_image_paint_plan_from_profile(input);
@@ -185,13 +203,39 @@ auto main(int argc, char** argv) -> int
             const std::vector<core::PaintSamplingVertex>>(
             std::move(vertices));
     passed &= expect(
+        core::sample_paint_profile(
+            invalid_uv.sampling_profile,
+            invalid_uv.image_profile,
+            invalid_uv.settings.brush_size_texels) ==
+            std::unexpected(
+                core::ProfilePaintSamplingError::InvalidProfile),
+        "shared sampling accepted a non-finite sampling UV");
+    passed &= expect(
         core::build_image_paint_plan_from_profile(invalid_uv) ==
             std::unexpected(
                 core::ImagePaintPlanError::InvalidProfile),
         "a non-finite sampling UV was accepted");
 
+    const auto invalid_brush = request(root, cases.front());
+    passed &= expect(
+        core::sample_paint_profile(
+            invalid_brush.sampling_profile,
+            invalid_brush.image_profile,
+            0.0) ==
+            std::unexpected(
+                core::ProfilePaintSamplingError::InvalidBrushSize),
+        "shared sampling accepted a zero brush size");
+
     auto over_limit = request(root, cases.front());
     over_limit.settings.brush_size_texels = 1.0;
+    passed &= expect(
+        core::sample_paint_profile(
+            over_limit.sampling_profile,
+            over_limit.image_profile,
+            over_limit.settings.brush_size_texels) ==
+            std::unexpected(
+                core::ProfilePaintSamplingError::ResourceLimit),
+        "shared sampling exceeded the global sample limit");
     passed &= expect(
         core::build_image_paint_plan_from_profile(over_limit) ==
             std::unexpected(
@@ -200,6 +244,15 @@ auto main(int argc, char** argv) -> int
 
     auto cancelled = std::stop_source{};
     cancelled.request_stop();
+    passed &= expect(
+        core::sample_paint_profile(
+            request(root, cases.front()).sampling_profile,
+            request(root, cases.front()).image_profile,
+            4.0,
+            cancelled.get_token()) ==
+            std::unexpected(
+                core::ProfilePaintSamplingError::Cancelled),
+        "pre-cancelled shared profile sampling published samples");
     passed &= expect(
         core::build_image_paint_plan_from_profile(
             request(root, cases.front()),

@@ -27,7 +27,7 @@ deterministic half-cell brush-spacing grid. It computes checked barycentric
 anchors, emits one centroid for each positive-area triangle that has no grid
 point, maps the paired ImageReference triangle to atlas face coordinates, and
 stops at the shared 600,000-sample limit. Round, cube, and fukuyoka generate
-39,026, 39,201, and 36,810 samples respectively at the default four-texel
+39,214, 39,201, and 36,811 samples respectively at the default four-texel
 spacing. Exact index-order mismatch, invalid UVs, cancellation, and one-texel
 resource overflow fail closed.
 
@@ -55,15 +55,18 @@ immutable profile pair, and replication pacing. A missing, stale, ambiguous,
 or mismatched object fails closed before any Paint command is scheduled.
 
 Brush-spacing rasterization happens only in the owned Image Paint planning
-worker. For every ordered UV triangle, core traverses a deterministic texel
-grid, computes checked barycentric weights, emits a centroid only when a
+worker. The project-owned `sample_paint_profile` core boundary is the only
+implementation of that expansion, and the Image Paint planner consumes its
+immutable results. For every ordered UV triangle, it traverses a deterministic
+texel grid, computes checked barycentric weights, emits a centroid only when a
 positive-area triangle received no grid point, and enforces the existing
 600,000-sample bound. Cancellation is checked before and during triangle/row
 work. The same barycentric anchor maps into the paired ImageReference geometry;
 the resulting atlas face supplies Front/Side/Back routing, while atlas
-coordinates provide deterministic scanline ordering. Skeletal deformation does
-not alter the mesh's Paint UVs, and the live asset-identity check prevents
-reusing the static topology for another mesh.
+coordinates provide deterministic scanline ordering. Future profile-derived
+Paint capture must reuse this boundary rather than fork its topology walk or
+limits. Skeletal deformation does not alter the mesh's Paint UVs, and the live
+asset-identity check prevents reusing the static topology for another mesh.
 
 Profile loading, JSON parsing, topology validation, and sample expansion are
 forbidden on the HUD game thread. No fallback may inspect arbitrary component
@@ -116,7 +119,7 @@ contract.
 Portable Linux verification passes all 84 tests, including production resource
 construction, exact catalog
 loading and static Image Paint sampling. Immutable Windows staging at project
-commit `dfd8ae2` builds the complete pinned UE4SS/MSVC x64
+commit `f243cc3` builds the complete pinned UE4SS/MSVC x64
 `Game__Shipping__Win64` graph, passes all 102 Windows tests, and passes the
 full-build source, compiler, PE, export, import, and runtime provenance check.
 The verified stage contains the pinned UE4SS source plus only the approved
@@ -310,10 +313,10 @@ The test is part of the secret-free Linux and Windows MSVC suites.
 
 `image_paint_sampling_test` covers all three packaged profile pairs,
 deterministic sample inventories, repeated planning, raw/image index-order
-matching, non-finite UV rejection, cancellation, and the global resource
-bound. The complete Linux suite passes 82/82 tests. A fresh ASan/UBSan/leak
-build passes the mesh-profile codec, legacy planner contract, and new sampling
-contract 3/3.
+matching, non-finite UV rejection, invalid brush rejection, cancellation, and
+the global resource bound through both the shared sampler and Image Paint
+planner. The complete Linux suite passes 84/84 tests. A fresh ASan/UBSan/leak
+build passes the shared sampling contract.
 
 ## Worker boundary
 

@@ -561,6 +561,10 @@ Evidence:
       anchors inside the owned planning worker, with cancellation and exact
       raw/image topology matching; never scan a runtime component for an
       unreflected triangle cache.
+    - [x] Expose that deterministic expansion through one project-owned core
+      sampler and make the Image Paint planner consume it, so future
+      profile-derived Paint capture cannot fork the topology walk, limits, or
+      cancellation contract.
     - [x] Implement an immutable catalog loader that validates all three
       raw/image profile pairs and require that catalog at runtime-adapter
       construction, with no profile I/O or parsing in HUD callbacks.
