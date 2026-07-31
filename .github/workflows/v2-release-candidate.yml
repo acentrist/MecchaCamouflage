@@ -85,6 +85,7 @@ jobs:
           -BuildRoot .build\v2\full-windows
           -Ue4ssSourceRoot .build\v2\ue4ss-source
           -Ue4ssSourceManifest .build\v2\ue4ss-source-stage.json
+          -ProjectCommit ${{ github.sha }}
           -ApprovedLicenseAudit docs\v2\approved-dependency-license-audit.json
           -ReleaseRoot .build\v2\release-candidate
 

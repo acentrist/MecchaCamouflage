@@ -77,6 +77,7 @@ jobs:
           -ReportPath .build\v2\full-windows\phase2-provenance.json
           -Ue4ssSourceRoot .build\v2\ue4ss-source
           -Ue4ssSourceManifest .build\v2\ue4ss-source-stage.json
+          -ProjectCommit ${{ github.sha }}
 
       - name: Collect resolved dependency evidence
         shell: powershell

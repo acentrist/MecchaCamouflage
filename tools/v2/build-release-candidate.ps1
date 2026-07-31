@@ -12,6 +12,9 @@ param(
     [string]$Ue4ssSourceManifest,
 
     [Parameter(Mandatory = $true)]
+    [string]$ProjectCommit,
+
+    [Parameter(Mandatory = $true)]
     [string]$ApprovedLicenseAudit,
 
     [Parameter(Mandatory = $true)]
@@ -152,7 +155,8 @@ try {
         "-BuildRoot", $ResolvedBuildRoot,
         "-ReportPath", $Provenance,
         "-Ue4ssSourceRoot", $ResolvedUe4ssSourceRoot,
-        "-Ue4ssSourceManifest", $ResolvedUe4ssSourceManifest
+        "-Ue4ssSourceManifest", $ResolvedUe4ssSourceManifest,
+        "-ProjectCommit", $ProjectCommit
     )
 
     $CargoJson = & cargo metadata `

@@ -114,7 +114,7 @@ class DependencyEvidenceTests(unittest.TestCase):
         )
         lock_path = bind / "Cargo.lock"
         upstream_lock = cargo_lock(include_unused=True)
-        lock_path.write_text(upstream_lock, encoding="utf-8")
+        lock_path.write_bytes(upstream_lock.encode("utf-8"))
         subprocess.run(
             ["git", "-C", str(ue4ss), "add", "."],
             check=True,
@@ -140,7 +140,7 @@ class DependencyEvidenceTests(unittest.TestCase):
             text=True,
         ).strip()
         overlay_lock = cargo_lock(include_unused=False)
-        lock_path.write_text(overlay_lock, encoding="utf-8")
+        lock_path.write_bytes(overlay_lock.encode("utf-8"))
         staged_diff = subprocess.run(
             [
                 "git",

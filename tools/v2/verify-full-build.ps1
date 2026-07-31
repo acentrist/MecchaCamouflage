@@ -9,13 +9,19 @@ param(
     [string]$Ue4ssSourceRoot,
 
     [Parameter(Mandatory = $true)]
-    [string]$Ue4ssSourceManifest
+    [string]$Ue4ssSourceManifest,
+
+    [Parameter(Mandatory = $true)]
+    [string]$ProjectCommit
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $AcceptedUe4ssCommit = "6c26f038751b3d96059d4a9148f5d093012d55ad"
+if ($ProjectCommit -cnotmatch "^[0-9a-f]{40}$") {
+    throw "ProjectCommit must be a lowercase 40-character Git commit."
+}
 $ResolvedBuildRoot = (Resolve-Path -LiteralPath $BuildRoot).Path
 $ResolvedUe4ssSourceRoot = (
     Resolve-Path -LiteralPath $Ue4ssSourceRoot
@@ -51,11 +57,14 @@ if (-not (Test-Path -LiteralPath $CMakeCache -PathType Leaf)) {
 $CacheText = Get-Content -LiteralPath $CMakeCache -Raw
 $NormalizedSourceRoot = $ResolvedUe4ssSourceRoot.Replace("\", "/")
 $NormalizedSourceManifest = $ResolvedUe4ssSourceManifest.Replace("\", "/")
+$NormalizedProjectRoot = $ProjectRoot.Replace("\", "/")
 $ExpectedSourceCache = "MECCHA_UE4SS_SOURCE_ROOT:PATH=$NormalizedSourceRoot"
 $ExpectedManifestCache = "MECCHA_UE4SS_SOURCE_MANIFEST:FILEPATH=$NormalizedSourceManifest"
+$ExpectedProjectCache = "CMAKE_HOME_DIRECTORY:INTERNAL=$NormalizedProjectRoot"
 if (-not $CacheText.Contains($ExpectedSourceCache) -or
-    -not $CacheText.Contains($ExpectedManifestCache)) {
-    throw "The full-build CMake graph is not bound to the verified UE4SS source stage."
+    -not $CacheText.Contains($ExpectedManifestCache) -or
+    -not $CacheText.Contains($ExpectedProjectCache)) {
+    throw "The full-build CMake graph is not bound to the verified project and UE4SS source stage."
 }
 
 function Get-SingleBinary {
@@ -157,18 +166,7 @@ if ($ProxyDependents -notcontains "vcruntime140.dll") {
     throw "dwmapi.dll is not linked to the expected dynamic MSVC runtime."
 }
 
-$Ue4ssHead = (
-    git -C third_party/RE-UE4SS rev-parse HEAD
-).Trim()
-if ($LASTEXITCODE -ne 0 -or $Ue4ssHead -ne $AcceptedUe4ssCommit) {
-    throw "The built UE4SS checkout is not $AcceptedUe4ssCommit."
-}
-$Ue4ssStatus = @(
-    git -C third_party/RE-UE4SS -c core.filemode=false status --porcelain --untracked-files=no
-)
-if ($LASTEXITCODE -ne 0 -or $Ue4ssStatus.Count -ne 0) {
-    throw "The built UE4SS checkout contains a tracked source modification."
-}
+$Ue4ssHead = $StageManifest.ue4ss_commit
 
 $CompilerPath = (Get-Command cl -ErrorAction Stop).Source
 $CompilerVersion = (Get-Item -LiteralPath $CompilerPath).VersionInfo.FileVersion
@@ -176,7 +174,7 @@ $Compiler = "$CompilerPath $CompilerVersion"
 $Report = [ordered]@{
     schema_version = 1
     product_version = "2.0.0"
-    source_commit = (git rev-parse HEAD).Trim()
+    source_commit = $ProjectCommit
     ue4ss_commit = $Ue4ssHead
     ue4ss_source_stage = [ordered]@{
         manifest_sha256 = (
