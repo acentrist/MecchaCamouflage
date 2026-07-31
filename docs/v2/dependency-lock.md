@@ -87,11 +87,12 @@ The staging tool checks the pristine source and nested commits, original and
 overlay hashes, exact one-file Git diff, and exact canonical manifest. CMake
 accepts only the verified stage and manifest. The verifier runs again after
 build, and provenance plus dependency evidence bind the stage-manifest hash and
-diff identity. `.gitattributes` fixes every project-owned `*.lock` checkout to
-LF so the canonical byte hash is identical under Windows Git even when
-`core.autocrlf` is enabled. Any edit inside the gitlink, locked commit change,
-additional overlay, unexpected/untracked staged entry, or changed hash stops
-the architecture gate for review.
+diff identity. `.gitattributes` fixes project-owned text to LF by default,
+including every `*.lock`, so canonical lock, resource, and license byte hashes
+are identical under Windows Git even when `core.autocrlf` is enabled. The
+reviewed PowerShell and INI exceptions remain CRLF. Any edit inside the
+gitlink, locked commit change, additional overlay, unexpected/untracked staged
+entry, or changed hash stops the architecture gate for review.
 
 ## Project-native decoder lock
 

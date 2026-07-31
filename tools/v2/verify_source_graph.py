@@ -174,6 +174,8 @@ def verify_build_pin() -> None:
 
 def verify_source_overlay() -> None:
     attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+    if "* text=auto eol=lf" not in attributes.splitlines():
+        fail("project-owned text is not fixed to LF in Windows checkouts")
     if "*.lock text eol=lf" not in attributes.splitlines():
         fail("canonical lock files are not fixed to LF in Windows checkouts")
     policy_path = ROOT / UE4SS_OVERLAY_POLICY
