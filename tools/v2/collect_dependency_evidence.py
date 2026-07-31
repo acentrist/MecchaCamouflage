@@ -41,6 +41,7 @@ class DependencyEvidenceInputs:
 
 
 _MAXIMUM_JSON_BYTES = 64 * 1024 * 1024
+_MAXIMUM_CRATE_BYTES = 256 * 1024 * 1024
 _MAXIMUM_TARGETS = 8192
 _MAXIMUM_PACKAGES = 4096
 _COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
@@ -738,6 +739,52 @@ def _cargo_lock_packages(
     return result
 
 
+def _verify_registry_checksum(
+    inputs: DependencyEvidenceInputs,
+    manifest: Path,
+    name: str,
+    version: str,
+    checksum: str,
+) -> None:
+    checksum_file = manifest.parent / ".cargo-checksum.json"
+    if os.path.lexists(checksum_file):
+        checksum_data, _ = _load_json(checksum_file)
+        if (
+            not isinstance(checksum_data, dict)
+            or checksum_data.get("package") != checksum
+        ):
+            raise DependencyEvidenceError(
+                f"Cargo registry checksum evidence changed: {name}"
+            )
+        return
+
+    registry_sources = inputs.cargo_root / "registry/src"
+    try:
+        relative = manifest.parent.relative_to(registry_sources)
+    except ValueError as error:
+        raise DependencyEvidenceError(
+            f"Cargo registry source path is invalid: {name}"
+        ) from error
+    if (
+        len(relative.parts) != 2
+        or relative.parts[1] != f"{name}-{version}"
+    ):
+        raise DependencyEvidenceError(
+            f"Cargo registry source identity is invalid: {name}"
+        )
+    archive = (
+        inputs.cargo_root
+        / "registry/cache"
+        / relative.parts[0]
+        / f"{name}-{version}.crate"
+    )
+    archive_bytes = _plain_file(archive, _MAXIMUM_CRATE_BYTES)
+    if hashlib.sha256(archive_bytes).hexdigest() != checksum:
+        raise DependencyEvidenceError(
+            f"Cargo registry archive checksum changed: {name}"
+        )
+
+
 def _cargo_components(
     inputs: DependencyEvidenceInputs,
     roots: dict[str, Path],
@@ -888,15 +935,13 @@ def _cargo_components(
                     f"Cargo registry checksum is invalid: {name}"
                 )
             _path_alias(manifest, roots, allow_cargo=True)
-            checksum_file = manifest.parent / ".cargo-checksum.json"
-            checksum_data, _ = _load_json(checksum_file)
-            if (
-                not isinstance(checksum_data, dict)
-                or checksum_data.get("package") != checksum
-            ):
-                raise DependencyEvidenceError(
-                    f"Cargo registry checksum evidence changed: {name}"
-                )
+            _verify_registry_checksum(
+                inputs,
+                manifest,
+                name,
+                version,
+                checksum,
+            )
             source_identity = f"cargo:{checksum}"
         elif source.startswith("git+"):
             alias = _path_alias(

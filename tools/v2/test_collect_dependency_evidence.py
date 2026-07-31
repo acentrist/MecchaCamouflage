@@ -19,6 +19,9 @@ from collect_dependency_evidence import (  # noqa: E402
     collect_dependency_evidence,
 )
 
+REGISTRY_ARCHIVE = b"serde crate archive fixture\n"
+REGISTRY_CHECKSUM = hashlib.sha256(REGISTRY_ARCHIVE).hexdigest()
+
 
 def canonical_json(value: object) -> bytes:
     return (
@@ -45,7 +48,7 @@ def cargo_lock(include_unused: bool) -> str:
         'name = "serde"',
         'version = "1.0.0"',
         'source = "registry+https://github.com/rust-lang/crates.io-index"',
-        f'checksum = "{"2" * 64}"',
+        f'checksum = "{REGISTRY_CHECKSUM}"',
         "",
     ]
     if include_unused:
@@ -172,8 +175,16 @@ class DependencyEvidenceTests(unittest.TestCase):
             encoding="utf-8",
         )
         (serde_root / ".cargo-checksum.json").write_bytes(
-            canonical_json({"files": {}, "package": "2" * 64})
+            canonical_json(
+                {"files": {}, "package": REGISTRY_CHECKSUM}
+            )
         )
+        archive = (
+            cargo
+            / "registry/cache/example/serde-1.0.0.crate"
+        )
+        archive.parent.mkdir(parents=True)
+        archive.write_bytes(REGISTRY_ARCHIVE)
 
         reply = build / ".cmake/api/v1/reply"
         reply.mkdir(parents=True)
@@ -403,7 +414,7 @@ class DependencyEvidenceTests(unittest.TestCase):
             )
             self.assertEqual(
                 components["cargo:serde@1.0.0"]["source_identity"],
-                "cargo:" + "2" * 64 + ":features:none",
+                f"cargo:{REGISTRY_CHECKSUM}:features:none",
             )
             self.assertIn(
                 commits["ue4ss"],
@@ -440,7 +451,7 @@ class DependencyEvidenceTests(unittest.TestCase):
             inputs, _ = self.make_fixture(Path(temporary))
             inputs.cargo_lock.write_text(
                 inputs.cargo_lock.read_text(encoding="utf-8").replace(
-                    "2" * 64,
+                    REGISTRY_CHECKSUM,
                     "3" * 64,
                 ),
                 encoding="utf-8",
@@ -464,6 +475,51 @@ class DependencyEvidenceTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 DependencyEvidenceError,
                 "checksum",
+            ):
+                collect_dependency_evidence(inputs)
+
+    def test_accepts_new_cargo_registry_archive_checksum_evidence(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            inputs, _ = self.make_fixture(Path(temporary))
+            checksum = (
+                inputs.cargo_root
+                / "registry/src/example/serde-1.0.0/.cargo-checksum.json"
+            )
+            checksum.unlink()
+
+            evidence = collect_dependency_evidence(inputs)
+
+            component = next(
+                item
+                for item in evidence["components"]
+                if item["name"] == "cargo:serde@1.0.0"
+            )
+            self.assertEqual(
+                component["source_identity"],
+                f"cargo:{REGISTRY_CHECKSUM}:features:none",
+            )
+
+    def test_refuses_new_cargo_registry_archive_checksum_mismatch(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            inputs, _ = self.make_fixture(Path(temporary))
+            checksum = (
+                inputs.cargo_root
+                / "registry/src/example/serde-1.0.0/.cargo-checksum.json"
+            )
+            checksum.unlink()
+            archive = (
+                inputs.cargo_root
+                / "registry/cache/example/serde-1.0.0.crate"
+            )
+            archive.write_bytes(b"tampered archive")
+
+            with self.assertRaisesRegex(
+                DependencyEvidenceError,
+                "archive checksum",
             ):
                 collect_dependency_evidence(inputs)
 
