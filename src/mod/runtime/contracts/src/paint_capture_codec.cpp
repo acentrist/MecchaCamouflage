@@ -370,4 +370,27 @@ auto convert_paint_capture_linear_colors_to_srgb8(
     }
     return converted;
 }
+
+auto paint_brush_plane_visual_contract()
+    -> PaintBrushPlaneVisualContract
+{
+    return PaintBrushPlaneVisualContract{
+        "/Game/BluePrints/cLeon/BP_BrushPlane."
+        "BP_BrushPlane_C",
+        {
+            PaintBrushPlaneVisualComponent{
+                "Plane",
+                PaintBrushPlaneVisualKind::StaticMesh,
+            },
+            PaintBrushPlaneVisualComponent{
+                "Plane1",
+                PaintBrushPlaneVisualKind::StaticMesh,
+            },
+            PaintBrushPlaneVisualComponent{
+                "Niagara",
+                PaintBrushPlaneVisualKind::Niagara,
+            },
+        },
+    };
+}
 } // namespace meccha::runtime

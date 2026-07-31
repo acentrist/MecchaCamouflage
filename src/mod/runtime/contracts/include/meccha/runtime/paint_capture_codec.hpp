@@ -4,10 +4,12 @@
 #include <meccha/core/paint_sampling_profile.hpp>
 #include <meccha/runtime/esp_capture_codec.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <span>
+#include <string_view>
 #include <vector>
 
 namespace meccha::runtime
@@ -149,6 +151,30 @@ struct PaintSceneCaptureCamera
         -> bool = default;
 };
 
+enum class PaintBrushPlaneVisualKind : std::uint8_t
+{
+    StaticMesh,
+    Niagara,
+};
+
+struct PaintBrushPlaneVisualComponent
+{
+    std::string_view name{};
+    PaintBrushPlaneVisualKind kind{};
+
+    auto operator==(const PaintBrushPlaneVisualComponent&) const
+        -> bool = default;
+};
+
+struct PaintBrushPlaneVisualContract
+{
+    std::string_view actor_class_path{};
+    std::array<PaintBrushPlaneVisualComponent, 3U> components{};
+
+    auto operator==(const PaintBrushPlaneVisualContract&) const
+        -> bool = default;
+};
+
 struct PaintCaptureLinearColor
 {
     float red{};
@@ -268,4 +294,7 @@ convert_paint_capture_linear_colors_to_srgb8(
     -> std::expected<
         std::vector<core::Rgb8>,
         PaintCaptureEncodingError>;
+
+[[nodiscard]] auto paint_brush_plane_visual_contract()
+    -> PaintBrushPlaneVisualContract;
 } // namespace meccha::runtime

@@ -445,11 +445,15 @@ Evidence:
       camera, profile-bound initialized mesh, complete packaged-bone transform
       set, BaseColor background, and optional FinalColor-HDR background, with
       bounded readback and local actor/array/root cleanup on every exit.
-    - [ ] Discover and hide the exact live brush-plane visual components, add
-      Auto Material intrinsic-emission plus trial-preview feedback/restoration,
-      prove bounded multi-frame capture cost, and record live readback
-      orientation/color/cleanup evidence before connecting the composition
-      root.
+    - [x] Freeze the current cooked
+      `/Game/BluePrints/cLeon/BP_BrushPlane.BP_BrushPlane_C` visual contract
+      and hide exact current-World `Plane`, `Plane1`, and `Niagara` components
+      from every capture pass, rejecting missing, duplicate, wrong-class,
+      wrong-owner, or stale matches.
+    - [ ] Add Auto Material intrinsic-emission plus trial-preview
+      feedback/restoration, prove bounded multi-frame capture cost, and record
+      live brush-plane/readback orientation/color/cleanup evidence before
+      connecting the composition root.
 - [x] Validate round, cube, and fukuyoka profiles.
 - [x] Implement immutable planning for Paint/Fill/Skip, lighting, Auto Material,
   PBR, compression, and Fill-first ordering.

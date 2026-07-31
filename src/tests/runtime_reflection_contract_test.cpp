@@ -667,6 +667,29 @@ auto main() -> int
                 destroy_capture_actor).has_value(),
         "the exact SceneCapture operation contracts drifted");
 
+    const auto brush_plane =
+        paint_brush_plane_visual_contract();
+    passed &= expect(
+        brush_plane.actor_class_path ==
+                "/Game/BluePrints/cLeon/BP_BrushPlane."
+                "BP_BrushPlane_C" &&
+            brush_plane.components ==
+                std::array{
+                    PaintBrushPlaneVisualComponent{
+                        "Plane",
+                        PaintBrushPlaneVisualKind::StaticMesh,
+                    },
+                    PaintBrushPlaneVisualComponent{
+                        "Plane1",
+                        PaintBrushPlaneVisualKind::StaticMesh,
+                    },
+                    PaintBrushPlaneVisualComponent{
+                        "Niagara",
+                        PaintBrushPlaneVisualKind::Niagara,
+                    },
+                },
+        "the exact cooked brush-plane visual contract drifted");
+
     const auto unlit_capture_plan =
         build_paint_scene_capture_plan(core::PaintSettings{});
     auto lit_settings = core::PaintSettings{};

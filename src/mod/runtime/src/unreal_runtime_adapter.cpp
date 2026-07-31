@@ -93,6 +93,13 @@ constexpr auto SceneCaptureComponent2dClassPath =
     STR("/Script/Engine.SceneCaptureComponent2D");
 constexpr auto SceneCapture2dClassPath =
     STR("/Script/Engine.SceneCapture2D");
+constexpr auto StaticMeshComponentClassPath =
+    STR("/Script/Engine.StaticMeshComponent");
+constexpr auto NiagaraComponentClassPath =
+    STR("/Script/Niagara.NiagaraComponent");
+constexpr auto BrushPlaneClassPath =
+    STR("/Game/BluePrints/cLeon/BP_BrushPlane."
+        "BP_BrushPlane_C");
 constexpr auto CapsuleComponentClassPath =
     STR("/Script/Engine.CapsuleComponent");
 constexpr auto PlayerCameraManagerClassPath =
@@ -345,6 +352,14 @@ struct PaintSceneCaptureContracts
     UFunction* capture_scene{};
     UFunction* hide_component{};
     UFunction* destroy_actor{};
+};
+
+struct PaintBrushPlaneVisuals
+{
+    UClass* actor_class{};
+    std::array<UClass*, 3U> component_classes{};
+    AActor* actor{};
+    std::array<UObject*, 3U> components{};
 };
 
 struct ImagePaintContracts
@@ -2752,6 +2767,111 @@ auto outer_chain_contains(UObject* object, UObject* expected)
     return false;
 }
 
+auto resolve_paint_brush_plane_visuals(
+    UObject* world,
+    const PaintSceneCaptureContracts& scene)
+    -> std::expected<
+        PaintBrushPlaneVisuals,
+        application::RuntimeExecutionError>
+{
+    auto visuals = PaintBrushPlaneVisuals{};
+    visuals.actor_class = find_class(BrushPlaneClassPath);
+    auto* static_mesh_component_class =
+        find_class(StaticMeshComponentClassPath);
+    auto* niagara_component_class =
+        find_class(NiagaraComponentClassPath);
+    visuals.component_classes = {
+        static_mesh_component_class,
+        static_mesh_component_class,
+        niagara_component_class,
+    };
+    if (world == nullptr ||
+        visuals.actor_class == nullptr ||
+        static_mesh_component_class == nullptr ||
+        niagara_component_class == nullptr)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::MissingObject);
+    }
+    if (!visuals.actor_class->IsChildOf(scene.actor_class) ||
+        !static_mesh_component_class->IsChildOf(
+            scene.primitive_component_class) ||
+        !niagara_component_class->IsChildOf(
+            scene.primitive_component_class))
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::WrongClass);
+    }
+
+    auto actor_count = std::size_t{};
+    UObjectGlobals::ForEachUObject(
+        [&](UObject* object, std::int32_t, std::int32_t)
+            -> RC::LoopAction
+        {
+            if (object_is_live_exact(
+                    object,
+                    visuals.actor_class) &&
+                object->GetWorld() == world)
+            {
+                visuals.actor = static_cast<AActor*>(object);
+                ++actor_count;
+            }
+            return actor_count > 1U
+                       ? RC::LoopAction::Break
+                       : RC::LoopAction::Continue;
+        });
+    if (actor_count != 1U)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::MissingObject);
+    }
+
+    const auto cooked =
+        paint_brush_plane_visual_contract();
+    auto component_counts =
+        std::array<std::size_t, 3U>{};
+    UObjectGlobals::ForEachUObject(
+        [&](UObject* object, std::int32_t, std::int32_t)
+            -> RC::LoopAction
+        {
+            if (object == nullptr ||
+                object->GetWorld() != world ||
+                !outer_chain_contains(object, visuals.actor))
+            {
+                return RC::LoopAction::Continue;
+            }
+            const auto name = RC::to_string(object->GetName());
+            for (auto index = std::size_t{};
+                 index < cooked.components.size();
+                 ++index)
+            {
+                if (name != cooked.components[index].name ||
+                    !object_is_live_exact(
+                        object,
+                        visuals.component_classes[index]))
+                {
+                    continue;
+                }
+                visuals.components[index] = object;
+                ++component_counts[index];
+                break;
+            }
+            return RC::LoopAction::Continue;
+        });
+    if (std::ranges::any_of(
+            component_counts,
+            [](std::size_t count) { return count != 1U; }))
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::MissingObject);
+    }
+    return visuals;
+}
+
 struct HideSceneCaptureComponentParametersAbi
 {
     void* in_component{};
@@ -2925,6 +3045,7 @@ auto configure_scene_capture_component(
 auto capture_paint_scene_pass(
     UWorld* world,
     UObject* target_mesh,
+    const PaintBrushPlaneVisuals& brush_plane,
     const PaintSceneCaptureCamera& camera,
     const PaintSceneCapturePass& pass,
     const PaintSceneCaptureContracts& contracts)
@@ -2938,7 +3059,11 @@ auto capture_paint_scene_pass(
         !object_is_live(
             target_mesh,
             contracts.primitive_component_class) ||
-        target_mesh->GetWorld() != world)
+        target_mesh->GetWorld() != world ||
+        !object_is_live_exact(
+            brush_plane.actor,
+            brush_plane.actor_class) ||
+        brush_plane.actor->GetWorld() != world)
     {
         return runtime_failure(
             application::RuntimeContractId::PaintCapture,
@@ -3023,12 +3148,44 @@ auto capture_paint_scene_pass(
             application::ContractFailureKind::InvalidValue);
     }
 
-    auto hidden = HideSceneCaptureComponentParametersAbi{
-        target_mesh,
+    auto hide_component = [&](UObject* hidden) -> bool
+    {
+        if (!object_is_live(
+                hidden,
+                contracts.primitive_component_class) ||
+            hidden->GetWorld() != world)
+        {
+            return false;
+        }
+        auto parameters =
+            HideSceneCaptureComponentParametersAbi{hidden};
+        component->ProcessEvent(
+            contracts.hide_component,
+            &parameters);
+        return true;
     };
-    component->ProcessEvent(
-        contracts.hide_component,
-        &hidden);
+    if (!hide_component(target_mesh))
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::StaleObject);
+    }
+    for (auto index = std::size_t{};
+         index < brush_plane.components.size();
+         ++index)
+    {
+        auto* hidden = brush_plane.components[index];
+        if (!object_is_live_exact(
+                hidden,
+                brush_plane.component_classes[index]) ||
+            !outer_chain_contains(hidden, brush_plane.actor) ||
+            !hide_component(hidden))
+        {
+            return runtime_failure(
+                application::RuntimeContractId::PaintCapture,
+                application::ContractFailureKind::StaleObject);
+        }
+    }
     component->ProcessEvent(
         contracts.capture_scene,
         nullptr);
@@ -4449,6 +4606,14 @@ public:
                     application::ContractFailureKind::
                         InvalidValue);
             }
+            const auto brush_plane =
+                resolve_paint_brush_plane_visuals(
+                    world,
+                    *scene);
+            if (!brush_plane)
+            {
+                return std::unexpected(brush_plane.error());
+            }
 
             auto intrinsic =
                 std::shared_ptr<const std::vector<core::Rgb8>>{};
@@ -4459,6 +4624,7 @@ public:
                 const auto linear = capture_paint_scene_pass(
                     static_cast<UWorld*>(world),
                     mesh,
+                    *brush_plane,
                     *camera,
                     pass,
                     *scene);

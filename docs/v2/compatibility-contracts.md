@@ -154,16 +154,16 @@ The v1 research-only functions `MulticastSyncChannelData`,
 | GAME-RENDER-008 | `PlayerController.DeprojectScreenPositionToWorld` | Validated screen ray |
 | GAME-RENDER-009 | `PlayerController.ProjectWorldLocationToScreen` | Calibration/contract check |
 | GAME-RENDER-010 | `SceneCaptureComponent2D.CaptureScene` | Exact zero-parameter schema; one explicit capture after all properties and hidden components are set |
-| GAME-RENDER-011 | `SceneCaptureComponent.HideComponent` | Exact `0x08` schema with one `PrimitiveComponent` input; hide the local target mesh and, before production connection, every exact live brush-plane visual component |
+| GAME-RENDER-011 | `SceneCaptureComponent.HideComponent` | Exact `0x08` schema with one `PrimitiveComponent` input; hide the local target mesh plus exact current-World `/Game/BluePrints/cLeon/BP_BrushPlane.BP_BrushPlane_C` children `Plane`, `Plane1`, and `Niagara` on every pass |
 | GAME-RENDER-012 | `Actor.K2_DestroyActor` | Exact zero-parameter schema; destroy each transient capture actor on every exit |
 
 The manual Paint capture seed uses GAME-RENDER-001/002/010/011/012, the exact
 SceneCapture property set above, a pinned UE4SS `UWorld::SpawnActor` call with
 an exact class/result/world check, and the calibrated GAME-ESP-011 view. This
 is compile/contract evidence only. Phase 8 must still validate the minimal
-Auto Material subset, exact brush-plane visuals, live readback semantics and
-cleanup, and the capture frame budget. Debug/research capture, arbitrary actor
-spawning, and texture probing are deleted when they are not needed for product
+Auto Material subset, live brush-plane hiding and readback semantics/cleanup,
+and the capture frame budget. Debug/research capture, arbitrary actor spawning,
+and texture probing are deleted when they are not needed for product
 Paint/Image Paint.
 
 ## HUD and UCanvas contracts

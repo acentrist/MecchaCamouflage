@@ -114,18 +114,24 @@ initializes the profile-bound target mesh, copies every packaged bone's current
 world transform, and materializes a bounded immutable manual-color capture
 seed. For each accepted pass it creates and roots one transient render target,
 spawns one exact `SceneCapture2D`, configures and reads back every reflected
-property, hides the target mesh, captures once, copies finite raw linear
-samples into project-owned storage, and releases the Unreal array, actor, and
-root on every exit. Manual unlit capture uses BaseColor; manual lit capture
-also uses FinalColor HDR. Deterministic linear-to-sRGB conversion occurs after
-the game-thread readback.
+property, hides the target mesh and the exact live brush-plane visuals,
+captures once, copies finite raw linear samples into project-owned storage,
+and releases the Unreal array, actor, and root on every exit. The current
+cooked package fixes the brush-plane class as
+`/Game/BluePrints/cLeon/BP_BrushPlane.BP_BrushPlane_C` and its visual
+components as `Plane` and `Plane1` (`StaticMeshComponent`) plus `Niagara`
+(`NiagaraComponent`). Runtime discovery requires exactly one actor in the
+current World and exactly one live component of each exact name/class under
+that actor; absence, duplication, wrong ownership, or a stale object rejects
+capture before readback. Audio is not hidden. Manual unlit capture uses
+BaseColor; manual lit capture also uses FinalColor HDR. Deterministic
+linear-to-sRGB conversion occurs after the game-thread readback.
 
 This remains contract/build evidence, not a live capture claim. Auto Material
 is rejected before mutation because its intrinsic-emission and trial-preview
-feedback transaction is not implemented. The live brush-plane visual is not
-yet discovered/hidden, the composition root does not expose this capture path,
-and live readback orientation, color semantics, cleanup, and frame-budget
-behavior remain unverified.
+feedback transaction is not implemented. The composition root does not expose
+this capture path, and live brush-plane hiding, readback orientation, color
+semantics, cleanup, and frame-budget behavior remain unverified.
 
 `PaintJobCoordinator` is the sole planning-to-dispatch transition. It compares
 every completion with both its owned generation and the current shared job
@@ -341,9 +347,11 @@ passes. This is build evidence, not a live Paint pass.
 - Finish production source-appearance capture on the game thread. The exact
   initialization, SceneCapture actor/component/property/function, bounded
   render-target/readback, target-mesh hiding, manual pass, and local cleanup
-  paths now compile. Exact brush-plane visual discovery/hiding, Auto Material
+  paths now compile. Exact current-World brush-plane visual discovery/hiding
+  also compiles from current cooked-package evidence. Auto Material
   intrinsic-emission and trial-preview feedback/restoration, a bounded
-  multi-frame budget, and live orientation/color/cleanup evidence remain.
+  multi-frame budget, and live brush-plane/orientation/color/cleanup evidence
+  remain.
 - Implement the remaining production UE4SS capture contracts, connect the
   completed sender and queue observer through the exported composition root,
   and connect the completed preview adapter through that same root.
