@@ -335,6 +335,7 @@ auto find_bool_property(UClass* owner, const TCHAR* name)
         CastField<FBoolProperty>(
             owner->FindProperty(FName{name, FNAME_Find}));
     if (property == nullptr ||
+        property->GetOwner<UClass>() != owner ||
         property->GetArrayDim() != 1 ||
         property->GetElementSize() != 1 ||
         property->GetFieldMask() == 0U ||
