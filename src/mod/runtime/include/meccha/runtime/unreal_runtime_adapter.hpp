@@ -1,5 +1,7 @@
 #pragma once
 
+#include <meccha/application/image_paint_game_runtime.hpp>
+#include <meccha/application/image_paint_profile_catalog.hpp>
 #include <meccha/application/paint_game_runtime.hpp>
 #include <meccha/application/paint_preview_controller.hpp>
 #include <meccha/application/runtime_lifecycle.hpp>
@@ -19,6 +21,7 @@ class UnrealRuntimeAdapter final
       public application::PaintStrokeRuntimePort,
       public application::PaintQueueRuntimePort,
       public application::PaintPreviewRuntimePort,
+      public application::ImagePaintGameRuntimePort,
       public product_ui::ImageEditorTextureRuntimePort,
       public product_ui::ProductUiFrameCapturePort,
       public product_ui::ProductUiCanvasRenderPort,
@@ -27,7 +30,10 @@ class UnrealRuntimeAdapter final
 public:
     explicit UnrealRuntimeAdapter(
         std::shared_ptr<
-            product_ui::ProductUiInputQueue> input_queue);
+            product_ui::ProductUiInputQueue> input_queue,
+        std::shared_ptr<
+            const application::ImagePaintProfileCatalog>
+            image_paint_profiles);
     UnrealRuntimeAdapter(const UnrealRuntimeAdapter&) = delete;
     auto operator=(const UnrealRuntimeAdapter&)
         -> UnrealRuntimeAdapter& = delete;
@@ -88,6 +94,18 @@ public:
         const application::PaintPreviewSnapshot& snapshot)
         -> std::expected<
             void,
+            application::RuntimeExecutionError> override;
+
+    auto capture(core::BodyProfile body)
+        -> std::expected<
+            application::CapturedImagePaintJob,
+            application::RuntimeExecutionError> override;
+
+    auto observe_queues(
+        application::RuntimeObjectHandle component,
+        application::JobGeneration generation)
+        -> std::expected<
+            application::PaintQueueObservation,
             application::RuntimeExecutionError> override;
 
     [[nodiscard]] auto create_texture(

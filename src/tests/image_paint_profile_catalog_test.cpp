@@ -72,7 +72,11 @@ auto main(int argc, char** argv) -> int
                 core::validate_pair(
                     pair->sampling,
                     pair->image)
-                    .empty(),
+                    .empty() &&
+                pair->unreal_asset_path.starts_with("/Game/") &&
+                pair->unreal_asset_path.ends_with(
+                    "." +
+                    pair->sampling.identity.export_name),
             "a body lookup did not retain its immutable exact pair");
     }
 

@@ -99,7 +99,8 @@ auto read_profile_file(const std::filesystem::path& path)
         return error(
             ImagePaintProfileCatalogErrorCode::FileRead,
             std::nullopt,
-            "Profile file could not be opened: " + path.string());
+            "Profile file could not be opened: " +
+                path.filename().string());
     }
     const auto end = stream.tellg();
     if (end < 0 ||
@@ -109,7 +110,8 @@ auto read_profile_file(const std::filesystem::path& path)
         return error(
             ImagePaintProfileCatalogErrorCode::FileRead,
             std::nullopt,
-            "Profile file size is invalid: " + path.string());
+            "Profile file size is invalid: " +
+                path.filename().string());
     }
     auto content = std::string(
         static_cast<std::size_t>(end),
@@ -123,9 +125,41 @@ auto read_profile_file(const std::filesystem::path& path)
         return error(
             ImagePaintProfileCatalogErrorCode::FileRead,
             std::nullopt,
-            "Profile file could not be read: " + path.string());
+            "Profile file could not be read: " +
+                path.filename().string());
     }
     return content;
+}
+
+auto unreal_asset_path(
+    const core::MeshProfileIdentity& identity)
+    -> std::optional<std::string>
+{
+    constexpr auto SourcePrefix =
+        std::string_view{"Chameleon/Content/"};
+    constexpr auto AssetSuffix = std::string_view{".uasset"};
+    if (!identity.source_path.starts_with(SourcePrefix) ||
+        !identity.source_path.ends_with(AssetSuffix) ||
+        identity.export_name.empty())
+    {
+        return std::nullopt;
+    }
+    const auto relative = std::string_view{identity.source_path}
+                              .substr(
+                                  SourcePrefix.size(),
+                                  identity.source_path.size() -
+                                      SourcePrefix.size() -
+                                      AssetSuffix.size());
+    if (relative.empty() ||
+        relative.find('\\') != std::string_view::npos ||
+        relative.find("..") != std::string_view::npos ||
+        identity.export_name.find_first_of("/\\.") !=
+            std::string::npos)
+    {
+        return std::nullopt;
+    }
+    return "/Game/" + std::string{relative} + "." +
+           identity.export_name;
 }
 } // namespace
 
@@ -186,11 +220,22 @@ auto ImagePaintProfileCatalog::create(
                     "Raw and ImageReference profiles do not form an "
                     "exact topology pair.");
             }
+            const auto asset_path =
+                unreal_asset_path(sampling->identity);
+            if (!asset_path)
+            {
+                return error(
+                    ImagePaintProfileCatalogErrorCode::InvalidPair,
+                    document.body,
+                    "Raw profile cannot form an exact Unreal asset "
+                    "path.");
+            }
             catalog.pairs_[*position] =
                 std::make_shared<const ImagePaintProfilePair>(
                     ImagePaintProfilePair{
                         std::move(*sampling),
                         std::move(*image),
+                        std::move(*asset_path),
                     });
         }
         for (const auto& pair : catalog.pairs_)

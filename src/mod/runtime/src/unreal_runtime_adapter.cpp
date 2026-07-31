@@ -23,6 +23,7 @@
 #include <Unreal/UnrealFlags.hpp>
 #include <Unreal/UnrealInitializer.hpp>
 #include <Unreal/World.hpp>
+#include <Helpers/String.hpp>
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -92,6 +93,10 @@ constexpr auto Texture2dClassPath =
     STR("/Script/Engine.Texture2D");
 constexpr auto RuntimePaintableClassPath =
     STR("/Script/PenguinHotel.RuntimePaintableComponent");
+constexpr auto SkinnedMeshComponentClassPath =
+    STR("/Script/Engine.SkinnedMeshComponent");
+constexpr auto SkinnedAssetClassPath =
+    STR("/Script/Engine.SkinnedAsset");
 constexpr auto PaintAtUvWithBrushPath =
     STR("/Script/PenguinHotel.RuntimePaintableComponent:"
         "PaintAtUVWithBrush");
@@ -193,6 +198,17 @@ struct PaintContracts
     UScriptStruct* paint_channel_data{};
     UScriptStruct* runtime_brush_settings{};
     UScriptStruct* runtime_paint_replication_pressure{};
+};
+
+struct ImagePaintContracts
+{
+    UClass* runtime_paintable_class{};
+    UClass* pawn_class{};
+    UClass* world_class{};
+    UClass* skinned_mesh_component_class{};
+    UClass* skinned_asset_class{};
+    FWeakObjectProperty* target_mesh_component{};
+    FObjectPropertyBase* skinned_asset{};
 };
 
 struct ActiveFrame
@@ -325,7 +341,9 @@ auto find_object_property(
         property->GetArrayDim() != 1 ||
         property->GetElementSize() !=
             static_cast<int>(sizeof(void*)) ||
-        property->GetPropertyClass().Get() != expected_class ||
+        property->GetPropertyClass().Get() == nullptr ||
+        !expected_class->IsChildOf(
+            property->GetPropertyClass().Get()) ||
         !property->IsInContainer(owner))
     {
         return nullptr;
@@ -349,6 +367,30 @@ auto find_bool_property(UClass* owner, const TCHAR* name)
         property->GetElementSize() != 1 ||
         property->GetFieldMask() == 0U ||
         property->GetByteMask() == 0U ||
+        !property->IsInContainer(owner))
+    {
+        return nullptr;
+    }
+    return property;
+}
+
+auto find_weak_object_property(
+    UClass* owner,
+    const TCHAR* name,
+    UClass* expected_class) -> FWeakObjectProperty*
+{
+    if (owner == nullptr || expected_class == nullptr)
+    {
+        return nullptr;
+    }
+    auto* property = CastField<FWeakObjectProperty>(
+        owner->FindProperty(FName{name, FNAME_Find}));
+    if (property == nullptr ||
+        property->GetOwner<UClass>() != owner ||
+        property->GetArrayDim() != 1 ||
+        property->GetElementSize() !=
+            static_cast<int>(sizeof(FWeakObjectPtr)) ||
+        property->GetPropertyClass().Get() != expected_class ||
         !property->IsInContainer(owner))
     {
         return nullptr;
@@ -456,6 +498,20 @@ auto read_object(
     const auto* value =
         property->ContainerPtrToValuePtr<void>(container);
     return property->GetObjectPropertyValue(value);
+}
+
+auto read_weak_object(
+    FWeakObjectProperty* property,
+    UObject* container) -> UObject*
+{
+    if (property == nullptr || container == nullptr)
+    {
+        return nullptr;
+    }
+    auto* value =
+        property->ContainerPtrToValuePtr<FWeakObjectPtr>(
+            container);
+    return value == nullptr ? nullptr : value->Get();
 }
 
 auto runtime_failure(
@@ -1187,6 +1243,65 @@ auto resolve_paint_contracts(UClass* player_controller_class)
     return contracts;
 }
 
+auto resolve_image_paint_contracts(
+    UClass* runtime_paintable_class,
+    UClass* pawn_class,
+    UClass* world_class)
+    -> std::expected<
+        ImagePaintContracts,
+        application::RuntimeExecutionError>
+{
+    auto contracts = ImagePaintContracts{};
+    contracts.runtime_paintable_class = runtime_paintable_class;
+    contracts.pawn_class = pawn_class;
+    contracts.world_class = world_class;
+    contracts.skinned_mesh_component_class =
+        find_class(SkinnedMeshComponentClassPath);
+    contracts.skinned_asset_class =
+        find_class(SkinnedAssetClassPath);
+    if (contracts.runtime_paintable_class == nullptr ||
+        contracts.pawn_class == nullptr ||
+        contracts.world_class == nullptr ||
+        contracts.skinned_mesh_component_class == nullptr ||
+        contracts.skinned_asset_class == nullptr)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::
+                ImagePaintMeshProfile,
+            application::ContractFailureKind::MissingObject);
+    }
+    contracts.target_mesh_component =
+        find_weak_object_property(
+            contracts.runtime_paintable_class,
+            STR("TargetMeshComponent"),
+            contracts.skinned_mesh_component_class);
+    if (contracts.target_mesh_component == nullptr)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::
+                ImagePaintMeshProfile,
+            application::ContractFailureKind::
+                WrongPropertyKind);
+    }
+    contracts.skinned_asset = find_object_property(
+        contracts.skinned_mesh_component_class,
+        STR("SkinnedAsset"),
+        contracts.skinned_asset_class);
+    if (contracts.skinned_asset == nullptr ||
+        CastField<FWeakObjectProperty>(
+            contracts.skinned_asset) != nullptr ||
+        contracts.skinned_asset->GetOwner<UClass>() !=
+            contracts.skinned_mesh_component_class)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::
+                ImagePaintMeshProfile,
+            application::ContractFailureKind::
+                WrongPropertyKind);
+    }
+    return contracts;
+}
+
 auto outer_chain_contains(UObject* object, UObject* expected)
     -> bool
 {
@@ -1297,8 +1412,13 @@ class UnrealRuntimeAdapter::Impl
 public:
     explicit Impl(
         std::shared_ptr<
-            product_ui::ProductUiInputQueue> input_queue)
-        : input_queue_{std::move(input_queue)}
+            product_ui::ProductUiInputQueue> input_queue,
+        std::shared_ptr<
+            const application::ImagePaintProfileCatalog>
+            image_paint_profiles)
+        : input_queue_{std::move(input_queue)},
+          image_paint_profiles_{
+              std::move(image_paint_profiles)}
     {
     }
 
@@ -1448,6 +1568,24 @@ public:
             {
                 return std::unexpected(resolved.error());
             }
+            auto image_paint = resolve_image_paint_contracts(
+                resolved->runtime_paintable_class,
+                resolved->pawn_class,
+                hud->world_class);
+            if (!image_paint)
+            {
+                return std::unexpected(image_paint.error());
+            }
+            if (!image_paint_profiles_ ||
+                image_paint_profiles_->size() !=
+                    application::ImagePaintProfilePairCount)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        ImagePaintMeshProfile,
+                    application::ContractFailureKind::
+                        MissingObject);
+            }
             const auto lock = std::scoped_lock{mutex_};
             if (detaching_)
             {
@@ -1460,6 +1598,7 @@ public:
             canvas_contracts_ = *canvas;
             input_contracts_ = *input;
             paint_contracts_ = *resolved;
+            image_paint_contracts_ = *image_paint;
             return {};
         }
         catch (...)
@@ -2130,6 +2269,173 @@ public:
             return runtime_failure(
                 application::RuntimeContractId::
                     PaintQueueObservation,
+                application::ContractFailureKind::
+                    ExecutionFailure);
+        }
+    }
+
+    auto capture_image_paint(core::BodyProfile body)
+        -> std::expected<
+            application::CapturedImagePaintJob,
+            application::RuntimeExecutionError>
+    {
+        if (!IsInGameThreadRaw())
+        {
+            return std::unexpected(
+                application::RuntimeExecutionError{
+                    application::RuntimeExecutionErrorCode::
+                        WrongThread,
+                    std::nullopt,
+                });
+        }
+        try
+        {
+            const auto pair = image_paint_profiles_
+                                  ? image_paint_profiles_->find(body)
+                                  : nullptr;
+            if (!pair)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        ImagePaintMeshProfile,
+                    application::ContractFailureKind::
+                        MissingObject);
+            }
+            if (pair->unreal_asset_path.empty() ||
+                pair->sampling.identity.export_name.empty())
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        ImagePaintMeshProfile,
+                    application::ContractFailureKind::
+                        InvalidValue);
+            }
+
+            auto contracts =
+                std::optional<ImagePaintContracts>{};
+            auto bound = std::optional<BoundFrame>{};
+            auto active = std::optional<ActiveFrame>{};
+            {
+                const auto lock = std::scoped_lock{mutex_};
+                if (detaching_)
+                {
+                    return runtime_failure(
+                        application::RuntimeContractId::
+                            ImagePaintMeshProfile,
+                        application::ContractFailureKind::
+                            StaleObject);
+                }
+                contracts = image_paint_contracts_;
+                bound = bound_frame_;
+                active = active_frame_;
+            }
+            if (!contracts || !bound || !active ||
+                bound->identity != active->identity ||
+                !bound->identity.valid())
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        ImagePaintMeshProfile,
+                    application::ContractFailureKind::
+                        MissingObject);
+            }
+            auto* world = bound->world.Get();
+            auto* pawn = bound->pawn.Get();
+            auto* component = bound->component.Get();
+            if (!object_is_live(
+                    component,
+                    contracts->runtime_paintable_class) ||
+                !object_is_live(pawn, contracts->pawn_class) ||
+                !object_is_live(world, contracts->world_class) ||
+                component->GetWorld() != world)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        ImagePaintMeshProfile,
+                    application::ContractFailureKind::
+                        StaleObject);
+            }
+
+            auto* mesh = read_weak_object(
+                contracts->target_mesh_component,
+                component);
+            if (!object_is_live(
+                    mesh,
+                    contracts->skinned_mesh_component_class) ||
+                mesh->GetWorld() != world ||
+                !outer_chain_contains(mesh, pawn))
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        ImagePaintMeshProfile,
+                    mesh == nullptr
+                        ? application::ContractFailureKind::
+                              MissingObject
+                        : application::ContractFailureKind::
+                              WrongClass);
+            }
+            auto* asset = read_object(
+                contracts->skinned_asset,
+                mesh);
+            if (!object_is_live(
+                    asset,
+                    contracts->skinned_asset_class))
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        ImagePaintMeshProfile,
+                    asset == nullptr
+                        ? application::ContractFailureKind::
+                              MissingObject
+                        : application::ContractFailureKind::
+                              WrongClass);
+            }
+            if (RC::to_string(asset->GetPathName()) !=
+                    pair->unreal_asset_path ||
+                RC::to_string(asset->GetName()) !=
+                    pair->sampling.identity.export_name)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        ImagePaintMeshProfile,
+                    application::ContractFailureKind::
+                        InvalidValue);
+            }
+
+            {
+                const auto lock = std::scoped_lock{mutex_};
+                if (detaching_ || !bound_frame_ ||
+                    !active_frame_ ||
+                    bound_frame_->identity != bound->identity ||
+                    bound_frame_->component_identity !=
+                        bound->component_identity ||
+                    bound_frame_->component_generation !=
+                        bound->component_generation ||
+                    bound_frame_->component.Get() != component ||
+                    active_frame_->identity != active->identity)
+                {
+                    return runtime_failure(
+                        application::RuntimeContractId::
+                            ImagePaintMeshProfile,
+                        application::ContractFailureKind::
+                            StaleObject);
+                }
+            }
+            return application::CapturedImagePaintJob{
+                application::RuntimeObjectHandle{
+                    bound->component_identity,
+                    bound->component_generation,
+                },
+                pair->sampling,
+                pair->image,
+                core::replication_pacing_plan({}),
+            };
+        }
+        catch (...)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::
+                    ImagePaintMeshProfile,
                 application::ContractFailureKind::
                     ExecutionFailure);
         }
@@ -3120,6 +3426,7 @@ private:
         canvas_contracts_.reset();
         input_contracts_.reset();
         paint_contracts_.reset();
+        image_paint_contracts_.reset();
         active_frame_.reset();
         bound_frame_.reset();
         queue_tracker_.reset();
@@ -3240,6 +3547,7 @@ private:
     std::optional<CanvasContracts> canvas_contracts_{};
     std::optional<InputContracts> input_contracts_{};
     std::optional<PaintContracts> paint_contracts_{};
+    std::optional<ImagePaintContracts> image_paint_contracts_{};
     std::optional<ActiveFrame> active_frame_{};
     std::optional<BoundFrame> bound_frame_{};
     PaintQueueObservationTracker queue_tracker_{};
@@ -3251,6 +3559,9 @@ private:
     std::optional<InputMutationLease> input_mutation_{};
     std::shared_ptr<product_ui::ProductUiInputQueue>
         input_queue_{};
+    std::shared_ptr<
+        const application::ImagePaintProfileCatalog>
+        image_paint_profiles_{};
     product_ui::ProductUiPointerCapture pointer_capture_{};
     HWND input_window_{};
     void* callback_context_{};
@@ -3264,8 +3575,13 @@ private:
 
 UnrealRuntimeAdapter::UnrealRuntimeAdapter(
     std::shared_ptr<
-        product_ui::ProductUiInputQueue> input_queue)
-    : impl_{std::make_unique<Impl>(std::move(input_queue))}
+        product_ui::ProductUiInputQueue> input_queue,
+    std::shared_ptr<
+        const application::ImagePaintProfileCatalog>
+        image_paint_profiles)
+    : impl_{std::make_unique<Impl>(
+          std::move(input_queue),
+          std::move(image_paint_profiles))}
 {
 }
 
@@ -3357,6 +3673,24 @@ auto UnrealRuntimeAdapter::restore(
         application::RuntimeExecutionError>
 {
     return impl_->restore_preview(snapshot);
+}
+
+auto UnrealRuntimeAdapter::capture(core::BodyProfile body)
+    -> std::expected<
+        application::CapturedImagePaintJob,
+        application::RuntimeExecutionError>
+{
+    return impl_->capture_image_paint(body);
+}
+
+auto UnrealRuntimeAdapter::observe_queues(
+    application::RuntimeObjectHandle component,
+    application::JobGeneration generation)
+    -> std::expected<
+        application::PaintQueueObservation,
+        application::RuntimeExecutionError>
+{
+    return impl_->observe_queues(component, generation);
 }
 
 auto UnrealRuntimeAdapter::create_texture(

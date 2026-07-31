@@ -214,6 +214,7 @@ auto compatibility_failure_valid(
         case application::RuntimeContractId::ImagePaintTexture:
         case application::RuntimeContractId::TextureMutation:
         case application::RuntimeContractId::InputControl:
+        case application::RuntimeContractId::ImagePaintMeshProfile:
             return true;
         }
         return false;

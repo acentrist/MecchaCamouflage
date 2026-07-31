@@ -27,6 +27,7 @@ enum class RuntimeContractId : std::uint8_t
     ImagePaintTexture,
     TextureMutation,
     InputControl,
+    ImagePaintMeshProfile,
 };
 
 enum class ContractFailureKind : std::uint8_t

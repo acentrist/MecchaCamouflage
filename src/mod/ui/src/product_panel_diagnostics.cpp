@@ -92,6 +92,8 @@ auto contract_name(
         return "TextureMutation";
     case application::RuntimeContractId::InputControl:
         return "InputControl";
+    case application::RuntimeContractId::ImagePaintMeshProfile:
+        return "ImagePaintMeshProfile";
     }
     return "UnknownContract";
 }

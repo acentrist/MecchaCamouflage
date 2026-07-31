@@ -29,6 +29,7 @@ struct ImagePaintProfilePair
 {
     core::PaintSamplingProfile sampling{};
     core::CanonicalImageProfile image{};
+    std::string unreal_asset_path{};
 };
 
 enum class ImagePaintProfileCatalogErrorCode : std::uint8_t
