@@ -78,8 +78,12 @@ held-key behavior across snapshot publication, complete remapping, duplicate
 mapping refusal, invalid/event-limit refusal, exact command-ID exhaustion,
 input-loss release, and terminal shutdown.
 
-The complete Linux, Linux ASan/UBSan, and Windows MSVC Release graphs pass 75,
-75, and 93 tests respectively.
+The current complete Linux, Linux ASan/UBSan, and Windows MSVC Release graphs
+pass 79, 79, and 97 tests respectively. The Windows graph is built from the
+exact project commit with `UE4SS.dll`, `main.dll`, and the launcher bound to
+the manifest-verified immutable UE4SS source stage. Post-build verification
+confirms that the stage still contains only the pinned source plus the
+project-owned canonical Cargo lock overlay.
 
 ## Immutable product presentation
 

@@ -322,7 +322,7 @@ Evidence:
     cancellation, guide-ordering, identity, limit, and clip-unwind tests.
   - [x] Pass deterministic canonical PNG integrity/cancellation and exact
     texture-import ABI contract tests.
-  - [x] Pass the complete 96-test Windows x64 Shipping graph from an exact
+  - [x] Pass the complete 97-test Windows x64 Shipping graph from an exact
     clean project checkout while building UE4SS and `main.dll` from the
     manifest-verified canonical source stage; reverify that the stage remains
     the pinned upstream commit plus only the approved Cargo lock overlay after
