@@ -39,21 +39,32 @@ struct ProductUiFrameRuntimeError
         -> bool = default;
 };
 
-class ProductUiFrameRuntimePort
+class ProductUiFrameCapturePort
 {
 public:
-    ProductUiFrameRuntimePort() = default;
-    ProductUiFrameRuntimePort(
-        const ProductUiFrameRuntimePort&) = delete;
-    auto operator=(const ProductUiFrameRuntimePort&)
-        -> ProductUiFrameRuntimePort& = delete;
-    virtual ~ProductUiFrameRuntimePort() = default;
+    ProductUiFrameCapturePort() = default;
+    ProductUiFrameCapturePort(
+        const ProductUiFrameCapturePort&) = delete;
+    auto operator=(const ProductUiFrameCapturePort&)
+        -> ProductUiFrameCapturePort& = delete;
+    virtual ~ProductUiFrameCapturePort() = default;
 
     [[nodiscard]] virtual auto capture(
         const application::HudFrameIdentity& identity)
         -> std::expected<
             ProductUiFrameInput,
             ProductUiFrameRuntimeError> = 0;
+};
+
+class ProductUiCanvasRenderPort
+{
+public:
+    ProductUiCanvasRenderPort() = default;
+    ProductUiCanvasRenderPort(
+        const ProductUiCanvasRenderPort&) = delete;
+    auto operator=(const ProductUiCanvasRenderPort&)
+        -> ProductUiCanvasRenderPort& = delete;
+    virtual ~ProductUiCanvasRenderPort() = default;
 
     [[nodiscard]] virtual auto render(
         const application::HudFrameIdentity& identity,
@@ -129,7 +140,8 @@ public:
         const application::LocalizationCatalog& localization,
         ui::InputLeaseController& input_lease,
         ui::InputLeasePort& input_port,
-        ProductUiFrameRuntimePort& runtime,
+        ProductUiFrameCapturePort& capture,
+        ProductUiCanvasRenderPort& renderer,
         application::ProductUiEffectExecutor* effects = nullptr,
         application::ImageEditorReadyContentPort* ready_content = nullptr,
         ImageEditorTextureCoordinator* textures = nullptr);
@@ -185,7 +197,8 @@ private:
     const application::LocalizationCatalog& localization_;
     ui::InputLeaseController& input_lease_;
     ui::InputLeasePort& input_port_;
-    ProductUiFrameRuntimePort& runtime_;
+    ProductUiFrameCapturePort& capture_;
+    ProductUiCanvasRenderPort& renderer_;
     application::ProductUiEffectExecutor* effects_{};
     application::ImageEditorReadyContentPort* ready_content_{};
     ImageEditorTextureCoordinator* textures_{};

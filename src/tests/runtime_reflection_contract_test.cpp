@@ -1,3 +1,4 @@
+#include <meccha/runtime/canvas_call_codec.hpp>
 #include <meccha/runtime/reflection_contract.hpp>
 #include <meccha/runtime/paint_call_codec.hpp>
 #include <meccha/runtime/paint_preview_codec.hpp>
@@ -73,6 +74,7 @@ auto main() -> int
                 "/Script/PenguinHotel.RuntimePaintableComponent" &&
             expected.size == 0x68U &&
             vector2d_contract().size == 0x10U &&
+            linear_color_contract().size == 0x10U &&
             paint_channel_data_contract().size == 0x24U &&
             runtime_brush_settings_contract().size == 0x28U,
         "the reviewed game-owned Paint contract sizes drifted");
@@ -118,6 +120,181 @@ auto main() -> int
                 import_channel_from_bytes_contract(),
                 import_channel_from_bytes_contract()).has_value(),
         "the reviewed preview channel contracts drifted");
+    passed &= expect(
+        k2_draw_line_contract().owner_name ==
+                "/Script/Engine.Canvas" &&
+            k2_draw_line_contract().size == 0x38U &&
+            validate_reflection_contract(
+                k2_draw_line_contract(),
+                k2_draw_line_contract()).has_value(),
+        "the reviewed UCanvas line contract drifted");
+    const auto canvas_line = CanvasLineInput{
+        {12.5, 24.0},
+        {96.0, 128.5},
+        {128U, 64U, 255U, 127U},
+        2.5,
+    };
+    const auto encoded_line = encode_canvas_line(canvas_line);
+    passed &= expect(
+        encoded_line &&
+            encoded_line->screen_position_a.x == 12.5 &&
+            encoded_line->screen_position_a.y == 24.0 &&
+            encoded_line->screen_position_b.x == 96.0 &&
+            encoded_line->screen_position_b.y == 128.5 &&
+            encoded_line->thickness == 2.5F &&
+            encoded_line->render_color.alpha ==
+                (127.0F / 255.0F),
+        "a validated Canvas line did not encode to the UE5.6 ABI");
+    passed &= expect(
+        k2_draw_texture_contract().owner_name ==
+                "/Script/Engine.Canvas" &&
+            k2_draw_texture_contract().size == 0x70U &&
+            validate_reflection_contract(
+                k2_draw_texture_contract(),
+                k2_draw_texture_contract()).has_value(),
+        "the reviewed UCanvas texture contract drifted");
+    const auto encoded_box = encode_canvas_filled_box(
+        CanvasBoxInput{
+            {40.0, 60.0, 320.0, 180.0},
+            {16U, 32U, 64U, 192U},
+        });
+    passed &= expect(
+        encoded_box &&
+            encoded_box->render_texture == nullptr &&
+            encoded_box->screen_position.x == 40.0 &&
+            encoded_box->screen_position.y == 60.0 &&
+            encoded_box->screen_size.x == 320.0 &&
+            encoded_box->screen_size.y == 180.0 &&
+            encoded_box->coordinate_position.x == 0.0 &&
+            encoded_box->coordinate_position.y == 0.0 &&
+            encoded_box->coordinate_size.x == 1.0 &&
+            encoded_box->coordinate_size.y == 1.0 &&
+            encoded_box->blend_mode ==
+                CanvasBlendMode::Translucent &&
+            encoded_box->rotation == 0.0F &&
+            encoded_box->pivot_point.x == 0.5 &&
+            encoded_box->pivot_point.y == 0.5 &&
+            encoded_box->render_color.alpha ==
+                (192.0F / 255.0F),
+        "a filled Canvas box did not encode as a white-texture tile");
+    const auto texture_identity =
+        reinterpret_cast<void*>(0x1234U);
+    const auto encoded_texture = encode_canvas_texture(
+        CanvasTextureInput{
+            texture_identity,
+            {100.0, 200.0, 400.0, 300.0},
+            {0.25, 0.125, 0.75, 0.875},
+            {255U, 255U, 255U, 224U},
+        });
+    passed &= expect(
+        encoded_texture &&
+            encoded_texture->render_texture ==
+                texture_identity &&
+            encoded_texture->screen_position.x == 100.0 &&
+            encoded_texture->screen_position.y == 200.0 &&
+            encoded_texture->screen_size.x == 400.0 &&
+            encoded_texture->screen_size.y == 300.0 &&
+            encoded_texture->coordinate_position.x == 0.25 &&
+            encoded_texture->coordinate_position.y == 0.125 &&
+            encoded_texture->coordinate_size.x == 0.5 &&
+            encoded_texture->coordinate_size.y == 0.75 &&
+            encoded_texture->render_color.alpha ==
+                (224.0F / 255.0F),
+        "a Canvas texture did not preserve its clipped UV range");
+    passed &= expect(
+        k2_draw_text_contract().owner_name ==
+                "/Script/Engine.Canvas" &&
+            k2_draw_text_contract().size == 0x88U &&
+            validate_reflection_contract(
+                k2_draw_text_contract(),
+                k2_draw_text_contract()).has_value(),
+        "the reviewed UCanvas text contract drifted");
+    const auto text_units =
+        std::array{u'日', u'本', u'語', u'\0'};
+    const auto font_identity =
+        reinterpret_cast<void*>(0x5678U);
+    const auto encoded_text = encode_canvas_text(
+        CanvasTextInput{
+            font_identity,
+            {
+                text_units.data(),
+                static_cast<std::int32_t>(text_units.size()),
+                static_cast<std::int32_t>(text_units.size()),
+            },
+            {24.0, 48.0},
+            {240U, 224U, 192U, 255U},
+            1.5,
+        });
+    passed &= expect(
+        encoded_text &&
+            encoded_text->render_font == font_identity &&
+            encoded_text->render_text.data ==
+                text_units.data() &&
+            encoded_text->render_text.count == 4 &&
+            encoded_text->screen_position.x == 24.0 &&
+            encoded_text->screen_position.y == 48.0 &&
+            encoded_text->scale.x == 1.5 &&
+            encoded_text->scale.y == 1.5 &&
+            encoded_text->shadow_color.alpha == 0.0F &&
+            !encoded_text->centre_x &&
+            !encoded_text->centre_y &&
+            !encoded_text->outlined &&
+            encoded_text->outline_color.alpha == 0.0F,
+        "localized Canvas text did not encode to the UE5.6 ABI");
+    passed &= expect(
+        encode_canvas_line(
+            CanvasLineInput{
+                {1.0, 1.0},
+                {1.0, 1.0},
+                {},
+                1.0,
+            }) ==
+            std::unexpected(
+                CanvasCallCodecError::InvalidGeometry) &&
+            encode_canvas_filled_box(
+                CanvasBoxInput{
+                    {0.0, 0.0, 0.0, 10.0},
+                    {},
+                }) ==
+                std::unexpected(
+                    CanvasCallCodecError::InvalidGeometry) &&
+            encode_canvas_texture(
+                CanvasTextureInput{
+                    nullptr,
+                    {0.0, 0.0, 10.0, 10.0},
+                    {},
+                    {},
+                }) ==
+                std::unexpected(
+                    CanvasCallCodecError::InvalidGeometry),
+        "an invalid Canvas geometry/resource reached an ABI call");
+    auto unterminated_text = CanvasTextInput{
+        font_identity,
+        {
+            text_units.data(),
+            3,
+            4,
+        },
+        {1.0, 1.0},
+        {},
+        1.0,
+    };
+    passed &= expect(
+        encode_canvas_text(unterminated_text) ==
+            std::unexpected(
+                CanvasCallCodecError::InvalidGeometry),
+        "unterminated Canvas text reached the FString ABI");
+    auto wrong_text_kind = k2_draw_text_contract();
+    wrong_text_kind.properties[1].kind =
+        ReflectionPropertyKind::Array;
+    wrong_text_kind.properties[1].type_name = "Byte";
+    passed &= expect(
+        has_error(
+            wrong_text_kind,
+            k2_draw_text_contract(),
+            ReflectionContractErrorCode::PropertyKind,
+            "RenderText"),
+        "a byte array was accepted as a Canvas FString");
     passed &= expect(
         export_channel_to_bytes_contract().properties[1] ==
                 ReflectionPropertyDescriptor{

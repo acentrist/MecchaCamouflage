@@ -4,6 +4,7 @@
 #include <meccha/application/paint_preview_controller.hpp>
 #include <meccha/application/runtime_lifecycle.hpp>
 #include <meccha/application/runtime_operation_executor.hpp>
+#include <meccha/product_ui/product_ui_frame_coordinator.hpp>
 
 #include <memory>
 
@@ -15,7 +16,8 @@ class UnrealRuntimeAdapter final
       public application::UnrealFrameRuntimePort,
       public application::PaintStrokeRuntimePort,
       public application::PaintQueueRuntimePort,
-      public application::PaintPreviewRuntimePort
+      public application::PaintPreviewRuntimePort,
+      public product_ui::ProductUiCanvasRenderPort
 {
 public:
     UnrealRuntimeAdapter();
@@ -80,6 +82,13 @@ public:
         -> std::expected<
             void,
             application::RuntimeExecutionError> override;
+
+    [[nodiscard]] auto render(
+        const application::HudFrameIdentity& identity,
+        const ui::CanvasFrame& frame)
+        -> std::expected<
+            void,
+            product_ui::ProductUiFrameRuntimeError> override;
 
 private:
     class Impl;

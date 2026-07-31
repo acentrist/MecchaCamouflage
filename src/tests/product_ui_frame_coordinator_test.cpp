@@ -263,7 +263,9 @@ public:
         CommandEnqueueResult::Accepted};
 };
 
-class FrameRuntime final : public ProductUiFrameRuntimePort
+class FrameRuntime final
+    : public ProductUiFrameCapturePort,
+      public ProductUiCanvasRenderPort
 {
 public:
     auto capture(const HudFrameIdentity& identity)
@@ -421,6 +423,7 @@ auto main(int argc, char** argv) -> int
         *catalog,
         input_lease,
         input_port,
+        runtime,
         runtime,
         &effects,
     };
@@ -643,6 +646,7 @@ auto main(int argc, char** argv) -> int
         *catalog,
         texture_input_lease,
         texture_input_port,
+        texture_frame_runtime,
         texture_frame_runtime,
         nullptr,
         &ready_content_port,

@@ -2,6 +2,7 @@
 
 #include <Helpers/String.hpp>
 #include <Unreal/CoreUObject/UObject/Class.hpp>
+#include <Unreal/CoreUObject/UObject/FStrProperty.hpp>
 #include <Unreal/CoreUObject/UObject/UnrealType.hpp>
 #include <Unreal/Property/FEnumProperty.hpp>
 #include <Unreal/UObject.hpp>
@@ -125,6 +126,10 @@ auto describe_property(FProperty* property)
             return std::nullopt;
         }
         type_name = RC::to_string(script_struct->GetName());
+    }
+    else if (CastField<FStrProperty>(property) != nullptr)
+    {
+        kind = ReflectionPropertyKind::String;
     }
     else if (auto* array_property =
                  CastField<FArrayProperty>(property);

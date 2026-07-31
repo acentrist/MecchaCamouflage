@@ -1,5 +1,6 @@
 #include <meccha/runtime/unreal_runtime_adapter.hpp>
 
+#include <meccha/runtime/canvas_call_codec.hpp>
 #include <meccha/runtime/paint_call_codec.hpp>
 #include <meccha/runtime/paint_preview_codec.hpp>
 #include <meccha/runtime/paint_queue_codec.hpp>
@@ -20,6 +21,7 @@
 
 #include <algorithm>
 #include <condition_variable>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <expected>
@@ -27,7 +29,9 @@
 #include <mutex>
 #include <optional>
 #include <span>
+#include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace meccha::runtime
@@ -45,6 +49,12 @@ constexpr auto PlayerControllerClassPath =
     STR("/Script/Engine.PlayerController");
 constexpr auto PawnClassPath = STR("/Script/Engine.Pawn");
 constexpr auto CanvasClassPath = STR("/Script/Engine.Canvas");
+constexpr auto K2DrawLinePath =
+    STR("/Script/Engine.Canvas:K2_DrawLine");
+constexpr auto K2DrawTexturePath =
+    STR("/Script/Engine.Canvas:K2_DrawTexture");
+constexpr auto K2DrawTextPath =
+    STR("/Script/Engine.Canvas:K2_DrawText");
 constexpr auto RuntimePaintableClassPath =
     STR("/Script/PenguinHotel.RuntimePaintableComponent");
 constexpr auto PaintAtUvWithBrushPath =
@@ -74,12 +84,22 @@ constexpr auto RuntimePaintReplicationPressurePath =
     STR("/Script/PenguinHotel.RuntimePaintReplicationPressure");
 constexpr auto Vector2dPath =
     STR("/Script/CoreUObject.Vector2D");
+constexpr auto LinearColorPath =
+    STR("/Script/CoreUObject.LinearColor");
 constexpr auto PaintChannelDataPath =
     STR("/Script/PenguinHotel.PaintChannelData");
 constexpr auto RuntimeBrushSettingsPath =
     STR("/Script/PenguinHotel.RuntimeBrushSettings");
 constexpr auto ReceiveDrawHudParameterBytes = 8;
 constexpr auto FailureMessage = "error.operation.failed";
+
+struct ReceiveDrawHudParametersAbi
+{
+    std::int32_t size_x{};
+    std::int32_t size_y{};
+};
+
+static_assert(sizeof(ReceiveDrawHudParametersAbi) == 0x08U);
 
 struct HudContracts
 {
@@ -90,6 +110,16 @@ struct HudContracts
     UClass* canvas_class{};
     FObjectPropertyBase* player_owner{};
     FObjectPropertyBase* canvas{};
+};
+
+struct CanvasContracts
+{
+    UClass* canvas_class{};
+    UFunction* draw_line{};
+    UFunction* draw_texture{};
+    UFunction* draw_text{};
+    UScriptStruct* vector2d{};
+    UScriptStruct* linear_color{};
 };
 
 struct PaintContracts
@@ -119,6 +149,8 @@ struct ActiveFrame
     UObject* controller{};
     UObject* hud{};
     UObject* canvas{};
+    std::int32_t viewport_width{};
+    std::int32_t viewport_height{};
 };
 
 struct BoundFrame
@@ -299,6 +331,118 @@ auto runtime_failure(
             FailureMessage,
         },
     });
+}
+
+auto canvas_failure(const char* detail)
+    -> std::unexpected<
+        product_ui::ProductUiFrameRuntimeError>
+{
+    return std::unexpected(
+        product_ui::ProductUiFrameRuntimeError{detail});
+}
+
+auto resolve_canvas_contracts(UClass* canvas_class)
+    -> std::expected<
+        CanvasContracts,
+        application::RuntimeExecutionError>
+{
+    auto contracts = CanvasContracts{};
+    contracts.canvas_class = canvas_class;
+    contracts.draw_line =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            K2DrawLinePath);
+    contracts.draw_texture =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            K2DrawTexturePath);
+    contracts.draw_text =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            K2DrawTextPath);
+    contracts.vector2d =
+        UObjectGlobals::StaticFindObject<UScriptStruct*>(
+            nullptr,
+            nullptr,
+            Vector2dPath);
+    contracts.linear_color =
+        UObjectGlobals::StaticFindObject<UScriptStruct*>(
+            nullptr,
+            nullptr,
+            LinearColorPath);
+
+    if (contracts.canvas_class == nullptr ||
+        contracts.vector2d == nullptr ||
+        contracts.linear_color == nullptr)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::Canvas,
+            application::ContractFailureKind::MissingObject);
+    }
+    if (contracts.draw_line == nullptr ||
+        contracts.draw_texture == nullptr ||
+        contracts.draw_text == nullptr)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::Canvas,
+            application::ContractFailureKind::MissingFunction);
+    }
+    if (contracts.draw_line->GetOuterPrivate() !=
+            contracts.canvas_class ||
+        contracts.draw_texture->GetOuterPrivate() !=
+            contracts.canvas_class ||
+        contracts.draw_text->GetOuterPrivate() !=
+            contracts.canvas_class)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::Canvas,
+            application::ContractFailureKind::WrongClass);
+    }
+
+    const auto vector_result = validate_unreal_record(
+        contracts.vector2d,
+        vector2d_contract(),
+        application::RuntimeContractId::Canvas);
+    if (!vector_result)
+    {
+        return std::unexpected(vector_result.error());
+    }
+    const auto color_result = validate_unreal_record(
+        contracts.linear_color,
+        linear_color_contract(),
+        application::RuntimeContractId::Canvas);
+    if (!color_result)
+    {
+        return std::unexpected(color_result.error());
+    }
+    const auto line_result = validate_unreal_record(
+        contracts.draw_line,
+        k2_draw_line_contract(),
+        application::RuntimeContractId::Canvas);
+    if (!line_result)
+    {
+        return std::unexpected(line_result.error());
+    }
+    const auto texture_result = validate_unreal_record(
+        contracts.draw_texture,
+        k2_draw_texture_contract(),
+        application::RuntimeContractId::Canvas);
+    if (!texture_result)
+    {
+        return std::unexpected(texture_result.error());
+    }
+    const auto text_result = validate_unreal_record(
+        contracts.draw_text,
+        k2_draw_text_contract(),
+        application::RuntimeContractId::Canvas);
+    if (!text_result)
+    {
+        return std::unexpected(text_result.error());
+    }
+    return contracts;
 }
 
 class ExportedChannelBuffer final
@@ -916,6 +1060,12 @@ public:
                     application::ContractFailureKind::
                         MissingObject);
             }
+            auto canvas = resolve_canvas_contracts(
+                hud->canvas_class);
+            if (!canvas)
+            {
+                return std::unexpected(canvas.error());
+            }
             auto resolved = resolve_paint_contracts(
                 hud->player_controller_class);
             if (!resolved)
@@ -931,6 +1081,7 @@ public:
                     application::ContractFailureKind::
                         ExecutionFailure);
             }
+            canvas_contracts_ = *canvas;
             paint_contracts_ = *resolved;
             return {};
         }
@@ -1479,6 +1630,174 @@ public:
             snapshot.original);
     }
 
+    auto render_canvas(
+        const application::HudFrameIdentity& identity,
+        const ui::CanvasFrame& frame)
+        -> std::expected<
+            void,
+            product_ui::ProductUiFrameRuntimeError>
+    {
+        if (!IsInGameThreadRaw())
+        {
+            return canvas_failure("canvas.wrong_thread");
+        }
+        try
+        {
+            auto contracts = std::optional<CanvasContracts>{};
+            auto active = std::optional<ActiveFrame>{};
+            {
+                const auto lock = std::scoped_lock{mutex_};
+                contracts = canvas_contracts_;
+                active = active_frame_;
+            }
+            if (!contracts || !active ||
+                active->identity != identity ||
+                !object_is_live(
+                    active->canvas,
+                    contracts->canvas_class))
+            {
+                return canvas_failure("canvas.stale_frame");
+            }
+            if (active->viewport_width <= 0 ||
+                active->viewport_height <= 0 ||
+                !std::isfinite(frame.viewport.width) ||
+                !std::isfinite(frame.viewport.height) ||
+                !std::isfinite(frame.viewport.dpi_scale) ||
+                frame.viewport.width !=
+                    static_cast<double>(
+                        active->viewport_width) ||
+                frame.viewport.height !=
+                    static_cast<double>(
+                        active->viewport_height) ||
+                frame.viewport.dpi_scale <= 0.0 ||
+                frame.viewport.dpi_scale > 8.0 ||
+                frame.primitives.size() >
+                    ui::MaximumCanvasPrimitives)
+            {
+                return canvas_failure("canvas.invalid_frame");
+            }
+
+            using EncodedCall = std::variant<
+                K2DrawLineParametersAbi,
+                K2DrawTextureParametersAbi>;
+            auto calls = std::vector<EncodedCall>{};
+            calls.reserve(frame.primitives.size());
+            for (const auto& primitive : frame.primitives)
+            {
+                if (const auto* line =
+                        std::get_if<
+                            ui::CanvasLinePrimitive>(
+                            &primitive))
+                {
+                    const auto encoded = encode_canvas_line(
+                        CanvasLineInput{
+                            {
+                                line->start.x,
+                                line->start.y,
+                            },
+                            {
+                                line->end.x,
+                                line->end.y,
+                            },
+                            {
+                                line->color.red,
+                                line->color.green,
+                                line->color.blue,
+                                line->color.alpha,
+                            },
+                            line->thickness,
+                        });
+                    if (!encoded)
+                    {
+                        return canvas_failure(
+                            "canvas.invalid_line");
+                    }
+                    calls.emplace_back(*encoded);
+                    continue;
+                }
+                if (const auto* box =
+                        std::get_if<
+                            ui::CanvasBoxPrimitive>(
+                            &primitive))
+                {
+                    const auto encoded =
+                        encode_canvas_filled_box(
+                            CanvasBoxInput{
+                                {
+                                    box->rect.x,
+                                    box->rect.y,
+                                    box->rect.width,
+                                    box->rect.height,
+                                },
+                                {
+                                    box->color.red,
+                                    box->color.green,
+                                    box->color.blue,
+                                    box->color.alpha,
+                                },
+                            });
+                    if (!encoded)
+                    {
+                        return canvas_failure(
+                            "canvas.invalid_box");
+                    }
+                    calls.emplace_back(*encoded);
+                    continue;
+                }
+
+                // Text requires the reviewed game-font-first/fallback-glyph
+                // binding, and texture handles require adapter-owned
+                // generation tracking. Reject the complete frame before any
+                // ProcessEvent call until those contracts are installed.
+                return canvas_failure(
+                    "canvas.resource_unbound");
+            }
+
+            {
+                const auto lock = std::scoped_lock{mutex_};
+                if (detaching_ || !active_frame_ ||
+                    active_frame_->identity != identity ||
+                    active_frame_->canvas != active->canvas)
+                {
+                    return canvas_failure(
+                        "canvas.stale_frame");
+                }
+            }
+            for (auto& call : calls)
+            {
+                std::visit(
+                    [&](auto& parameters)
+                    {
+                        using Parameters =
+                            std::decay_t<
+                                decltype(parameters)>;
+                        auto* function =
+                            static_cast<UFunction*>(nullptr);
+                        if constexpr (
+                            std::is_same_v<
+                                Parameters,
+                                K2DrawLineParametersAbi>)
+                        {
+                            function = contracts->draw_line;
+                        }
+                        else
+                        {
+                            function = contracts->draw_texture;
+                        }
+                        active->canvas->ProcessEvent(
+                            function,
+                            &parameters);
+                    },
+                    call);
+            }
+            return {};
+        }
+        catch (...)
+        {
+            return canvas_failure("canvas.execution_failed");
+        }
+    }
+
 private:
     struct PreviewTarget
     {
@@ -1546,15 +1865,20 @@ private:
         try
         {
             static_cast<Impl*>(custom_data)->dispatch(
-                context.Context);
+                context);
         }
         catch (...)
         {
         }
     }
 
-    auto dispatch(UObject* hud) -> void
+    auto dispatch(
+        UnrealScriptFunctionCallableContext& context) -> void
     {
+        auto* hud = context.Context;
+        const auto parameters =
+            context.GetParams<
+                ReceiveDrawHudParametersAbi>();
         auto contracts = std::optional<HudContracts>{};
         auto callback_context = static_cast<void*>(nullptr);
         auto callback = application::HudCallback{};
@@ -1583,7 +1907,9 @@ private:
             auto* controller =
                 read_object(contracts->player_owner, hud);
             auto* canvas = read_object(contracts->canvas, hud);
-            if (object_is_live(world, contracts->world_class) &&
+            if (parameters.size_x > 0 &&
+                parameters.size_y > 0 &&
+                object_is_live(world, contracts->world_class) &&
                 object_is_live(
                     controller,
                     contracts->player_controller_class) &&
@@ -1601,6 +1927,8 @@ private:
                     controller,
                     hud,
                     canvas,
+                    parameters.size_x,
+                    parameters.size_y,
                 };
             }
         }
@@ -1647,6 +1975,7 @@ private:
     {
         hook_ids_.reset();
         hud_contracts_.reset();
+        canvas_contracts_.reset();
         paint_contracts_.reset();
         active_frame_.reset();
         bound_frame_.reset();
@@ -1690,6 +2019,7 @@ private:
     std::mutex mutex_{};
     std::condition_variable idle_{};
     std::optional<HudContracts> hud_contracts_{};
+    std::optional<CanvasContracts> canvas_contracts_{};
     std::optional<PaintContracts> paint_contracts_{};
     std::optional<ActiveFrame> active_frame_{};
     std::optional<BoundFrame> bound_frame_{};
@@ -1796,5 +2126,15 @@ auto UnrealRuntimeAdapter::restore(
         application::RuntimeExecutionError>
 {
     return impl_->restore_preview(snapshot);
+}
+
+auto UnrealRuntimeAdapter::render(
+    const application::HudFrameIdentity& identity,
+    const ui::CanvasFrame& frame)
+    -> std::expected<
+        void,
+        product_ui::ProductUiFrameRuntimeError>
+{
+    return impl_->render_canvas(identity, frame);
 }
 } // namespace meccha::runtime

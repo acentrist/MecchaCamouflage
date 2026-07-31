@@ -16,6 +16,7 @@ enum class ReflectionPropertyKind : std::uint8_t
     Float64,
     Object,
     Struct,
+    String,
     Enum,
     Array,
 };

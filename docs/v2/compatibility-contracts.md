@@ -170,6 +170,16 @@ needed for product Paint/Image Paint.
 | GAME-HUD-007 | Validated Canvas texture primitive | Image/editor rendering |
 | GAME-HUD-008 | Validated clipping/input functions/properties | Architecture-gate interaction |
 
+The source contract now freezes `K2_DrawLine` at `0x38`,
+`K2_DrawTexture` at `0x70`, and `K2_DrawText` at `0x88` parameter bytes,
+including every property offset/direction and the exact `Vector2D`,
+`LinearColor`, and `FString` property kinds. `UnrealRuntimeAdapter` validates
+those records before retaining them and currently admits only complete frames
+containing validated lines and filled white-texture tiles. Text and opaque
+texture handles remain fail-closed until font fallback and adapter-owned
+texture generations are bound. These are compiled contracts, not live-game
+compatibility evidence.
+
 v1 also probes `PostRender` and `ReceivePostRender`. v2 must choose one
 documented callback path for the pinned runtime/game, store its UE4SS callback
 ID, and reject an unvalidated fallback. `DrawLine`, `DrawText`, and `Project`

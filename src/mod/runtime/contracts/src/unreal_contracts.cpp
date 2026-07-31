@@ -2,6 +2,264 @@
 
 namespace meccha::runtime
 {
+auto k2_draw_line_contract() -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "K2_DrawLine",
+        "/Script/Engine.Canvas",
+        0x38U,
+        {
+            ReflectionPropertyDescriptor{
+                "ScreenPositionA",
+                ReflectionPropertyKind::Struct,
+                "Vector2D",
+                0x00U,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "ScreenPositionB",
+                ReflectionPropertyKind::Struct,
+                "Vector2D",
+                0x10U,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "Thickness",
+                ReflectionPropertyKind::Float32,
+                {},
+                0x20U,
+                0x04U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "RenderColor",
+                ReflectionPropertyKind::Struct,
+                "LinearColor",
+                0x24U,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+        },
+    };
+}
+
+auto k2_draw_texture_contract() -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "K2_DrawTexture",
+        "/Script/Engine.Canvas",
+        0x70U,
+        {
+            ReflectionPropertyDescriptor{
+                "RenderTexture",
+                ReflectionPropertyKind::Object,
+                "Texture",
+                0x00U,
+                0x08U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "ScreenPosition",
+                ReflectionPropertyKind::Struct,
+                "Vector2D",
+                0x08U,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "ScreenSize",
+                ReflectionPropertyKind::Struct,
+                "Vector2D",
+                0x18U,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "CoordinatePosition",
+                ReflectionPropertyKind::Struct,
+                "Vector2D",
+                0x28U,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "CoordinateSize",
+                ReflectionPropertyKind::Struct,
+                "Vector2D",
+                0x38U,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "RenderColor",
+                ReflectionPropertyKind::Struct,
+                "LinearColor",
+                0x48U,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "BlendMode",
+                ReflectionPropertyKind::Enum,
+                "EBlendMode",
+                0x58U,
+                0x01U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "Rotation",
+                ReflectionPropertyKind::Float32,
+                {},
+                0x5CU,
+                0x04U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "PivotPoint",
+                ReflectionPropertyKind::Struct,
+                "Vector2D",
+                0x60U,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+        },
+    };
+}
+
+auto k2_draw_text_contract() -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "K2_DrawText",
+        "/Script/Engine.Canvas",
+        0x88U,
+        {
+            ReflectionPropertyDescriptor{
+                "RenderFont",
+                ReflectionPropertyKind::Object,
+                "Font",
+                0x00U,
+                0x08U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "RenderText",
+                ReflectionPropertyKind::String,
+                {},
+                0x08U,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "ScreenPosition",
+                ReflectionPropertyKind::Struct,
+                "Vector2D",
+                0x18U,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "Scale",
+                ReflectionPropertyKind::Struct,
+                "Vector2D",
+                0x28U,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "RenderColor",
+                ReflectionPropertyKind::Struct,
+                "LinearColor",
+                0x38U,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "Kerning",
+                ReflectionPropertyKind::Float32,
+                {},
+                0x48U,
+                0x04U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "ShadowColor",
+                ReflectionPropertyKind::Struct,
+                "LinearColor",
+                0x4CU,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "ShadowOffset",
+                ReflectionPropertyKind::Struct,
+                "Vector2D",
+                0x60U,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "bCentreX",
+                ReflectionPropertyKind::Bool,
+                {},
+                0x70U,
+                0x01U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "bCentreY",
+                ReflectionPropertyKind::Bool,
+                {},
+                0x71U,
+                0x01U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "bOutlined",
+                ReflectionPropertyKind::Bool,
+                {},
+                0x72U,
+                0x01U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "OutlineColor",
+                ReflectionPropertyKind::Struct,
+                "LinearColor",
+                0x74U,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+        },
+    };
+}
+
 auto vector2d_contract() -> ReflectionRecordDescriptor
 {
     return ReflectionRecordDescriptor{
@@ -22,6 +280,45 @@ auto vector2d_contract() -> ReflectionRecordDescriptor
                 {},
                 0x08U,
                 0x08U,
+            },
+        },
+    };
+}
+
+auto linear_color_contract() -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "LinearColor",
+        "/Script/CoreUObject",
+        0x10U,
+        {
+            ReflectionPropertyDescriptor{
+                "R",
+                ReflectionPropertyKind::Float32,
+                {},
+                0x00U,
+                0x04U,
+            },
+            ReflectionPropertyDescriptor{
+                "G",
+                ReflectionPropertyKind::Float32,
+                {},
+                0x04U,
+                0x04U,
+            },
+            ReflectionPropertyDescriptor{
+                "B",
+                ReflectionPropertyKind::Float32,
+                {},
+                0x08U,
+                0x04U,
+            },
+            ReflectionPropertyDescriptor{
+                "A",
+                ReflectionPropertyKind::Float32,
+                {},
+                0x0CU,
+                0x04U,
             },
         },
     };

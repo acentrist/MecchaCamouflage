@@ -39,6 +39,47 @@ partially changes the frame. Texture handles are project-owned integers; no
 UE4SS, UObject, UCanvas, D3D, DXGI, or custom-render type crosses this
 boundary.
 
+## Reflected UCanvas boundary
+
+The product UI now separates frame input capture from Canvas rendering through
+`ProductUiFrameCapturePort` and `ProductUiCanvasRenderPort`. A production
+adapter can therefore prove one responsibility without claiming that mouse,
+keyboard, IME, cursor, or input-mode capture is implemented. The coordinator
+still requires both ports and preserves render-failure input rollback.
+
+The project-owned runtime contract layer freezes the UE 5.6 x64 reflected
+records and call ABIs used by the renderer:
+
+| Function | Parameter bytes | Required reflected properties |
+| --- | ---: | --- |
+| `Canvas.K2_DrawLine` | `0x38` | two `Vector2D` inputs, thickness, `LinearColor` |
+| `Canvas.K2_DrawTexture` | `0x70` | texture, destination/UV vectors, color, blend, rotation, pivot |
+| `Canvas.K2_DrawText` | `0x88` | font, `FString`, position/scale/color, shadow, centering, outline |
+
+`Vector2D`, `LinearColor`, every function owner, property name, kind, type,
+offset, size, array dimension, direction, and total record size are validated
+before the adapter stores the contracts. The reflection descriptor recognizes
+`FStrProperty` explicitly; an unknown string-like property does not pass as
+text. The dependency-free encoders validate finite geometry, bounded line/text
+scales, normalized UVs, nonempty terminated UTF-16 input, sRGB-to-linear color,
+alpha, translucent blending, and the exact x64 parameter layout.
+
+`UnrealRuntimeAdapter` now consumes only the render port. It records the exact
+`ReceiveDrawHUD` viewport values with the generation-scoped World/controller/
+HUD/Canvas identity, preflights the complete bounded frame, and dispatches
+validated lines plus filled boxes through `K2_DrawLine` and a null-texture
+white `K2_DrawTexture` tile. Any stale identity, viewport mismatch, invalid
+primitive, text without the reviewed game-font/fallback-glyph binding, or
+texture without adapter-owned generation tracking rejects the complete frame
+before the first `ProcessEvent`. There is no `K2_DrawText` default-font guess,
+pointer-shaped texture handle, external window, or Present-hook fallback.
+
+The exact contract test passes on Linux and Windows. The modified adapter
+compiles and links under `/W4 /WX` in the pinned MSVC
+`Game__Shipping__Win64` graph against the manifest-verified canonical UE4SS
+source stage. This is compile evidence only; live reflection resolution and
+visible Canvas output remain mandatory.
+
 ## Responsive layout and pointer interaction
 
 `build_panel_layout` validates the Canvas viewport, platform-provided safe-area
@@ -221,8 +262,10 @@ the typed command route and immutable document publication. The project-owned
 HUD-frame coordinator additionally proves localized composition, exact
 input-lease acquisition and render-failure rollback, render-before-action
 ordering, ready-texture synchronization, and resource-free shutdown through a
-fake runtime port. The normal Linux, ASan/UBSan, and Windows Release graphs pass
-75, 75, and 93 tests respectively.
+fake runtime port. The current normal Linux and ASan/UBSan graphs pass all 77
+registered tests. The accepted immutable Windows checkpoint passed 95 tests;
+the changed runtime contract test and production mod also pass/build in the
+pinned Windows work-source graph.
 
 ## Packaged fallback glyph atlas
 
@@ -248,7 +291,7 @@ the v2 payload because no v2 runtime path consumes them.
   creation/release.
 - Resolve the game-localized font first and bind missing text through the
   fallback atlas in the production UCanvas adapter.
-- Implement the validated UCanvas and Unreal input adapters only after the
-  protected UE4SS graph compiles the exact interfaces.
+- Complete adapter-owned text/texture rendering and the separate Unreal input
+  adapter; the line/filled-box UCanvas path alone does not pass Phase 5.
 - Prove localized font/text, texture creation/lifetime, clipping, mouse input,
   travel/HUD replacement, and teardown in the live UE 5.6 game.

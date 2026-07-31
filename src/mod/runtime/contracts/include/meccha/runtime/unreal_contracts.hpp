@@ -4,7 +4,19 @@
 
 namespace meccha::runtime
 {
+[[nodiscard]] auto k2_draw_line_contract()
+    -> ReflectionRecordDescriptor;
+
+[[nodiscard]] auto k2_draw_texture_contract()
+    -> ReflectionRecordDescriptor;
+
+[[nodiscard]] auto k2_draw_text_contract()
+    -> ReflectionRecordDescriptor;
+
 [[nodiscard]] auto vector2d_contract()
+    -> ReflectionRecordDescriptor;
+
+[[nodiscard]] auto linear_color_contract()
     -> ReflectionRecordDescriptor;
 
 [[nodiscard]] auto paint_channel_data_contract()

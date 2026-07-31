@@ -268,6 +268,14 @@ Evidence:
     texture/UV clipping, strict UTF-8 text, opaque texture handles, and no
     Unreal or graphics API types.
   - [ ] Implement the production UCanvas primitive adapter.
+    - [x] Split frame input capture from Canvas rendering so a partial
+      production adapter cannot claim input support; freeze exact UE 5.6
+      `K2_DrawLine`, `K2_DrawTexture`, and `K2_DrawText` reflection/ABI
+      contracts; and compile a generation/viewport-bound, complete-frame
+      preflighted line/filled-box adapter against the pinned UE4SS graph.
+    - [ ] Bind adapter-owned texture generations and game-font-first/fallback
+      text, then prove complete line/box/text/texture output without a partial
+      frame mutation.
 - [ ] Implement exact cursor/look/movement/input-mode lease restoration.
   - [x] Implement a transactional lease controller that captures the complete
     prior input state once, avoids repeated mutation, restores exactly on

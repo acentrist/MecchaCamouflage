@@ -23,6 +23,7 @@ target_link_libraries(
     meccha_runtime
     PUBLIC
         MecchaCamouflage::Application
+        MecchaCamouflage::ProductUi
         MecchaCamouflage::RuntimeContracts
     PRIVATE
         UE4SS

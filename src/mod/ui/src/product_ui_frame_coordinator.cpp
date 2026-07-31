@@ -173,7 +173,8 @@ ProductUiFrameCoordinator::ProductUiFrameCoordinator(
     const application::LocalizationCatalog& localization,
     ui::InputLeaseController& input_lease,
     ui::InputLeasePort& input_port,
-    ProductUiFrameRuntimePort& runtime,
+    ProductUiFrameCapturePort& capture,
+    ProductUiCanvasRenderPort& renderer,
     application::ProductUiEffectExecutor* effects,
     application::ImageEditorReadyContentPort* ready_content,
     ImageEditorTextureCoordinator* textures)
@@ -183,7 +184,8 @@ ProductUiFrameCoordinator::ProductUiFrameCoordinator(
       localization_{localization},
       input_lease_{input_lease},
       input_port_{input_port},
-      runtime_{runtime},
+      capture_{capture},
+      renderer_{renderer},
       effects_{effects},
       ready_content_{ready_content},
       textures_{textures},
@@ -229,7 +231,7 @@ auto ProductUiFrameCoordinator::tick(
             return model_error(model.error());
         }
 
-        auto captured = runtime_.capture(identity);
+        auto captured = capture_.capture(identity);
         if (!captured)
         {
             return runtime_error(
@@ -345,7 +347,7 @@ auto ProductUiFrameCoordinator::tick(
             return lease_error(lease.error());
         }
 
-        auto rendered = runtime_.render(
+        auto rendered = renderer_.render(
             identity,
             output->frame);
         if (!rendered)
