@@ -105,6 +105,24 @@ auto needs_texture_clear(
            phase == application::ImageEditorPipelinePhase::Stopped;
 }
 
+auto keyboard_input_mode(
+    const application::ProductUiModel& model,
+    const ProductPanelState& panel_state)
+    -> ProductUiKeyboardInputMode
+{
+    if (!model.ui_open)
+    {
+        return ProductUiKeyboardInputMode::Disabled;
+    }
+    if (panel_state.selected ==
+            application::ProductUiSection::ImagePaint &&
+        panel_state.image_editor.project_name.editing)
+    {
+        return ProductUiKeyboardInputMode::TextEdit;
+    }
+    return ProductUiKeyboardInputMode::Navigation;
+}
+
 auto valid_function_key_event(
     const application::FunctionKeyEvent& event) -> bool
 {
@@ -234,7 +252,9 @@ auto ProductUiFrameCoordinator::tick(
             return model_error(model.error());
         }
 
-        auto captured = capture_.capture(identity);
+        auto captured = capture_.capture(
+            identity,
+            keyboard_input_mode(*model, panel_state_));
         if (!captured)
         {
             return runtime_error(

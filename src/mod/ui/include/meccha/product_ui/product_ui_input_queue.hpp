@@ -26,9 +26,17 @@ enum class ProductUiNavigationInput : std::uint8_t
 enum class ProductUiInputRecordResult : std::uint8_t
 {
     Accepted,
+    Ignored,
     InvalidEvent,
     EventLimit,
     Stopped,
+};
+
+enum class ProductUiKeyboardInputMode : std::uint8_t
+{
+    Disabled,
+    Navigation,
+    TextEdit,
 };
 
 enum class ProductUiInputDrainError : std::uint8_t
@@ -56,6 +64,20 @@ public:
         -> ProductUiInputRecordResult;
     [[nodiscard]] auto record_text_edit(ui::TextEditEvent event)
         -> ProductUiInputRecordResult;
+    auto set_keyboard_input_mode(
+        ProductUiKeyboardInputMode mode) noexcept -> void;
+    [[nodiscard]] auto keyboard_input_mode() const noexcept
+        -> ProductUiKeyboardInputMode;
+    [[nodiscard]] auto record_keyboard_navigation(
+        ProductUiNavigationInput input)
+        -> ProductUiInputRecordResult;
+    [[nodiscard]] auto record_keyboard_text_edit(
+        ui::TextEditEvent event)
+        -> ProductUiInputRecordResult;
+    [[nodiscard]] auto record_keyboard_enter()
+        -> ProductUiInputRecordResult;
+    [[nodiscard]] auto record_keyboard_cancel()
+        -> ProductUiInputRecordResult;
 
     [[nodiscard]] auto drain()
         -> std::expected<
@@ -66,13 +88,21 @@ public:
     auto stop() noexcept -> void;
 
 private:
+    auto record_navigation_locked(ProductUiNavigationInput input)
+        -> ProductUiInputRecordResult;
+    auto record_text_edit_locked(ui::TextEditEvent event)
+        -> ProductUiInputRecordResult;
+    auto clear_keyboard_locked() noexcept -> void;
     auto clear_locked() noexcept -> void;
 
-    std::mutex mutex_{};
+    mutable std::mutex mutex_{};
     std::vector<core::FunctionKey> function_keys_{};
     ui::KeyboardNavigationFrame keyboard_{};
     std::vector<ui::TextEditEvent> text_edit_events_{};
     std::size_t text_input_bytes_{};
+    ProductUiKeyboardInputMode keyboard_input_mode_{
+        ProductUiKeyboardInputMode::Disabled};
+    bool keyboard_text_terminal_{};
     bool overflowed_{};
     bool stopped_{};
 };

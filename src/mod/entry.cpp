@@ -10,6 +10,7 @@
 #include <meccha/application/runtime_operation_executor.hpp>
 #include <meccha/product_ui/image_editor_texture_coordinator.hpp>
 #include <meccha/product_ui/product_ui_frame_coordinator.hpp>
+#include <meccha/product_ui/product_ui_keyboard_binding.hpp>
 #include <meccha/product_ui/product_ui_key_binding.hpp>
 #include <meccha/runtime/unreal_runtime_adapter.hpp>
 #include <meccha/ui/input_lease.hpp>
@@ -22,6 +23,7 @@
 #endif
 #include <windows.h>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -148,10 +150,174 @@ auto ue4ss_function_key(meccha::core::FunctionKey key)
         value - first);
 }
 
+auto valid_product_ui_keyboard_key(
+    meccha::product_ui::ProductUiKeyboardKey key) -> bool
+{
+    using Key = meccha::product_ui::ProductUiKeyboardKey;
+    const auto value = static_cast<std::uint8_t>(key);
+    if ((value >= static_cast<std::uint8_t>(Key::Zero) &&
+         value <= static_cast<std::uint8_t>(Key::Nine)) ||
+        (value >= static_cast<std::uint8_t>(Key::A) &&
+         value <= static_cast<std::uint8_t>(Key::Z)) ||
+        (value >= static_cast<std::uint8_t>(Key::NumpadZero) &&
+         value <= static_cast<std::uint8_t>(Key::Divide)))
+    {
+        return true;
+    }
+    switch (key)
+    {
+    case Key::Backspace:
+    case Key::Tab:
+    case Key::Enter:
+    case Key::Escape:
+    case Key::Space:
+    case Key::End:
+    case Key::Home:
+    case Key::Left:
+    case Key::Right:
+    case Key::DeleteForward:
+    case Key::OemOne:
+    case Key::OemPlus:
+    case Key::OemComma:
+    case Key::OemMinus:
+    case Key::OemPeriod:
+    case Key::OemTwo:
+    case Key::OemThree:
+    case Key::OemFour:
+    case Key::OemFive:
+    case Key::OemSix:
+    case Key::OemSeven:
+    case Key::OemEight:
+    case Key::Oem102:
+        return true;
+    }
+    return false;
+}
+
+auto ue4ss_keyboard_key(
+    meccha::product_ui::ProductUiKeyboardKey key)
+    -> std::optional<RC::Input::Key>
+{
+    if (!valid_product_ui_keyboard_key(key))
+    {
+        return std::nullopt;
+    }
+    return static_cast<RC::Input::Key>(
+        static_cast<std::uint8_t>(key));
+}
+
+auto translate_product_ui_key(
+    meccha::product_ui::ProductUiKeyboardKey key)
+    -> std::optional<std::string>
+{
+    if (!valid_product_ui_keyboard_key(key))
+    {
+        return std::nullopt;
+    }
+    auto keyboard_state = std::array<BYTE, 256U>{};
+    if (!GetKeyboardState(keyboard_state.data()))
+    {
+        return std::nullopt;
+    }
+    const auto layout = GetKeyboardLayout(0U);
+    if (layout == nullptr)
+    {
+        return std::nullopt;
+    }
+    const auto virtual_key =
+        static_cast<UINT>(static_cast<std::uint8_t>(key));
+    const auto update_async_state =
+        [&keyboard_state](int virtual_key_code)
+    {
+        auto& state = keyboard_state.at(
+            static_cast<std::size_t>(virtual_key_code));
+        if (GetAsyncKeyState(virtual_key_code) < 0)
+        {
+            state = static_cast<BYTE>(state | 0x80U);
+        }
+        else
+        {
+            state = static_cast<BYTE>(state & 0x7FU);
+        }
+    };
+    update_async_state(VK_SHIFT);
+    update_async_state(VK_LSHIFT);
+    update_async_state(VK_RSHIFT);
+    update_async_state(VK_CONTROL);
+    update_async_state(VK_LCONTROL);
+    update_async_state(VK_RCONTROL);
+    update_async_state(VK_MENU);
+    update_async_state(VK_LMENU);
+    update_async_state(VK_RMENU);
+    keyboard_state.at(virtual_key) = static_cast<BYTE>(
+        keyboard_state.at(virtual_key) | 0x80U);
+    const auto scan_code = MapVirtualKeyExW(
+        virtual_key,
+        MAPVK_VK_TO_VSC,
+        layout);
+    auto utf16 = std::array<wchar_t, 16U>{};
+    constexpr auto DoNotChangeKeyboardState = UINT{0x04U};
+    const auto characters = ToUnicodeEx(
+        virtual_key,
+        scan_code,
+        keyboard_state.data(),
+        utf16.data(),
+        static_cast<int>(utf16.size()),
+        DoNotChangeKeyboardState,
+        layout);
+    if (characters <= 0 ||
+        static_cast<std::size_t>(characters) > utf16.size())
+    {
+        return std::nullopt;
+    }
+    const auto bytes = WideCharToMultiByte(
+        CP_UTF8,
+        WC_ERR_INVALID_CHARS,
+        utf16.data(),
+        characters,
+        nullptr,
+        0,
+        nullptr,
+        nullptr);
+    if (bytes <= 0 ||
+        static_cast<std::size_t>(bytes) >
+            meccha::ui::MaximumTextInputBytesPerFrame)
+    {
+        return std::nullopt;
+    }
+    auto utf8 = std::string(
+        static_cast<std::size_t>(bytes),
+        '\0');
+    if (WideCharToMultiByte(
+            CP_UTF8,
+            WC_ERR_INVALID_CHARS,
+            utf16.data(),
+            characters,
+            utf8.data(),
+            bytes,
+            nullptr,
+            nullptr) != bytes)
+    {
+        return std::nullopt;
+    }
+    return utf8;
+}
+
+static_assert(
+    static_cast<std::uint8_t>(
+        meccha::product_ui::ProductUiKeyboardKey::A) ==
+    static_cast<std::uint8_t>(RC::Input::Key::A));
+static_assert(
+    static_cast<std::uint8_t>(
+        meccha::product_ui::ProductUiKeyboardKey::Oem102) ==
+    static_cast<std::uint8_t>(RC::Input::Key::OEM_102));
+
 class MecchaCamouflageMod final
     : public RC::CppUserModBase,
       private meccha::product_ui::
-          ProductUiFunctionKeyRegistrationPort
+          ProductUiFunctionKeyRegistrationPort,
+      private meccha::product_ui::
+          ProductUiKeyboardRegistrationPort
 {
 public:
     MecchaCamouflageMod()
@@ -183,7 +349,10 @@ public:
               RuntimeQueueCapacity,
               CommandQueueCapacity,
               DiagnosticCapacity},
-          key_binding_{input_queue_}
+          key_binding_{input_queue_},
+          keyboard_binding_{
+              input_queue_,
+              translate_product_ui_key}
     {
         ui_effects_ = std::make_unique<
             meccha::application::ProductUiEffectExecutor>(
@@ -217,6 +386,7 @@ public:
 
     ~MecchaCamouflageMod() override
     {
+        keyboard_binding_.stop();
         key_binding_.stop();
         input_router_.shutdown();
     }
@@ -240,8 +410,14 @@ public:
             {
                 return;
             }
+            if (!keyboard_binding_.start(*this))
+            {
+                key_binding_.stop();
+                return;
+            }
             if (!application_.initialize())
             {
+                keyboard_binding_.stop();
                 key_binding_.stop();
                 return;
             }
@@ -249,6 +425,7 @@ public:
         }
         catch (...)
         {
+            keyboard_binding_.stop();
             key_binding_.stop();
         }
     }
@@ -283,6 +460,62 @@ private:
         return {};
     }
 
+    auto register_keyboard_key(
+        meccha::product_ui::ProductUiKeyboardKey key,
+        meccha::product_ui::ProductUiKeyboardModifiers modifiers,
+        meccha::product_ui::ProductUiKeyboardCallback callback)
+        -> std::expected<
+            void,
+            meccha::product_ui::
+                ProductUiKeyboardRegistrationError> override
+    {
+        const auto mapped = ue4ss_keyboard_key(key);
+        if (!mapped)
+        {
+            return std::unexpected(
+                meccha::product_ui::
+                    ProductUiKeyboardRegistrationError{
+                        "The keyboard key is outside the frozen set.",
+                    });
+        }
+        using Modifiers =
+            meccha::product_ui::ProductUiKeyboardModifiers;
+        if (modifiers == Modifiers::None)
+        {
+            register_keydown_event(*mapped, std::move(callback));
+            return {};
+        }
+
+        auto required =
+            RC::Input::Handler::ModifierKeyArray{};
+        switch (modifiers)
+        {
+        case Modifiers::Shift:
+            required[0U] = RC::Input::ModifierKey::SHIFT;
+            break;
+        case Modifiers::ControlAlt:
+            required[0U] = RC::Input::ModifierKey::CONTROL;
+            required[1U] = RC::Input::ModifierKey::ALT;
+            break;
+        case Modifiers::ShiftControlAlt:
+            required[0U] = RC::Input::ModifierKey::SHIFT;
+            required[1U] = RC::Input::ModifierKey::CONTROL;
+            required[2U] = RC::Input::ModifierKey::ALT;
+            break;
+        default:
+            return std::unexpected(
+                meccha::product_ui::
+                    ProductUiKeyboardRegistrationError{
+                        "The keyboard modifier set is invalid.",
+                    });
+        }
+        register_keydown_event(
+            *mapped,
+            required,
+            std::move(callback));
+        return {};
+    }
+
     meccha::application::ProductionResources resources_;
     std::shared_ptr<meccha::product_ui::ProductUiInputQueue>
         input_queue_;
@@ -308,6 +541,8 @@ private:
     meccha::application::ApplicationRoot application_;
     meccha::product_ui::ProductUiFunctionKeyBinding
         key_binding_;
+    meccha::product_ui::ProductUiKeyboardBinding
+        keyboard_binding_;
     bool initialization_attempted_{};
     bool initialized_{};
 };

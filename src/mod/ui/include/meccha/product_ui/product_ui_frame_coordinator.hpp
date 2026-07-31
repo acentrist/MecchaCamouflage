@@ -8,6 +8,7 @@
 #include <meccha/application/runtime_frame_extension.hpp>
 #include <meccha/product_ui/image_editor_texture_coordinator.hpp>
 #include <meccha/product_ui/product_panel.hpp>
+#include <meccha/product_ui/product_ui_input_queue.hpp>
 #include <meccha/ui/input_lease.hpp>
 
 #include <cstddef>
@@ -51,7 +52,8 @@ public:
     virtual ~ProductUiFrameCapturePort() = default;
 
     [[nodiscard]] virtual auto capture(
-        const application::HudFrameIdentity& identity)
+        const application::HudFrameIdentity& identity,
+        ProductUiKeyboardInputMode keyboard_mode)
         -> std::expected<
             ProductUiFrameInput,
             ProductUiFrameRuntimeError> = 0;

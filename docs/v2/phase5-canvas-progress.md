@@ -245,6 +245,31 @@ bounded rooting, generation validation, rollback, retry, and teardown cleanup.
 Visible live-game output and lifetime across travel/HUD replacement remain
 open work.
 
+## Production keyboard input
+
+The product-owned input queue now has an explicit frame-selected keyboard
+mode. It admits no navigation or text while the panel is closed, admits only
+focus/activate/cancel navigation while the panel is open, and admits text-edit
+events only while the retained Image Paint project-name field is actively
+editing. Transitions clear stale navigation/text state without clearing the
+independent F1--F24 hotkey queue. Focus loss and capture failure disable input
+and discard the complete pending frame.
+
+`ProductUiKeyboardBinding` freezes one duplicate-free, bounded UE4SS
+registration set: Tab/Shift+Tab, Enter, Escape, cursor/home/end/delete edits,
+and 66 printable virtual keys for the exact no-modifier, Shift, Control+Alt,
+and Shift+Control+Alt combinations. Printable callbacks consult the mode
+before invoking the production Windows translator. That translator uses the
+current keyboard layout and asynchronous modifier state, requests
+non-mutating `ToUnicodeEx` conversion, and publishes only strict bounded UTF-8.
+Dead or otherwise uncommitted translations publish nothing. A first accepted
+commit/cancel ignores later keyboard edit callbacks until the frame is drained,
+preserving the text editor's terminal-sequence contract. Stop makes all already
+registered callbacks inert before derived mod destruction; UE4SS retains
+ownership of physical callback removal. This adds no WndProc, window, graphics,
+or Present hook. Live keyboard-layout, focus, repeat, travel, and teardown
+behavior remains mandatory evidence.
+
 ## Exact input lease
 
 `InputLeaseController` owns the panel input transition through the narrow

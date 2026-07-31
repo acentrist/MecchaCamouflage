@@ -494,7 +494,7 @@ reconstructs the graph and recovers that exact project after restart.
   travel, HUD replacement, and unload.
 - Live-prove the validated mesh/profile gate, deterministic packaged topology,
   and shared Paint dispatch/queue path.
-- Finish game-font/fallback drawing and navigation/text input production
-  adapters, then pass the complete live UCanvas editor checks.
+- Live-prove the connected game-font/fallback drawing and navigation/text
+  input adapters through the complete UCanvas editor checks.
 
 No decoder, runtime, or UI fallback is implied by this core milestone.

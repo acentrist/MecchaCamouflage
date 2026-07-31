@@ -77,6 +77,67 @@ auto main() -> int
             empty->text_edit_events.empty(),
         "drained input edges were replayed");
 
+    auto guarded = product_ui::ProductUiInputQueue{};
+    passed &= expect(
+        guarded.record_keyboard_navigation(
+            product_ui::ProductUiNavigationInput::FocusNext) ==
+                product_ui::ProductUiInputRecordResult::Ignored &&
+            guarded.record_keyboard_text_edit(
+                ui::TextEditEvent{
+                    ui::TextEditEventKind::Insert,
+                    "x",
+                }) ==
+                product_ui::ProductUiInputRecordResult::Ignored,
+        "disabled production keyboard input was not ignored");
+    guarded.set_keyboard_input_mode(
+        product_ui::ProductUiKeyboardInputMode::Navigation);
+    passed &= expect(
+        guarded.record_keyboard_enter() ==
+                product_ui::ProductUiInputRecordResult::Accepted &&
+            guarded.record_keyboard_cancel() ==
+                product_ui::ProductUiInputRecordResult::Accepted &&
+            guarded.record_keyboard_text_edit(
+                ui::TextEditEvent{
+                    ui::TextEditEventKind::Insert,
+                    "x",
+                }) ==
+                product_ui::ProductUiInputRecordResult::Ignored,
+        "navigation mode admitted text or rejected semantic keys");
+    auto guarded_navigation = guarded.drain();
+    passed &= expect(
+        guarded_navigation &&
+            guarded_navigation->keyboard.activate_pressed &&
+            guarded_navigation->keyboard.cancel_pressed &&
+            guarded_navigation->text_edit_events.empty(),
+        "navigation mode did not publish its guarded frame");
+    guarded.set_keyboard_input_mode(
+        product_ui::ProductUiKeyboardInputMode::TextEdit);
+    passed &= expect(
+        guarded.record_keyboard_enter() ==
+                product_ui::ProductUiInputRecordResult::Accepted &&
+            guarded.record_keyboard_cancel() ==
+                product_ui::ProductUiInputRecordResult::Ignored &&
+            guarded.record_keyboard_text_edit(
+                ui::TextEditEvent{
+                    ui::TextEditEventKind::MoveLeft,
+                    {},
+                }) ==
+                product_ui::ProductUiInputRecordResult::Ignored &&
+            guarded.record_keyboard_navigation(
+                product_ui::ProductUiNavigationInput::FocusNext) ==
+                product_ui::ProductUiInputRecordResult::Ignored,
+        "text-edit mode admitted input after its terminal event");
+    const auto guarded_text = guarded.drain();
+    passed &= expect(
+        guarded_text &&
+            !guarded_text->keyboard.activate_pressed &&
+            !guarded_text->keyboard.cancel_pressed &&
+            guarded_text->text_edit_events ==
+                std::vector<ui::TextEditEvent>{
+                    {ui::TextEditEventKind::Commit, {}},
+                },
+        "text-edit mode did not publish one exclusive terminal edit");
+
     auto overflow = product_ui::ProductUiInputQueue{};
     for (auto index = std::size_t{};
          index <

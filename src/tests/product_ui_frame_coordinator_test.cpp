@@ -301,13 +301,16 @@ class FrameRuntime final
       public ProductUiCanvasRenderPort
 {
 public:
-    auto capture(const HudFrameIdentity& identity)
+    auto capture(
+        const HudFrameIdentity& identity,
+        ProductUiKeyboardInputMode keyboard_mode)
         -> std::expected<
             ProductUiFrameInput,
             ProductUiFrameRuntimeError> override
     {
         ++capture_calls;
         captured_identities.push_back(identity);
+        keyboard_modes.push_back(keyboard_mode);
         return input;
     }
 
@@ -336,6 +339,7 @@ public:
     };
     ui::CanvasFrame last_frame{};
     std::vector<HudFrameIdentity> captured_identities{};
+    std::vector<ProductUiKeyboardInputMode> keyboard_modes{};
     std::vector<HudFrameIdentity> rendered_identities{};
     std::size_t capture_calls{};
     std::size_t render_calls{};
@@ -489,7 +493,9 @@ auto main(int argc, char** argv) -> int
             closed->commands_enqueued == 1U &&
             toggle && toggle->id == 100U &&
             runtime.last_frame.primitives.empty() &&
-            input_port.capture_calls == 0U,
+            input_port.capture_calls == 0U &&
+            runtime.keyboard_modes.back() ==
+                ProductUiKeyboardInputMode::Disabled,
         "closed-frame hotkey routing did not enqueue one typed UI toggle");
 
     runtime.input.function_keys = {
@@ -507,6 +513,8 @@ auto main(int argc, char** argv) -> int
             !runtime.last_frame.primitives.empty() &&
             input_port.capture_calls == 1U &&
             input_port.apply_calls == 1U &&
+            runtime.keyboard_modes.back() ==
+                ProductUiKeyboardInputMode::Navigation &&
             input_lease.snapshot().phase ==
                 ui::InputLeasePhase::Held,
         "an open frame did not compose, render, and acquire input");
@@ -698,6 +706,53 @@ auto main(int argc, char** argv) -> int
             textures.frame_assets()->project_id == ProjectId &&
             texture_port.live.size() == 5U,
         "a ready revision did not publish guide, atlas, and source textures");
+
+    if (!ready_frame || !ready_frame->layout)
+    {
+        return 1;
+    }
+    texture_frame_runtime.input.pointer = ui::PointerFrame{
+        center(ready_frame->layout->section_tabs[1U]),
+        true,
+        false,
+        true,
+        0.0,
+    };
+    const auto ready_image_tab =
+        texture_frames.tick(frame_identity);
+    passed &= expect(
+        ready_image_tab && ready_image_tab->layout &&
+            ready_image_tab->selected_section ==
+                ProductUiSection::ImagePaint &&
+            texture_frame_runtime.keyboard_modes.back() ==
+                ProductUiKeyboardInputMode::Navigation,
+        "ready Image Paint selection changed keyboard mode early");
+    if (!ready_image_tab || !ready_image_tab->layout)
+    {
+        return 1;
+    }
+    texture_frame_runtime.input.pointer = ui::PointerFrame{
+        {
+            ready_image_tab->layout->content.x + 10.0,
+            ready_image_tab->layout->content.y +
+                109.0 *
+                    ready_image_tab->layout->effective_scale,
+        },
+        true,
+        false,
+        true,
+        0.0,
+    };
+    const auto began_name_edit =
+        texture_frames.tick(frame_identity);
+    texture_frame_runtime.input.pointer = {};
+    const auto editing_name =
+        texture_frames.tick(frame_identity);
+    passed &= expect(
+        began_name_edit && editing_name &&
+            texture_frame_runtime.keyboard_modes.back() ==
+                ProductUiKeyboardInputMode::TextEdit,
+        "an active project-name field did not request text-edit input");
 
     texture_snapshots.value =
         std::make_shared<const ApplicationSnapshot>(

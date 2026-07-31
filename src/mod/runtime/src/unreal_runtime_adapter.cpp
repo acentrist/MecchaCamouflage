@@ -8977,18 +8977,37 @@ public:
     }
 
     auto capture_product_ui_frame(
-        const application::HudFrameIdentity& identity)
+        const application::HudFrameIdentity& identity,
+        product_ui::ProductUiKeyboardInputMode keyboard_mode)
         -> std::expected<
             product_ui::ProductUiFrameInput,
             product_ui::ProductUiFrameRuntimeError>
     {
-        if (!IsInGameThreadRaw())
-        {
-            return canvas_failure("input.wrong_thread");
-        }
         if (!input_queue_)
         {
             return canvas_failure("input.missing_queue");
+        }
+
+        const auto fail =
+            [this](const char* detail)
+        {
+            input_queue_->set_keyboard_input_mode(
+                product_ui::ProductUiKeyboardInputMode::Disabled);
+            input_queue_->discard();
+            return canvas_failure(detail);
+        };
+        if (!IsInGameThreadRaw())
+        {
+            return fail("input.wrong_thread");
+        }
+        if (keyboard_mode !=
+                product_ui::ProductUiKeyboardInputMode::Disabled &&
+            keyboard_mode !=
+                product_ui::ProductUiKeyboardInputMode::Navigation &&
+            keyboard_mode !=
+                product_ui::ProductUiKeyboardInputMode::TextEdit)
+        {
+            return fail("input.invalid_keyboard_mode");
         }
 
         try
@@ -9002,7 +9021,7 @@ public:
                 active->viewport_width <= 0 ||
                 active->viewport_height <= 0)
             {
-                return canvas_failure("input.stale_frame");
+                return fail("input.stale_frame");
             }
 
             const auto foreground = GetForegroundWindow();
@@ -9013,7 +9032,7 @@ public:
             {
                 if (!is_current_process_unreal_window(foreground))
                 {
-                    return canvas_failure(
+                    return fail(
                         "input.game_window_unavailable");
                 }
                 window = foreground;
@@ -9022,25 +9041,25 @@ public:
             auto client = RECT{};
             if (!GetClientRect(window, &client))
             {
-                return canvas_failure("input.client_rect_failed");
+                return fail("input.client_rect_failed");
             }
             const auto client_width = client.right - client.left;
             const auto client_height = client.bottom - client.top;
             if (client_width <= 0 || client_height <= 0)
             {
-                return canvas_failure("input.invalid_client_rect");
+                return fail("input.invalid_client_rect");
             }
 
             auto cursor = POINT{};
             if (!GetCursorPos(&cursor) ||
                 !ScreenToClient(window, &cursor))
             {
-                return canvas_failure("input.pointer_query_failed");
+                return fail("input.pointer_query_failed");
             }
             const auto dpi = GetDpiForWindow(window);
             if (dpi == 0U)
             {
-                return canvas_failure("input.dpi_query_failed");
+                return fail("input.dpi_query_failed");
             }
 
             const auto pointer = pointer_capture_.update(
@@ -9060,13 +9079,15 @@ public:
                 });
             if (!pointer)
             {
-                return canvas_failure(
+                return fail(
                     "input.invalid_pointer_observation");
             }
             input_window_ = window;
 
             if (!pointer->function_key_input_available)
             {
+                input_queue_->set_keyboard_input_mode(
+                    product_ui::ProductUiKeyboardInputMode::Disabled);
                 input_queue_->discard();
                 return product_ui::ProductUiFrameInput{
                     pointer->viewport,
@@ -9080,6 +9101,7 @@ public:
                 };
             }
 
+            input_queue_->set_keyboard_input_mode(keyboard_mode);
             auto batch = input_queue_->drain();
             if (!batch)
             {
@@ -9103,7 +9125,7 @@ public:
         }
         catch (...)
         {
-            return canvas_failure("input.capture_failed");
+            return fail("input.capture_failed");
         }
     }
 
@@ -9748,12 +9770,13 @@ auto UnrealRuntimeAdapter::release_texture(
 }
 
 auto UnrealRuntimeAdapter::capture(
-    const application::HudFrameIdentity& identity)
+    const application::HudFrameIdentity& identity,
+    product_ui::ProductUiKeyboardInputMode keyboard_mode)
     -> std::expected<
         product_ui::ProductUiFrameInput,
         product_ui::ProductUiFrameRuntimeError>
 {
-    return impl_->capture_product_ui_frame(identity);
+    return impl_->capture_product_ui_frame(identity, keyboard_mode);
 }
 
 auto UnrealRuntimeAdapter::render(

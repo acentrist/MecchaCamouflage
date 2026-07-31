@@ -168,7 +168,8 @@ public:
             product_ui::ImageEditorTextureRuntimeError> override;
 
     [[nodiscard]] auto capture(
-        const application::HudFrameIdentity& identity)
+        const application::HudFrameIdentity& identity,
+        product_ui::ProductUiKeyboardInputMode keyboard_mode)
         -> std::expected<
             product_ui::ProductUiFrameInput,
             product_ui::ProductUiFrameRuntimeError> override;

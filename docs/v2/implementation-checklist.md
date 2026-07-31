@@ -321,7 +321,7 @@ Evidence:
     object path and reject a stale/wrong-class font before frame mutation.
   - [x] Bind unproven/missing glyphs through the production UCanvas texture
     adapter and route absent atlas entries to the frozen replacement cell.
-- [ ] Render representative ESP primitives while the panel is closed.
+- [x] Render representative ESP primitives while the panel is closed.
 - [x] Complete the retained portable two-layer Image Paint editor vertical
   slice with topmost selection, retained move/resize/crop/order transitions,
   immutable layer edits, Canvas atlas display, and selection handles.
@@ -343,11 +343,11 @@ Evidence:
     cancellation, guide-ordering, identity, limit, and clip-unwind tests.
   - [x] Pass deterministic canonical PNG integrity/cancellation and exact
     texture-import ABI contract tests.
-  - [x] Pass the complete 111-test Windows x64 Shipping graph from an exact
-    clean project checkout while building UE4SS and `main.dll` from the
-    manifest-verified canonical source stage; reverify that the stage remains
-    the pinned upstream commit plus only the approved Cargo lock overlay after
-    the build.
+  - [x] Pass the complete 112-test Windows x64 Shipping graph from the exact
+    synchronized project source tree while building UE4SS and `main.dll` from
+    the manifest-verified canonical source stage; reverify that the stage
+    remains the pinned upstream commit plus only the approved Cargo lock
+    overlay after the build.
 - [ ] DEFERRED — maintainer interaction required: verify the complete Canvas
   viability checklist in the live game.
 
@@ -902,6 +902,12 @@ Evidence:
       queue, or bounded overflow.
     - [x] Start registration only after the exported composition root owns the
       matching HUD-frame queue consumer.
+    - [x] Register the frozen navigation/edit/printable key set once through
+      the same mod-owned UE4SS input API; translate the current Windows
+      keyboard layout to bounded strict UTF-8 only while the project-name
+      field is editing, and discard stale keyboard/text edges on panel,
+      section, focus, or edit-mode transitions without installing a window
+      hook.
     - [ ] Live-prove UE4SS callback removal.
 - [ ] Complete progress, backpressure, compatibility, and diagnostics display.
   - [x] Publish validated progress fractions, queue pressure/utilization,
@@ -965,7 +971,9 @@ Evidence:
     unavailable-state reset, tab/panel-close reset, and out-of-range refusal.
   - [x] Prove callback-thread input validation, exact edge ordering, event and
     byte bounds, overflow recovery without partial publication, focus-loss
-    discard, and terminal callback refusal.
+    discard, guarded navigation/text modes, unique bounded key registration,
+    modifier-aware translation admission, one-terminal-event-per-frame
+    enforcement, and terminal callback refusal.
   - [x] Prove Load/Add-images picker-effect isolation, no-document Load,
     unavailable-control suppression, exact project/revision capture, source
     deduplication, source-byte/layer limits, hash/collision failure, immutable

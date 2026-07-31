@@ -11,9 +11,10 @@ coordinator are also implemented and attached to `ApplicationRoot` through one
 project-owned frame-extension contract. The exported mod now owns and attaches
 that coordinator, registers the one-shot F1--F24 binding only after its shared
 queue consumer exists, and initializes the production HUD callback last.
-Production navigation/text input, game-font/fallback drawing, and live
-render/input/lease verification remain open. The reflected Unreal texture port
-is connected but still requires live travel and teardown evidence.
+Production navigation/text input and game-font/fallback drawing are connected.
+Live render/input/lease verification remains open. The reflected Unreal
+texture port is connected but still requires live travel and teardown
+evidence.
 
 ## Ownership and dependency direction
 
@@ -67,10 +68,36 @@ event. Invalid viewport, client, cursor, DPI, window, stale-frame, stopped
 queue, and bounded-overflow observations fail without partially publishing
 input.
 
-The callback connection now starts the one-shot binding only after the
-exported composition root owns this consumer. Navigation and text-edit
-producers remain to be connected without installing a window or graphics
-hook.
+The callback connection now starts the one-shot bindings only after the
+exported composition root owns this consumer. `ProductUiKeyboardBinding`
+registers a frozen, duplicate-free set of ten semantic navigation/edit
+bindings plus 66 printable virtual keys for no modifier, Shift, Control+Alt,
+and Shift+Control+Alt. Those exact combinations cover normal and AltGr
+keyboard layouts without accepting unrelated Ctrl/Alt shortcuts. Each
+callback retains only shared inert-on-stop state and the bounded queue.
+
+The production translator samples the current Windows keyboard layout,
+refreshes asynchronous Shift/Control/Alt state, calls `ToUnicodeEx` with the
+non-mutating keyboard-state flag, converts only valid UTF-16 to strict bounded
+UTF-8, and ignores dead/uncommitted translations. It is never called while
+text input is disabled. The frame coordinator selects `Disabled` while the
+panel is closed, `Navigation` while it is open, and `TextEdit` only while the
+Image Paint project-name field is actively editing. Mode changes discard stale
+navigation/text edges without discarding F1--F24 hotkeys; focus or capture
+failure disables and discards the complete pending input frame. Enter and
+Escape are routed exclusively to commit/cancel while editing and to
+activate/cancel otherwise. The first accepted commit/cancel closes keyboard
+admission for the rest of that captured frame, so a second terminal or trailing
+edit cannot turn the batch into an invalid partial sequence. No WndProc,
+window, graphics, or Present hook is installed.
+
+This checkpoint passes the complete 94-test portable Linux graph in both the
+normal and fresh ASan/UBSan configurations. The synchronized Windows source
+tree builds the production DLL with MSVC x64 Shipping `/W4 /WX` and passes all
+112 tests. The resulting `main.dll` is PE32+ x86-64, imports `UE4SS.dll`, and
+exports exactly `start_mod` and `uninstall_mod`; the canonical UE4SS source
+stage still verifies as the pinned commit plus only the approved Cargo lock
+overlay.
 
 ## Hotkey command contract
 
@@ -548,9 +575,9 @@ Portable tests cover localized messages, command IDs, Canvas/missing-function
 details, omitted counts, the empty state, compact scrolling, and incoherent
 queue refusal.
 
-This remains a partial product UI milestone. Live production callback-start
-proof, navigation/text-edit event production, and live pointer/input-lease
-and font/texture proof remain open.
+This remains a partial product UI milestone. Live production callback-start,
+navigation/text-edit behavior, pointer/input-lease, and font/texture proof
+remain open.
 
 `ProductUiFrameCoordinator` now implements the application-owned
 `RuntimeFrameExtensionPort`. Each compatible root HUD frame supplies the same
@@ -574,9 +601,9 @@ texture before draw dispatch. Live visual metrics and lifetime remain gated.
 
 ## Remaining work
 
-- Implement production navigation/text-edit event production, live-verify the
-  compiled pointer and Unreal input-lease ports, and live-prove the connected
-  registered UE4SS key callbacks and inert teardown.
+- Live-verify the compiled navigation/text-edit producer, pointer and Unreal
+  input-lease ports, and live-prove the connected registered UE4SS key
+  callbacks and inert teardown.
 - Live-verify the bound game-font/OFL fallback path and reflected texture
   creation/release across travel and teardown.
 - Complete fake-runtime and live UI verification across all languages,

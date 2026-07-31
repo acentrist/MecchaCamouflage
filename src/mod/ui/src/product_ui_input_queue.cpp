@@ -95,6 +95,13 @@ auto ProductUiInputQueue::record_navigation(
     {
         return ProductUiInputRecordResult::EventLimit;
     }
+    return record_navigation_locked(input);
+}
+
+auto ProductUiInputQueue::record_navigation_locked(
+    ProductUiNavigationInput input)
+    -> ProductUiInputRecordResult
+{
     switch (input)
     {
     case ProductUiNavigationInput::FocusNext:
@@ -123,6 +130,12 @@ auto ProductUiInputQueue::record_text_edit(ui::TextEditEvent event)
     {
         return ProductUiInputRecordResult::Stopped;
     }
+    return record_text_edit_locked(std::move(event));
+}
+
+auto ProductUiInputQueue::record_text_edit_locked(
+    ui::TextEditEvent event) -> ProductUiInputRecordResult
+{
     if (event.kind == ui::TextEditEventKind::Insert &&
         event.utf8.size() >
             ui::MaximumTextInputBytesPerFrame)
@@ -151,6 +164,159 @@ auto ProductUiInputQueue::record_text_edit(ui::TextEditEvent event)
     text_input_bytes_ += inserted_bytes;
     text_edit_events_.push_back(std::move(event));
     return ProductUiInputRecordResult::Accepted;
+}
+
+auto ProductUiInputQueue::set_keyboard_input_mode(
+    ProductUiKeyboardInputMode mode) noexcept -> void
+{
+    const auto lock = std::scoped_lock{mutex_};
+    if (mode != ProductUiKeyboardInputMode::Disabled &&
+        mode != ProductUiKeyboardInputMode::Navigation &&
+        mode != ProductUiKeyboardInputMode::TextEdit)
+    {
+        mode = ProductUiKeyboardInputMode::Disabled;
+    }
+    if (keyboard_input_mode_ != mode)
+    {
+        clear_keyboard_locked();
+        keyboard_input_mode_ = mode;
+    }
+}
+
+auto ProductUiInputQueue::keyboard_input_mode() const noexcept
+    -> ProductUiKeyboardInputMode
+{
+    const auto lock = std::scoped_lock{mutex_};
+    return keyboard_input_mode_;
+}
+
+auto ProductUiInputQueue::record_keyboard_navigation(
+    ProductUiNavigationInput input)
+    -> ProductUiInputRecordResult
+{
+    const auto lock = std::scoped_lock{mutex_};
+    if (stopped_)
+    {
+        return ProductUiInputRecordResult::Stopped;
+    }
+    if (keyboard_input_mode_ !=
+        ProductUiKeyboardInputMode::Navigation)
+    {
+        return ProductUiInputRecordResult::Ignored;
+    }
+    if (overflowed_)
+    {
+        return ProductUiInputRecordResult::EventLimit;
+    }
+    return record_navigation_locked(input);
+}
+
+auto ProductUiInputQueue::record_keyboard_text_edit(
+    ui::TextEditEvent event) -> ProductUiInputRecordResult
+{
+    const auto lock = std::scoped_lock{mutex_};
+    if (stopped_)
+    {
+        return ProductUiInputRecordResult::Stopped;
+    }
+    if (keyboard_input_mode_ !=
+        ProductUiKeyboardInputMode::TextEdit)
+    {
+        return ProductUiInputRecordResult::Ignored;
+    }
+    if (keyboard_text_terminal_)
+    {
+        return ProductUiInputRecordResult::Ignored;
+    }
+    const auto terminal =
+        event.kind == ui::TextEditEventKind::Commit ||
+        event.kind == ui::TextEditEventKind::Cancel;
+    const auto recorded =
+        record_text_edit_locked(std::move(event));
+    if (terminal &&
+        recorded == ProductUiInputRecordResult::Accepted)
+    {
+        keyboard_text_terminal_ = true;
+    }
+    return recorded;
+}
+
+auto ProductUiInputQueue::record_keyboard_enter()
+    -> ProductUiInputRecordResult
+{
+    const auto lock = std::scoped_lock{mutex_};
+    if (stopped_)
+    {
+        return ProductUiInputRecordResult::Stopped;
+    }
+    if (keyboard_input_mode_ ==
+        ProductUiKeyboardInputMode::Navigation)
+    {
+        if (overflowed_)
+        {
+            return ProductUiInputRecordResult::EventLimit;
+        }
+        return record_navigation_locked(
+            ProductUiNavigationInput::Activate);
+    }
+    if (keyboard_input_mode_ ==
+        ProductUiKeyboardInputMode::TextEdit)
+    {
+        if (keyboard_text_terminal_)
+        {
+            return ProductUiInputRecordResult::Ignored;
+        }
+        const auto recorded =
+            record_text_edit_locked(ui::TextEditEvent{
+                ui::TextEditEventKind::Commit,
+                {},
+            });
+        if (recorded == ProductUiInputRecordResult::Accepted)
+        {
+            keyboard_text_terminal_ = true;
+        }
+        return recorded;
+    }
+    return ProductUiInputRecordResult::Ignored;
+}
+
+auto ProductUiInputQueue::record_keyboard_cancel()
+    -> ProductUiInputRecordResult
+{
+    const auto lock = std::scoped_lock{mutex_};
+    if (stopped_)
+    {
+        return ProductUiInputRecordResult::Stopped;
+    }
+    if (keyboard_input_mode_ ==
+        ProductUiKeyboardInputMode::Navigation)
+    {
+        if (overflowed_)
+        {
+            return ProductUiInputRecordResult::EventLimit;
+        }
+        return record_navigation_locked(
+            ProductUiNavigationInput::Cancel);
+    }
+    if (keyboard_input_mode_ ==
+        ProductUiKeyboardInputMode::TextEdit)
+    {
+        if (keyboard_text_terminal_)
+        {
+            return ProductUiInputRecordResult::Ignored;
+        }
+        const auto recorded =
+            record_text_edit_locked(ui::TextEditEvent{
+                ui::TextEditEventKind::Cancel,
+                {},
+            });
+        if (recorded == ProductUiInputRecordResult::Accepted)
+        {
+            keyboard_text_terminal_ = true;
+        }
+        return recorded;
+    }
+    return ProductUiInputRecordResult::Ignored;
 }
 
 auto ProductUiInputQueue::drain()
@@ -209,9 +375,15 @@ auto ProductUiInputQueue::stop() noexcept -> void
 auto ProductUiInputQueue::clear_locked() noexcept -> void
 {
     function_keys_.clear();
+    clear_keyboard_locked();
+    overflowed_ = false;
+}
+
+auto ProductUiInputQueue::clear_keyboard_locked() noexcept -> void
+{
     keyboard_ = {};
     text_edit_events_.clear();
     text_input_bytes_ = 0U;
-    overflowed_ = false;
+    keyboard_text_terminal_ = false;
 }
 } // namespace meccha::product_ui
