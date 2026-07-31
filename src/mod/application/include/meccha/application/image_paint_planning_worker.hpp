@@ -18,7 +18,7 @@ struct ImagePaintPlanningRequest
 {
     std::string project_id{};
     std::uint64_t project_revision{};
-    core::ImagePaintPlanRequest plan{};
+    core::ImagePaintProfilePlanRequest plan{};
 };
 
 class ImagePaintPlanBuilder
@@ -31,7 +31,7 @@ public:
     virtual ~ImagePaintPlanBuilder() = default;
 
     [[nodiscard]] virtual auto build(
-        const core::ImagePaintPlanRequest& request,
+        const core::ImagePaintProfilePlanRequest& request,
         std::stop_token cancellation)
         -> std::expected<
             core::ImagePaintPlan,
@@ -43,7 +43,7 @@ class CoreImagePaintPlanBuilder final
 {
 public:
     [[nodiscard]] auto build(
-        const core::ImagePaintPlanRequest& request,
+        const core::ImagePaintProfilePlanRequest& request,
         std::stop_token cancellation)
         -> std::expected<
             core::ImagePaintPlan,

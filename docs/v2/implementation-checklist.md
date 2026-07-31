@@ -530,13 +530,13 @@ Evidence:
     image profile, validate canonical bounds/topology, and map
     triangle+barycentric captures for every round/cube/fukuyoka triangle into
     the four atlas faces.
-  - [x] Convert validated triangle-anchored capture samples and canonical atlas
-    pixels into the shared immutable `PaintPlan`, with the canonical mapping
-    performed inside the planner, independent face Fill/Skip,
+  - [x] Convert exact-profile UV samples, barycentric image anchors, and
+    canonical atlas pixels into the shared immutable `PaintPlan`, with the
+    canonical mapping performed inside the planner, independent face Fill/Skip,
     alpha/background routing, Fill-first ordering, material isolation,
     compression, cancellation, and resource bounds.
   - [x] Run Image Paint planning on one owned worker with copied immutable
-    capture/profile/atlas input, one active generation, typed cancellation and
+    profile/atlas input, one active generation, typed cancellation and
     failures, project/revision-tagged results, exception containment, reuse,
     and terminal shutdown.
   - [x] Connect the resulting plan to the shared bounded Paint dispatcher
@@ -548,11 +548,12 @@ Evidence:
     typed Start/Cancel, edit invalidation, shutdown drain, and immutable
     snapshot publication.
   - [x] Implement the shared production UE4SS queue-observation adapter.
-  - [ ] Implement the production UE4SS triangle-anchor capture adapter.
-    - [ ] Decode a project-owned immutable Paint sampling profile from each
+  - [ ] Implement the production UE4SS profile-bound Image Paint capture
+    adapter.
+    - [x] Decode a project-owned immutable Paint sampling profile from each
       exact raw packaged profile, retaining only validated UV/topology/island
       values required by planning.
-    - [ ] Generate bounded brush-spacing UV samples and triangle barycentric
+    - [x] Generate bounded brush-spacing UV samples and triangle barycentric
       anchors inside the owned planning worker, with cancellation and exact
       raw/image topology matching; never scan a runtime component for an
       unreflected triangle cache.

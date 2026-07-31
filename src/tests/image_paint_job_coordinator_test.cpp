@@ -55,7 +55,7 @@ class CoordinatedBuilder final : public ImagePaintPlanBuilder
 {
 public:
     auto build(
-        const core::ImagePaintPlanRequest&,
+        const core::ImagePaintProfilePlanRequest&,
         std::stop_token cancellation)
         -> std::expected<
             core::ImagePaintPlan,
@@ -193,7 +193,7 @@ auto main() -> int
         std::string{ProjectId},
         7U,
         RuntimeObjectHandle{55U, 3U},
-        core::ImagePaintPlanRequest{},
+        core::ImagePaintProfilePlanRequest{},
         Pacing,
         100U);
     passed &= expect(
@@ -239,7 +239,7 @@ auto main() -> int
         std::string{ProjectId},
         8U,
         RuntimeObjectHandle{66U, 4U},
-        core::ImagePaintPlanRequest{},
+        core::ImagePaintProfilePlanRequest{},
         Pacing,
         200U);
     passed &= expect(
@@ -267,7 +267,7 @@ auto main() -> int
         std::string{ProjectId},
         9U,
         RuntimeObjectHandle{77U, 5U},
-        core::ImagePaintPlanRequest{},
+        core::ImagePaintProfilePlanRequest{},
         Pacing,
         300U);
     passed &= expect(
@@ -293,7 +293,7 @@ auto main() -> int
         std::string{ProjectId},
         11U,
         RuntimeObjectHandle{88U, 6U},
-        core::ImagePaintPlanRequest{},
+        core::ImagePaintProfilePlanRequest{},
         Pacing,
         400U);
     passed &= expect(
@@ -335,7 +335,7 @@ auto main() -> int
         std::string{ProjectId},
         13U,
         RuntimeObjectHandle{99U, 7U},
-        core::ImagePaintPlanRequest{},
+        core::ImagePaintProfilePlanRequest{},
         Pacing,
         500U);
     passed &= expect(

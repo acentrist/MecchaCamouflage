@@ -3,6 +3,7 @@
 #include <meccha/core/image_compositor.hpp>
 #include <meccha/core/image_profile_mapping.hpp>
 #include <meccha/core/paint_plan.hpp>
+#include <meccha/core/paint_sampling_profile.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -39,6 +40,14 @@ struct ImagePaintPlanRequest
     std::vector<CapturedImagePaintSample> samples{};
 };
 
+struct ImagePaintProfilePlanRequest
+{
+    PaintSamplingProfile sampling_profile{};
+    CanonicalImageProfile image_profile{};
+    ImageProjectSettings settings{};
+    std::shared_ptr<const std::vector<std::byte>> atlas{};
+};
+
 struct ImagePaintPlan
 {
     ImageProjectSettings settings{};
@@ -48,6 +57,7 @@ struct ImagePaintPlan
     std::size_t background_marker_samples{};
     std::size_t unsafe_samples{};
     std::size_t fill_face_samples{};
+    std::size_t generated_samples{};
 };
 
 enum class ImagePaintPlanError : std::uint8_t
@@ -63,6 +73,11 @@ enum class ImagePaintPlanError : std::uint8_t
 
 [[nodiscard]] auto build_image_paint_plan(
     const ImagePaintPlanRequest& request,
+    std::stop_token cancellation = {})
+    -> std::expected<ImagePaintPlan, ImagePaintPlanError>;
+
+[[nodiscard]] auto build_image_paint_plan_from_profile(
+    const ImagePaintProfilePlanRequest& request,
     std::stop_token cancellation = {})
     -> std::expected<ImagePaintPlan, ImagePaintPlanError>;
 } // namespace meccha::core

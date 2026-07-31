@@ -51,12 +51,19 @@ auto image_profile(core::BodyProfile body)
     positions[0U] = {-1.0, -1.0, -1.0};
     positions[1U] = {1.0, -1.0, -1.0};
     positions[2U] = {0.0, -1.0, 1.0};
+    positions.back() = positions[2U];
     auto indices = std::vector<std::uint32_t>(
         identity.index_count,
         0U);
-    indices[0U] = 0U;
-    indices[1U] = 1U;
-    indices[2U] = 2U;
+    for (auto triangle = std::size_t{};
+         triangle < identity.triangle_count;
+         ++triangle)
+    {
+        const auto base = triangle * 3U;
+        indices[base] = 0U;
+        indices[base + 1U] = 1U;
+        indices[base + 2U] = 2U;
+    }
     indices.back() =
         static_cast<std::uint32_t>(
             identity.vertex_count - 1U);
@@ -73,6 +80,48 @@ auto image_profile(core::BodyProfile body)
     return std::move(*profile);
 }
 
+auto sampling_profile(core::BodyProfile body)
+    -> core::PaintSamplingProfile
+{
+    const auto identity = core::expected_mesh_profile(
+        body,
+        core::MeshProfileRole::Raw);
+    auto vertices = std::vector<core::PaintSamplingVertex>(
+        identity.vertex_count,
+        core::PaintSamplingVertex{0.5, 0.5});
+    vertices[0U] = {0.5, 0.5};
+    vertices[1U] = {0.5001, 0.5};
+    vertices[2U] = {0.5, 0.5001};
+    vertices.back() = vertices[2U];
+    auto triangles =
+        std::vector<core::PaintSamplingTriangle>(
+            identity.triangle_count);
+    for (auto& triangle : triangles)
+    {
+        triangle =
+            core::PaintSamplingTriangle{0U, 1U, 2U, 0U};
+    }
+    triangles.back().third =
+        static_cast<std::uint32_t>(
+            identity.vertex_count - 1U);
+    return core::PaintSamplingProfile{
+        identity,
+        std::make_shared<
+            const std::vector<core::PaintSamplingVertex>>(
+            std::move(vertices)),
+        std::make_shared<
+            const std::vector<core::PaintSamplingTriangle>>(
+            std::move(triangles)),
+    };
+}
+
+auto image_settings() -> core::ImageProjectSettings
+{
+    auto settings = core::ImageProjectSettings{};
+    settings.color_compression_tolerance_percent = 1.0;
+    return settings;
+}
+
 auto project() -> std::shared_ptr<const core::ImageProject>
 {
     auto source =
@@ -86,7 +135,7 @@ auto project() -> std::shared_ptr<const core::ImageProject>
             std::string{ProjectId},
             "Project",
             7U,
-            {},
+            image_settings(),
             {core::ImageLayer{
                 std::string{AssetId},
                 "source.png",
@@ -574,27 +623,8 @@ public:
         captured_body = body;
         return CapturedImagePaintJob{
             RuntimeObjectHandle{81U, 5U},
-            core::expected_mesh_profile(
-                body,
-                core::MeshProfileRole::Raw),
+            sampling_profile(body),
             image_profile(body),
-            {core::CapturedImagePaintSample{
-                core::Region::Front,
-                0,
-                0.5,
-                0.5,
-                true,
-                0.5,
-                0.5,
-                0.5,
-                core::ImageTriangleAnchor{
-                    0U,
-                    1.0 / 3.0,
-                    1.0 / 3.0,
-                    1.0 / 3.0,
-                },
-                true,
-            }},
             core::ReplicationPacingPlan{
                 100,
                 10,
@@ -702,6 +732,32 @@ auto main() -> int
         HudFrameIdentity{1U, 2U, 3U, 4U};
     auto esp = FakeEspRuntime{};
     esp.frame_identity = Frame;
+    const auto fixture_plan =
+        core::build_image_paint_plan_from_profile(
+            core::ImagePaintProfilePlanRequest{
+                sampling_profile(core::BodyProfile::Round),
+                image_profile(core::BodyProfile::Round),
+                project()->settings,
+                project()->canonical_atlas,
+            });
+    if (!fixture_plan)
+    {
+        std::cerr << "fixture planner error: "
+                  << static_cast<int>(fixture_plan.error())
+                  << '\n';
+    }
+    else if (fixture_plan->paint.strokes.size() != 1U)
+    {
+        std::cerr << "fixture planner strokes: "
+                  << fixture_plan->paint.strokes.size()
+                  << ", samples: "
+                  << fixture_plan->generated_samples
+                  << '\n';
+    }
+    passed &= expect(
+        fixture_plan &&
+            fixture_plan->paint.strokes.size() == 1U,
+        "the immutable Image Paint runtime fixture was invalid");
     auto root = ApplicationRoot{
         callbacks,
         executor,

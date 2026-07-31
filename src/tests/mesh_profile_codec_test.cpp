@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -111,7 +112,39 @@ auto main(int argc, char** argv) -> int
                         test.body,
                         test.role),
             "a packaged mesh profile failed its frozen identity");
-        if (test.role == core::MeshProfileRole::ImageReference)
+        if (test.role == core::MeshProfileRole::Raw)
+        {
+            const auto sampling =
+                application::decode_paint_sampling_profile(
+                    json,
+                    test.body);
+            passed &= expect(
+                sampling &&
+                    sampling->identity ==
+                        core::expected_mesh_profile(
+                            test.body,
+                            core::MeshProfileRole::Raw) &&
+                    sampling->vertices &&
+                    sampling->vertices->size() ==
+                        sampling->identity.vertex_count &&
+                    sampling->triangles &&
+                    sampling->triangles->size() ==
+                        sampling->identity.triangle_count &&
+                    std::ranges::all_of(
+                        *sampling->vertices,
+                        [](const auto& vertex)
+                        {
+                            return std::isfinite(vertex.u) &&
+                                   vertex.u >= 0.0 &&
+                                   vertex.u <= 1.0 &&
+                                   std::isfinite(vertex.v) &&
+                                   vertex.v >= 0.0 &&
+                                   vertex.v <= 1.0;
+                        }),
+                "a packaged raw profile did not produce complete "
+                "immutable Paint sampling topology");
+        }
+        else
         {
             const auto canonical =
                 application::decode_canonical_image_profile(

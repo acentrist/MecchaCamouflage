@@ -995,7 +995,7 @@ auto ApplicationRoot::begin_image_paint(
         return;
     }
     if (!captured->component.valid() ||
-        captured->raw_profile.body !=
+        captured->sampling_profile.identity.body !=
             project->settings.body ||
         captured->image_profile.geometry.identity.body !=
             project->settings.body)
@@ -1005,12 +1005,11 @@ auto ApplicationRoot::begin_image_paint(
     }
 
     const auto component = captured->component;
-    auto plan = core::ImagePaintPlanRequest{
-        std::move(captured->raw_profile),
+    auto plan = core::ImagePaintProfilePlanRequest{
+        std::move(captured->sampling_profile),
         std::move(captured->image_profile),
         project->settings,
         project->canonical_atlas,
-        std::move(captured->samples),
     };
     const auto started = image_paint_jobs_.start(
         request.id,

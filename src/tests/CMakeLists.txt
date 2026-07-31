@@ -642,6 +642,23 @@ add_test(
 )
 
 add_executable(
+    meccha_image_paint_sampling_tests
+    image_paint_sampling_test.cpp
+)
+target_link_libraries(
+    meccha_image_paint_sampling_tests
+    PRIVATE
+        MecchaCamouflage::Application
+        meccha_build_options
+)
+add_test(
+    NAME image_paint_sampling
+    COMMAND
+        meccha_image_paint_sampling_tests
+        "${PROJECT_SOURCE_DIR}/resources/mesh-profiles"
+)
+
+add_executable(
     meccha_image_profile_mapping_tests
     image_profile_mapping_test.cpp
 )

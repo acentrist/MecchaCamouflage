@@ -10,13 +10,15 @@
 namespace meccha::application
 {
 auto CoreImagePaintPlanBuilder::build(
-    const core::ImagePaintPlanRequest& request,
+    const core::ImagePaintProfilePlanRequest& request,
     std::stop_token cancellation)
     -> std::expected<
         core::ImagePaintPlan,
         core::ImagePaintPlanError>
 {
-    return core::build_image_paint_plan(request, cancellation);
+    return core::build_image_paint_plan_from_profile(
+        request,
+        cancellation);
 }
 
 ImagePaintPlanningWorker::ImagePaintPlanningWorker(

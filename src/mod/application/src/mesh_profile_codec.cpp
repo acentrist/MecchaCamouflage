@@ -258,7 +258,8 @@ auto decode_mesh_profile(
     std::string_view json,
     core::BodyProfile body,
     core::MeshProfileRole role,
-    core::ImageReferenceGeometry* geometry_output)
+    core::ImageReferenceGeometry* geometry_output,
+    core::PaintSamplingProfile* sampling_output)
     -> std::expected<
         core::MeshProfileIdentity,
         MeshProfileCodecError>
@@ -402,10 +403,7 @@ auto decode_mesh_profile(
 
     auto maximum_index = std::optional<std::size_t>{};
     auto decoded_indices = std::vector<std::uint32_t>{};
-    if (geometry_output != nullptr)
-    {
-        decoded_indices.reserve(indices->get().size());
-    }
+    decoded_indices.reserve(indices->get().size());
     for (const auto& index : indices->get())
     {
         if (!index.is_number())
@@ -424,19 +422,31 @@ auto decode_mesh_profile(
                 "Mesh profile index is not a bounded integer.");
         }
         const auto converted = static_cast<std::size_t>(value);
+        if (converted > Uint32Maximum)
+        {
+            return malformed(
+                "Mesh profile index exceeds its destination type.");
+        }
         maximum_index = maximum_index
                             ? std::max(*maximum_index, converted)
                             : converted;
-        if (geometry_output != nullptr)
-        {
-            decoded_indices.push_back(
-                static_cast<std::uint32_t>(converted));
-        }
+        decoded_indices.push_back(
+            static_cast<std::uint32_t>(converted));
     }
 
     auto bone_parents =
         std::vector<std::optional<std::size_t>>{};
     bone_parents.reserve(bones->get().size());
+    auto decoded_sampling_vertices =
+        std::vector<core::PaintSamplingVertex>{};
+    auto decoded_sampling_triangles =
+        std::vector<core::PaintSamplingTriangle>{};
+    if (sampling_output != nullptr)
+    {
+        decoded_sampling_vertices.reserve(vertices->get().size());
+        decoded_sampling_triangles.reserve(
+            triangles->get().size());
+    }
     const auto validate_nested_indices =
         [&]() -> std::expected<void, MeshProfileCodecError>
         {
@@ -523,6 +533,27 @@ auto decode_mesh_profile(
                         core::MeshProfileField::IndexBounds,
                         "Mesh profile triangle index is out of bounds.");
                 }
+                const auto index_base = position * 3U;
+                if (index_base + 2U >= decoded_indices.size() ||
+                    decoded_indices[index_base] != *first ||
+                    decoded_indices[index_base + 1U] != *second ||
+                    decoded_indices[index_base + 2U] != *third)
+                {
+                    return invalid_profile(
+                        core::MeshProfileField::IndexBounds,
+                        "Mesh profile triangle order does not match "
+                        "the LOD index buffer.");
+                }
+                if (sampling_output != nullptr)
+                {
+                    decoded_sampling_triangles.push_back(
+                        core::PaintSamplingTriangle{
+                            static_cast<std::uint32_t>(*first),
+                            static_cast<std::uint32_t>(*second),
+                            static_cast<std::uint32_t>(*third),
+                            static_cast<std::uint32_t>(*island),
+                        });
+                }
             }
 
             for (const auto& vertex : vertices->get())
@@ -546,6 +577,28 @@ auto decode_mesh_profile(
                     return invalid_profile(
                         core::MeshProfileField::IndexBounds,
                         "Mesh profile vertex has no bone influence.");
+                }
+                if (sampling_output != nullptr)
+                {
+                    const auto u =
+                        reader.number(*vertex_object, "U");
+                    const auto v =
+                        reader.number(*vertex_object, "V");
+                    if (!u || !v)
+                    {
+                        return std::unexpected(
+                            !u ? u.error() : v.error());
+                    }
+                    if (*u < 0.0 || *u > 1.0 ||
+                        *v < 0.0 || *v > 1.0)
+                    {
+                        return invalid_profile(
+                            core::MeshProfileField::Dimensions,
+                            "Mesh profile vertex UV is outside the "
+                            "canonical Paint range.");
+                    }
+                    decoded_sampling_vertices.push_back(
+                        core::PaintSamplingVertex{*u, *v});
                 }
                 for (const auto& influence : influences->get())
                 {
@@ -802,6 +855,18 @@ auto decode_mesh_profile(
                 std::move(reference_bones)),
         };
     }
+    if (sampling_output != nullptr)
+    {
+        *sampling_output = core::PaintSamplingProfile{
+            identity,
+            std::make_shared<
+                const std::vector<core::PaintSamplingVertex>>(
+                std::move(decoded_sampling_vertices)),
+            std::make_shared<
+                const std::vector<core::PaintSamplingTriangle>>(
+                std::move(decoded_sampling_triangles)),
+        };
+    }
     return identity;
 }
 } // namespace
@@ -814,7 +879,33 @@ auto decode_mesh_profile_identity(
         core::MeshProfileIdentity,
         MeshProfileCodecError>
 {
-    return decode_mesh_profile(json, body, role, nullptr);
+    return decode_mesh_profile(
+        json,
+        body,
+        role,
+        nullptr,
+        nullptr);
+}
+
+auto decode_paint_sampling_profile(
+    std::string_view json,
+    core::BodyProfile body)
+    -> std::expected<
+        core::PaintSamplingProfile,
+        MeshProfileCodecError>
+{
+    auto profile = core::PaintSamplingProfile{};
+    const auto identity = decode_mesh_profile(
+        json,
+        body,
+        core::MeshProfileRole::Raw,
+        nullptr,
+        &profile);
+    if (!identity)
+    {
+        return std::unexpected(identity.error());
+    }
+    return profile;
 }
 
 auto decode_canonical_image_profile(
@@ -829,7 +920,8 @@ auto decode_canonical_image_profile(
         json,
         body,
         core::MeshProfileRole::ImageReference,
-        &geometry);
+        &geometry,
+        nullptr);
     if (!identity)
     {
         return std::unexpected(identity.error());

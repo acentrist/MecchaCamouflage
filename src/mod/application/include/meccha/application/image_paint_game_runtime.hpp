@@ -12,9 +12,8 @@ namespace meccha::application
 struct CapturedImagePaintJob
 {
     RuntimeObjectHandle component{};
-    core::MeshProfileIdentity raw_profile{};
+    core::PaintSamplingProfile sampling_profile{};
     core::CanonicalImageProfile image_profile{};
-    std::vector<core::CapturedImagePaintSample> samples{};
     core::ReplicationPacingPlan pacing{};
 };
 

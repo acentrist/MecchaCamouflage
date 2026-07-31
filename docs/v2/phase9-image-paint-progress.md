@@ -15,6 +15,22 @@ texture coordinator are implemented, but their narrow port does not yet create
 reflected Unreal textures or drive the complete in-game editor lifecycle.
 Phase 9 therefore remains open.
 
+The packaged raw profiles now decode into project-owned immutable Paint
+sampling profiles containing only exact identity, ordered UV vertices, ordered
+triangle indices, and UV-island identity. Decoder validation proves that every
+triangle agrees with the serialized LOD index buffer. Image Paint runtime
+capture and the application worker no longer accept runtime-produced triangle
+samples.
+
+The owned planning worker expands each validated raw/image profile pair on a
+deterministic half-cell brush-spacing grid. It computes checked barycentric
+anchors, emits one centroid for each positive-area triangle that has no grid
+point, maps the paired ImageReference triangle to atlas face coordinates, and
+stops at the shared 600,000-sample limit. Round, cube, and fukuyoka generate
+39,026, 39,201, and 36,810 samples respectively at the default four-texel
+spacing. Exact index-order mismatch, invalid UVs, cancellation, and one-texel
+resource overflow fail closed.
+
 ## Approved production sampling architecture
 
 Production Image Paint will not port v1's unreflected component-memory scan for
@@ -238,6 +254,13 @@ on every composed row, and while finalizing the atlas.
   expensive partial drawing.
 
 The test is part of the secret-free Linux and Windows MSVC suites.
+
+`image_paint_sampling_test` covers all three packaged profile pairs,
+deterministic sample inventories, repeated planning, raw/image index-order
+matching, non-finite UV rejection, cancellation, and the global resource
+bound. The complete Linux suite passes 82/82 tests. A fresh ASan/UBSan/leak
+build passes the mesh-profile codec, legacy planner contract, and new sampling
+contract 3/3.
 
 ## Worker boundary
 

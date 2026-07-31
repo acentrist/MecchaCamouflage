@@ -34,7 +34,7 @@ auto ImagePaintJobCoordinator::start(
     std::string project_id,
     std::uint64_t project_revision,
     RuntimeObjectHandle component,
-    core::ImagePaintPlanRequest request,
+    core::ImagePaintProfilePlanRequest request,
     core::ReplicationPacingPlan pacing,
     std::uint64_t start_ms)
     -> std::expected<

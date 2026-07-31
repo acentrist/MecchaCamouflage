@@ -5,11 +5,13 @@
 #include <cstddef>
 #include <expected>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <stop_token>
 #include <string_view>
 #include <thread>
+#include <vector>
 
 namespace
 {
@@ -32,7 +34,10 @@ auto request() -> ImagePaintPlanningRequest
     auto result = ImagePaintPlanningRequest{};
     result.project_id = "0123456789abcdef0123456789abcdef";
     result.project_revision = 7U;
-    result.plan.samples.resize(5U);
+    result.plan.sampling_profile.vertices =
+        std::make_shared<
+            const std::vector<core::PaintSamplingVertex>>(
+            5U);
     return result;
 }
 
@@ -40,7 +45,7 @@ class ControlledBuilder final : public ImagePaintPlanBuilder
 {
 public:
     auto build(
-        const core::ImagePaintPlanRequest& request,
+        const core::ImagePaintProfilePlanRequest& request,
         std::stop_token cancellation)
         -> std::expected<
             core::ImagePaintPlan,
@@ -50,7 +55,10 @@ public:
         {
             const auto lock = std::scoped_lock{mutex_};
             call = ++calls_;
-            sample_count_ = request.samples.size();
+            sample_count_ =
+                request.sampling_profile.vertices
+                    ? request.sampling_profile.vertices->size()
+                    : 0U;
             entered_ = true;
         }
         condition_.notify_all();
@@ -69,7 +77,7 @@ public:
             throw std::runtime_error{"image planner failure"};
         }
         auto result = core::ImagePaintPlan{};
-        result.opaque_samples = request.samples.size();
+        result.opaque_samples = sample_count();
         return result;
     }
 
@@ -151,7 +159,7 @@ auto main() -> int
         worker.start(11U, input).has_value() &&
             builder.wait_until_entered(),
         "the first immutable planning request did not start");
-    input.plan.samples.clear();
+    input.plan.sampling_profile.vertices.reset();
     passed &= expect(
         builder.sample_count() == 5U,
         "the worker retained caller-owned mutable capture samples");

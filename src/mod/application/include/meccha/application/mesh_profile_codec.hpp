@@ -1,6 +1,7 @@
 #pragma once
 
 #include <meccha/core/image_profile_mapping.hpp>
+#include <meccha/core/paint_sampling_profile.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -36,6 +37,13 @@ struct MeshProfileCodecError
     core::MeshProfileRole role)
     -> std::expected<
         core::MeshProfileIdentity,
+        MeshProfileCodecError>;
+
+[[nodiscard]] auto decode_paint_sampling_profile(
+    std::string_view json,
+    core::BodyProfile body)
+    -> std::expected<
+        core::PaintSamplingProfile,
         MeshProfileCodecError>;
 
 [[nodiscard]] auto decode_canonical_image_profile(
