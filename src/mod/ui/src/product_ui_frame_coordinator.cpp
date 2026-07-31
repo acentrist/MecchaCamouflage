@@ -177,7 +177,8 @@ ProductUiFrameCoordinator::ProductUiFrameCoordinator(
     ProductUiCanvasRenderPort& renderer,
     application::ProductUiEffectExecutor* effects,
     application::ImageEditorReadyContentPort* ready_content,
-    ImageEditorTextureCoordinator* textures)
+    ImageEditorTextureCoordinator* textures,
+    std::span<const core::ImageGuideBitmap> guide_catalog)
     : snapshots_{snapshots},
       commands_{commands},
       router_{router},
@@ -189,8 +190,10 @@ ProductUiFrameCoordinator::ProductUiFrameCoordinator(
       effects_{effects},
       ready_content_{ready_content},
       textures_{textures},
+      guide_catalog_{guide_catalog},
       invalid_dependencies_{
-          (ready_content_ == nullptr) != (textures_ == nullptr)}
+          (ready_content_ == nullptr) != (textures_ == nullptr) ||
+          (!guide_catalog_.empty() && textures_ == nullptr)}
 {
 }
 
@@ -529,6 +532,16 @@ auto ProductUiFrameCoordinator::synchronize_textures(
     if (!textures_)
     {
         return std::optional<ImageEditorFrameAssets>{};
+    }
+    if (!guide_catalog_.empty() &&
+        textures_->snapshot().guide_textures == 0U)
+    {
+        const auto installed =
+            textures_->install_guides(guide_catalog_);
+        if (!installed)
+        {
+            return texture_error(installed.error());
+        }
     }
 
     const auto& editor = snapshot.image_editor;

@@ -676,9 +676,6 @@ auto main(int argc, char** argv) -> int
         guide(core::BodyProfile::Cube),
         guide(core::BodyProfile::Fukuyoka),
     };
-    passed &= expect(
-        textures.install_guides(guides).has_value(),
-        "texture integration fixture could not install guides");
     auto texture_frames = ProductUiFrameCoordinator{
         texture_snapshots,
         texture_commands,
@@ -691,6 +688,7 @@ auto main(int argc, char** argv) -> int
         nullptr,
         &ready_content_port,
         &textures,
+        guides,
     };
     const auto ready_frame =
         texture_frames.tick(frame_identity);

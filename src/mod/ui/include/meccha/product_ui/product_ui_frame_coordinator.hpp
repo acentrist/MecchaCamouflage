@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <expected>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -144,7 +145,8 @@ public:
         ProductUiCanvasRenderPort& renderer,
         application::ProductUiEffectExecutor* effects = nullptr,
         application::ImageEditorReadyContentPort* ready_content = nullptr,
-        ImageEditorTextureCoordinator* textures = nullptr);
+        ImageEditorTextureCoordinator* textures = nullptr,
+        std::span<const core::ImageGuideBitmap> guide_catalog = {});
     ProductUiFrameCoordinator(
         const ProductUiFrameCoordinator&) = delete;
     auto operator=(const ProductUiFrameCoordinator&)
@@ -202,6 +204,7 @@ private:
     application::ProductUiEffectExecutor* effects_{};
     application::ImageEditorReadyContentPort* ready_content_{};
     ImageEditorTextureCoordinator* textures_{};
+    std::span<const core::ImageGuideBitmap> guide_catalog_{};
     ProductPanelState panel_state_{};
     ProductUiFrameSnapshot snapshot_{};
     bool invalid_dependencies_{};
