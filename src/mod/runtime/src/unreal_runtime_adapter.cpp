@@ -1,15 +1,16 @@
 #include <meccha/runtime/unreal_runtime_adapter.hpp>
 
 #include <meccha/runtime/paint_call_codec.hpp>
+#include <meccha/runtime/paint_preview_codec.hpp>
 #include <meccha/runtime/paint_queue_codec.hpp>
-#include <meccha/runtime/reflection_contract.hpp>
 #include <meccha/runtime/unreal_contracts.hpp>
 
-#include <Helpers/String.hpp>
+#include "unreal_reflection_validation.hpp"
+
 #include <Unreal/CoreUObject/UObject/Class.hpp>
 #include <Unreal/CoreUObject/UObject/UnrealType.hpp>
+#include <Unreal/FMemory.hpp>
 #include <Unreal/FWeakObjectPtr.hpp>
-#include <Unreal/Property/FEnumProperty.hpp>
 #include <Unreal/UFunctionStructs.hpp>
 #include <Unreal/UObject.hpp>
 #include <Unreal/UObjectGlobals.hpp>
@@ -17,13 +18,15 @@
 #include <Unreal/UnrealInitializer.hpp>
 #include <Unreal/World.hpp>
 
+#include <algorithm>
 #include <condition_variable>
 #include <cstdint>
+#include <cstring>
 #include <expected>
 #include <limits>
 #include <mutex>
 #include <optional>
-#include <string>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -61,6 +64,12 @@ constexpr auto GetQueuedStrokeCountForComponentPath =
 constexpr auto GetReplicationPressurePath =
     STR("/Script/PenguinHotel.RuntimePaintReplicationManager:"
         "GetReplicationPressure");
+constexpr auto ExportChannelToBytesPath =
+    STR("/Script/PenguinHotel.RuntimePaintableComponent:"
+        "ExportChannelToBytes");
+constexpr auto ImportChannelFromBytesPath =
+    STR("/Script/PenguinHotel.RuntimePaintableComponent:"
+        "ImportChannelFromBytes");
 constexpr auto RuntimePaintReplicationPressurePath =
     STR("/Script/PenguinHotel.RuntimePaintReplicationPressure");
 constexpr auto Vector2dPath =
@@ -95,6 +104,8 @@ struct PaintContracts
     UFunction* get_queued_stroke_count{};
     UFunction* get_queued_stroke_count_for_component{};
     UFunction* get_replication_pressure{};
+    UFunction* export_channel_to_bytes{};
+    UFunction* import_channel_from_bytes{};
     UScriptStruct* vector2d{};
     UScriptStruct* paint_channel_data{};
     UScriptStruct* runtime_brush_settings{};
@@ -275,188 +286,6 @@ auto read_object(
     return property->GetObjectPropertyValue(value);
 }
 
-auto property_direction(FProperty* property)
-    -> ReflectionPropertyDirection
-{
-    if (property->HasAnyPropertyFlags(CPF_ReturnParm))
-    {
-        return ReflectionPropertyDirection::ReturnValue;
-    }
-    if (property->HasAnyPropertyFlags(CPF_OutParm))
-    {
-        return ReflectionPropertyDirection::Output;
-    }
-    if (property->HasAnyPropertyFlags(CPF_Parm))
-    {
-        return ReflectionPropertyDirection::Input;
-    }
-    return ReflectionPropertyDirection::Member;
-}
-
-auto reflected_enum_name(FProperty* property) -> std::string
-{
-    if (auto* enum_property = CastField<FEnumProperty>(property);
-        enum_property != nullptr)
-    {
-        auto* value = enum_property->GetEnum().Get();
-        return value == nullptr
-                   ? std::string{}
-                   : RC::to_string(value->GetName());
-    }
-    if (auto* byte_property = CastField<FByteProperty>(property);
-        byte_property != nullptr)
-    {
-        auto* value = byte_property->GetEnum().Get();
-        return value == nullptr
-                   ? std::string{}
-                   : RC::to_string(value->GetName());
-    }
-    return {};
-}
-
-auto describe_property(FProperty* property)
-    -> std::optional<ReflectionPropertyDescriptor>
-{
-    if (property == nullptr ||
-        property->GetOffset_Internal() < 0 ||
-        property->GetElementSize() <= 0 ||
-        property->GetArrayDim() <= 0)
-    {
-        return std::nullopt;
-    }
-
-    auto kind = ReflectionPropertyKind{};
-    auto type_name = std::string{};
-    if (CastField<FBoolProperty>(property) != nullptr)
-    {
-        kind = ReflectionPropertyKind::Bool;
-    }
-    else if (CastField<FEnumProperty>(property) != nullptr)
-    {
-        kind = ReflectionPropertyKind::Enum;
-        type_name = reflected_enum_name(property);
-    }
-    else if (auto* byte_property =
-                 CastField<FByteProperty>(property);
-             byte_property != nullptr)
-    {
-        type_name = reflected_enum_name(property);
-        kind = type_name.empty()
-                   ? ReflectionPropertyKind::Byte
-                   : ReflectionPropertyKind::Enum;
-    }
-    else if (CastField<FIntProperty>(property) != nullptr)
-    {
-        kind = ReflectionPropertyKind::Int32;
-    }
-    else if (CastField<FFloatProperty>(property) != nullptr)
-    {
-        kind = ReflectionPropertyKind::Float32;
-    }
-    else if (CastField<FDoubleProperty>(property) != nullptr)
-    {
-        kind = ReflectionPropertyKind::Float64;
-    }
-    else if (auto* object_property =
-                 CastField<FObjectPropertyBase>(property);
-             object_property != nullptr)
-    {
-        kind = ReflectionPropertyKind::Object;
-        auto* property_class =
-            object_property->GetPropertyClass().Get();
-        if (property_class == nullptr)
-        {
-            return std::nullopt;
-        }
-        type_name = RC::to_string(property_class->GetName());
-    }
-    else if (auto* struct_property =
-                 CastField<FStructProperty>(property);
-             struct_property != nullptr)
-    {
-        kind = ReflectionPropertyKind::Struct;
-        auto* script_struct = struct_property->GetStruct().Get();
-        if (script_struct == nullptr)
-        {
-            return std::nullopt;
-        }
-        type_name = RC::to_string(script_struct->GetName());
-    }
-    else
-    {
-        return std::nullopt;
-    }
-
-    return ReflectionPropertyDescriptor{
-        RC::to_string(property->GetName()),
-        kind,
-        std::move(type_name),
-        static_cast<std::uint32_t>(
-            property->GetOffset_Internal()),
-        static_cast<std::uint32_t>(
-            property->GetElementSize()),
-        static_cast<std::uint32_t>(
-            property->GetArrayDim()),
-        property_direction(property),
-    };
-}
-
-auto describe_record(UStruct* record)
-    -> std::optional<ReflectionRecordDescriptor>
-{
-    if (record == nullptr || record->GetPropertiesSize() < 0 ||
-        record->GetOuterPrivate() == nullptr)
-    {
-        return std::nullopt;
-    }
-    auto descriptor = ReflectionRecordDescriptor{
-        RC::to_string(record->GetName()),
-        RC::to_string(record->GetOuterPrivate()->GetPathName()),
-        static_cast<std::uint32_t>(record->GetPropertiesSize()),
-        {},
-    };
-    for (auto* property = record->GetFirstProperty();
-         property != nullptr;
-         property = GetNextField(property))
-    {
-        auto described = describe_property(property);
-        if (!described)
-        {
-            return std::nullopt;
-        }
-        descriptor.properties.push_back(std::move(*described));
-    }
-    return descriptor;
-}
-
-auto contract_failure_kind(
-    ReflectionContractErrorCode code)
-    -> application::ContractFailureKind
-{
-    using Error = ReflectionContractErrorCode;
-    using Failure = application::ContractFailureKind;
-    switch (code)
-    {
-    case Error::RecordName:
-    case Error::OwnerName:
-        return Failure::WrongClass;
-    case Error::RecordSize:
-    case Error::PropertyOffset:
-    case Error::PropertySize:
-    case Error::PropertyArrayDimension:
-        return Failure::ParameterSizeMismatch;
-    case Error::MissingProperty:
-        return Failure::MissingProperty;
-    case Error::UnexpectedProperty:
-    case Error::DuplicateProperty:
-    case Error::PropertyKind:
-    case Error::PropertyType:
-    case Error::PropertyDirection:
-        return Failure::WrongPropertyKind;
-    }
-    return Failure::WrongPropertyKind;
-}
-
 auto runtime_failure(
     application::RuntimeContractId contract,
     application::ContractFailureKind kind)
@@ -472,27 +301,160 @@ auto runtime_failure(
     });
 }
 
-auto validate_record(
-    UStruct* record,
-    const ReflectionRecordDescriptor& expected,
-    application::RuntimeContractId contract)
-    -> std::expected<void, application::RuntimeExecutionError>
+class ExportedChannelBuffer final
 {
-    const auto actual = describe_record(record);
-    if (!actual)
+public:
+    explicit ExportedChannelBuffer(RuntimeByteArrayAbi& array)
+        : array_{array}
     {
-        return runtime_failure(
-            contract,
-            application::ContractFailureKind::
-                WrongPropertyKind);
     }
-    const auto validated =
-        validate_reflection_contract(*actual, expected);
-    if (!validated)
+
+    ExportedChannelBuffer(const ExportedChannelBuffer&) = delete;
+    auto operator=(const ExportedChannelBuffer&)
+        -> ExportedChannelBuffer& = delete;
+
+    ~ExportedChannelBuffer() noexcept
+    {
+        if (array_.data != nullptr && GMalloc != nullptr &&
+            *GMalloc != nullptr)
+        {
+            try
+            {
+                (*GMalloc)->Free(
+                    const_cast<std::byte*>(array_.data));
+            }
+            catch (...)
+            {
+            }
+        }
+        array_ = {};
+    }
+
+private:
+    RuntimeByteArrayAbi& array_;
+};
+
+auto export_channel(
+    UObject* component,
+    UFunction* function,
+    RuntimePaintChannel channel)
+    -> std::expected<
+        std::vector<std::byte>,
+        application::RuntimeExecutionError>
+{
+    if (component == nullptr || function == nullptr)
     {
         return runtime_failure(
-            contract,
-            contract_failure_kind(validated.error().code));
+            application::RuntimeContractId::TextureMutation,
+            application::ContractFailureKind::MissingObject);
+    }
+
+    auto parameters = ExportChannelToBytesParametersAbi{};
+    [[maybe_unused]] auto release =
+        ExportedChannelBuffer{parameters.out_data};
+    parameters.channel = channel;
+    component->ProcessEvent(function, &parameters);
+
+    if (!parameters.return_value ||
+        parameters.out_data.data == nullptr ||
+        parameters.out_data.count <= 0 ||
+        parameters.out_data.capacity <
+            parameters.out_data.count ||
+        static_cast<std::size_t>(
+            parameters.out_data.capacity) >
+            MaximumPaintChannelBytes ||
+        static_cast<std::size_t>(
+            parameters.out_data.count) >
+            MaximumPaintChannelBytes)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::TextureMutation,
+            application::ContractFailureKind::InvalidValue);
+    }
+
+    auto bytes = std::vector<std::byte>(
+        static_cast<std::size_t>(
+            parameters.out_data.count));
+    std::memcpy(
+        bytes.data(),
+        parameters.out_data.data,
+        bytes.size());
+    return bytes;
+}
+
+auto import_channel(
+    UObject* component,
+    UFunction* function,
+    RuntimePaintChannel channel,
+    std::span<const std::byte> bytes)
+    -> std::expected<
+        void,
+        application::RuntimeExecutionError>
+{
+    if (component == nullptr || function == nullptr)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::TextureMutation,
+            application::ContractFailureKind::MissingObject);
+    }
+    const auto encoded =
+        encode_channel_import(channel, bytes);
+    if (!encoded)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::TextureMutation,
+            application::ContractFailureKind::InvalidValue);
+    }
+
+    auto parameters = *encoded;
+    component->ProcessEvent(function, &parameters);
+    if (!parameters.return_value)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::TextureMutation,
+            application::ContractFailureKind::ExecutionFailure);
+    }
+    return {};
+}
+
+auto import_channel_verified(
+    UObject* component,
+    UFunction* import_function,
+    UFunction* export_function,
+    RuntimePaintChannel import_channel_value,
+    RuntimePaintChannel verification_channel,
+    std::span<const std::byte> bytes)
+    -> std::expected<
+        void,
+        application::RuntimeExecutionError>
+{
+    const auto imported = import_channel(
+        component,
+        import_function,
+        import_channel_value,
+        bytes);
+    if (!imported)
+    {
+        return imported;
+    }
+
+    const auto readback = export_channel(
+        component,
+        export_function,
+        verification_channel);
+    if (!readback)
+    {
+        return std::unexpected(readback.error());
+    }
+    if (readback->size() != bytes.size() ||
+        !std::equal(
+            readback->begin(),
+            readback->end(),
+            bytes.begin()))
+    {
+        return runtime_failure(
+            application::RuntimeContractId::TextureMutation,
+            application::ContractFailureKind::InvalidValue);
     }
     return {};
 }
@@ -534,6 +496,16 @@ auto resolve_paint_contracts(UClass* player_controller_class)
             nullptr,
             nullptr,
             GetReplicationPressurePath);
+    contracts.export_channel_to_bytes =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            ExportChannelToBytesPath);
+    contracts.import_channel_from_bytes =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            ImportChannelFromBytesPath);
     contracts.vector2d =
         UObjectGlobals::StaticFindObject<UScriptStruct*>(
             nullptr,
@@ -585,6 +557,13 @@ auto resolve_paint_contracts(UClass* player_controller_class)
                 PaintQueueObservation,
             application::ContractFailureKind::MissingFunction);
     }
+    if (contracts.export_channel_to_bytes == nullptr ||
+        contracts.import_channel_from_bytes == nullptr)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::TextureMutation,
+            application::ContractFailureKind::MissingFunction);
+    }
     if (contracts.paint_at_uv_with_brush->GetOuterPrivate() !=
         contracts.runtime_paintable_class)
     {
@@ -608,6 +587,15 @@ auto resolve_paint_contracts(UClass* player_controller_class)
                 PaintQueueObservation,
             application::ContractFailureKind::WrongClass);
     }
+    if (contracts.export_channel_to_bytes->GetOuterPrivate() !=
+            contracts.runtime_paintable_class ||
+        contracts.import_channel_from_bytes->GetOuterPrivate() !=
+            contracts.runtime_paintable_class)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::TextureMutation,
+            application::ContractFailureKind::WrongClass);
+    }
 
     contracts.acknowledged_pawn = find_object_property(
         player_controller_class,
@@ -620,7 +608,7 @@ auto resolve_paint_contracts(UClass* player_controller_class)
             application::ContractFailureKind::MissingProperty);
     }
 
-    const auto vector_result = validate_record(
+    const auto vector_result = validate_unreal_record(
         contracts.vector2d,
         vector2d_contract(),
         application::RuntimeContractId::PaintAtUvWithBrush);
@@ -628,7 +616,7 @@ auto resolve_paint_contracts(UClass* player_controller_class)
     {
         return std::unexpected(vector_result.error());
     }
-    const auto channel_result = validate_record(
+    const auto channel_result = validate_unreal_record(
         contracts.paint_channel_data,
         paint_channel_data_contract(),
         application::RuntimeContractId::PaintAtUvWithBrush);
@@ -636,7 +624,7 @@ auto resolve_paint_contracts(UClass* player_controller_class)
     {
         return std::unexpected(channel_result.error());
     }
-    const auto brush_result = validate_record(
+    const auto brush_result = validate_unreal_record(
         contracts.runtime_brush_settings,
         runtime_brush_settings_contract(),
         application::RuntimeContractId::PaintAtUvWithBrush);
@@ -644,7 +632,7 @@ auto resolve_paint_contracts(UClass* player_controller_class)
     {
         return std::unexpected(brush_result.error());
     }
-    const auto function_result = validate_record(
+    const auto function_result = validate_unreal_record(
         contracts.paint_at_uv_with_brush,
         paint_at_uv_with_brush_contract(),
         application::RuntimeContractId::PaintAtUvWithBrush);
@@ -652,7 +640,7 @@ auto resolve_paint_contracts(UClass* player_controller_class)
     {
         return std::unexpected(function_result.error());
     }
-    const auto recorded_result = validate_record(
+    const auto recorded_result = validate_unreal_record(
         contracts.get_recorded_stroke_count,
         recorded_stroke_count_contract(),
         application::RuntimeContractId::PaintQueueObservation);
@@ -660,7 +648,7 @@ auto resolve_paint_contracts(UClass* player_controller_class)
     {
         return std::unexpected(recorded_result.error());
     }
-    const auto pressure_struct_result = validate_record(
+    const auto pressure_struct_result = validate_unreal_record(
         contracts.runtime_paint_replication_pressure,
         runtime_paint_replication_pressure_contract(),
         application::RuntimeContractId::PaintQueueObservation);
@@ -668,7 +656,7 @@ auto resolve_paint_contracts(UClass* player_controller_class)
     {
         return std::unexpected(pressure_struct_result.error());
     }
-    const auto manager_count_result = validate_record(
+    const auto manager_count_result = validate_unreal_record(
         contracts.get_queued_stroke_count,
         queued_stroke_count_contract(),
         application::RuntimeContractId::PaintQueueObservation);
@@ -676,7 +664,7 @@ auto resolve_paint_contracts(UClass* player_controller_class)
     {
         return std::unexpected(manager_count_result.error());
     }
-    const auto component_count_result = validate_record(
+    const auto component_count_result = validate_unreal_record(
         contracts.get_queued_stroke_count_for_component,
         queued_stroke_count_for_component_contract(),
         application::RuntimeContractId::PaintQueueObservation);
@@ -684,13 +672,29 @@ auto resolve_paint_contracts(UClass* player_controller_class)
     {
         return std::unexpected(component_count_result.error());
     }
-    const auto pressure_result = validate_record(
+    const auto pressure_result = validate_unreal_record(
         contracts.get_replication_pressure,
         replication_pressure_contract(),
         application::RuntimeContractId::PaintQueueObservation);
     if (!pressure_result)
     {
         return std::unexpected(pressure_result.error());
+    }
+    const auto export_result = validate_unreal_record(
+        contracts.export_channel_to_bytes,
+        export_channel_to_bytes_contract(),
+        application::RuntimeContractId::TextureMutation);
+    if (!export_result)
+    {
+        return std::unexpected(export_result.error());
+    }
+    const auto import_result = validate_unreal_record(
+        contracts.import_channel_from_bytes,
+        import_channel_from_bytes_contract(),
+        application::RuntimeContractId::TextureMutation);
+    if (!import_result)
+    {
+        return std::unexpected(import_result.error());
     }
     return contracts;
 }
@@ -1285,7 +1289,246 @@ public:
         }
     }
 
+    auto capture_preview(
+        application::RuntimeObjectHandle component_handle)
+        -> std::expected<
+            application::PaintPreviewSnapshot,
+            application::RuntimeExecutionError>
+    {
+        if (!IsInGameThreadRaw())
+        {
+            return std::unexpected(
+                application::RuntimeExecutionError{
+                    application::RuntimeExecutionErrorCode::
+                        WrongThread,
+                    std::nullopt,
+                });
+        }
+        try
+        {
+            const auto target =
+                preview_target(component_handle);
+            if (!target)
+            {
+                return std::unexpected(target.error());
+            }
+
+            auto albedo = export_channel(
+                target->component,
+                target->contracts.export_channel_to_bytes,
+                RuntimePaintChannel::Albedo);
+            if (!albedo)
+            {
+                return std::unexpected(albedo.error());
+            }
+            auto packed_pbr = export_channel(
+                target->component,
+                target->contracts.export_channel_to_bytes,
+                RuntimePaintChannel::Emissive);
+            if (!packed_pbr)
+            {
+                return std::unexpected(packed_pbr.error());
+            }
+
+            const auto dimension =
+                infer_paint_texture_dimension(
+                    *albedo,
+                    *packed_pbr);
+            if (!dimension)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        TextureMutation,
+                    application::ContractFailureKind::
+                        InvalidValue);
+            }
+            if (!preview_target(component_handle))
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        TextureMutation,
+                    application::ContractFailureKind::
+                        StaleObject);
+            }
+
+            return application::PaintPreviewSnapshot{
+                component_handle,
+                application::PaintTextureImage{
+                    *dimension,
+                    std::make_shared<
+                        const std::vector<std::byte>>(
+                        std::move(*albedo)),
+                    std::make_shared<
+                        const std::vector<std::byte>>(
+                        std::move(*packed_pbr)),
+                },
+            };
+        }
+        catch (...)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::
+                    TextureMutation,
+                application::ContractFailureKind::
+                    ExecutionFailure);
+        }
+    }
+
+    auto apply_preview(
+        application::RuntimeObjectHandle component_handle,
+        const application::PaintTextureImage& image)
+        -> std::expected<
+            void,
+            application::RuntimeExecutionError>
+    {
+        if (!IsInGameThreadRaw())
+        {
+            return std::unexpected(
+                application::RuntimeExecutionError{
+                    application::RuntimeExecutionErrorCode::
+                        WrongThread,
+                    std::nullopt,
+                });
+        }
+        try
+        {
+            if (image.albedo_rgba == nullptr ||
+                image.packed_pbr_rgba == nullptr)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        TextureMutation,
+                    application::ContractFailureKind::
+                        InvalidValue);
+            }
+            const auto dimension =
+                infer_paint_texture_dimension(
+                    *image.albedo_rgba,
+                    *image.packed_pbr_rgba);
+            if (!dimension || *dimension != image.dimension)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        TextureMutation,
+                    application::ContractFailureKind::
+                        InvalidValue);
+            }
+
+            auto target = preview_target(component_handle);
+            if (!target)
+            {
+                return std::unexpected(target.error());
+            }
+            const auto albedo = import_channel_verified(
+                target->component,
+                target->contracts.import_channel_from_bytes,
+                target->contracts.export_channel_to_bytes,
+                RuntimePaintChannel::Albedo,
+                RuntimePaintChannel::Albedo,
+                *image.albedo_rgba);
+            if (!albedo)
+            {
+                return albedo;
+            }
+
+            target = preview_target(component_handle);
+            if (!target)
+            {
+                return std::unexpected(target.error());
+            }
+            const auto packed_pbr = import_channel_verified(
+                target->component,
+                target->contracts.import_channel_from_bytes,
+                target->contracts.export_channel_to_bytes,
+                RuntimePaintChannel::
+                    AlbedoMetallicRoughnessEmissive,
+                RuntimePaintChannel::Emissive,
+                *image.packed_pbr_rgba);
+            if (!packed_pbr)
+            {
+                return packed_pbr;
+            }
+            if (!preview_target(component_handle))
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        TextureMutation,
+                    application::ContractFailureKind::
+                        StaleObject);
+            }
+            return {};
+        }
+        catch (...)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::
+                    TextureMutation,
+                application::ContractFailureKind::
+                    ExecutionFailure);
+        }
+    }
+
+    auto restore_preview(
+        const application::PaintPreviewSnapshot& snapshot)
+        -> std::expected<
+            void,
+            application::RuntimeExecutionError>
+    {
+        return apply_preview(
+            snapshot.component,
+            snapshot.original);
+    }
+
 private:
+    struct PreviewTarget
+    {
+        PaintContracts contracts{};
+        BoundFrame bound{};
+        UObject* component{};
+    };
+
+    auto preview_target(
+        application::RuntimeObjectHandle component_handle)
+        -> std::expected<
+            PreviewTarget,
+            application::RuntimeExecutionError>
+    {
+        auto contracts = std::optional<PaintContracts>{};
+        auto bound = std::optional<BoundFrame>{};
+        auto active = std::optional<ActiveFrame>{};
+        {
+            const auto lock = std::scoped_lock{mutex_};
+            contracts = paint_contracts_;
+            bound = bound_frame_;
+            active = active_frame_;
+        }
+        if (!contracts || !bound || !active ||
+            bound->identity != active->identity ||
+            component_handle.identity !=
+                bound->component_identity ||
+            component_handle.generation !=
+                bound->component_generation)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::TextureMutation,
+                application::ContractFailureKind::StaleObject);
+        }
+        auto* component = bound->component.Get();
+        if (!object_is_live(
+                component,
+                contracts->runtime_paintable_class))
+        {
+            return runtime_failure(
+                application::RuntimeContractId::TextureMutation,
+                application::ContractFailureKind::StaleObject);
+        }
+        return PreviewTarget{
+            *contracts,
+            *bound,
+            component,
+        };
+    }
+
     static auto pre_hook(
         UnrealScriptFunctionCallableContext&,
         void*) -> void
@@ -1525,5 +1768,33 @@ auto UnrealRuntimeAdapter::observe_paint_queues(
         application::RuntimeExecutionError>
 {
     return impl_->observe_queues(component, generation);
+}
+
+auto UnrealRuntimeAdapter::capture(
+    application::RuntimeObjectHandle component)
+    -> std::expected<
+        application::PaintPreviewSnapshot,
+        application::RuntimeExecutionError>
+{
+    return impl_->capture_preview(component);
+}
+
+auto UnrealRuntimeAdapter::apply(
+    application::RuntimeObjectHandle component,
+    const application::PaintTextureImage& image)
+    -> std::expected<
+        void,
+        application::RuntimeExecutionError>
+{
+    return impl_->apply_preview(component, image);
+}
+
+auto UnrealRuntimeAdapter::restore(
+    const application::PaintPreviewSnapshot& snapshot)
+    -> std::expected<
+        void,
+        application::RuntimeExecutionError>
+{
+    return impl_->restore_preview(snapshot);
 }
 } // namespace meccha::runtime

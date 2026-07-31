@@ -5,10 +5,10 @@
 The secret-free application runtime foundation is implemented and tested. A
 production `UnrealRuntimeAdapter` now compiles against the pinned recursive
 UE4SS graph and implements the validated HUD callback/game-thread boundary plus
-the exact game-owned Paint stroke operation. The adapter is not yet owned by
-the exported mod composition root, production Paint capture/queue observation
-and Image texture operations remain, and no live callback has been registered
-in the game, so Phase 4 remains open.
+the exact game-owned Paint stroke, queue observation, and preview channel
+operations. The adapter is not yet owned by the exported mod composition root,
+production Paint mesh/sample capture and Image texture creation remain, and no
+live callback has been registered in the game, so Phase 4 remains open.
 
 ## Implemented contracts
 
@@ -118,6 +118,13 @@ in the game, so Phase 4 remains open.
   issuing game-thread `ProcessEvent` calls. Completion uses only the owned
   component counters; global pressure is validated without attributing another
   player's work to the current job.
+- The preview runtime port validates exact 0x20-byte
+  `ExportChannelToBytes`/`ImportChannelFromBytes` schemas, including their
+  byte-array inner type and direction. It captures only the
+  generation-bound acknowledged-body component on the game thread, releases
+  Unreal-owned export buffers through the pinned allocator, and verifies
+  Albedo and packed-PBR imports by exact immediate readback. It remains a
+  preview/restore route only and is never a multiplayer Paint sender.
 - `PaintGameRuntimePort` is the only root-facing capture/queue-observation
   boundary. A Start Paint command is captured on the HUD callback, planned
   from copied values off-thread, admitted through the lifecycle-owned queue,
@@ -176,8 +183,9 @@ near-match function and owner rejection, missing/extra/duplicate property
 rejection, every property kind/type/offset/size/array/direction mismatch,
 reviewed ABI sizes, texel-to-UV radius conversion, sRGB-to-linear conversion,
 material encoding, AMRE selection, invalid dimension rejection, exact queue
-function/pressure sizes, generation-isolated queue activity, and invalid
-counter rejection.
+function/pressure sizes, generation-isolated queue activity, invalid counter
+rejection, exact preview byte-array records, bounded dimension inference, and
+preview import ABI encoding.
 
 `application_root_paint_test` additionally covers bounded command
 backpressure, immutable snapshot queue pressure, typed Paint capture,
@@ -206,11 +214,11 @@ or teardown pass.
 - Register and unregister the implemented HUD hook in the live game, then
   prove that UE4SS removes the exact recorded callback pair and that all
   admitted callbacks drain before adapter destruction.
-- Implement production Paint capture, connect the completed Paint-stroke and
-  queue ports to the composition root, then run the controlled
+- Implement production Paint capture, connect the completed Paint-stroke,
+  queue, and preview ports to the composition root, then run the controlled
   single-/two-client calls.
-- Bind Image preview texture creation/mutation/release and exact Paint preview
-  export/import/verification to validated reflected contracts.
+- Bind Image preview texture creation/mutation/release to validated reflected
+  contracts.
 - Prove the implemented generation-checked World/controller/HUD/Canvas
   identity invalidates and rebinds correctly in the live UE 5.6 game.
 - Run the deferred live load, travel, HUD replacement, freecam, spectator,

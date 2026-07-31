@@ -1,6 +1,7 @@
 #pragma once
 
 #include <meccha/application/paint_game_runtime.hpp>
+#include <meccha/application/paint_preview_controller.hpp>
 #include <meccha/application/runtime_lifecycle.hpp>
 #include <meccha/application/runtime_operation_executor.hpp>
 
@@ -13,7 +14,8 @@ class UnrealRuntimeAdapter final
       public application::GameThreadContext,
       public application::UnrealFrameRuntimePort,
       public application::PaintStrokeRuntimePort,
-      public application::PaintQueueRuntimePort
+      public application::PaintQueueRuntimePort,
+      public application::PaintPreviewRuntimePort
 {
 public:
     UnrealRuntimeAdapter();
@@ -59,6 +61,24 @@ public:
         application::JobGeneration generation)
         -> std::expected<
             application::PaintQueueObservation,
+            application::RuntimeExecutionError> override;
+
+    auto capture(application::RuntimeObjectHandle component)
+        -> std::expected<
+            application::PaintPreviewSnapshot,
+            application::RuntimeExecutionError> override;
+
+    auto apply(
+        application::RuntimeObjectHandle component,
+        const application::PaintTextureImage& image)
+        -> std::expected<
+            void,
+            application::RuntimeExecutionError> override;
+
+    auto restore(
+        const application::PaintPreviewSnapshot& snapshot)
+        -> std::expected<
+            void,
             application::RuntimeExecutionError> override;
 
 private:

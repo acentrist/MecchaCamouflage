@@ -232,6 +232,9 @@ Evidence:
     schemas; require one exact non-default replication manager owned by the
     current World; and compile the generation/component-bound observer through
     the pinned UE4SS `ProcessEvent` API.
+  - [x] Validate the exact preview export/import byte-array schemas and compile
+    a generation-bound game-thread capture/apply/restore adapter with bounded
+    Unreal-owned output cleanup and byte-for-byte post-import readback.
   - [ ] Connect production Paint capture and representative Image Paint
     texture operations.
 - [x] Implement restore-before-unregister explicit unload ordering.
@@ -376,10 +379,16 @@ Evidence:
   - [x] Implement dependency-free exact reflection-schema validation and the
     reviewed Paint call encoder, including sRGB-to-linear color, normalized
     brush radius, AMRE channel selection, and ABI offset/size assertions.
+  - [x] Isolate UE4SS record description and exact schema validation in a
+    private runtime translation unit so lifecycle, hook, and object-ownership
+    coordination do not own reflection traversal details.
   - [x] Implement the production queue observer with exact function/struct
     schemas, unique current-World manager discovery, owned component counters,
     sticky per-job activity, and negative/non-finite counter rejection.
   - [ ] Implement production mesh/sample/appearance capture.
+    - [ ] Freeze the exact 0x10-byte `InitializePaint` reflected schema before
+      calling it; the v1 zero-filled parameter buffer is not accepted evidence
+      of a no-argument contract.
 - [x] Validate round, cube, and fukuyoka profiles.
 - [x] Implement immutable planning for Paint/Fill/Skip, lighting, Auto Material,
   PBR, compression, and Fill-first ordering.
@@ -398,7 +407,13 @@ Evidence:
   observation, progress, and terminal completion through `ApplicationRoot`.
 - [x] Connect typed Preview/Restore Paint through `ApplicationRoot`, including
   restore-before-real-Paint ordering and game-thread-only capture/apply.
-- [ ] Implement exact preview capture/apply/restore ownership.
+- [x] Implement exact preview capture/apply/restore ownership.
+  - [x] Bind exact 0x20-byte export/import schemas to the acknowledged-body
+    component; capture Albedo plus packed PBR on the game thread; free
+    Unreal-owned output through the pinned allocator; and verify every import
+    through exact byte readback before reporting success.
+  - [ ] Connect the production adapter to the exported composition root and
+    complete live preview/restore evidence.
 - [ ] Dispatch only through game-owned `PaintAtUVWithBrush`.
   - [x] Make the production Paint-stroke port resolve only
     `/Script/PenguinHotel.RuntimePaintableComponent:PaintAtUVWithBrush`,

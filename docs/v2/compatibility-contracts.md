@@ -101,7 +101,7 @@ unassociated components are not candidates.
 | Contract ID | Owner/function | Required schema/semantics |
 | --- | --- | --- |
 | GAME-PAINT-001 | Runtime paintable `IsInitialized` | No-arg bool result |
-| GAME-PAINT-002 | Runtime paintable `InitializePaint` | No-arg initialization; call only after a verified false state |
+| GAME-PAINT-002 | Runtime paintable `InitializePaint` | Exact 0x10-byte parameter schema is not yet frozen; do not call until every property is verified. The v1 zero-filled buffer is not accepted as a no-argument contract |
 | GAME-PAINT-003 | Runtime paintable `GetInitializedPaintMesh` | No-arg object result associated with target |
 | GAME-PAINT-004 | Runtime paintable `HitTestAtScreenPosition` | Exact `0x70` baseline semantics: mesh, screen point, controller, cache flag, structured result |
 | GAME-PAINT-005 | Runtime paintable `GetDominantPaintMaterialPatterns` | inputs `MaxPatterns`, `SampleStep`, `AlphaThreshold`; bounded `OutPatterns`; bool return |

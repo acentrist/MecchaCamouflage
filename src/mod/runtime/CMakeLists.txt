@@ -1,6 +1,7 @@
 add_library(
     meccha_runtime
     STATIC
+        src/unreal_reflection_validation.cpp
         src/unreal_runtime_adapter.cpp
 )
 add_library(MecchaCamouflage::Runtime ALIAS meccha_runtime)

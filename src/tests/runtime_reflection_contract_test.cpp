@@ -1,12 +1,16 @@
 #include <meccha/runtime/reflection_contract.hpp>
 #include <meccha/runtime/paint_call_codec.hpp>
+#include <meccha/runtime/paint_preview_codec.hpp>
 #include <meccha/runtime/paint_queue_codec.hpp>
 #include <meccha/runtime/unreal_contracts.hpp>
 
+#include <array>
+#include <cstddef>
 #include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <span>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -102,8 +106,106 @@ auto main() -> int
                 .has_value() &&
             validate_reflection_contract(
                 replication_pressure_contract(),
-                replication_pressure_contract()).has_value(),
+            replication_pressure_contract()).has_value(),
         "an exact queue-observation contract was rejected");
+    passed &= expect(
+        export_channel_to_bytes_contract().size == 0x20U &&
+            import_channel_from_bytes_contract().size == 0x20U &&
+            validate_reflection_contract(
+                export_channel_to_bytes_contract(),
+                export_channel_to_bytes_contract()).has_value() &&
+            validate_reflection_contract(
+                import_channel_from_bytes_contract(),
+                import_channel_from_bytes_contract()).has_value(),
+        "the reviewed preview channel contracts drifted");
+    passed &= expect(
+        export_channel_to_bytes_contract().properties[1] ==
+                ReflectionPropertyDescriptor{
+                    "OutData",
+                    ReflectionPropertyKind::Array,
+                    "Byte",
+                    0x08U,
+                    0x10U,
+                    1U,
+                    ReflectionPropertyDirection::Output,
+                } &&
+            import_channel_from_bytes_contract().properties[1] ==
+                ReflectionPropertyDescriptor{
+                    "Data",
+                    ReflectionPropertyKind::Array,
+                    "Byte",
+                    0x08U,
+                    0x10U,
+                    1U,
+                    ReflectionPropertyDirection::Input,
+                },
+        "the exact preview byte-array property contract drifted");
+    auto wrong_preview_array =
+        export_channel_to_bytes_contract();
+    wrong_preview_array.properties[1].type_name =
+        "EPaintChannel";
+    passed &= expect(
+        has_error(
+            wrong_preview_array,
+            export_channel_to_bytes_contract(),
+            ReflectionContractErrorCode::PropertyType,
+            "OutData"),
+        "an enum-backed preview byte array was accepted");
+    wrong_preview_array =
+        export_channel_to_bytes_contract();
+    wrong_preview_array.properties[1].direction =
+        ReflectionPropertyDirection::Input;
+    passed &= expect(
+        has_error(
+            wrong_preview_array,
+            export_channel_to_bytes_contract(),
+            ReflectionContractErrorCode::PropertyDirection,
+            "OutData"),
+        "an input preview array was accepted as output storage");
+
+    const auto albedo =
+        std::array<std::byte, 4U * 4U * 4U>{};
+    const auto packed_pbr =
+        std::array<std::byte, 4U * 4U * 4U>{};
+    passed &= expect(
+        infer_paint_texture_dimension(albedo, packed_pbr) ==
+            4U,
+        "a square exact preview texture was rejected");
+    passed &= expect(
+        infer_paint_texture_dimension(
+            std::span<const std::byte>{albedo}.first(60U),
+            packed_pbr) ==
+            std::unexpected(
+                PaintPreviewCodecError::MismatchedChannels),
+        "mismatched preview channels were accepted");
+    passed &= expect(
+        infer_paint_texture_dimension(
+            std::span<const std::byte>{albedo}.first(48U),
+            std::span<const std::byte>{packed_pbr}.first(48U)) ==
+            std::unexpected(
+                PaintPreviewCodecError::InvalidDimension),
+        "a non-square preview texture was accepted");
+    const auto encoded_import = encode_channel_import(
+        RuntimePaintChannel::Albedo,
+        albedo);
+    passed &= expect(
+        encoded_import &&
+            encoded_import->channel ==
+                RuntimePaintChannel::Albedo &&
+            encoded_import->data.data == albedo.data() &&
+            encoded_import->data.count ==
+                static_cast<std::int32_t>(albedo.size()) &&
+            encoded_import->data.capacity ==
+                static_cast<std::int32_t>(albedo.size()) &&
+            !encoded_import->return_value,
+        "preview bytes did not encode to the reviewed import ABI");
+    passed &= expect(
+        encode_channel_import(
+            RuntimePaintChannel::Albedo,
+            std::span<const std::byte>{}) ==
+            std::unexpected(
+                PaintPreviewCodecError::InvalidBytes),
+        "an empty preview import was accepted");
 
     auto queue_tracker = PaintQueueObservationTracker{};
     const auto component = application::RuntimeObjectHandle{8U, 3U};

@@ -329,4 +329,82 @@ auto replication_pressure_contract()
         },
     };
 }
+
+auto export_channel_to_bytes_contract()
+    -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "ExportChannelToBytes",
+        "/Script/PenguinHotel.RuntimePaintableComponent",
+        0x20U,
+        {
+            ReflectionPropertyDescriptor{
+                "Channel",
+                ReflectionPropertyKind::Enum,
+                "EPaintChannel",
+                0x00U,
+                0x01U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "OutData",
+                ReflectionPropertyKind::Array,
+                "Byte",
+                0x08U,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::Output,
+            },
+            ReflectionPropertyDescriptor{
+                "ReturnValue",
+                ReflectionPropertyKind::Bool,
+                {},
+                0x18U,
+                0x01U,
+                1U,
+                ReflectionPropertyDirection::ReturnValue,
+            },
+        },
+    };
+}
+
+auto import_channel_from_bytes_contract()
+    -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "ImportChannelFromBytes",
+        "/Script/PenguinHotel.RuntimePaintableComponent",
+        0x20U,
+        {
+            ReflectionPropertyDescriptor{
+                "Channel",
+                ReflectionPropertyKind::Enum,
+                "EPaintChannel",
+                0x00U,
+                0x01U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "Data",
+                ReflectionPropertyKind::Array,
+                "Byte",
+                0x08U,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "ReturnValue",
+                ReflectionPropertyKind::Bool,
+                {},
+                0x18U,
+                0x01U,
+                1U,
+                ReflectionPropertyDirection::ReturnValue,
+            },
+        },
+    };
+}
 } // namespace meccha::runtime

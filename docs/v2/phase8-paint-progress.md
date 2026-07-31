@@ -4,8 +4,9 @@ Phase 8 is open. Its pure immutable planning, owned planning worker, and
 generation-tagged dispatch boundaries are implemented and verified. Its exact
 reflected `PaintAtUVWithBrush` contract and production game-thread sender now
 compile against the pinned UE4SS graph. The exact production queue observer
-also compiles against that graph; production capture, preview,
-composition-root ownership, and live evidence remain.
+and preview channel adapter also compile against that graph; production
+mesh/sample/appearance capture, composition-root ownership, and live evidence
+remain.
 
 ## Immutable capture-to-plan contract
 
@@ -92,7 +93,9 @@ generation before it can mutate job state or begin dispatch. It also:
   property-set, kind/type, offset/size, array-dimension, and parameter-direction
   drift. The accepted records are `Vector2D` 0x10,
   `PaintChannelData` 0x24, `RuntimeBrushSettings` 0x28, and the
-  `PaintAtUVWithBrush` 0x68 parameter buffer.
+  `PaintAtUVWithBrush` 0x68 parameter buffer. The UE4SS record traversal and
+  validation bridge is isolated in a private runtime translation unit; the
+  lifecycle/ownership adapter consumes only its fail-closed validation result.
 - The production `PaintStrokeRuntimePort` resolves only the exact PenguinHotel
   function, checks a generation-bound weak component owned by the acknowledged
   local body, converts sRGB bytes to linear albedo, normalizes radius using the
@@ -182,7 +185,15 @@ The controller runs only on the game thread and:
 
 `PaintPreviewRuntimePort` is the narrow production boundary for reflected
 channel export, import, and post-import verification. Its UE4SS implementation
-is still required, so the parent exact-runtime preview gate remains open.
+now freezes the two 0x20-byte UFunction records, validates byte-array inner
+type/direction/offset/size, binds the acknowledged-body component generation,
+captures Albedo and the packed PBR channel on the game thread, and releases
+Unreal-owned export storage through the pinned allocator. Apply and restore
+import Albedo plus combined AMRE and immediately export the corresponding
+Albedo/Emissive views for byte-for-byte verification. Any false return,
+malformed array, stale binding, dimension mismatch, or readback mismatch fails
+closed so `PaintPreviewController` can retain or restore its original lease.
+Composition-root ownership and live preview/restore evidence remain open.
 
 `compose_paint_preview` is the dependency-free worker algorithm between capture
 and that port. It copies the immutable original channels, applies every
@@ -217,9 +228,10 @@ It has no runtime adapter, UObject, scheduler, or preview-lease access.
 cancellation. `runtime_operation_executor` covers effective Fill radius
 admission, captured-dimension validation, and oversized-radius rejection.
 `runtime_reflection_contract` covers every exact reflected-record mismatch,
-the reviewed ABI/color/material/radius/channel encoding, all exact queue
-record sizes, owned-counter mapping, generation isolation, sticky drain
-activity, and invalid counter rejection.
+the reviewed ABI/color/material/radius/channel encoding, the two exact preview
+byte-array records, bounded square-channel inference, import-array encoding,
+all exact queue record sizes, owned-counter mapping, generation isolation,
+sticky drain activity, and invalid counter rejection.
 `application_runtime` covers control priority and reserved control capacity
 over queued Paint work.
 `paint_dispatch` covers cadence, frame admission, backpressure, exact
@@ -246,16 +258,19 @@ quiescing. `paint_preview_composer` adds Fill/Paint overwrite
 ordering, packed-PBR quantization, edge clipping, original immutability,
 invalid plan/buffer rejection, cancellation, and resource-limit evidence. The
 secret-free Linux normal and ASan/UBSan suites currently pass all 77 registered
-tests. The production adapter and exact sender also compile in the pinned
+tests from isolated fresh build directories. The production adapter, exact
+sender, queue observer, and preview channel adapter also compile in the pinned
 Windows MSVC `Game__Shipping__Win64` graph; this is build evidence, not a live
 Paint pass.
 
 ## Remaining gate
 
-- Capture the live component/profile/source appearance and preview snapshot
-  through validated reflected contracts on the game thread.
+- Capture the live component/profile/source appearance through validated
+  reflected contracts on the game thread. `InitializePaint` is known to have a
+  0x10-byte parameter buffer, but its exact property schema is not frozen; v2
+  must not reproduce the v1 zero-filled call.
 - Implement the remaining production UE4SS capture contracts, connect the
   completed sender and queue observer through the exported composition root,
-  and connect exact reflected preview export/import/verification.
+  and connect the completed preview adapter through that same root.
 - Complete fake-runtime failures and the deferred single-/two-client live
   matrix before Phase 8 can close.

@@ -30,4 +30,10 @@ namespace meccha::runtime
 
 [[nodiscard]] auto replication_pressure_contract()
     -> ReflectionRecordDescriptor;
+
+[[nodiscard]] auto export_channel_to_bytes_contract()
+    -> ReflectionRecordDescriptor;
+
+[[nodiscard]] auto import_channel_from_bytes_contract()
+    -> ReflectionRecordDescriptor;
 } // namespace meccha::runtime
