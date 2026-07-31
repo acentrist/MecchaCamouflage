@@ -253,7 +253,7 @@ All six current files use schema version 2 and texture size 1024.
 
 | Body | Raw mesh profile | Derived image profile | Asset/export | Counts |
 | --- | --- | --- | --- | --- |
-| round | `paintman.mesh-profile-v2.json` | `paintman.image-profile-v2.json` | `.../skeltal/paintman.uasset` / `paintman` | 1,660 vertices; 8,352 indices |
+| round | `paintman.mesh-profile-v2.json` | `paintman.image-profile-v2.json` | `.../skeltal/paintman.uasset` / `paintman` | 1,668 vertices; 8,352 indices |
 | cube | `paintman_cube.mesh-profile-v2.json` | `paintman_cube.image-profile-v2.json` | `.../skeltal_cube/paintman_cube.uasset` / `paintman_cube` | 452 vertices; 1,080 indices |
 | fukuyoka | `paintman_hukuyoka.mesh-profile-v2.json` | `paintman_hukuyoka.image-profile-v2.json` | `.../skeltal/paintman_hukuyoka.uasset` / `paintman_hukuyoka` | 1,508 vertices; 7,584 indices |
 

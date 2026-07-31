@@ -2,6 +2,8 @@
   "schema_version": 1,
   "source_commit": "caac4da8a4d49ca6360b38513bff38ebd6921b02",
   "source_tag": "v1.6.7",
+  "profile_source_commit": "a11ce0577eaeb6e924f310a80231791f261faae9",
+  "profile_source_release": "v1.7.1",
   "fixtures": [
     "esp-domain.json",
     "image-mapping.json",
@@ -9,8 +11,8 @@
     "runtime-pacing.json"
   ],
   "profile_sha256": {
-    "resources/mesh-profiles/paintman.image-profile-v2.json": "3416a62040868244fe618c5255ab910479e85ca4fe35e98ecd403167f06bb9c3",
-    "resources/mesh-profiles/paintman.mesh-profile-v2.json": "ca5a15d63b78c9219b183754fb1a31ba62ce60fcb1764a51c8b617c606202ce7",
+    "resources/mesh-profiles/paintman.image-profile-v2.json": "2eb876f3df1f93ca373168a6df162d509d1808278a38249c1912eafee5c8d32b",
+    "resources/mesh-profiles/paintman.mesh-profile-v2.json": "65b61c58b2d326441cd3d482ef3b244654c2052bd2beeb09deaa21d2a3ab1f7d",
     "resources/mesh-profiles/paintman_cube.image-profile-v2.json": "e786c604149944ebd441216a14554b867a329f5246bea83e1bc7f215aceadc05",
     "resources/mesh-profiles/paintman_cube.mesh-profile-v2.json": "c55b544120463cbe9077646042e58d38c9feb38cd7681ffaa003e584538349e5",
     "resources/mesh-profiles/paintman_hukuyoka.image-profile-v2.json": "423e8703b74adddbb4f7cd2fde838f16f7d6c6ff115d239e20fdf85a4f7c8177",

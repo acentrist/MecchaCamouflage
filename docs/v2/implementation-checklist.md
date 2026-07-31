@@ -543,8 +543,16 @@ Evidence:
         fallback selection cannot publish a mutated or partially verified
         preview.
 - [x] Validate round, cube, and fukuyoka profiles.
+  - [x] Refresh the Round raw/image-reference pair to the game 3.3.0 identity
+    shipped by v1.7.1: 1,668 vertices, 8,352 indices, and profile hash
+    `cd469e35ad0cbd1e483bd82b2406849429d24037807bd7a294534fb79633f55b`.
 - [x] Implement immutable planning for Paint/Fill/Skip, lighting, Auto Material,
   PBR, compression, and Fill-first ordering.
+  - [x] Preserve Back, Side, then Front dispatch within both Fill/Paint replay
+    passes and adaptive-compression output, with scanline/radius ordering only
+    inside each region.
+  - [x] Share direct projected material evidence across Front and Back while
+    retaining topology-visible, camera-facing admission for Side samples.
 - [x] Run Paint deformation, projection, sample materialization, and planning
   on one owned cancellable worker from an immutable capture seed, with
   generation-tagged results and an exception boundary.

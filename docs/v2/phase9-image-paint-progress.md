@@ -23,7 +23,9 @@ sampling profiles containing only exact identity, ordered UV vertices, ordered
 triangle indices, and UV-island identity. Decoder validation proves that every
 triangle agrees with the serialized LOD index buffer. Image Paint runtime
 capture and the application worker no longer accept runtime-produced triangle
-samples.
+samples. The Round pair is the game 3.3.0/v1.7.1 identity with 1,668 vertices,
+8,352 indices, and profile hash
+`cd469e35ad0cbd1e483bd82b2406849429d24037807bd7a294534fb79633f55b`.
 
 The owned planning worker expands each validated raw/image profile pair on a
 deterministic half-cell brush-spacing grid. It computes checked barycentric
@@ -123,14 +125,13 @@ scan, runtime topology extraction, or profile I/O. Exact reflected pacing
 tuning can replace that bounded policy only through a separately frozen
 contract.
 
-Portable Linux verification passes all 84 tests, including production resource
-construction, exact catalog
-loading and static Image Paint sampling. Immutable Windows staging at project
-commit `2f8cf23` builds the complete pinned UE4SS/MSVC x64
-`Game__Shipping__Win64` graph, passes all 102 Windows tests, and passes the
-full-build source, compiler, PE, export, import, and runtime provenance check.
-The verified stage contains the pinned UE4SS source plus only the approved
-project-owned canonical
+Portable Linux verification passes all 94 tests in both the normal and fresh
+ASan/UBSan graphs, including production resource construction, exact catalog
+loading, static Image Paint sampling, and Back/Side/Front planning. Immutable
+Windows staging builds the complete pinned UE4SS/MSVC x64
+`Game__Shipping__Win64` graph and passes all 112 Windows tests. The verified
+stage contains the pinned UE4SS source plus only the approved project-owned
+canonical
 `deps/first/patternsleuth_bind/Cargo.lock` overlay. Live object resolution and
 behavior remain part of the explicit architecture/release matrix and are not
 claimed by these build checks.
@@ -322,8 +323,8 @@ The test is part of the secret-free Linux and Windows MSVC suites.
 deterministic sample inventories, repeated planning, raw/image index-order
 matching, non-finite UV rejection, invalid brush rejection, cancellation, and
 the global resource bound through both the shared sampler and Image Paint
-planner. The complete Linux suite passes 84/84 tests. A fresh ASan/UBSan/leak
-build passes the shared sampling contract.
+planner. The complete Linux suite now passes 94/94 tests. A fresh
+ASan/UBSan/leak build passes the same shared sampling contract.
 
 ## Worker boundary
 

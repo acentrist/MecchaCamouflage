@@ -30,10 +30,33 @@ value carries BaseColor, FinalColor HDR, tone-curve HDR, intrinsic-emission
 HDR, world normal, scene depth, and FinalColor LDR passes with a camera
 fingerprint on every pass. Observation construction rejects changed capture
 dimensions, viewport, FOV, camera position, or direction; maps the projected
-deformed geometry to exact raster pixels; and admits only visible,
-front-facing samples. Raw HDR conversion preserves finite negative and
-greater-than-one channels, while depth conversion preserves the finite raw
-red channel rather than applying display normalization.
+deformed geometry to exact raster pixels. Front and Back share the directly
+captured face-material path even when one destination is projection-occluded;
+Side continues to require exact topology visibility and camera-facing
+evidence. Raw HDR conversion preserves finite negative and greater-than-one
+channels, while depth conversion preserves the finite raw red channel rather
+than applying display normalization.
+
+## v1.7.1 compatibility refresh
+
+The packaged Round raw and image-reference profiles now use the game 3.3.0
+identity shipped on the v1.7.1 line: 1,668 vertices, 8,352 indices, and profile
+hash
+`cd469e35ad0cbd1e483bd82b2406849429d24037807bd7a294534fb79633f55b`.
+The regenerated pair still produces 39,214 default four-texel samples and
+passes exact raw/image topology pairing, index bounds, deformation, guide, and
+production-resource validation.
+
+Replay now partitions each Fill and Paint pass as Back, Side, then Front before
+applying scanline order inside a region. Adaptive compression preserves the
+same region partition before sorting by descending radius. Auto Material uses
+the shared projected face-material path for Front and Back while Side retains
+its topology-visible, camera-facing gate. v1's target-mutating manual-preview
+feedback optimization is not copied: v2 manual preview is an off-game-thread,
+deterministic composition over the owned original texture and never runs that
+legacy target-visible fitting loop. No dynamic runtime-topology fallback was
+introduced; mismatched live assets and packaged profiles continue to fail
+closed.
 
 Appearance preparation is split into two cancellable worker stages. The first
 owns deformation and projection and returns immutable geometry plus a sorted,
@@ -424,16 +447,19 @@ proves the active Paint generation reaches `Cancelled` before quiescing.
 ordering, packed-PBR quantization, edge clipping, original immutability,
 invalid plan/buffer rejection, cancellation, and resource-limit evidence.
 `paint_appearance_capture` covers exact pass-value preservation,
-deduplicated projected-pixel queries, front-facing visibility, and camera
-movement and viewport-resize rejection plus calibrated target-E0 noise from
-256 paired samples. `paint_appearance_worker` additionally proves owned
+deduplicated projected-pixel queries, shared Front/Back material evidence,
+Side topology/facing visibility, and camera movement and viewport-resize
+rejection plus calibrated target-E0 noise from 256 paired samples.
+`paint_appearance_worker` additionally proves owned
 profile/transform/evidence lifetimes, immutable candidate raster ownership,
 combined feedback/target-E0 preparation, and typed failures. The secret-free
-Linux normal and fresh ASan/UBSan suites currently pass all 93 registered
+Linux normal and fresh ASan/UBSan suites currently pass all 94 registered
 tests. The production
 adapter, exact sender, queue observer, preview channel adapter, capture codecs,
 and struct-array reflection bridge also compile with `/WX` in the pinned
-Windows MSVC `Game__Shipping__Win64` graph. The exact Windows
+Windows MSVC `Game__Shipping__Win64` graph. All 112 exact Windows tests pass,
+including the updated profile, replay, Image Paint, and appearance contracts.
+The exact Windows
 reflection-contract, application-root-Paint, appearance-capture, and
 appearance-worker tests pass, and post-build verification confirms the
 immutable UE4SS stage remains unchanged. This is build evidence, not a live

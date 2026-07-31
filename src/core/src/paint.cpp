@@ -22,6 +22,11 @@ constexpr int MaximumBurstCalls = 3;
 constexpr int AssumedRemoteFramesPerSecond = 60;
 constexpr int QueueObservationWindows = 8;
 constexpr int ConfirmationFramesPerSecond = 30;
+constexpr std::array ReplayRegionOrder{
+    Region::Back,
+    Region::Side,
+    Region::Front,
+};
 
 auto valid_range(double value, double minimum, double maximum) -> bool
 {
@@ -70,6 +75,20 @@ auto scanline_less(
         return left.horizontal < right.horizontal;
     }
     return left.original_ordinal < right.original_ordinal;
+}
+
+auto replay_region_rank(Region region) -> int
+{
+    switch (region)
+    {
+    case Region::Back:
+        return 0;
+    case Region::Side:
+        return 1;
+    case Region::Front:
+        return 2;
+    }
+    return 3;
 }
 
 auto queue_ready(
@@ -287,80 +306,84 @@ auto build_replay_plan(
         {
             auto emitted_cells =
                 std::set<std::tuple<int, int, int, int>>{};
-            auto pending = std::vector<ReplayEntry>{};
             const auto row_height = std::max(
                 0.000001,
                 vertical_span * std::max(0.001, row_size_texels) /
                     texture_dimension);
-            for (const auto& candidate : candidates)
+            for (const auto region : ReplayRegionOrder)
             {
-                if (cancellation.stop_requested())
+                auto pending = std::vector<ReplayEntry>{};
+                for (const auto& candidate : candidates)
                 {
-                    return false;
-                }
-                if (!include_all_regions &&
-                    candidate.mode != required_mode)
-                {
-                    continue;
-                }
-                auto& candidate_count =
-                    pass == ReplayPass::Fill
-                        ? plan.fill_candidates
-                        : plan.paint_candidates;
-                ++candidate_count;
-
-                if (dedupe_cell_uv > 0.000001)
-                {
-                    const auto cell_coordinate =
-                        [dedupe_cell_uv](double value)
-                        {
-                            const auto finite =
-                                std::isfinite(value) ? value : 0.0;
-                            return static_cast<int>(std::floor(
-                                std::clamp(finite, 0.0, 1.0) /
-                                dedupe_cell_uv));
-                        };
-                    const auto cell = std::make_tuple(
-                        static_cast<int>(candidate.region),
-                        candidate.uv_island,
-                        cell_coordinate(candidate.u),
-                        cell_coordinate(candidate.v));
-                    if (!emitted_cells.insert(cell).second)
+                    if (cancellation.stop_requested())
                     {
-                        auto& deduplicated =
-                            pass == ReplayPass::Fill
-                                ? plan.fill_deduplicated
-                                : plan.paint_deduplicated;
-                        ++deduplicated;
+                        return false;
+                    }
+                    if (candidate.region != region ||
+                        (!include_all_regions &&
+                         candidate.mode != required_mode))
+                    {
                         continue;
                     }
+                    auto& candidate_count =
+                        pass == ReplayPass::Fill
+                            ? plan.fill_candidates
+                            : plan.paint_candidates;
+                    ++candidate_count;
+
+                    if (dedupe_cell_uv > 0.000001)
+                    {
+                        const auto cell_coordinate =
+                            [dedupe_cell_uv](double value)
+                            {
+                                const auto finite =
+                                    std::isfinite(value) ? value : 0.0;
+                                return static_cast<int>(std::floor(
+                                    std::clamp(finite, 0.0, 1.0) /
+                                    dedupe_cell_uv));
+                            };
+                        const auto cell = std::make_tuple(
+                            static_cast<int>(candidate.region),
+                            candidate.uv_island,
+                            cell_coordinate(candidate.u),
+                            cell_coordinate(candidate.v));
+                        if (!emitted_cells.insert(cell).second)
+                        {
+                            auto& deduplicated =
+                                pass == ReplayPass::Fill
+                                    ? plan.fill_deduplicated
+                                    : plan.paint_deduplicated;
+                            ++deduplicated;
+                            continue;
+                        }
+                    }
+                    pending.push_back(ReplayEntry{
+                        candidate.sample_index,
+                        pass,
+                        candidate.region,
+                        SpatialScanlineKey{
+                            scanline_row(
+                                vertical_top,
+                                selected_vertical(candidate),
+                                row_height),
+                            candidate.horizontal,
+                            candidate.original_ordinal,
+                        },
+                    });
                 }
-                pending.push_back(ReplayEntry{
-                    candidate.sample_index,
-                    pass,
-                    candidate.region,
-                    SpatialScanlineKey{
-                        scanline_row(
-                            vertical_top,
-                            selected_vertical(candidate),
-                            row_height),
-                        candidate.horizontal,
-                        candidate.original_ordinal,
-                    },
-                });
+                std::ranges::stable_sort(
+                    pending,
+                    [](const auto& left, const auto& right)
+                    {
+                        return scanline_less(
+                            left.spatial_key,
+                            right.spatial_key);
+                    });
+                plan.entries.insert(
+                    plan.entries.end(),
+                    pending.begin(),
+                    pending.end());
             }
-            std::ranges::stable_sort(
-                pending,
-                [](const auto& left, const auto& right)
-                {
-                    return scanline_less(
-                        left.spatial_key,
-                        right.spatial_key);
-                });
-            plan.entries.insert(
-                plan.entries.end(),
-                pending.begin(),
-                pending.end());
             return true;
         };
 
@@ -699,6 +722,14 @@ auto build_adaptive_paint_plan(
         paint_entries,
         [](const auto& left, const auto& right)
         {
+            const auto left_region =
+                replay_region_rank(left.replay.region);
+            const auto right_region =
+                replay_region_rank(right.replay.region);
+            if (left_region != right_region)
+            {
+                return left_region < right_region;
+            }
             return left.radius_multiplier >
                    right.radius_multiplier;
         });

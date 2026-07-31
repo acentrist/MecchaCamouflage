@@ -28,9 +28,9 @@ constexpr std::array FrozenProfiles{
         "paintman",
         "Chameleon/Content/3Dmodel/cLeon/charactor/paintman/"
         "skeltal/paintman.uasset",
-        "13e6049b7bb190b8b40fcbba982fe1398b042a28db6506e5595e7d90"
-        "fff3b84b",
-        1660U,
+        "cd469e35ad0cbd1e483bd82b2406849429d24037807bd7a294534fb79"
+        "633f55b",
+        1668U,
         8352U,
         12U,
     },

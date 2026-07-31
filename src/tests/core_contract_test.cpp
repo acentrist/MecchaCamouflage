@@ -37,6 +37,16 @@ auto main() -> int
 {
     bool passed = true;
 
+    const auto round_profile = expected_mesh_profile(
+        BodyProfile::Round,
+        MeshProfileRole::Raw);
+    passed &= expect(
+        round_profile.vertex_count == 1668U &&
+            round_profile.index_count == 8352U &&
+            round_profile.profile_hash ==
+                "cd469e35ad0cbd1e483bd82b2406849429d24037807bd7a294534fb79633f55b",
+        "Round profile identity drifted from the game 3.3.0 cache");
+
     const PaintSettings defaults{};
     passed &= expect(
         validate(defaults).empty() &&
@@ -126,18 +136,72 @@ auto main() -> int
     passed &= expect(
         replay.entries.size() == 4U && replay.fill_end == 3U &&
             replay.fill_count == 3U && replay.paint_count == 1U &&
-            replay.entries[0].sample_index == 0U &&
-            replay.entries[0].spatial_key.row == 0 &&
+            replay.entries[0].sample_index == 2U &&
+            replay.entries[0].spatial_key.row == 256 &&
             replay.entries[1].sample_index == 1U &&
             replay.entries[1].spatial_key.row == 128 &&
-            replay.entries[2].sample_index == 2U &&
-            replay.entries[2].spatial_key.row == 256 &&
+            replay.entries[2].sample_index == 0U &&
+            replay.entries[2].spatial_key.row == 0 &&
             replay.entries[3].sample_index == 1U &&
             replay.entries[3].pass == ReplayPass::Paint &&
             replay.entries[3].spatial_key.row == 102 &&
             replay.current_view_projection_fallback_used &&
             replay.current_view_projection_fallback_candidates == 1U,
         "Fill-first replay routing drifted from the golden fixture");
+
+    const std::vector region_order_candidates{
+        ReplayCandidate{
+            0U,
+            Region::Front,
+            RegionMode::Paint,
+            0,
+            0.1,
+            0.1,
+            true,
+            2.0,
+            2.0,
+            0.0,
+            0U,
+        },
+        ReplayCandidate{
+            1U,
+            Region::Side,
+            RegionMode::Paint,
+            0,
+            0.2,
+            0.2,
+            true,
+            1.0,
+            1.0,
+            0.0,
+            1U,
+        },
+        ReplayCandidate{
+            2U,
+            Region::Back,
+            RegionMode::Paint,
+            0,
+            0.3,
+            0.3,
+            true,
+            0.0,
+            0.0,
+            0.0,
+            2U,
+        },
+    };
+    const auto region_order_replay = build_replay_plan(
+        region_order_candidates,
+        1024,
+        5.0,
+        4.0);
+    passed &= expect(
+        region_order_replay &&
+            region_order_replay->entries.size() == 3U &&
+            region_order_replay->entries[0].region == Region::Back &&
+            region_order_replay->entries[1].region == Region::Side &&
+            region_order_replay->entries[2].region == Region::Front,
+        "Paint replay did not preserve Back-Side-Front region order");
 
     passed &= expect(
         replay_pass_window(3U, 4U, 3U) ==
@@ -212,6 +276,44 @@ auto main() -> int
         separated && separated->entries.size() == 2U &&
             separated->compressed_paint_entries == 0U,
         "adaptive compression crossed a material boundary");
+
+    const std::vector region_compression_samples{
+        AdaptivePaintSample{
+            0.10, 0.10, Region::Back, 0,
+            0.4, 0.5, 0.6, true, true, 10U},
+        AdaptivePaintSample{
+            0.115, 0.10, Region::Back, 0,
+            0.4, 0.5, 0.6, true, true, 11U},
+        AdaptivePaintSample{
+            0.40, 0.40, Region::Side, 0,
+            0.4, 0.5, 0.6, true, true, 20U},
+        AdaptivePaintSample{
+            0.435, 0.40, Region::Side, 0,
+            0.4, 0.5, 0.6, true, true, 21U},
+        AdaptivePaintSample{
+            0.80, 0.80, Region::Front, 0,
+            0.4, 0.5, 0.6, true, true, 30U},
+    };
+    const std::vector region_compression_replay{
+        ReplayEntry{0U, ReplayPass::Paint, Region::Back, {}},
+        ReplayEntry{2U, ReplayPass::Paint, Region::Side, {}},
+        ReplayEntry{4U, ReplayPass::Paint, Region::Front, {}},
+    };
+    const auto region_compression = build_adaptive_paint_plan(
+        region_compression_replay,
+        region_compression_samples,
+        0.01,
+        5.0);
+    passed &= expect(
+        region_compression &&
+            region_compression->entries.size() == 3U &&
+            region_compression->entries[0].replay.region ==
+                Region::Back &&
+            region_compression->entries[1].replay.region ==
+                Region::Side &&
+            region_compression->entries[2].replay.region ==
+                Region::Front,
+        "adaptive compression reordered Back-Side-Front regions");
 
     auto invalid_adaptive = adaptive_samples;
     invalid_adaptive[0].u =

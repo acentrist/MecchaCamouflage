@@ -155,31 +155,31 @@ auto main(int argc, char** argv) -> int
                      (std::abs(
                           sampling->deformation_vertices->front()
                                   .position.x -
-                              -14.917195) <
+                              0.000000001428603457753752) <
                           0.000001 &&
                       sampling->deformation_vertices->front()
                               .influence_count ==
-                          3U &&
+                          4U &&
                       sampling->deformation_vertices->front()
                               .influences[0U]
                               .bone ==
-                          13U &&
+                          19U &&
                       sampling->deformation_vertices->front()
                               .influences[0U]
                               .raw_weight ==
-                          152U &&
+                          107U &&
                       std::abs(
                           sampling->deformation_vertices->front()
                                   .influences[0U]
                                   .weight -
-                              0.59607846) <
+                              0.41960788) <
                           0.000001 &&
                       sampling->deformation_triangles->front()
                               .dominant_bone ==
-                          14U &&
+                          19U &&
                       sampling->deformation_triangles->front()
                               .body_region ==
-                          "arm" &&
+                          "leg" &&
                       std::abs(
                           (*sampling->reference_bone_transforms)[13U]
                                   .translation.y -
@@ -278,13 +278,13 @@ auto main(int argc, char** argv) -> int
     auto invalid_index =
         read_file(root / "paintman.mesh-profile-v2.json");
     const auto index_position =
-        invalid_index.find(R"("I0":  0)");
+        invalid_index.find(R"("I0": 0)");
     if (index_position != std::string::npos)
     {
         invalid_index.replace(
             index_position,
-            std::string_view{R"("I0":  0)"}.size(),
-            R"("I0":  1660)");
+            std::string_view{R"("I0": 0)"}.size(),
+            R"("I0": 1668)");
     }
     const auto rejected_index =
         application::decode_mesh_profile_identity(
@@ -303,13 +303,13 @@ auto main(int argc, char** argv) -> int
     auto invalid_uv =
         read_file(root / "paintman.mesh-profile-v2.json");
     const auto uv_position =
-        invalid_uv.find(R"("U":  0.5292969)");
+        invalid_uv.find(R"("U": 0.52587890625)");
     if (uv_position != std::string::npos)
     {
         invalid_uv.replace(
             uv_position,
-            std::string_view{R"("U":  0.5292969)"}.size(),
-            R"("U":  1.5)");
+            std::string_view{R"("U": 0.52587890625)"}.size(),
+            R"("U": 1.5)");
     }
     const auto rejected_uv =
         application::decode_paint_sampling_profile(

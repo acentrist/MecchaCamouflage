@@ -221,14 +221,14 @@ auto main() -> int
         return 1;
     }
     passed &= expect(
-        planned->paint.strokes[0U].source_sample == 0U &&
-            planned->paint.strokes[1U].source_sample == 3U &&
+        planned->paint.strokes[0U].source_sample == 3U &&
+            planned->paint.strokes[1U].source_sample == 0U &&
             planned->paint.strokes[0U].pass == ReplayPass::Fill &&
             planned->paint.strokes[1U].pass == ReplayPass::Fill,
         "Fill was not restricted to the independently enabled faces");
     passed &= expect(
-        planned->paint.strokes[2U].source_sample == 0U &&
-            planned->paint.strokes[3U].source_sample == 2U &&
+        planned->paint.strokes[2U].source_sample == 2U &&
+            planned->paint.strokes[3U].source_sample == 0U &&
             planned->paint.strokes[2U].pass == ReplayPass::Paint &&
             planned->paint.strokes[3U].pass == ReplayPass::Paint,
         "opaque Image Paint did not overwrite in a separate Paint pass");
@@ -247,9 +247,9 @@ auto main() -> int
     }
     passed &= expect(
         planned->paint.strokes[2U].color ==
-                Rgb8{255U, 0U, 0U} &&
-            planned->paint.strokes[3U].color ==
                 Rgb8{0U, 0U, 255U} &&
+            planned->paint.strokes[3U].color ==
+                Rgb8{255U, 0U, 0U} &&
             planned->paint.strokes[2U].material ==
                 planned->settings.image_material &&
             planned->paint.strokes[2U].radius_texels ==

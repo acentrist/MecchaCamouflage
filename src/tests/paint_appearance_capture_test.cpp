@@ -128,6 +128,72 @@ auto main() -> int
                 },
             },
             evidence);
+    auto shared_face_evidence = evidence;
+    shared_face_evidence.source_samples =
+        std::make_shared<
+            const std::vector<PaintAppearanceSourceSample>>(
+            3U,
+            PaintAppearanceSourceSample{});
+    const auto shared_face_observations =
+        build_paint_appearance_observations(
+            std::vector<PaintCaptureGeometrySample>{
+                PaintCaptureGeometrySample{
+                    Region::Front,
+                    0,
+                    0.1,
+                    0.1,
+                    Vector3d{},
+                    Vector3d{0.0, 1.0, 0.0},
+                    true,
+                    EspScreenPoint{0.2, 0.2},
+                    0.0,
+                    0.0,
+                    0U,
+                    10.0,
+                },
+                PaintCaptureGeometrySample{
+                    Region::Back,
+                    0,
+                    0.2,
+                    0.2,
+                    Vector3d{},
+                    Vector3d{0.0, 1.0, 0.0},
+                    true,
+                    EspScreenPoint{1.2, 0.2},
+                    0.0,
+                    0.0,
+                    1U,
+                    10.0,
+                },
+                PaintCaptureGeometrySample{
+                    Region::Side,
+                    0,
+                    0.3,
+                    0.3,
+                    Vector3d{},
+                    Vector3d{0.0, 1.0, 0.0},
+                    true,
+                    EspScreenPoint{0.2, 1.2},
+                    0.0,
+                    0.0,
+                    2U,
+                    10.0,
+                },
+            },
+            shared_face_evidence);
+    passed &= expect(
+        shared_face_observations &&
+            shared_face_observations->size() == 3U &&
+            (*shared_face_observations)[0].safe &&
+            (*shared_face_observations)[0]
+                    .source_surface_key ==
+                1U &&
+            (*shared_face_observations)[1].safe &&
+            (*shared_face_observations)[1]
+                    .source_surface_key ==
+                2U &&
+            !(*shared_face_observations)[2].safe,
+        "Front and Back did not share the captured face material path");
     const auto source_vertices =
         std::make_shared<const std::vector<PaintSamplingVertex>>(
             std::vector<PaintSamplingVertex>{

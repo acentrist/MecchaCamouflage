@@ -515,11 +515,14 @@ auto build_paint_appearance_observations(
             static_cast<std::uint64_t>(
                 sample.triangle_index) +
             1U;
+        const auto shared_face =
+            sample.region != Region::Side;
         const auto safe =
-            source.visible &&
-            source.surface_key == expected_surface_key &&
             std::isfinite(facing) &&
-            facing < -0.001;
+            (shared_face ||
+             (source.visible &&
+              source.surface_key == expected_surface_key &&
+              facing < -0.001));
         supported += safe ? 1U : 0U;
         output.push_back(PaintAppearanceObservation{
             pixel,
@@ -537,7 +540,9 @@ auto build_paint_appearance_observations(
             true,
             facing,
             safe,
-            source.surface_key,
+            shared_face
+                ? expected_surface_key
+                : source.surface_key,
         });
     }
     if (supported == 0U)
