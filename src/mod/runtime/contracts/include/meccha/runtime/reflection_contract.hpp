@@ -17,6 +17,7 @@ enum class ReflectionPropertyKind : std::uint8_t
     Object,
     Struct,
     String,
+    Name,
     Enum,
     Array,
 };

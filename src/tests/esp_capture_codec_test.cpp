@@ -5,7 +5,9 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <string_view>
+#include <vector>
 
 namespace
 {
@@ -81,6 +83,64 @@ auto main() -> int
                     EspCaptureCodecError::InvalidCamera),
         "invalid reflected view values were accepted");
 
+    const auto calibration_view = decode_esp_view(
+        {},
+        {},
+        90.0F,
+        1920,
+        1080);
+    const auto calibration_points =
+        calibration_view
+            ? esp_projection_calibration_points(*calibration_view)
+            : std::unexpected(
+                  EspCaptureCodecError::InvalidCamera);
+    passed &= expect(
+        calibration_points &&
+            (*calibration_points)[0U] ==
+                EspWorldPoint{1000.0, 100.0, 0.0} &&
+            (*calibration_points)[1U] ==
+                EspWorldPoint{1000.0, 0.0, 100.0},
+        "projection calibration samples did not follow the camera axes");
+    const auto calibrated =
+        calibration_view
+            ? calibrate_esp_view(
+                  *calibration_view,
+                  EspViewport{1920.0, 1080.0},
+                  EspScreenPoint{1080.0, 540.0},
+                  EspScreenPoint{960.0, 499.5})
+            : std::unexpected(
+                  EspCaptureCodecError::InvalidCamera);
+    passed &= expect(
+        calibrated &&
+            near(calibrated->projection_scale_x, 1.25) &&
+            near(calibrated->projection_scale_y, 0.75),
+        "engine projection samples did not calibrate both axes");
+    passed &= expect(
+        calibration_view &&
+            calibrate_esp_view(
+                *calibration_view,
+                EspViewport{1920.0, 1080.0},
+                EspScreenPoint{
+                    std::numeric_limits<double>::quiet_NaN(),
+                    540.0},
+                EspScreenPoint{960.0, 499.5}) ==
+                std::unexpected(
+                    EspCaptureCodecError::
+                        InvalidProjectionSample),
+        "a non-finite engine projection sample was accepted");
+    passed &= expect(
+        calibration_view &&
+            calibrate_esp_view(
+                *calibration_view,
+                EspViewport{1920.0, 1080.0},
+                EspScreenPoint{1080.0, 560.0},
+                EspScreenPoint{960.0, 499.5}) ==
+                std::unexpected(
+                    EspCaptureCodecError::
+                        InvalidProjectionSample),
+        "an engine projection with a shifted principal point was "
+        "silently approximated");
+
     const auto capsule = sample_esp_capsule(
         EspVector3dAbi{100.0, 200.0, 300.0},
         EspRotatorAbi{},
@@ -128,6 +188,82 @@ auto main() -> int
                 std::unexpected(
                     EspCaptureCodecError::InvalidCapsule),
         "invalid reflected capsule values were accepted");
+
+    const auto skeleton = build_esp_skeleton_pose(
+        std::vector<PaintSamplingBone>{
+            {"root", std::nullopt},
+            {"spine", 0U},
+            {"head", 1U},
+        },
+        std::vector<EspVector3dAbi>{
+            {1.0, 2.0, 3.0},
+            {4.0, 5.0, 6.0},
+            {7.0, 8.0, 9.0},
+        });
+    passed &= expect(
+        skeleton &&
+            skeleton->bones ==
+                std::vector<EspWorldPoint>{
+                    {1.0, 2.0, 3.0},
+                    {4.0, 5.0, 6.0},
+                    {7.0, 8.0, 9.0},
+                } &&
+            skeleton->edges ==
+                std::vector<EspSkeletonEdge>{
+                    {0U, 1U},
+                    {1U, 2U},
+                },
+        "validated profile bones did not become exact skeleton edges");
+    const auto topology_bones =
+        std::vector<PaintSamplingBone>{
+            {"root", std::nullopt},
+            {"spine", 0U},
+            {"neck", 1U},
+            {"head", 2U},
+        };
+    const auto reference_bones =
+        std::vector<ImageReferenceBone>{
+            {std::nullopt, {0.0, 0.0, 0.0}},
+            {0U, {1.0, 0.0, 0.0}},
+            {1U, {2.0, 0.0, 0.0}},
+            {2U, {2.0, 1.0, 0.0}},
+        };
+    const auto scaled_pose = build_esp_skeleton_pose(
+        topology_bones,
+        std::vector<EspVector3dAbi>{
+            {10.0, 0.0, 0.0},
+            {12.0, 0.0, 0.0},
+            {14.0, 0.0, 0.0},
+            {14.0, 2.0, 0.0},
+        });
+    const auto collapsed_pose = build_esp_skeleton_pose(
+        topology_bones,
+        std::vector<EspVector3dAbi>(4U));
+    passed &= expect(
+        scaled_pose &&
+            validate_esp_skeleton_topology(
+                *scaled_pose,
+                reference_bones) &&
+            collapsed_pose &&
+            !validate_esp_skeleton_topology(
+                *collapsed_pose,
+                reference_bones),
+        "skeleton topology validation did not preserve uniform scale "
+        "or reject collapsed sockets");
+    passed &= expect(
+        build_esp_skeleton_pose(
+            std::vector<PaintSamplingBone>{
+                {"root", std::nullopt},
+                {"bad", 2U},
+            },
+            std::vector<EspVector3dAbi>{
+                {},
+                {},
+            }) ==
+            std::unexpected(
+                EspCaptureCodecError::InvalidSkeleton),
+        "an invalid profile skeleton hierarchy was accepted");
+
     passed &= expect(
         !should_refresh_esp_capture_directory(
             true,
@@ -169,6 +305,8 @@ auto main() -> int
         k2_get_component_rotation_contract(),
         get_scaled_capsule_radius_contract(),
         get_scaled_capsule_half_height_contract(),
+        project_world_location_to_screen_contract(),
+        get_socket_location_contract(),
     };
     for (const auto& contract : exact_contracts)
     {
@@ -188,7 +326,18 @@ auto main() -> int
             k2_get_component_rotation_contract().size == 0x18U &&
             get_scaled_capsule_radius_contract().owner_name ==
                 "/Script/Engine.CapsuleComponent" &&
-            get_scaled_capsule_half_height_contract().size == 0x04U,
+            get_scaled_capsule_half_height_contract().size == 0x04U &&
+            project_world_location_to_screen_contract().size ==
+                0x30U &&
+            project_world_location_to_screen_contract()
+                    .properties[1U]
+                    .direction ==
+                ReflectionPropertyDirection::Output &&
+            get_socket_location_contract().size == 0x28U &&
+            get_socket_location_contract()
+                    .properties.front()
+                    .kind ==
+                ReflectionPropertyKind::Name,
         "the reviewed ESP reflected ABI sizes or owners drifted");
 
     auto wrong_camera = get_camera_location_contract();

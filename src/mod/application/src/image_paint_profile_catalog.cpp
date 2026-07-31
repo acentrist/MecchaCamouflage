@@ -263,6 +263,20 @@ auto ImagePaintProfileCatalog::find(
     return position ? pairs_[*position] : nullptr;
 }
 
+auto ImagePaintProfileCatalog::find_by_unreal_asset_path(
+    std::string_view path) const noexcept
+    -> std::shared_ptr<const ImagePaintProfilePair>
+{
+    for (const auto& pair : pairs_)
+    {
+        if (pair && pair->unreal_asset_path == path)
+        {
+            return pair;
+        }
+    }
+    return nullptr;
+}
+
 auto ImagePaintProfileCatalog::size() const noexcept -> std::size_t
 {
     return pairs_.size();

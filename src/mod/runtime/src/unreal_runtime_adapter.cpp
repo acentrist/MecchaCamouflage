@@ -114,6 +114,8 @@ constexpr auto MeshComponentClassPath =
     STR("/Script/Engine.MeshComponent");
 constexpr auto SkinnedMeshComponentClassPath =
     STR("/Script/Engine.SkinnedMeshComponent");
+constexpr auto SkeletalMeshComponentClassPath =
+    STR("/Script/Engine.SkeletalMeshComponent");
 constexpr auto SkinnedAssetClassPath =
     STR("/Script/Engine.SkinnedAsset");
 constexpr auto PaintAtUvWithBrushPath =
@@ -162,6 +164,11 @@ constexpr auto GetScaledCapsuleRadiusPath =
 constexpr auto GetScaledCapsuleHalfHeightPath =
     STR("/Script/Engine.CapsuleComponent:"
         "GetScaledCapsuleHalfHeight");
+constexpr auto ProjectWorldLocationToScreenPath =
+    STR("/Script/Engine.PlayerController:"
+        "ProjectWorldLocationToScreen");
+constexpr auto GetSocketLocationPath =
+    STR("/Script/Engine.SceneComponent:GetSocketLocation");
 constexpr auto GameStateCLeonClassPath =
     STR("/Game/BluePrints/cLeon/BP_GameState_cLeon."
         "BP_GameState_cLeon_C");
@@ -285,6 +292,9 @@ struct EspContracts
     UClass* spectator_pawn_class{};
     UClass* scene_component_class{};
     UClass* capsule_component_class{};
+    UClass* skinned_mesh_component_class{};
+    UClass* skeletal_mesh_component_class{};
+    UClass* skinned_asset_class{};
     UClass* player_camera_manager_class{};
     UClass* game_state_cleon_class{};
     UClass* player_state_online_class{};
@@ -293,6 +303,7 @@ struct EspContracts
     UClass* survivor_character_class{};
     UClass* spectate_pawn_cleon_class{};
     UScriptStruct* vector{};
+    UScriptStruct* vector2d{};
     UScriptStruct* rotator{};
     UFunction* get_camera_location{};
     UFunction* get_camera_rotation{};
@@ -301,11 +312,15 @@ struct EspContracts
     UFunction* k2_get_component_rotation{};
     UFunction* get_scaled_capsule_radius{};
     UFunction* get_scaled_capsule_half_height{};
+    UFunction* project_world_location_to_screen{};
+    UFunction* get_socket_location{};
     FObjectPropertyBase* world_game_state{};
     FObjectPropertyBase* controller_player_state{};
     FObjectPropertyBase* player_state_pawn{};
     FObjectPropertyBase* pawn_player_state{};
     FObjectPropertyBase* character_capsule{};
+    FObjectPropertyBase* character_mesh{};
+    FObjectPropertyBase* skinned_asset{};
     FObjectPropertyBase* player_camera_manager{};
     FArrayProperty* player_array{};
     FArrayProperty* live_survivor_player_states{};
@@ -749,6 +764,12 @@ auto resolve_esp_contracts()
         find_class(SceneComponentClassPath);
     contracts.capsule_component_class =
         find_class(CapsuleComponentClassPath);
+    contracts.skinned_mesh_component_class =
+        find_class(SkinnedMeshComponentClassPath);
+    contracts.skeletal_mesh_component_class =
+        find_class(SkeletalMeshComponentClassPath);
+    contracts.skinned_asset_class =
+        find_class(SkinnedAssetClassPath);
     contracts.player_camera_manager_class =
         find_class(PlayerCameraManagerClassPath);
     contracts.game_state_cleon_class =
@@ -768,6 +789,11 @@ auto resolve_esp_contracts()
             nullptr,
             nullptr,
             VectorPath);
+    contracts.vector2d =
+        UObjectGlobals::StaticFindObject<UScriptStruct*>(
+            nullptr,
+            nullptr,
+            Vector2dPath);
     contracts.rotator =
         UObjectGlobals::StaticFindObject<UScriptStruct*>(
             nullptr,
@@ -808,6 +834,16 @@ auto resolve_esp_contracts()
             nullptr,
             nullptr,
             GetScaledCapsuleHalfHeightPath);
+    contracts.project_world_location_to_screen =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            ProjectWorldLocationToScreenPath);
+    contracts.get_socket_location =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            GetSocketLocationPath);
 
     const auto required_objects = std::array{
         static_cast<UObject*>(contracts.world_class),
@@ -820,6 +856,11 @@ auto resolve_esp_contracts()
         static_cast<UObject*>(contracts.spectator_pawn_class),
         static_cast<UObject*>(contracts.scene_component_class),
         static_cast<UObject*>(contracts.capsule_component_class),
+        static_cast<UObject*>(
+            contracts.skinned_mesh_component_class),
+        static_cast<UObject*>(
+            contracts.skeletal_mesh_component_class),
+        static_cast<UObject*>(contracts.skinned_asset_class),
         static_cast<UObject*>(contracts.player_camera_manager_class),
         static_cast<UObject*>(contracts.game_state_cleon_class),
         static_cast<UObject*>(contracts.player_state_online_class),
@@ -828,6 +869,7 @@ auto resolve_esp_contracts()
         static_cast<UObject*>(contracts.survivor_character_class),
         static_cast<UObject*>(contracts.spectate_pawn_cleon_class),
         static_cast<UObject*>(contracts.vector),
+        static_cast<UObject*>(contracts.vector2d),
         static_cast<UObject*>(contracts.rotator),
     };
     if (std::ranges::any_of(
@@ -851,7 +893,11 @@ auto resolve_esp_contracts()
         !contracts.spectate_pawn_cleon_class->IsChildOf(
             contracts.spectator_pawn_class) ||
         !contracts.capsule_component_class->IsChildOf(
-            contracts.scene_component_class))
+            contracts.scene_component_class) ||
+        !contracts.skinned_mesh_component_class->IsChildOf(
+            contracts.scene_component_class) ||
+        !contracts.skeletal_mesh_component_class->IsChildOf(
+            contracts.skinned_mesh_component_class))
     {
         return runtime_failure(
             application::RuntimeContractId::EspFrame,
@@ -865,6 +911,8 @@ auto resolve_esp_contracts()
         contracts.k2_get_component_rotation,
         contracts.get_scaled_capsule_radius,
         contracts.get_scaled_capsule_half_height,
+        contracts.project_world_location_to_screen,
+        contracts.get_socket_location,
     };
     if (std::ranges::any_of(
             required_functions,
@@ -904,6 +952,16 @@ auto resolve_esp_contracts()
         contracts.character_class,
         STR("CapsuleComponent"),
         contracts.capsule_component_class);
+    contracts.character_mesh = find_exact_object_property(
+        contracts.character_class,
+        contracts.character_class,
+        STR("Mesh"),
+        contracts.skeletal_mesh_component_class);
+    contracts.skinned_asset = find_exact_object_property(
+        contracts.skeletal_mesh_component_class,
+        contracts.skinned_mesh_component_class,
+        STR("SkinnedAsset"),
+        contracts.skinned_asset_class);
     contracts.player_camera_manager =
         find_exact_object_property(
             contracts.player_controller_class,
@@ -943,6 +1001,8 @@ auto resolve_esp_contracts()
         static_cast<FProperty*>(contracts.player_state_pawn),
         static_cast<FProperty*>(contracts.pawn_player_state),
         static_cast<FProperty*>(contracts.character_capsule),
+        static_cast<FProperty*>(contracts.character_mesh),
+        static_cast<FProperty*>(contracts.skinned_asset),
         static_cast<FProperty*>(contracts.player_camera_manager),
         static_cast<FProperty*>(contracts.player_array),
         static_cast<FProperty*>(
@@ -968,6 +1028,9 @@ auto resolve_esp_contracts()
         std::pair{
             static_cast<UStruct*>(contracts.vector),
             vector_contract()},
+        std::pair{
+            static_cast<UStruct*>(contracts.vector2d),
+            vector2d_contract()},
         std::pair{
             static_cast<UStruct*>(contracts.rotator),
             rotator_contract()},
@@ -996,6 +1059,14 @@ auto resolve_esp_contracts()
             static_cast<UStruct*>(
                 contracts.get_scaled_capsule_half_height),
             get_scaled_capsule_half_height_contract()},
+        std::pair{
+            static_cast<UStruct*>(
+                contracts.project_world_location_to_screen),
+            project_world_location_to_screen_contract()},
+        std::pair{
+            static_cast<UStruct*>(
+                contracts.get_socket_location),
+            get_socket_location_contract()},
     };
     for (const auto& [record, expected] : validations)
     {
@@ -1161,6 +1232,63 @@ auto call_esp_float(UObject* object, UFunction* function)
 {
     auto parameters = EspFloatReturnParametersAbi{};
     object->ProcessEvent(function, &parameters);
+    return parameters.return_value;
+}
+
+auto call_esp_project_world_to_screen(
+    UObject* controller,
+    UFunction* function,
+    core::EspWorldPoint world)
+    -> std::optional<core::EspScreenPoint>
+{
+    auto parameters =
+        EspProjectWorldLocationToScreenParametersAbi{};
+    parameters.world_location = EspVector3dAbi{
+        world.x,
+        world.y,
+        world.z,
+    };
+    parameters.player_viewport_relative = false;
+    controller->ProcessEvent(function, &parameters);
+    if (!parameters.return_value ||
+        !std::isfinite(parameters.screen_location.x) ||
+        !std::isfinite(parameters.screen_location.y))
+    {
+        return std::nullopt;
+    }
+    return core::EspScreenPoint{
+        parameters.screen_location.x,
+        parameters.screen_location.y,
+    };
+}
+
+auto call_esp_socket_location(
+    UObject* mesh,
+    UFunction* function,
+    std::string_view socket_name)
+    -> std::optional<EspVector3dAbi>
+{
+    const auto wide_name = RC::to_wstring(socket_name);
+    const auto unreal_name =
+        FName{wide_name.c_str(), FNAME_Find};
+    if (unreal_name.IsNone())
+    {
+        return std::nullopt;
+    }
+    auto parameters = EspGetSocketLocationParametersAbi{};
+    parameters.in_socket_name = EspNameAbi{
+        unreal_name.GetComparisonIndex().ToUnstableInt(),
+        unreal_name.GetDisplayIndex().ToUnstableInt(),
+        static_cast<std::uint32_t>(
+            unreal_name.GetNumber()),
+    };
+    mesh->ProcessEvent(function, &parameters);
+    if (!std::isfinite(parameters.return_value.x) ||
+        !std::isfinite(parameters.return_value.y) ||
+        !std::isfinite(parameters.return_value.z))
+    {
+        return std::nullopt;
+    }
     return parameters.return_value;
 }
 
@@ -2071,6 +2199,74 @@ auto outer_chain_contains(UObject* object, UObject* expected)
         }
     }
     return false;
+}
+
+auto capture_esp_skeleton_pose(
+    UObject* avatar,
+    UObject* world,
+    const EspContracts& contracts,
+    const application::ImagePaintProfileCatalog& profiles)
+    -> std::optional<core::EspSkeletonPose>
+{
+    auto* mesh = read_object(
+        contracts.character_mesh,
+        avatar);
+    if (!object_is_live(
+            mesh,
+            contracts.skeletal_mesh_component_class) ||
+        mesh->GetWorld() != world ||
+        !outer_chain_contains(mesh, avatar))
+    {
+        return std::nullopt;
+    }
+    auto* asset = read_object(
+        contracts.skinned_asset,
+        mesh);
+    if (!object_is_live(
+            asset,
+            contracts.skinned_asset_class))
+    {
+        return std::nullopt;
+    }
+    const auto pair = profiles.find_by_unreal_asset_path(
+        RC::to_string(asset->GetPathName()));
+    if (!pair ||
+        RC::to_string(asset->GetName()) !=
+            pair->sampling.identity.export_name ||
+        !pair->sampling.bones ||
+        !pair->image.geometry.bones ||
+        pair->sampling.bones->size() !=
+            pair->sampling.identity.bone_count ||
+        pair->image.geometry.bones->size() !=
+            pair->sampling.bones->size())
+    {
+        return std::nullopt;
+    }
+    auto positions = std::vector<EspVector3dAbi>{};
+    positions.reserve(pair->sampling.bones->size());
+    for (const auto& bone : *pair->sampling.bones)
+    {
+        const auto position = call_esp_socket_location(
+            mesh,
+            contracts.get_socket_location,
+            bone.name);
+        if (!position)
+        {
+            return std::nullopt;
+        }
+        positions.push_back(*position);
+    }
+    auto pose = build_esp_skeleton_pose(
+        *pair->sampling.bones,
+        positions);
+    if (!pose ||
+        !validate_esp_skeleton_topology(
+            *pose,
+            *pair->image.geometry.bones))
+    {
+        return std::nullopt;
+    }
+    return std::move(*pose);
 }
 
 auto resolve_owned_paint_component(
@@ -4075,7 +4271,7 @@ public:
                 }
             }
 
-            const auto view = decode_esp_view(
+            const auto uncalibrated_view = decode_esp_view(
                 call_esp_vector(
                     camera_manager,
                     contracts.get_camera_location),
@@ -4087,6 +4283,50 @@ public:
                     contracts.get_fov_angle),
                 active->viewport_width,
                 active->viewport_height);
+            if (!uncalibrated_view)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::EspFrame,
+                    application::ContractFailureKind::InvalidValue);
+            }
+            const auto calibration_points =
+                esp_projection_calibration_points(
+                    *uncalibrated_view);
+            if (!calibration_points)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::EspFrame,
+                    application::ContractFailureKind::InvalidValue);
+            }
+            const auto horizontal_engine_sample =
+                call_esp_project_world_to_screen(
+                    active->controller,
+                    contracts
+                        .project_world_location_to_screen,
+                    (*calibration_points)[0U]);
+            const auto vertical_engine_sample =
+                call_esp_project_world_to_screen(
+                    active->controller,
+                    contracts
+                        .project_world_location_to_screen,
+                    (*calibration_points)[1U]);
+            if (!horizontal_engine_sample ||
+                !vertical_engine_sample)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::EspFrame,
+                    application::ContractFailureKind::InvalidValue);
+            }
+            const auto view = calibrate_esp_view(
+                *uncalibrated_view,
+                core::EspViewport{
+                    static_cast<double>(
+                        active->viewport_width),
+                    static_cast<double>(
+                        active->viewport_height),
+                },
+                *horizontal_engine_sample,
+                *vertical_engine_sample);
             if (!view)
             {
                 return runtime_failure(
@@ -4384,6 +4624,8 @@ public:
                     std::optional<core::EspWorldPoint>{};
                 auto capsule_samples =
                     std::vector<core::EspWorldPoint>{};
+                auto skeleton =
+                    std::optional<core::EspSkeletonPose>{};
                 const auto role =
                     core::resolve_esp_target_role(
                         subject.roster_role,
@@ -4427,6 +4669,14 @@ public:
                             capsule_samples = *samples;
                         }
                     }
+                    if (image_paint_profiles_)
+                    {
+                        skeleton = capture_esp_skeleton_pose(
+                            avatar,
+                            active->world,
+                            contracts,
+                            *image_paint_profiles_);
+                    }
                 }
                 targets.push_back(core::EspTargetCapture{
                     object_identity(subject.player_state),
@@ -4440,7 +4690,7 @@ public:
                         subject.player_state),
                     origin,
                     std::move(capsule_samples),
-                    std::nullopt,
+                    std::move(skeleton),
                 });
             }
 

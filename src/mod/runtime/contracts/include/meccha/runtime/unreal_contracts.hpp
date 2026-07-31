@@ -43,6 +43,12 @@ namespace meccha::runtime
 [[nodiscard]] auto get_scaled_capsule_half_height_contract()
     -> ReflectionRecordDescriptor;
 
+[[nodiscard]] auto project_world_location_to_screen_contract()
+    -> ReflectionRecordDescriptor;
+
+[[nodiscard]] auto get_socket_location_contract()
+    -> ReflectionRecordDescriptor;
+
 [[nodiscard]] auto is_look_input_ignored_contract()
     -> ReflectionRecordDescriptor;
 

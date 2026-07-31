@@ -195,6 +195,24 @@ public:
         return number;
     }
 
+    auto string(const Object& object_value, std::string_view key) const
+        -> std::expected<std::string, MeshProfileCodecError>
+    {
+        const auto value = member(object_value, key);
+        if (!value)
+        {
+            return std::unexpected(value.error());
+        }
+        const auto* text = (*value)->get_if<std::string>();
+        if (text == nullptr)
+        {
+            return malformed(
+                "Mesh profile field is not a string: " +
+                std::string{key});
+        }
+        return *text;
+    }
+
     auto array(const Object& object_value, std::string_view key) const
         -> std::expected<
             std::reference_wrapper<const Array>,
@@ -437,6 +455,9 @@ auto decode_mesh_profile(
     auto bone_parents =
         std::vector<std::optional<std::size_t>>{};
     bone_parents.reserve(bones->get().size());
+    auto decoded_sampling_bones =
+        std::vector<core::PaintSamplingBone>{};
+    decoded_sampling_bones.reserve(bones->get().size());
     auto decoded_sampling_vertices =
         std::vector<core::PaintSamplingVertex>{};
     auto decoded_sampling_triangles =
@@ -463,27 +484,52 @@ auto decode_mesh_profile(
                         "Mesh profile bone is not an object.");
                 }
                 const auto index = reader.size(*bone, "Index");
+                const auto name = reader.string(*bone, "Name");
                 const auto parent =
                     reader.integer(*bone, "ParentIndex");
-                if (!index || !parent)
+                if (!index || !name || !parent)
                 {
-                    return std::unexpected(
-                        !index ? index.error() : parent.error());
+                    if (!index)
+                    {
+                        return std::unexpected(index.error());
+                    }
+                    if (!name)
+                    {
+                        return std::unexpected(name.error());
+                    }
+                    return std::unexpected(parent.error());
                 }
-                if (*index != position || *parent < -1 ||
-                    (*parent >= 0 &&
-                     static_cast<std::size_t>(*parent) >= position))
+                const auto duplicate_name =
+                    std::ranges::any_of(
+                        decoded_sampling_bones,
+                        [&](const core::PaintSamplingBone& value)
+                        {
+                            return value.name == *name;
+                        });
+                if (*index != position ||
+                    name->empty() || name->size() > 128U ||
+                    duplicate_name ||
+                    (position == 0U && *parent != -1) ||
+                    (position != 0U &&
+                     (*parent < 0 ||
+                      static_cast<std::size_t>(*parent) >=
+                          position)))
                 {
                     return invalid_profile(
                         core::MeshProfileField::IndexBounds,
                         "Mesh profile bone hierarchy is invalid.");
                 }
-                bone_parents.push_back(
+                const auto decoded_parent =
                     *parent < 0
                         ? std::nullopt
                         : std::optional<std::size_t>{
-                              static_cast<std::size_t>(
-                                  *parent)});
+                              static_cast<std::size_t>(*parent)};
+                bone_parents.push_back(decoded_parent);
+                decoded_sampling_bones.push_back(
+                    core::PaintSamplingBone{
+                        std::move(*name),
+                        decoded_parent,
+                    });
             }
 
             for (auto position = std::size_t{};
@@ -865,6 +911,9 @@ auto decode_mesh_profile(
             std::make_shared<
                 const std::vector<core::PaintSamplingTriangle>>(
                 std::move(decoded_sampling_triangles)),
+            std::make_shared<
+                const std::vector<core::PaintSamplingBone>>(
+                std::move(decoded_sampling_bones)),
         };
     }
     return identity;

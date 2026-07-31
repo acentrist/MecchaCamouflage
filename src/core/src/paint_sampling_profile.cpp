@@ -1,5 +1,7 @@
 #include <meccha/core/paint_sampling_profile.hpp>
 
+#include <meccha/core/utf8.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -56,6 +58,37 @@ auto validate(const PaintSamplingProfile& profile)
     {
         add_once(fields, PaintSamplingProfileField::Triangles);
     }
+    if (!profile.bones ||
+        profile.bones->size() != identity.bone_count)
+    {
+        add_once(fields, PaintSamplingProfileField::Bones);
+    }
+    else
+    {
+        for (auto position = std::size_t{};
+             position < profile.bones->size();
+             ++position)
+        {
+            const auto& bone = (*profile.bones)[position];
+            const auto duplicate =
+                std::ranges::find_if(
+                    *profile.bones,
+                    [&](const PaintSamplingBone& candidate)
+                    {
+                        return &candidate != &bone &&
+                               candidate.name == bone.name;
+                    }) != profile.bones->end();
+            if (bone.name.empty() || bone.name.size() > 128U ||
+                !valid_utf8(bone.name) || duplicate ||
+                (position == 0U && bone.parent) ||
+                (position != 0U &&
+                 (!bone.parent || *bone.parent >= position)))
+            {
+                add_once(fields, PaintSamplingProfileField::Bones);
+                break;
+            }
+        }
+    }
     if (profile.vertices && profile.triangles)
     {
         for (const auto& triangle : *profile.triangles)
@@ -96,6 +129,10 @@ auto validate_pair(
     }
     if (!image.geometry.indices ||
         image.geometry.indices->size() != raw.index_count ||
+        !sampling.bones ||
+        sampling.bones->size() != raw.bone_count ||
+        !image.geometry.bones ||
+        image.geometry.bones->size() != raw.bone_count ||
         !sampling.triangles ||
         sampling.triangles->size() != raw.triangle_count ||
         raw.index_count % 3U != 0U ||
@@ -103,6 +140,19 @@ auto validate_pair(
     {
         add_once(fields, PaintSamplingProfileField::PairTopology);
         return fields;
+    }
+    for (auto position = std::size_t{};
+         position < sampling.bones->size();
+         ++position)
+    {
+        if ((*sampling.bones)[position].parent !=
+            (*image.geometry.bones)[position].parent)
+        {
+            add_once(
+                fields,
+                PaintSamplingProfileField::PairTopology);
+            return fields;
+        }
     }
     for (auto position = std::size_t{};
          position < sampling.triangles->size();

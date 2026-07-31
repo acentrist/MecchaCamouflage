@@ -487,6 +487,84 @@ auto get_scaled_capsule_half_height_contract()
         "/Script/Engine.CapsuleComponent");
 }
 
+auto project_world_location_to_screen_contract()
+    -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "ProjectWorldLocationToScreen",
+        "/Script/Engine.PlayerController",
+        0x30U,
+        {
+            ReflectionPropertyDescriptor{
+                "WorldLocation",
+                ReflectionPropertyKind::Struct,
+                "Vector",
+                0x00U,
+                0x18U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "ScreenLocation",
+                ReflectionPropertyKind::Struct,
+                "Vector2D",
+                0x18U,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::Output,
+            },
+            ReflectionPropertyDescriptor{
+                "bPlayerViewportRelative",
+                ReflectionPropertyKind::Bool,
+                {},
+                0x28U,
+                0x01U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "ReturnValue",
+                ReflectionPropertyKind::Bool,
+                {},
+                0x29U,
+                0x01U,
+                1U,
+                ReflectionPropertyDirection::ReturnValue,
+            },
+        },
+    };
+}
+
+auto get_socket_location_contract()
+    -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "GetSocketLocation",
+        "/Script/Engine.SceneComponent",
+        0x28U,
+        {
+            ReflectionPropertyDescriptor{
+                "InSocketName",
+                ReflectionPropertyKind::Name,
+                {},
+                0x00U,
+                0x0CU,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "ReturnValue",
+                ReflectionPropertyKind::Struct,
+                "Vector",
+                0x10U,
+                0x18U,
+                1U,
+                ReflectionPropertyDirection::ReturnValue,
+            },
+        },
+    };
+}
+
 auto is_look_input_ignored_contract()
     -> ReflectionRecordDescriptor
 {

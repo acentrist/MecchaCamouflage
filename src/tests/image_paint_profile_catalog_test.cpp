@@ -92,9 +92,16 @@ auto main(int argc, char** argv) -> int
                     pair->image)
                     .empty() &&
                 pair->unreal_asset_path ==
-                    expected_unreal_asset_path(body),
+                    expected_unreal_asset_path(body) &&
+                loaded->find_by_unreal_asset_path(
+                    expected_unreal_asset_path(body)) == pair,
             "a body lookup did not retain its immutable exact pair");
     }
+    passed &= expect(
+        loaded &&
+            !loaded->find_by_unreal_asset_path(
+                "/Game/not-an-accepted-mesh.not-an-accepted-mesh"),
+        "an unknown Unreal asset path selected a mesh profile");
 
     const auto round_raw =
         read_file(root / "paintman.mesh-profile-v2.json");
@@ -213,6 +220,53 @@ auto main(int argc, char** argv) -> int
             mismatched_result.error().body ==
                 core::BodyProfile::Round,
         "a mismatched raw/ImageReference topology pair was accepted");
+
+    auto mismatched_bones = round_image;
+    const auto spine_name =
+        mismatched_bones.find(R"("Name":  "spine1")");
+    const auto spine_parent =
+        spine_name == std::string::npos
+            ? std::string::npos
+            : mismatched_bones.find(
+                  R"("ParentIndex":  1)",
+                  spine_name);
+    if (spine_parent != std::string::npos)
+    {
+        mismatched_bones.replace(
+            spine_parent,
+            std::string_view{R"("ParentIndex":  1)"}.size(),
+            R"("ParentIndex":  0)");
+    }
+    const auto mismatched_bone_documents = std::array{
+        application::ImagePaintProfileDocuments{
+            core::BodyProfile::Round,
+            round_raw,
+            mismatched_bones,
+        },
+        application::ImagePaintProfileDocuments{
+            core::BodyProfile::Cube,
+            cube_raw,
+            cube_image,
+        },
+        application::ImagePaintProfileDocuments{
+            core::BodyProfile::Fukuyoka,
+            fukuyoka_raw,
+            fukuyoka_image,
+        },
+    };
+    const auto mismatched_bone_result =
+        application::ImagePaintProfileCatalog::create(
+            mismatched_bone_documents);
+    passed &= expect(
+        spine_name != std::string::npos &&
+            spine_parent != std::string::npos &&
+            !mismatched_bone_result &&
+            mismatched_bone_result.error().code ==
+                application::ImagePaintProfileCatalogErrorCode::
+                    InvalidPair &&
+            mismatched_bone_result.error().body ==
+                core::BodyProfile::Round,
+        "a mismatched raw/ImageReference skeleton was accepted");
 
     const auto missing_directory =
         application::load_image_paint_profile_catalog(

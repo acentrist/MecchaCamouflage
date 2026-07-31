@@ -130,6 +130,18 @@ auto main(int argc, char** argv) -> int
                     sampling->triangles &&
                     sampling->triangles->size() ==
                         sampling->identity.triangle_count &&
+                    sampling->bones &&
+                    sampling->bones->size() ==
+                        sampling->identity.bone_count &&
+                    sampling->bones->front().name == "amm" &&
+                    !sampling->bones->front().parent &&
+                    (*sampling->bones)[1U].name == "loot" &&
+                    (*sampling->bones)[1U].parent ==
+                        std::optional<std::size_t>{0U} &&
+                    sampling->bones->back().name ==
+                        "foot_R_end" &&
+                    sampling->bones->back().parent ==
+                        std::optional<std::size_t>{26U} &&
                     std::ranges::all_of(
                         *sampling->vertices,
                         [](const auto& vertex)

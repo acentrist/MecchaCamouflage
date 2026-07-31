@@ -131,6 +131,10 @@ auto describe_property(FProperty* property)
     {
         kind = ReflectionPropertyKind::String;
     }
+    else if (CastField<FNameProperty>(property) != nullptr)
+    {
+        kind = ReflectionPropertyKind::Name;
+    }
     else if (auto* array_property =
                  CastField<FArrayProperty>(property);
              array_property != nullptr)

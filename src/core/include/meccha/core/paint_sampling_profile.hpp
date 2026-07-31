@@ -4,6 +4,8 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <string>
 #include <vector>
 
 namespace meccha::core
@@ -26,11 +28,20 @@ struct PaintSamplingTriangle
     auto operator==(const PaintSamplingTriangle&) const -> bool = default;
 };
 
+struct PaintSamplingBone
+{
+    std::string name{};
+    std::optional<std::size_t> parent{};
+
+    auto operator==(const PaintSamplingBone&) const -> bool = default;
+};
+
 struct PaintSamplingProfile
 {
     MeshProfileIdentity identity{};
     std::shared_ptr<const std::vector<PaintSamplingVertex>> vertices{};
     std::shared_ptr<const std::vector<PaintSamplingTriangle>> triangles{};
+    std::shared_ptr<const std::vector<PaintSamplingBone>> bones{};
 };
 
 enum class PaintSamplingProfileField : std::uint8_t
@@ -38,6 +49,7 @@ enum class PaintSamplingProfileField : std::uint8_t
     Identity,
     Vertices,
     Triangles,
+    Bones,
     Topology,
     PairIdentity,
     PairTopology,

@@ -67,6 +67,23 @@ auto image_profile(core::BodyProfile body)
     indices.back() =
         static_cast<std::uint32_t>(
             identity.vertex_count - 1U);
+    auto bones = std::vector<core::ImageReferenceBone>{};
+    bones.reserve(identity.bone_count);
+    for (auto index = std::size_t{};
+         index < identity.bone_count;
+         ++index)
+    {
+        bones.push_back(core::ImageReferenceBone{
+            index == 0U
+                ? std::nullopt
+                : std::optional<std::size_t>{0U},
+            core::Vector3d{
+                static_cast<double>(index),
+                0.0,
+                0.0,
+            },
+        });
+    }
     auto profile = core::build_canonical_image_profile(
         core::ImageReferenceGeometry{
             identity,
@@ -76,6 +93,9 @@ auto image_profile(core::BodyProfile body)
             std::make_shared<
                 const std::vector<std::uint32_t>>(
                 std::move(indices)),
+            std::make_shared<
+                const std::vector<core::ImageReferenceBone>>(
+                std::move(bones)),
         });
     return std::move(*profile);
 }
@@ -104,6 +124,19 @@ auto sampling_profile(core::BodyProfile body)
     triangles.back().third =
         static_cast<std::uint32_t>(
             identity.vertex_count - 1U);
+    auto bones = std::vector<core::PaintSamplingBone>{};
+    bones.reserve(identity.bone_count);
+    for (auto index = std::size_t{};
+         index < identity.bone_count;
+         ++index)
+    {
+        bones.push_back(core::PaintSamplingBone{
+            "bone_" + std::to_string(index),
+            index == 0U
+                ? std::nullopt
+                : std::optional<std::size_t>{0U},
+        });
+    }
     return core::PaintSamplingProfile{
         identity,
         std::make_shared<
@@ -112,6 +145,9 @@ auto sampling_profile(core::BodyProfile body)
         std::make_shared<
             const std::vector<core::PaintSamplingTriangle>>(
             std::move(triangles)),
+        std::make_shared<
+            const std::vector<core::PaintSamplingBone>>(
+            std::move(bones)),
     };
 }
 

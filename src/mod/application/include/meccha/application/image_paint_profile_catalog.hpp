@@ -68,6 +68,10 @@ public:
     [[nodiscard]] auto find(core::BodyProfile body) const noexcept
         -> std::shared_ptr<const ImagePaintProfilePair>;
 
+    [[nodiscard]] auto find_by_unreal_asset_path(
+        std::string_view path) const noexcept
+        -> std::shared_ptr<const ImagePaintProfilePair>;
+
     [[nodiscard]] auto size() const noexcept -> std::size_t;
 
 private:
