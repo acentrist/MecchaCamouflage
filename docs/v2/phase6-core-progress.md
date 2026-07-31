@@ -2,12 +2,37 @@
 
 ## Current status
 
-The frozen domain values and validation contracts have moved from the v1 mixed
-runtime header and C# models into focused, dependency-free C++ modules. Typed
-application commands, immutable snapshots, the job/preview state machines, and
-the first complete immutable Paint plan are also in place. Phase 6 remains
-open: properties, sanitizers, and the remainder of the retained algorithms are
-not yet complete.
+The frozen domain values, retained pure algorithms, and validation contracts
+have moved from the v1 mixed runtime header and C# models into focused,
+dependency-free C++ modules. Typed application commands, immutable snapshots,
+job/preview state machines, resource limits, and deterministic verification are
+complete for the Phase 6 scope.
+
+The later feature phases have since completed the retained Paint appearance,
+preview, Image Paint mapping, ESP, UI, launcher, and packaging algorithms. The
+cross-feature checked-arithmetic/resource-limit review is recorded in
+[`resource-limit-audit.md`](resource-limit-audit.md). Live measured resource
+baselines remain a Phase 13 gate. The completed property/golden, state-machine,
+dependency-boundary, sanitizer, and supported static-analysis inventory is in
+[`static-analysis.md`](static-analysis.md).
+
+## Retained algorithm closure
+
+| PLAN family | Pure v2 owner | Deterministic evidence |
+| --- | --- | --- |
+| Profile identities | `core/mesh_profile`, strict application profile codecs, immutable raw/image-reference pairs | `mesh_profile_codec`, `image_paint_profile_catalog`, `production_resources` |
+| Region routing | `core/paint` and `core/paint_plan` Fill-first Paint/Fill/Skip planning | v1 domain golden cases in `core_contract` and `paint_planner` |
+| Color/PBR packing | validated independent Paint/Fill materials, exact byte quantization, preview channel composition | `core_contract`, `paint_planner`, `paint_preview_composer` |
+| Image atlas mapping | `core/image_mapping`, `core/image_profile_mapping`, sampling, guide, and compositor modules | `image_profile_mapping`, `image_paint_sampling`, `image_guide`, `image_compositor` |
+| Paint pacing and timing | `build_pacing_plan`, bounded dispatch cadence, queue drain, and final-confirmation estimate | exact v1 `runtime-pacing.json` golden cases plus `paint_dispatch` |
+| Compression/coalescing | material/region/island-isolated adaptive Paint planning with deterministic radius candidates | `core_contract` and `paint_planner` preservation, isolation, expansion, and rejection cases |
+| ESP projection | pure role filtering, projection, capsule/pose bounds, clipping, and primitive construction | `esp_frame` and `esp_frame_coordinator` |
+
+Clock reads, worker execution, filesystem access, and live runtime calls enter
+the pure decisions only through owned application ports or immutable captured
+values. Their tests use explicit timestamps, fake executors/stores/runtime
+ports, and generation-tagged inputs; core does not read a clock, launch a
+worker, access a filesystem, or inspect a UObject.
 
 ## Implemented modules
 
@@ -196,6 +221,15 @@ helper returned as soon as the replacement job was observed in `Planning`,
 before the old worker completion arrived. It now waits for the typed
 `StaleCompletion` result. Twenty repeated normal and sanitized runs pass, and
 production generation checks were unchanged.
+
+The current integrated graph contains 94 portable tests and passes both normal
+Linux and ASan/UBSan builds. The synchronized native Windows graph passes 112
+MSVC x64 Shipping `/W4 /WX` tests. Historical counts above describe the earlier
+Phase 6 checkpoints at which their specific scheduling assumptions were fixed.
+The public CI also analyzes the portable production target closure with GCC
+13-or-newer `-fanalyzer`; its exact scope and two documented libstdc++
+diagnostic exclusions are recorded in
+[`static-analysis.md`](static-analysis.md).
 
 ## Deliberate non-port
 

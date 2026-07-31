@@ -36,6 +36,11 @@ option(
     "Enable AddressSanitizer and UndefinedBehaviorSanitizer"
     OFF
 )
+option(
+    MECCHA_ENABLE_GCC_ANALYZER
+    "Enable the supported GCC static analyzer policy"
+    OFF
+)
 
 set(MECCHA_UE4SS_COMMIT
     "6c26f038751b3d96059d4a9148f5d093012d55ad"
@@ -114,6 +119,32 @@ if(MECCHA_ENABLE_SANITIZERS)
         INTERFACE
             -fsanitize=address,undefined
             -fno-omit-frame-pointer
+    )
+endif()
+
+if(MECCHA_ENABLE_GCC_ANALYZER)
+    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR
+       CMAKE_CXX_COMPILER_VERSION VERSION_LESS 13)
+        message(
+            FATAL_ERROR
+            "MECCHA_ENABLE_GCC_ANALYZER requires GCC 13 or newer."
+        )
+    endif()
+    if(MECCHA_ENABLE_SANITIZERS)
+        message(
+            FATAL_ERROR
+            "Run the GCC analyzer and sanitizers in separate build trees."
+        )
+    endif()
+    target_compile_options(
+        meccha_build_options
+        INTERFACE
+            -fanalyzer
+            # GCC 13 diagnoses libstdc++ moves of std::expected<T, HashError>,
+            # whose error owns a std::string, as leaking/uninitialized. Keep
+            # all other analyzer diagnostics under project-wide -Werror.
+            -Wno-analyzer-malloc-leak
+            -Wno-analyzer-use-of-uninitialized-value
     )
 endif()
 

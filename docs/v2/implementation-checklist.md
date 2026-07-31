@@ -367,7 +367,7 @@ Evidence:
 ## Phase 6 — Pure core and application state machines
 
 - [x] Port retained value types and validation to focused C++ modules.
-- [ ] Port profile, region, color/PBR, atlas-mapping, pacing, compression, ESP,
+- [x] Port profile, region, color/PBR, atlas-mapping, pacing, compression, ESP,
   and timing algorithms.
   - [x] Port bounded ESP role/spectator filtering, avatar-cache policy,
     perspective projection, capsule/pose bounds, viewport clipping, and
@@ -377,21 +377,23 @@ Evidence:
   close/discard shutdown, and invalid command-ID rejection.
 - [x] Implement job arbitration, cancellation generations, preview ownership,
   queue pressure, terminal drain, and shutdown coordination.
-- [ ] Add checked arithmetic and resource limits.
+- [x] Add checked arithmetic and resource limits.
   - [x] Bound decoded Image Paint dimensions/bytes, layer/source counts, and
     canonical-atlas composition work before allocation or pixel traversal.
-  - [ ] Complete the remaining cross-feature checked-arithmetic and
+  - [x] Complete the remaining cross-feature checked-arithmetic and
     resource-limit audit.
-- [ ] Pass unit, property, golden, state-machine, dependency-boundary, and
+- [x] Pass unit, property, golden, state-machine, dependency-boundary, and
   supported sanitizer/static-analysis checks.
   - [x] Pass all registered secret-free tests under Linux ASan/UBSan and keep
     the sanitized job mandatory in public PR CI.
-  - [ ] Complete remaining property/golden and supported static-analysis
+  - [x] Complete remaining property/golden and supported static-analysis
     evidence.
 
 Evidence:
 
 - [`phase6-core-progress.md`](phase6-core-progress.md)
+- [`resource-limit-audit.md`](resource-limit-audit.md)
+- [`static-analysis.md`](static-analysis.md)
 
 ## Phase 7 — Configuration, localization, and persistence
 
