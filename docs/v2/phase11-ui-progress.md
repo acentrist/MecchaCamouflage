@@ -46,14 +46,29 @@ start, registration failure/exception, partial registration, callback order,
 post-stop invocation, and callback lifetime beyond the binding object are
 covered without UE4SS types in the portable target.
 
-The remaining production input connection has one narrow responsibility:
-start that binding only after the exported composition root owns the matching
-HUD-frame queue consumer, translate callbacks into the queue, and drain it
-through `ProductUiFrameCapturePort`. While a Settings capture is armed, the
+The production runtime adapter now owns the matching HUD-frame queue consumer.
+It accepts that shared queue through construction, validates the exact active
+HUD identity and a current-process top-level game window, converts client
+cursor coordinates into the current Canvas viewport, and drains the queue only
+while that window is focused. While a Settings capture is armed, the
 coordinator delivers the next press only as
 `ProductPanelInput::function_key_pressed`; otherwise the same immutable batch
 goes through `InputCommandRouter`. The adapter does not choose feature
 settings, project revisions, or command identities.
+
+Pointer capture is a project-owned portable state machine. It publishes exact
+press, hold, and release edges, suppresses a button already held at first
+observation, releases an active gesture when focus or window ownership
+changes, and suppresses a still-held button until a later physical release.
+Focus loss also discards every queued keyboard, text-edit, and function-key
+event. Invalid viewport, client, cursor, DPI, window, stale-frame, stopped
+queue, and bounded-overflow observations fail without partially publishing
+input.
+
+The remaining callback connection must start the one-shot binding only after
+the exported composition root owns this consumer. Navigation and text-edit
+producers also remain to be connected without installing a window or graphics
+hook.
 
 ## Hotkey command contract
 
@@ -87,12 +102,15 @@ held-key behavior across snapshot publication, complete remapping, duplicate
 mapping refusal, invalid/event-limit refusal, exact command-ID exhaustion,
 input-loss release, and terminal shutdown.
 
-The current complete Linux and Linux ASan/UBSan graphs pass all 80 registered
+The current complete Linux and Linux ASan/UBSan graphs pass all 81 registered
 tests. The exact clean project checkpoint at `4dd0dff` passes all 98 Windows
 MSVC x64 Shipping tests after building `UE4SS.dll`, `main.dll`, and the
 launcher from the manifest-verified immutable UE4SS source stage.
 Post-build verification confirms that the immutable stage still contains only
 the pinned source plus the project-owned canonical Cargo lock overlay.
+The new pointer/frame-capture target also passes targeted Windows MSVC Release,
+and the production adapter compiles and links as `main.dll` under `/W4 /WX`
+against that same source stage.
 
 ## Immutable product presentation
 
@@ -529,9 +547,9 @@ Portable tests cover localized messages, command IDs, Canvas/missing-function
 details, omitted counts, the empty state, compact scrolling, and incoherent
 queue refusal.
 
-This remains a partial product UI milestone. The production UE4SS callback,
-frame/pointer/text capture, live input-lease proof, and remaining UCanvas/font
-adapters remain open.
+This remains a partial product UI milestone. Production callback start,
+navigation/text-edit event production, live pointer/input-lease proof, and the
+remaining UCanvas/font adapters remain open.
 
 `ProductUiFrameCoordinator` now implements the application-owned
 `RuntimeFrameExtensionPort`. Each compatible root HUD frame supplies the same
@@ -555,9 +573,9 @@ drawing remain part of the production UCanvas adapter and live gate.
 
 - Bind the root-owned HUD-frame callback and attached frame coordinator to the
   production UE4SS callback registration adapter.
-- Implement production UCanvas frame/pointer/text capture, live-verify the
-  compiled Unreal input-lease port, and connect registered UE4SS key callbacks
-  only when the frame consumer is owned by the composition root.
+- Implement production navigation/text-edit event production, live-verify the
+  compiled pointer and Unreal input-lease ports, and connect registered UE4SS
+  key callbacks only when the frame consumer is owned by the composition root.
 - Select and bind the game-font/OFL fallback path, then live-verify the already
   bound reflected texture creation/release across travel and teardown.
 - Complete fake-runtime and live UI verification across all languages,

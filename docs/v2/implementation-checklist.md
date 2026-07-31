@@ -739,6 +739,13 @@ Evidence:
       failure, partial-registration fail closure, callback-safe shared queue
       lifetime, explicit stop-before-derived-destruction, and portable,
       sanitizer, and Windows MSVC Release tests.
+    - [x] Inject the same callback queue into the production runtime adapter
+      and drain it only from a validated, focused HUD frame after mapping a
+      current-process game-window pointer into Canvas coordinates. Suppress
+      initially held, focus-return, and replacement-window button state,
+      publish exact press/hold/release edges, discard pending input on focus
+      loss, and fail closed on stale frame, invalid window/client/DPI, stopped
+      queue, or bounded overflow.
     - [ ] Start registration only after the exported composition root owns the
       matching HUD-frame queue consumer, and live-prove UE4SS callback removal.
 - [ ] Complete progress, backpressure, compatibility, and diagnostics display.

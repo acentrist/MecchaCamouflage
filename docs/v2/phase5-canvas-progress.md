@@ -304,7 +304,7 @@ the runtime contract test covers the exact texture-import ABI and owned
 localized UTF-16 conversion. Composition/pipeline tests prove immutable PNG
 publication, while the texture coordinator/frame tests cover complete
 generation replacement, unchanged-revision reuse, partial-create rollback,
-bounded retry, clear, and resource-free shutdown. The complete 80-test graph
+bounded retry, clear, and resource-free shutdown. The complete 81-test graph
 passes in normal Linux and mandatory ASan/UBSan configurations. The complete
 98-test Windows MSVC x64 Shipping graph passes from the same exact project
 commit and immutable UE4SS source-stage identity.
@@ -339,7 +339,7 @@ the typed command route and immutable document publication. The project-owned
 HUD-frame coordinator additionally proves localized composition, exact
 input-lease acquisition and render-failure rollback, render-before-action
 ordering, ready-texture synchronization, and resource-free shutdown through a
-fake runtime port. The current normal Linux and ASan/UBSan graphs pass all 80
+fake runtime port. The current normal Linux and ASan/UBSan graphs pass all 81
 registered tests. The current exact clean project checkpoint passes all 98
 registered Windows x64 Shipping tests and links the production mod against the
 same manifest-verified UE4SS source graph.
