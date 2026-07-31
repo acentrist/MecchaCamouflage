@@ -292,9 +292,13 @@ Evidence:
       port with project-owned non-reused handles, exact UObject generation
       checks, bounded rooted ownership, complete-frame texture preflight,
       partial-create rollback, retryable release, and forced teardown cleanup.
-    - [ ] Bind game-font-first missing-glyph fallback and glyph-level clipping,
-      then live-prove complete line/box/text/texture output without a partial
-      frame mutation.
+    - [x] Bind the statically proven printable-ASCII range to the exact game
+      font and route unproven/missing or partially clipped glyphs through the
+      strictly loaded, adapter-owned fallback atlas with complete-frame
+      expansion/encoding before the first Canvas draw mutation.
+    - [ ] DEFERRED — maintainer interaction required: live-prove complete
+      line/box/text/texture output, localized visual metrics, and atlas
+      lifetime without a partial frame mutation.
 - [ ] Implement exact production cursor/look/movement lease restoration while
   preserving the game's current input mode unchanged.
   - [x] Implement a transactional lease controller that captures the complete
@@ -315,7 +319,8 @@ Evidence:
     exact source/hash/OFL manifest and exact all-catalog codepoint inventory.
   - [x] Resolve the exact localized game font first through a validated soft
     object path and reject a stale/wrong-class font before frame mutation.
-  - [ ] Bind missing glyphs through the production UCanvas texture adapter.
+  - [x] Bind unproven/missing glyphs through the production UCanvas texture
+    adapter and route absent atlas entries to the frozen replacement cell.
 - [ ] Render representative ESP primitives while the panel is closed.
 - [x] Complete the retained portable two-layer Image Paint editor vertical
   slice with topmost selection, retained move/resize/crop/order transitions,
@@ -326,6 +331,8 @@ Evidence:
   texture-lifetime tests.
   - [x] Pass portable Canvas clipping/resource and input-lease rollback/retry/
     shutdown contract tests.
+  - [x] Pass strict atlas construction/coverage, mixed game-font/fallback,
+    replacement-cell, glyph-level UV clipping, and expansion-overflow tests.
   - [x] Pass portable safe-area/DPI layout, clipped hit-test, exclusive pointer
     capture, focus, disabled-control, duplicate-ID, and same-frame click tests.
   - [x] Pass portable scroll clamp/hit tests and Canvas widget drawing,
@@ -336,7 +343,7 @@ Evidence:
     cancellation, guide-ordering, identity, limit, and clip-unwind tests.
   - [x] Pass deterministic canonical PNG integrity/cancellation and exact
     texture-import ABI contract tests.
-  - [x] Pass the complete 99-test Windows x64 Shipping graph from an exact
+  - [x] Pass the complete 111-test Windows x64 Shipping graph from an exact
     clean project checkout while building UE4SS and `main.dll` from the
     manifest-verified canonical source stage; reverify that the stage remains
     the pinned upstream commit plus only the approved Cargo lock overlay after
@@ -914,6 +921,9 @@ Evidence:
     Paint, Image Paint, and ESP controls from keyboard focus/action admission.
   - [x] Bind a deterministic packaged fallback-atlas inventory to every
     shipped localized codepoint without adding a runtime font library.
+  - [x] Strictly load that inventory into the production composition root and
+    bind its generation-tracked texture through the central Product UI/ESP
+    Canvas render path.
 - [x] Ensure panel close preserves ESP and active jobs.
 - [ ] Pass UI action/state, gesture, hotkey, layout, and localization tests.
   - [x] Pass portable panel tests for all shipped locales, section switching,

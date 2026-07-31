@@ -13,6 +13,7 @@
 #include <meccha/core/png_encoder.hpp>
 #include <meccha/product_ui/product_ui_pointer_capture.hpp>
 #include <meccha/ui/esp_canvas_frame.hpp>
+#include <meccha/ui/fallback_glyph_compositor.hpp>
 
 #include "unreal_reflection_validation.hpp"
 
@@ -3992,10 +3993,14 @@ public:
             product_ui::ProductUiInputQueue> input_queue,
         std::shared_ptr<
             const application::ImagePaintProfileCatalog>
-            image_paint_profiles)
+            image_paint_profiles,
+        std::shared_ptr<const core::FallbackGlyphAtlas>
+            fallback_glyph_atlas)
         : input_queue_{std::move(input_queue)},
           image_paint_profiles_{
-              std::move(image_paint_profiles)}
+              std::move(image_paint_profiles)},
+          fallback_glyph_atlas_{
+              std::move(fallback_glyph_atlas)}
     {
     }
 
@@ -4169,6 +4174,16 @@ public:
                 return runtime_failure(
                     application::RuntimeContractId::
                         ImagePaintMeshProfile,
+                    application::ContractFailureKind::
+                        MissingObject);
+            }
+            if (!fallback_glyph_atlas_ ||
+                !fallback_glyph_atlas_->encoded_png() ||
+                fallback_glyph_atlas_->find(
+                    core::FallbackReplacementCodepoint) == nullptr)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::Canvas,
                     application::ContractFailureKind::
                         MissingObject);
             }
@@ -4517,6 +4532,63 @@ public:
         }
     }
 
+    auto ensure_fallback_glyph_texture()
+        -> std::expected<
+            void,
+            application::RuntimeExecutionError>
+    {
+        {
+            const auto lock = std::scoped_lock{mutex_};
+            if (fallback_glyph_texture_)
+            {
+                return {};
+            }
+        }
+        if (!fallback_glyph_atlas_ ||
+            !fallback_glyph_atlas_->encoded_png())
+        {
+            return runtime_failure(
+                application::RuntimeContractId::Canvas,
+                application::ContractFailureKind::MissingObject);
+        }
+        const auto& geometry =
+            fallback_glyph_atlas_->geometry();
+        const auto created = create_canvas_texture(
+            product_ui::ImageEditorTextureUpload{
+                product_ui::ImageEditorTextureKind::FallbackGlyph,
+                "fallback-glyph-atlas",
+                1U,
+                geometry.width,
+                geometry.height,
+                fallback_glyph_atlas_->encoded_png(),
+            });
+        if (!created)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::Canvas,
+                application::ContractFailureKind::
+                    ExecutionFailure);
+        }
+        auto installed = false;
+        {
+            const auto lock = std::scoped_lock{mutex_};
+            if (!detaching_ && !fallback_glyph_texture_)
+            {
+                fallback_glyph_texture_ = *created;
+                installed = true;
+            }
+        }
+        if (!installed)
+        {
+            static_cast<void>(release_canvas_texture(*created));
+            return runtime_failure(
+                application::RuntimeContractId::Canvas,
+                application::ContractFailureKind::
+                    ExecutionFailure);
+        }
+        return {};
+    }
+
     auto bind_frame(
         const application::HudFrameIdentity& identity)
         -> std::expected<
@@ -4629,6 +4701,13 @@ public:
                     generation =
                         previous->component_generation + 1U;
                 }
+            }
+
+            const auto fallback =
+                ensure_fallback_glyph_texture();
+            if (!fallback)
+            {
+                return std::unexpected(fallback.error());
             }
 
             const auto lock = std::scoped_lock{mutex_};
@@ -7794,8 +7873,11 @@ public:
             return texture_failure("texture.invalid_upload");
         }
         const auto inspected =
-            core::inspect_canonical_png_rgba8(
-                *upload.encoded_png);
+            upload.kind ==
+                    product_ui::ImageEditorTextureKind::FallbackGlyph
+                ? core::inspect_png_rgba8(*upload.encoded_png)
+                : core::inspect_canonical_png_rgba8(
+                      *upload.encoded_png);
         if (!inspected ||
             inspected->width != upload.width ||
             inspected->height != upload.height)
@@ -7953,6 +8035,10 @@ public:
                 return texture_failure("texture.stale_handle");
             }
             canvas_textures_.erase(found);
+            if (fallback_glyph_texture_ == handle)
+            {
+                fallback_glyph_texture_.reset();
+            }
             return {};
         }
         catch (...)
@@ -7977,10 +8063,13 @@ public:
         {
             auto contracts = std::optional<CanvasContracts>{};
             auto active = std::optional<ActiveFrame>{};
+            auto fallback_texture =
+                std::optional<ui::CanvasTextureHandle>{};
             {
                 const auto lock = std::scoped_lock{mutex_};
                 contracts = canvas_contracts_;
                 active = active_frame_;
+                fallback_texture = fallback_glyph_texture_;
             }
             if (!contracts || !active ||
                 active->identity != identity ||
@@ -8008,14 +8097,27 @@ public:
             {
                 return canvas_failure("canvas.invalid_frame");
             }
+            if (!fallback_texture || !fallback_glyph_atlas_)
+            {
+                return canvas_failure(
+                    "canvas.resource_unbound");
+            }
+            const auto composed = ui::compose_fallback_glyphs(
+                frame,
+                *fallback_glyph_atlas_,
+                *fallback_texture);
+            if (!composed)
+            {
+                return canvas_failure("canvas.invalid_frame");
+            }
 
             using EncodedCall = std::variant<
                 K2DrawLineParametersAbi,
                 K2DrawTextureParametersAbi,
                 OwnedCanvasTextCall>;
             auto calls = std::vector<EncodedCall>{};
-            calls.reserve(frame.primitives.size());
-            for (const auto& primitive : frame.primitives)
+            calls.reserve(composed->primitives.size());
+            for (const auto& primitive : composed->primitives)
             {
                 if (const auto* line =
                         std::get_if<
@@ -9197,6 +9299,10 @@ private:
         callback_ = nullptr;
         active_frame_sequence_ = 0U;
         detaching_ = false;
+        if (canvas_textures_.empty())
+        {
+            fallback_glyph_texture_.reset();
+        }
     }
 
     auto release_all_canvas_textures_noexcept() noexcept -> bool
@@ -9256,6 +9362,12 @@ private:
             }
         }
         const auto lock = std::scoped_lock{mutex_};
+        if (fallback_glyph_texture_ &&
+            !canvas_textures_.contains(
+                fallback_glyph_texture_->identity))
+        {
+            fallback_glyph_texture_.reset();
+        }
         return released_all && canvas_textures_.empty();
     }
 
@@ -9407,6 +9519,10 @@ private:
     std::shared_ptr<
         const application::ImagePaintProfileCatalog>
         image_paint_profiles_{};
+    std::shared_ptr<const core::FallbackGlyphAtlas>
+        fallback_glyph_atlas_{};
+    std::optional<ui::CanvasTextureHandle>
+        fallback_glyph_texture_{};
     application::PaintAppearanceWorker
         paint_appearance_worker_{};
     std::optional<AutomaticPaintCaptureSession>
@@ -9427,10 +9543,13 @@ UnrealRuntimeAdapter::UnrealRuntimeAdapter(
         product_ui::ProductUiInputQueue> input_queue,
     std::shared_ptr<
         const application::ImagePaintProfileCatalog>
-        image_paint_profiles)
+        image_paint_profiles,
+    std::shared_ptr<const core::FallbackGlyphAtlas>
+        fallback_glyph_atlas)
     : impl_{std::make_unique<Impl>(
           std::move(input_queue),
-          std::move(image_paint_profiles))}
+          std::move(image_paint_profiles),
+          std::move(fallback_glyph_atlas))}
 {
 }
 

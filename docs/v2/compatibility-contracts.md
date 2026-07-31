@@ -200,9 +200,14 @@ path/export type comes from opt-in CUE4Parse inventory of the current game.
 Resolution/load occurs only on the game thread; the adapter retains a weak
 generation identity and rejects stale or wrong-class font state before frame
 mutation. Opaque texture handles remain fail-closed unless they resolve one
-adapter-owned, rooted, generation-checked `Texture2D`. Missing-glyph fallback
-remains open. These are compiled contracts and cooked-file inventory, not
-live-game compatibility evidence.
+adapter-owned, rooted, generation-checked `Texture2D`. A strict production
+resource loader matches the frozen 957-glyph manifest exactly to all shipped
+localization codepoints and validates its bounded RGBA8 PNG. The central
+preflight compositor uses the game font for statically proven printable ASCII
+and routes unproven/missing or partially clipped glyphs through that atlas,
+including exact destination/UV clipping and the frozen replacement cell.
+These are compiled contracts and cooked-file inventory, not live-game
+compatibility evidence.
 
 The source contract also freezes
 `KismetRenderingLibrary.ImportBufferAsTexture2D` at `0x20` parameter bytes

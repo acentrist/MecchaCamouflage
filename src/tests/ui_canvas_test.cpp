@@ -1,9 +1,17 @@
+#include <meccha/core/fallback_glyph_atlas.hpp>
+#include <meccha/core/png_encoder.hpp>
 #include <meccha/ui/canvas.hpp>
+#include <meccha/ui/fallback_glyph_compositor.hpp>
 
+#include <array>
+#include <cstddef>
 #include <iostream>
+#include <memory>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <variant>
+#include <vector>
 
 namespace
 {
@@ -14,6 +22,45 @@ auto expect(bool condition, std::string_view message) -> bool
         std::cerr << "FAIL ui_canvas: " << message << '\n';
     }
     return condition;
+}
+
+auto make_atlas()
+    -> std::expected<
+        meccha::core::FallbackGlyphAtlas,
+        meccha::core::FallbackGlyphAtlasError>
+{
+    using namespace meccha::core;
+    constexpr auto Width = std::uint32_t{96U};
+    constexpr auto Height = std::uint32_t{96U};
+    auto pixels = std::vector<std::byte>(
+        static_cast<std::size_t>(Width) * Height * 4U);
+    auto png = encode_png_rgba8(Width, Height, pixels);
+    if (!png)
+    {
+        return std::unexpected(
+            FallbackGlyphAtlasError::InvalidPng);
+    }
+    const auto glyphs = std::array{
+        FallbackGlyph{U'A', 0U, 48U},
+        FallbackGlyph{U'日', 1U, 48U},
+        FallbackGlyph{U'\uFFFD', 2U, 48U},
+    };
+    constexpr auto required = std::array{U'A', U'日'};
+    return FallbackGlyphAtlas::create(
+        FallbackGlyphAtlasGeometry{
+            Width,
+            Height,
+            48U,
+            48U,
+            2U,
+            32U,
+            6U,
+            4U,
+        },
+        glyphs,
+        std::make_shared<const std::vector<std::byte>>(
+            std::move(*png)),
+        required);
 }
 } // namespace
 
@@ -193,6 +240,190 @@ auto main() -> int
             std::move(scaled_text).finish()->primitives.size() ==
                 1U,
         "bounded high-DPI text scale was not enforced");
+
+    const auto atlas = make_atlas();
+    passed &= expect(
+        atlas && atlas->glyphs().size() == 3U &&
+            atlas->find(U'日') != nullptr &&
+            atlas->find(U'Ω') == nullptr,
+        "a validated fallback atlas did not preserve lookup identity");
+    if (!atlas)
+    {
+        return 1;
+    }
+    constexpr auto incomplete_coverage = std::array{U'A'};
+    passed &= expect(
+        meccha::core::FallbackGlyphAtlas::create(
+            atlas->geometry(),
+            atlas->glyphs(),
+            atlas->encoded_png(),
+            incomplete_coverage) ==
+            std::unexpected(
+                meccha::core::FallbackGlyphAtlasError::InvalidCoverage),
+        "fallback atlas accepted a divergent required glyph set");
+    auto unordered_glyphs =
+        std::vector<meccha::core::FallbackGlyph>{
+        atlas->glyphs().begin(), atlas->glyphs().end()};
+    std::swap(unordered_glyphs[0], unordered_glyphs[1]);
+    constexpr auto exact_coverage = std::array{U'A', U'日'};
+    passed &= expect(
+        meccha::core::FallbackGlyphAtlas::create(
+            atlas->geometry(),
+            unordered_glyphs,
+            atlas->encoded_png(),
+            exact_coverage) ==
+            std::unexpected(
+                meccha::core::FallbackGlyphAtlasError::InvalidGlyphs),
+        "fallback atlas accepted unordered glyph identities");
+
+    auto mixed_builder = CanvasFrameBuilder{
+        CanvasViewport{640.0, 480.0, 1.0}};
+    passed &= expect(
+        mixed_builder.push_clip(
+            CanvasRect{0.0, 0.0, 200.0, 60.0}).has_value() &&
+            mixed_builder.add_text(
+                CanvasPoint{10.0, 5.0},
+                "A日B",
+                CanvasColor{10U, 20U, 30U, 255U},
+                1.0) == true &&
+            mixed_builder.pop_clip().has_value(),
+        "mixed glyph fixture could not be built");
+    const auto mixed_frame = std::move(mixed_builder).finish();
+    const auto mixed = mixed_frame
+                           ? compose_fallback_glyphs(
+                                 *mixed_frame,
+                                 *atlas,
+                                 CanvasTextureHandle{77U})
+                           : std::expected<
+                                 CanvasFrame,
+                                 FallbackGlyphCompositionError>{
+                                 std::unexpected(
+                                     FallbackGlyphCompositionError::
+                                         InvalidFrame)};
+    passed &= expect(
+        mixed && mixed->primitives.size() == 3U,
+        "game-font-first mixed text did not isolate its fallback glyph");
+    if (mixed)
+    {
+        passed &= expect(
+            std::get<CanvasTextPrimitive>(
+                mixed->primitives[0])
+                    .utf8 == "A",
+            "mixed text did not retain its ASCII prefix");
+        passed &= expect(
+            std::get<CanvasTexturePrimitive>(
+                mixed->primitives[1])
+                    .texture == CanvasTextureHandle{77U},
+            "mixed text did not select the fallback texture");
+        passed &= expect(
+            std::get<CanvasTextPrimitive>(
+                mixed->primitives[2])
+                    .utf8 == "B",
+            "mixed text did not retain its ASCII suffix");
+        const auto& fallback =
+            std::get<CanvasTexturePrimitive>(mixed->primitives[1]);
+        passed &= expect(
+            fallback.rect == CanvasRect{58.0, 5.0, 48.0, 48.0} &&
+                fallback.uv ==
+                    CanvasUvRect{0.5, 0.0, 1.0, 0.5} &&
+                fallback.tint ==
+                    CanvasColor{10U, 20U, 30U, 255U},
+            "fallback glyph atlas geometry or tint drifted");
+    }
+
+    const auto clipped = compose_fallback_glyphs(
+        CanvasFrame{
+            CanvasViewport{640.0, 480.0, 1.0},
+            {CanvasTextPrimitive{
+                CanvasPoint{80.0, 5.0},
+                "A",
+                CanvasColor{255U, 255U, 255U, 255U},
+                1.0,
+                CanvasRect{0.0, 0.0, 100.0, 60.0},
+            }}},
+        *atlas,
+        CanvasTextureHandle{77U});
+    passed &= expect(
+        clipped && clipped->primitives.size() == 1U &&
+            std::get<CanvasTexturePrimitive>(
+                clipped->primitives[0])
+                    .rect == CanvasRect{80.0, 5.0, 20.0, 48.0} &&
+            std::get<CanvasTexturePrimitive>(
+                clipped->primitives[0])
+                    .uv ==
+                CanvasUvRect{0.0, 0.0, 20.0 / 96.0, 0.5},
+        "a partially clipped game glyph did not route through exact atlas UVs");
+
+    const auto replaced = compose_fallback_glyphs(
+        CanvasFrame{
+            CanvasViewport{640.0, 480.0, 1.0},
+            {CanvasTextPrimitive{
+                CanvasPoint{10.0, 5.0},
+                "Ω",
+                CanvasColor{255U, 255U, 255U, 255U},
+                1.0,
+                CanvasRect{0.0, 0.0, 100.0, 60.0},
+            }}},
+        *atlas,
+        CanvasTextureHandle{77U});
+    passed &= expect(
+        replaced && replaced->primitives.size() == 1U &&
+            std::get<CanvasTexturePrimitive>(
+                replaced->primitives[0])
+                    .uv == CanvasUvRect{0.0, 0.5, 0.5, 1.0},
+        "an absent glyph did not use the reviewed replacement cell");
+
+    const auto hidden = compose_fallback_glyphs(
+        CanvasFrame{
+            CanvasViewport{640.0, 480.0, 1.0},
+            {CanvasTextPrimitive{
+                CanvasPoint{200.0, 5.0},
+                "日",
+                CanvasColor{255U, 255U, 255U, 255U},
+                1.0,
+                CanvasRect{0.0, 0.0, 100.0, 60.0},
+            }}},
+        *atlas,
+        CanvasTextureHandle{77U});
+    passed &= expect(
+        hidden && hidden->primitives.empty(),
+        "a fully clipped fallback glyph was emitted");
+
+    auto overflowing = CanvasFrame{
+        CanvasViewport{640.0, 480.0, 1.0}, {}};
+    overflowing.primitives.resize(
+        MaximumCanvasPrimitives - 1U,
+        CanvasBoxPrimitive{
+            CanvasRect{0.0, 0.0, 1.0, 1.0},
+            CanvasColor{1U, 2U, 3U, 255U},
+            CanvasRect{0.0, 0.0, 640.0, 480.0},
+        });
+    overflowing.primitives.emplace_back(CanvasTextPrimitive{
+        CanvasPoint{10.0, 5.0},
+        "AA",
+        CanvasColor{255U, 255U, 255U, 255U},
+        1.0,
+        CanvasRect{0.0, 0.0, 200.0, 60.0},
+    });
+    passed &= expect(
+        compose_fallback_glyphs(
+            overflowing,
+            *atlas,
+            CanvasTextureHandle{77U}) ==
+            std::unexpected(
+                FallbackGlyphCompositionError::PrimitiveLimit) &&
+            overflowing.primitives.size() ==
+                MaximumCanvasPrimitives,
+        "fallback expansion overflow mutated or escaped its frame limit");
+
+    passed &= expect(
+        compose_fallback_glyphs(
+            *mixed_frame,
+            *atlas,
+            CanvasTextureHandle{}) ==
+            std::unexpected(
+                FallbackGlyphCompositionError::InvalidTexture),
+        "a zero fallback texture handle was accepted");
 
     if (passed)
     {

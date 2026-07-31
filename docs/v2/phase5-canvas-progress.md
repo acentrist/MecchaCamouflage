@@ -18,7 +18,7 @@ only project values:
 - points, rectangles, normalized UV rectangles, and RGBA colors;
 - line, filled-box, strict UTF-8 text, and opaque texture-handle primitives;
 - the exact active clip rectangle carried by every emitted primitive; and
-- a hard-bounded immutable frame returned to the future UCanvas adapter.
+- a hard-bounded immutable frame returned to the production UCanvas adapter.
 
 `CanvasFrameBuilder` starts with the viewport clip and supports at most 16
 nested clips. It intersects nested rectangles, clips crossing lines, clips
@@ -82,10 +82,18 @@ Every text call owns its UTF-16 buffer through the complete dispatch.
 
 Any stale identity, viewport mismatch, invalid primitive, stale/wrong-class
 font, or texture without adapter-owned generation tracking rejects the
-complete frame before the first `ProcessEvent`. Missing-glyph fallback and
-glyph-level clipping are not claimed: the packaged fallback atlas still
-requires the production texture registry. There is no default-font guess,
-pointer-shaped texture handle, external window, or Present-hook fallback.
+complete frame before the first Canvas draw `ProcessEvent`. Before encoding
+those calls, the platform-independent glyph compositor expands text into
+bounded per-glyph primitives. Printable ASCII is the only statically proven
+game-font coverage and uses `MainFont` when its complete 48x48 layout cell is
+inside the active clip. Every non-ASCII/unproven glyph and every partially
+clipped glyph uses the reviewed atlas texture; absent atlas entries use the
+frozen replacement-character cell. Destination clipping and source UV
+clipping are derived from the same cell intersection. Expansion overflow,
+invalid UTF-8/control text, invalid geometry, or an unbound atlas handle
+rejects the complete frame without publishing partial draw calls. There is no
+default-font guess, pointer-shaped texture handle, external window, or
+Present-hook fallback.
 
 The runtime contract layer additionally freezes
 `KismetRenderingLibrary.ImportBufferAsTexture2D` at `0x20` parameter bytes:
@@ -107,6 +115,17 @@ identity. Every texture primitive must resolve that registered, live, rooted
 generation before the complete frame can dispatch. Raw UObject addresses
 never become Canvas handles.
 
+Production resource construction now strictly parses the frozen fallback
+manifest, rejects duplicate/unknown/missing JSON fields and provenance drift,
+matches its sorted glyph set exactly to the validated localization inventory,
+and validates the shipped PNG as bounded RGBA8 with chunk CRCs, contiguous
+IDAT data, one terminal IEND, and no unknown critical chunks. The Windows
+production loader also rechecks the frozen PNG SHA-256. On the first valid HUD
+frame bind, the adapter imports this immutable PNG through the already
+validated Kismet contract, roots one internal generation-tracked texture, and
+retains its opaque handle for both product UI and ESP text. The handle shares
+the existing retryable release and terminal all-texture cleanup path.
+
 Partial project/guide replacement retires every newly created handle without
 disturbing the last complete frame assets. Release clears only a matching
 project-rooted generation and retry state remains explicit. Normal callback
@@ -119,7 +138,7 @@ travel in the live game.
 The exact contract and PNG tests pass on Linux and Windows. The modified
 adapter compiles and links under `/W4 /WX` in the pinned MSVC
 `Game__Shipping__Win64` graph against the manifest-verified canonical UE4SS
-source stage. The exact clean project checkout passes all 99 registered
+source stage. The exact clean project checkout passes all 111 registered
 Windows tests after building `UE4SS.dll`, `main.dll`, and the native launcher
 from that graph. Post-build verification confirms that the source stage still
 contains the pinned upstream commit plus only the approved project-owned Cargo
@@ -339,20 +358,22 @@ the typed command route and immutable document publication. The project-owned
 HUD-frame coordinator additionally proves localized composition, exact
 input-lease acquisition and render-failure rollback, render-before-action
 ordering, ready-texture synchronization, and resource-free shutdown through a
-fake runtime port. The current normal Linux and ASan/UBSan graphs pass all 81
-registered tests. The current exact clean project checkpoint passes all 99
+fake runtime port. The current normal Linux and fresh ASan/UBSan graphs pass
+all 93 registered tests. The current exact clean project checkpoint passes all 111
 registered Windows x64 Shipping tests and links the production mod against the
 same manifest-verified UE4SS source graph.
 
 ## Packaged fallback glyph atlas
 
-The production adapter will prefer the game's localized UI font, but it no
-longer depends on that font covering every shipped translation. A reviewed
+The production adapter prefers the game's localized UI font for its statically
+proven printable-ASCII coverage, but it no longer depends on that font
+covering every shipped translation. A reviewed
 1536×1440 RGBA atlas now contains the exact 957 drawable/spacing codepoints
 required by all 16 catalogs, localized locale names, and the replacement
 character. Each entry uses a fixed 48×48 cell, sorted codepoint index, and
-bounded advance so the future UCanvas adapter can emit texture primitives
-without loading a native font parser or introducing a graphics hook.
+bounded advance. The production UCanvas adapter now emits these texture
+primitives without loading a native font parser or introducing a graphics
+hook.
 
 The atlas is generated from the exact Noto Sans CJK `Sans2.004` Regular OTC
 commit and source hash recorded in `dependency-lock.md`. Its JSON manifest
@@ -364,8 +385,5 @@ the v2 payload because no v2 runtime path consumes them.
 
 ## Remaining feasibility work
 
-- Resolve the game-localized font first and bind missing text through the
-  fallback atlas in the production UCanvas adapter.
-- Complete glyph clipping/fallback and the separate Unreal input adapter.
 - Prove localized font/text, texture creation/lifetime, clipping, mouse input,
   travel/HUD replacement, and teardown in the live UE 5.6 game.

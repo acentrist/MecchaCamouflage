@@ -113,7 +113,9 @@ catalog validation, including locale display names and the replacement
 character. It binds the pinned upstream commit/font hash, OFL hash, PNG hash,
 RGBA dimensions, fixed cell geometry, and sorted codepoint indices. Runtime
 assembly reruns the same verifier and fails closed on resource or catalog
-drift. Live game-font-first selection remains a production-adapter gate.
+drift. The production composition root now repeats strict manifest, coverage,
+PNG, and Windows SHA-256 validation and binds the retained atlas through the
+central UCanvas preflight. Live visual selection remains a maintainer gate.
 
 Verified in both the Linux secret-free build and the Windows MSVC Release
 build. The repeated MSBuild `MSB8064`/`MSB8065` messages are caused by building
@@ -262,7 +264,7 @@ The portable suite passes on Linux and Windows MSVC Release.
 
 - Live-prove the constructed native editor services and ready content through
   the final UCanvas/UE4SS callback path.
-- Bind and live-prove game-font-first/OFL-fallback drawing; the packaged glyph
-  inventory and coverage gate are already complete.
+- Live-prove the bound game-font-first/OFL-fallback drawing; the packaged
+  glyph inventory, production loading, and coverage gate are complete.
 - Complete per-step fault injection, power-loss/antivirus-lock simulation, and
   native file-picker coverage before Phase 7 closes.

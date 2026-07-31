@@ -3,6 +3,7 @@ add_library(
     STATIC
         src/config.cpp
         src/esp.cpp
+        src/fallback_glyph_atlas.cpp
         src/image_compositor.cpp
         src/image_guide.cpp
         src/image_mapping.cpp

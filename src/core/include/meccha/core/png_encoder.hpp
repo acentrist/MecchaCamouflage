@@ -44,4 +44,8 @@ struct PngImageInfo
 [[nodiscard]] auto inspect_canonical_png_rgba8(
     std::span<const std::byte> encoded)
     -> std::expected<PngImageInfo, PngEncodeError>;
+
+[[nodiscard]] auto inspect_png_rgba8(
+    std::span<const std::byte> encoded)
+    -> std::expected<PngImageInfo, PngEncodeError>;
 } // namespace meccha::core

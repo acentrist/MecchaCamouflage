@@ -172,6 +172,23 @@ auto read_chunk(
             static_cast<std::ptrdiff_t>(offset + 4U),
         4U,
         result.type.begin());
+    for (auto index = std::size_t{};
+         index < result.type.size();
+         ++index)
+    {
+        const auto character = byte(result.type[index]);
+        const auto letter =
+            (character >= static_cast<std::uint8_t>('A') &&
+             character <= static_cast<std::uint8_t>('Z')) ||
+            (character >= static_cast<std::uint8_t>('a') &&
+             character <= static_cast<std::uint8_t>('z'));
+        if (!letter ||
+            (index == 2U && (character & 0x20U) != 0U))
+        {
+            return std::unexpected(
+                PngEncodeError::InvalidEncoding);
+        }
+    }
     result.data = encoded.subspan(offset + 8U, length);
     result.next = offset + 12U + length;
     const auto stored_crc =
@@ -458,5 +475,87 @@ auto inspect_canonical_png_rgba8(
             PngEncodeError::InvalidEncoding);
     }
     return PngImageInfo{width, height, *rgba_bytes};
+}
+
+auto inspect_png_rgba8(
+    std::span<const std::byte> encoded)
+    -> std::expected<PngImageInfo, PngEncodeError>
+{
+    if (encoded.size() > MaximumCanonicalPngEncodedBytes ||
+        encoded.size() < PngSignature.size() + 49U ||
+        !std::equal(
+            PngSignature.begin(),
+            PngSignature.end(),
+            encoded.begin()))
+    {
+        return std::unexpected(PngEncodeError::InvalidEncoding);
+    }
+
+    auto offset = PngSignature.size();
+    const auto ihdr = read_chunk(encoded, offset);
+    if (!ihdr || ihdr->type != Ihdr ||
+        ihdr->data.size() != 13U)
+    {
+        return std::unexpected(PngEncodeError::InvalidEncoding);
+    }
+    const auto width = read_be32(ihdr->data.first(4U));
+    const auto height = read_be32(ihdr->data.subspan(4U, 4U));
+    const auto rgba_bytes = checked_rgba_bytes(width, height);
+    if (!rgba_bytes || ihdr->data[8U] != std::byte{8U} ||
+        ihdr->data[9U] != std::byte{6U} ||
+        ihdr->data[10U] != std::byte{0U} ||
+        ihdr->data[11U] != std::byte{0U} ||
+        ihdr->data[12U] != std::byte{0U})
+    {
+        return std::unexpected(PngEncodeError::InvalidEncoding);
+    }
+
+    offset = ihdr->next;
+    auto saw_idat = false;
+    auto closed_idat = false;
+    auto idat_bytes = std::size_t{};
+    while (offset < encoded.size())
+    {
+        const auto chunk = read_chunk(encoded, offset);
+        if (!chunk || chunk->type == Ihdr)
+        {
+            return std::unexpected(PngEncodeError::InvalidEncoding);
+        }
+        if (chunk->type == Idat)
+        {
+            if (closed_idat ||
+                chunk->data.size() >
+                    encoded.size() - idat_bytes)
+            {
+                return std::unexpected(
+                    PngEncodeError::InvalidEncoding);
+            }
+            saw_idat = true;
+            idat_bytes += chunk->data.size();
+            offset = chunk->next;
+            continue;
+        }
+        if (saw_idat)
+        {
+            closed_idat = true;
+        }
+        if (chunk->type == Iend)
+        {
+            if (!saw_idat || idat_bytes == 0U ||
+                !chunk->data.empty() ||
+                chunk->next != encoded.size())
+            {
+                return std::unexpected(
+                    PngEncodeError::InvalidEncoding);
+            }
+            return PngImageInfo{width, height, *rgba_bytes};
+        }
+        if ((byte(chunk->type[0U]) & 0x20U) == 0U)
+        {
+            return std::unexpected(PngEncodeError::InvalidEncoding);
+        }
+        offset = chunk->next;
+    }
+    return std::unexpected(PngEncodeError::InvalidEncoding);
 }
 } // namespace meccha::core

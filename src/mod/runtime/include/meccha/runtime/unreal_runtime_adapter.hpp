@@ -7,6 +7,7 @@
 #include <meccha/application/paint_preview_controller.hpp>
 #include <meccha/application/runtime_lifecycle.hpp>
 #include <meccha/application/runtime_operation_executor.hpp>
+#include <meccha/core/fallback_glyph_atlas.hpp>
 #include <meccha/product_ui/image_editor_texture_coordinator.hpp>
 #include <meccha/product_ui/product_ui_frame_coordinator.hpp>
 #include <meccha/product_ui/product_ui_input_queue.hpp>
@@ -37,7 +38,9 @@ public:
             product_ui::ProductUiInputQueue> input_queue,
         std::shared_ptr<
             const application::ImagePaintProfileCatalog>
-            image_paint_profiles);
+            image_paint_profiles,
+        std::shared_ptr<const core::FallbackGlyphAtlas>
+            fallback_glyph_atlas);
     UnrealRuntimeAdapter(const UnrealRuntimeAdapter&) = delete;
     auto operator=(const UnrealRuntimeAdapter&)
         -> UnrealRuntimeAdapter& = delete;

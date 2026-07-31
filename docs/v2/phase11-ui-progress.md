@@ -548,9 +548,9 @@ Portable tests cover localized messages, command IDs, Canvas/missing-function
 details, omitted counts, the empty state, compact scrolling, and incoherent
 queue refusal.
 
-This remains a partial product UI milestone. Production callback start,
-navigation/text-edit event production, live pointer/input-lease proof, and the
-remaining UCanvas/font adapters remain open.
+This remains a partial product UI milestone. Live production callback-start
+proof, navigation/text-edit event production, and live pointer/input-lease
+and font/texture proof remain open.
 
 `ProductUiFrameCoordinator` now implements the application-owned
 `RuntimeFrameExtensionPort`. Each compatible root HUD frame supplies the same
@@ -567,16 +567,18 @@ The complete localized label inventory also has a packaged, source-pinned
 Noto-derived RGBA fallback atlas. Its exact codepoint set, PNG geometry/hash,
 manifest provenance, and OFL text are verified in CI and again during trusted
 runtime assembly. This closes portable all-language glyph coverage without a
-runtime font dependency; game-font-first selection and fallback texture
-drawing remain part of the production UCanvas adapter and live gate.
+runtime font dependency. The production UCanvas adapter now uses the exact
+game font for statically proven printable ASCII and expands unproven/missing
+or partially clipped glyphs through its rooted, generation-checked atlas
+texture before draw dispatch. Live visual metrics and lifetime remain gated.
 
 ## Remaining work
 
 - Implement production navigation/text-edit event production, live-verify the
   compiled pointer and Unreal input-lease ports, and live-prove the connected
   registered UE4SS key callbacks and inert teardown.
-- Select and bind the game-font/OFL fallback path, then live-verify the already
-  bound reflected texture creation/release across travel and teardown.
+- Live-verify the bound game-font/OFL fallback path and reflected texture
+  creation/release across travel and teardown.
 - Complete fake-runtime and live UI verification across all languages,
   resolutions, and DPI settings.
 

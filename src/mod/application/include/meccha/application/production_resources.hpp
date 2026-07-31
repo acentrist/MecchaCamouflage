@@ -2,6 +2,7 @@
 
 #include <meccha/application/image_paint_profile_catalog.hpp>
 #include <meccha/application/localization.hpp>
+#include <meccha/core/fallback_glyph_atlas.hpp>
 #include <meccha/core/image_guide.hpp>
 
 #include <array>
@@ -18,6 +19,8 @@ struct ProductionResources
     std::shared_ptr<const ImagePaintProfileCatalog>
         image_paint_profiles{};
     LocalizationCatalog localization;
+    std::shared_ptr<const core::FallbackGlyphAtlas>
+        fallback_glyph_atlas{};
     std::array<core::ImageGuideBitmap, 3U> image_guides{};
 };
 
@@ -28,6 +31,9 @@ enum class ProductionResourceErrorCode : std::uint8_t
     ProfileCatalog,
     LocalizationRead,
     LocalizationParse,
+    FallbackGlyphAtlasRead,
+    FallbackGlyphAtlasParse,
+    FallbackGlyphAtlas,
     ImageGuide,
     Construction,
 };

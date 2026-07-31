@@ -74,7 +74,15 @@ auto main(int argc, char** argv) -> int
             loaded->image_paint_profiles->size() ==
                 application::ImagePaintProfilePairCount &&
             loaded->localization.locale_count() ==
-                application::SupportedLocaleInfo.size(),
+                application::SupportedLocaleInfo.size() &&
+            loaded->fallback_glyph_atlas &&
+            loaded->fallback_glyph_atlas->geometry().width == 1536U &&
+            loaded->fallback_glyph_atlas->geometry().height == 1440U &&
+            loaded->fallback_glyph_atlas->glyphs().size() == 957U &&
+            loaded->fallback_glyph_atlas->find(U'日') != nullptr &&
+            loaded->fallback_glyph_atlas->find(U'\uFFFD') != nullptr &&
+            loaded->fallback_glyph_atlas->encoded_png() &&
+            !loaded->fallback_glyph_atlas->encoded_png()->empty(),
         "the complete production catalog did not load");
 
     constexpr auto Bodies = std::array{

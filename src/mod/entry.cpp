@@ -163,7 +163,8 @@ public:
               load_owned_image_editor_services()},
           runtime_{
               input_queue_,
-              resources_.image_paint_profiles},
+              resources_.image_paint_profiles,
+              resources_.fallback_glyph_atlas},
           runtime_executor_{
               runtime_,
               runtime_,

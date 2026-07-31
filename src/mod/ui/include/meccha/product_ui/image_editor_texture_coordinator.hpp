@@ -22,6 +22,7 @@ enum class ImageEditorTextureKind : std::uint8_t
     Atlas,
     Source,
     Guide,
+    FallbackGlyph,
 };
 
 struct ImageEditorTextureUpload
