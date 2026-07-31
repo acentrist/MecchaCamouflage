@@ -1,5 +1,6 @@
 #include <meccha/runtime/unreal_runtime_adapter.hpp>
 
+#include <meccha/application/paint_appearance_worker.hpp>
 #include <meccha/runtime/canvas_call_codec.hpp>
 #include <meccha/runtime/esp_capture_codec.hpp>
 #include <meccha/runtime/input_control_codec.hpp>
@@ -3794,6 +3795,55 @@ auto set_input_ignored(
     auto parameters = encode_ignore_input(ignored);
     controller->ProcessEvent(function, &parameters);
 }
+
+struct PreparedPaintCaptureSeed
+{
+    core::PaintSettings settings{};
+    PaintSceneCapturePlan pass_plan{};
+    PaintContracts paint{};
+    PaintSceneCaptureContracts scene{};
+    ImagePaintContracts image{};
+    BoundFrame bound{};
+    ActiveFrame active{};
+    UObject* world{};
+    UObject* pawn{};
+    UObject* component{};
+    UObject* mesh{};
+    std::shared_ptr<
+        const application::ImagePaintProfilePair>
+        profile{};
+    std::vector<core::PaintReferenceBoneTransform>
+        bone_transforms{};
+    core::EspView view{};
+    core::EspViewport capture_viewport{};
+    core::PaintAppearanceCameraFingerprint camera_fingerprint{};
+    PaintSceneCaptureCamera camera{};
+    PaintBrushPlaneVisuals brush_plane{};
+};
+
+enum class AutomaticPaintCaptureStage : std::uint8_t
+{
+    GeometryPending,
+    SourceCapture,
+    ModelPending,
+    ModelReady,
+    Failed,
+};
+
+struct AutomaticPaintCaptureSession
+{
+    application::JobGeneration generation{};
+    PreparedPaintCaptureSeed seed{};
+    AutomaticPaintCaptureStage stage{
+        AutomaticPaintCaptureStage::GeometryPending};
+    std::size_t next_source_pass{};
+    core::PaintAppearanceCaptureEvidence evidence{};
+    std::shared_ptr<const std::vector<
+        core::PaintCaptureGeometrySample>>
+        geometry{};
+    std::shared_ptr<const core::PaintAppearanceModel> model{};
+    std::vector<double> parameters{};
+};
 } // namespace
 
 class UnrealRuntimeAdapter::Impl
@@ -3881,7 +3931,7 @@ public:
             if (id != HudCallbackId || !hook_ids_ ||
                 !hud_contracts_ || detaching_ ||
                 !canvas_textures_.empty() ||
-                input_mutation_)
+                input_mutation_ || automatic_paint_capture_)
             {
                 return std::unexpected(
                     application::CallbackPortError::
@@ -4725,6 +4775,418 @@ public:
         }
     }
 
+    auto prepare_paint_capture_seed(
+        const core::PaintSettings& settings,
+        bool requires_preview_feedback)
+        -> std::expected<
+            PreparedPaintCaptureSeed,
+            application::RuntimeExecutionError>
+    {
+        const auto pass_plan =
+            build_paint_scene_capture_plan(settings);
+        if (!pass_plan ||
+            pass_plan->requires_preview_feedback !=
+                requires_preview_feedback)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::PaintCapture,
+                application::ContractFailureKind::InvalidValue);
+        }
+
+        auto paint = std::optional<PaintContracts>{};
+        auto scene =
+            std::optional<PaintSceneCaptureContracts>{};
+        auto image = std::optional<ImagePaintContracts>{};
+        auto bound = std::optional<BoundFrame>{};
+        auto active = std::optional<ActiveFrame>{};
+        {
+            const auto lock = std::scoped_lock{mutex_};
+            if (detaching_)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::PaintCapture,
+                    application::ContractFailureKind::StaleObject);
+            }
+            paint = paint_contracts_;
+            scene = paint_scene_capture_contracts_;
+            image = image_paint_contracts_;
+            bound = bound_frame_;
+            active = active_frame_;
+        }
+        if (!paint || !scene || !image || !bound || !active ||
+            bound->identity != active->identity ||
+            !bound->identity.valid() ||
+            active->viewport_width <= 0 ||
+            active->viewport_height <= 0)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::PaintCapture,
+                application::ContractFailureKind::MissingObject);
+        }
+        auto* world = bound->world.Get();
+        auto* pawn = bound->pawn.Get();
+        auto* component = bound->component.Get();
+        if (!object_is_live(world, image->world_class) ||
+            !object_is_live(pawn, image->pawn_class) ||
+            !object_is_live(
+                component,
+                paint->runtime_paintable_class) ||
+            component->GetWorld() != world)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::PaintCapture,
+                application::ContractFailureKind::StaleObject);
+        }
+        auto* mesh = read_weak_object(
+            image->target_mesh_component,
+            component);
+        if (!object_is_live(
+                mesh,
+                image->skinned_mesh_component_class) ||
+            !mesh->IsA(scene->primitive_component_class) ||
+            mesh->GetWorld() != world ||
+            !outer_chain_contains(mesh, pawn))
+        {
+            return runtime_failure(
+                application::RuntimeContractId::PaintCapture,
+                application::ContractFailureKind::WrongClass);
+        }
+        auto* asset = read_object(image->skinned_asset, mesh);
+        if (!object_is_live(asset, image->skinned_asset_class))
+        {
+            return runtime_failure(
+                application::RuntimeContractId::PaintCapture,
+                application::ContractFailureKind::MissingObject);
+        }
+        const auto profile =
+            image_paint_profiles_
+                ? image_paint_profiles_
+                      ->find_by_unreal_asset_path(
+                          RC::to_string(asset->GetPathName()))
+                : nullptr;
+        if (!profile ||
+            RC::to_string(asset->GetName()) !=
+                profile->sampling.identity.export_name ||
+            !core::validate_deformation(profile->sampling)
+                 .empty() ||
+            !core::validate_pair(
+                 profile->sampling,
+                 profile->image)
+                 .empty() ||
+            !ensure_paint_mesh_initialized(
+                component,
+                mesh,
+                *paint))
+        {
+            return runtime_failure(
+                application::RuntimeContractId::PaintCapture,
+                application::ContractFailureKind::InvalidValue);
+        }
+        auto bone_transforms = capture_paint_bone_transforms(
+            mesh,
+            profile->sampling,
+            *paint);
+        if (!bone_transforms)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::PaintCapture,
+                application::ContractFailureKind::InvalidValue);
+        }
+
+        const auto esp = resolve_esp_contracts();
+        if (!esp)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::PaintCapture,
+                application::ContractFailureKind::MissingObject);
+        }
+        auto view = capture_calibrated_esp_view(
+            *active,
+            *esp,
+            application::RuntimeContractId::PaintCapture);
+        if (!view)
+        {
+            return std::unexpected(view.error());
+        }
+
+        auto capture_width = static_cast<std::uint32_t>(
+            active->viewport_width);
+        auto capture_height = static_cast<std::uint32_t>(
+            active->viewport_height);
+        const auto largest =
+            std::max(capture_width, capture_height);
+        if (largest > core::MaximumPaintCaptureDimension)
+        {
+            const auto scale =
+                static_cast<double>(
+                    core::MaximumPaintCaptureDimension) /
+                static_cast<double>(largest);
+            capture_width = std::max(
+                1U,
+                static_cast<std::uint32_t>(std::lround(
+                    static_cast<double>(capture_width) *
+                    scale)));
+            capture_height = std::max(
+                1U,
+                static_cast<std::uint32_t>(std::lround(
+                    static_cast<double>(capture_height) *
+                    scale)));
+        }
+        view->aspect_ratio =
+            static_cast<double>(capture_width) /
+            static_cast<double>(capture_height);
+        const auto camera = encode_paint_scene_capture_camera(
+            *view,
+            capture_width,
+            capture_height);
+        const auto fingerprint =
+            core::make_paint_appearance_camera_fingerprint(
+                *view,
+                core::EspViewport{
+                    static_cast<double>(active->viewport_width),
+                    static_cast<double>(active->viewport_height),
+                },
+                capture_width,
+                capture_height);
+        if (!camera || !fingerprint)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::PaintCapture,
+                application::ContractFailureKind::InvalidValue);
+        }
+        const auto brush_plane =
+            resolve_paint_brush_plane_visuals(world, *scene);
+        if (!brush_plane)
+        {
+            return std::unexpected(brush_plane.error());
+        }
+        return PreparedPaintCaptureSeed{
+            settings,
+            std::move(*pass_plan),
+            *paint,
+            *scene,
+            *image,
+            *bound,
+            *active,
+            world,
+            pawn,
+            component,
+            mesh,
+            profile,
+            std::move(*bone_transforms),
+            *view,
+            core::EspViewport{
+                static_cast<double>(capture_width),
+                static_cast<double>(capture_height),
+            },
+            *fingerprint,
+            *camera,
+            *brush_plane,
+        };
+    }
+
+    auto current_paint_capture_fingerprint(
+        const PreparedPaintCaptureSeed& seed)
+        -> std::expected<
+            core::PaintAppearanceCameraFingerprint,
+            application::RuntimeExecutionError>
+    {
+        auto active = std::optional<ActiveFrame>{};
+        auto bound = std::optional<BoundFrame>{};
+        {
+            const auto lock = std::scoped_lock{mutex_};
+            if (detaching_)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::PaintCapture,
+                    application::ContractFailureKind::StaleObject);
+            }
+            active = active_frame_;
+            bound = bound_frame_;
+        }
+        if (!active || !bound ||
+            active->viewport_width <= 0 ||
+            active->viewport_height <= 0 ||
+            active->identity != seed.active.identity ||
+            bound->identity != seed.bound.identity ||
+            bound->component_identity !=
+                seed.bound.component_identity ||
+            bound->component_generation !=
+                seed.bound.component_generation ||
+            bound->component.Get() != seed.component ||
+            bound->world.Get() != seed.world ||
+            bound->pawn.Get() != seed.pawn)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::PaintCapture,
+                application::ContractFailureKind::StaleObject);
+        }
+        const auto esp = resolve_esp_contracts();
+        if (!esp)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::PaintCapture,
+                application::ContractFailureKind::MissingObject);
+        }
+        auto view = capture_calibrated_esp_view(
+            *active,
+            *esp,
+            application::RuntimeContractId::PaintCapture);
+        if (!view)
+        {
+            return std::unexpected(view.error());
+        }
+        view->aspect_ratio = seed.view.aspect_ratio;
+        const auto fingerprint =
+            core::make_paint_appearance_camera_fingerprint(
+                *view,
+                core::EspViewport{
+                    static_cast<double>(active->viewport_width),
+                    static_cast<double>(active->viewport_height),
+                },
+                seed.camera.width,
+                seed.camera.height);
+        if (!fingerprint)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::PaintCapture,
+                application::ContractFailureKind::InvalidValue);
+        }
+        return *fingerprint;
+    }
+
+    auto capture_automatic_source_pass(
+        AutomaticPaintCaptureSession& session,
+        const PaintSceneCapturePass& pass)
+        -> std::expected<
+            void,
+            application::RuntimeExecutionError>
+    {
+        if (pass.subject !=
+            PaintSceneCaptureSubject::BackgroundOnly)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::PaintCapture,
+                application::ContractFailureKind::InvalidValue);
+        }
+        const auto fingerprint =
+            current_paint_capture_fingerprint(session.seed);
+        if (!fingerprint)
+        {
+            return std::unexpected(fingerprint.error());
+        }
+        const auto linear = capture_paint_scene_pass(
+            static_cast<UWorld*>(session.seed.world),
+            session.seed.mesh,
+            session.seed.brush_plane,
+            session.seed.camera,
+            pass,
+            session.seed.scene);
+        if (!linear)
+        {
+            return std::unexpected(linear.error());
+        }
+
+        if (pass.kind == PaintSceneCapturePassKind::BaseColor ||
+            pass.kind ==
+                PaintSceneCapturePassKind::FinalColorLdr)
+        {
+            auto converted =
+                convert_paint_capture_linear_colors_to_srgb8(
+                    *linear);
+            if (!converted)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::PaintCapture,
+                    application::ContractFailureKind::InvalidValue);
+            }
+            auto pixels = std::make_shared<
+                const std::vector<core::Rgb8>>(
+                std::move(*converted));
+            if (pass.kind ==
+                PaintSceneCapturePassKind::BaseColor)
+            {
+                session.evidence.base_color = {
+                    *fingerprint,
+                    std::move(pixels),
+                };
+            }
+            else
+            {
+                session.evidence.final_ldr = {
+                    *fingerprint,
+                    std::move(pixels),
+                };
+            }
+            return {};
+        }
+        if (pass.kind == PaintSceneCapturePassKind::SceneDepth)
+        {
+            auto converted =
+                convert_paint_capture_linear_colors_to_depth(
+                    *linear);
+            if (!converted)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::PaintCapture,
+                    application::ContractFailureKind::InvalidValue);
+            }
+            session.evidence.scene_depth = {
+                *fingerprint,
+                std::make_shared<
+                    const std::vector<double>>(
+                    std::move(*converted)),
+            };
+            return {};
+        }
+
+        auto converted =
+            convert_paint_capture_linear_colors_to_hdr(*linear);
+        if (!converted)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::PaintCapture,
+                application::ContractFailureKind::InvalidValue);
+        }
+        auto pixels = std::make_shared<
+            const std::vector<core::AppearanceRgb>>(
+            std::move(*converted));
+        switch (pass.kind)
+        {
+        case PaintSceneCapturePassKind::FinalColorHdr:
+            session.evidence.final_hdr = {
+                *fingerprint,
+                std::move(pixels),
+            };
+            return {};
+        case PaintSceneCapturePassKind::IntrinsicEmissionHdr:
+            session.evidence.intrinsic_emission_hdr = {
+                *fingerprint,
+                std::move(pixels),
+            };
+            return {};
+        case PaintSceneCapturePassKind::FinalToneCurveHdr:
+            session.evidence.tone_curve_hdr = {
+                *fingerprint,
+                std::move(pixels),
+            };
+            return {};
+        case PaintSceneCapturePassKind::Normal:
+            session.evidence.normal = {
+                *fingerprint,
+                std::move(pixels),
+            };
+            return {};
+        case PaintSceneCapturePassKind::BaseColor:
+        case PaintSceneCapturePassKind::SceneDepth:
+        case PaintSceneCapturePassKind::FinalColorLdr:
+            break;
+        }
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::InvalidValue);
+    }
+
     auto capture_paint(const core::PaintSettings& settings)
         -> std::expected<
             application::CapturedPaintJob,
@@ -5075,43 +5537,335 @@ public:
                     std::nullopt,
                 });
         }
-        if (!settings.auto_material || generation == 0U)
+        if (!settings.auto_material || generation == 0U ||
+            automatic_paint_capture_)
         {
             return runtime_failure(
                 application::RuntimeContractId::PaintCapture,
                 application::ContractFailureKind::
                     InvalidValue);
         }
-        // The production transaction remains fail-closed until its exact
-        // intrinsic-emission and preview-feedback stages are installed.
-        return runtime_failure(
-            application::RuntimeContractId::PaintCapture,
-            application::ContractFailureKind::
-                InvalidValue);
+        try
+        {
+            auto seed = prepare_paint_capture_seed(settings, true);
+            if (!seed)
+            {
+                return std::unexpected(seed.error());
+            }
+            automatic_paint_capture_.emplace(
+                AutomaticPaintCaptureSession{
+                    generation,
+                    std::move(*seed),
+                });
+            const auto& admitted =
+                automatic_paint_capture_->seed;
+            const auto started = paint_appearance_worker_.start(
+                generation,
+                application::PaintAppearanceGeometryPrepareWork{
+                    admitted.profile->sampling,
+                    admitted.profile->image,
+                    admitted.bone_transforms,
+                    settings.brush_size_texels,
+                    admitted.view,
+                    admitted.capture_viewport,
+                });
+            if (!started)
+            {
+                automatic_paint_capture_.reset();
+                return runtime_failure(
+                    application::RuntimeContractId::PaintCapture,
+                    application::ContractFailureKind::
+                        ExecutionFailure);
+            }
+            return {};
+        }
+        catch (...)
+        {
+            automatic_paint_capture_.reset();
+            return runtime_failure(
+                application::RuntimeContractId::PaintCapture,
+                application::ContractFailureKind::
+                    ExecutionFailure);
+        }
     }
 
     auto advance_automatic_paint_capture(
-        application::JobGeneration)
+        application::JobGeneration generation)
         -> std::expected<
             std::optional<application::CapturedPaintJob>,
             application::RuntimeExecutionError>
     {
+        if (!IsInGameThreadRaw())
+        {
+            return std::unexpected(
+                application::RuntimeExecutionError{
+                    application::RuntimeExecutionErrorCode::
+                        WrongThread,
+                    std::nullopt,
+                });
+        }
+        if (!automatic_paint_capture_ || generation == 0U ||
+            automatic_paint_capture_->generation != generation)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::PaintCapture,
+                application::ContractFailureKind::StaleObject);
+        }
+        try
+        {
+            auto& session = *automatic_paint_capture_;
+            switch (session.stage)
+            {
+            case AutomaticPaintCaptureStage::GeometryPending:
+            {
+                auto completion = paint_appearance_worker_.poll();
+                if (!completion)
+                {
+                    return std::optional<
+                        application::CapturedPaintJob>{};
+                }
+                const auto* prepared =
+                    completion->generation == generation &&
+                            completion->result
+                        ? std::get_if<
+                              application::
+                                  PaintAppearanceGeometryPrepared>(
+                              &*completion->result)
+                        : nullptr;
+                if (prepared == nullptr ||
+                    !prepared->geometry ||
+                    !prepared->source_query_pixels)
+                {
+                    session.stage =
+                        AutomaticPaintCaptureStage::Failed;
+                    return runtime_failure(
+                        application::RuntimeContractId::
+                            PaintCapture,
+                        application::ContractFailureKind::
+                            InvalidValue);
+                }
+                const auto width = static_cast<std::size_t>(
+                    session.seed.camera.width);
+                const auto height = static_cast<std::size_t>(
+                    session.seed.camera.height);
+                if (width == 0U || height == 0U ||
+                    width >
+                        std::numeric_limits<std::size_t>::max() /
+                            height)
+                {
+                    session.stage =
+                        AutomaticPaintCaptureStage::Failed;
+                    return runtime_failure(
+                        application::RuntimeContractId::
+                            PaintCapture,
+                        application::ContractFailureKind::
+                            InvalidValue);
+                }
+                auto source_pixels = std::vector<
+                    core::PaintAppearanceSourcePixel>(
+                    width * height);
+                for (const auto pixel :
+                     *prepared->source_query_pixels)
+                {
+                    if (pixel >= source_pixels.size())
+                    {
+                        session.stage =
+                            AutomaticPaintCaptureStage::Failed;
+                        return runtime_failure(
+                            application::RuntimeContractId::
+                                PaintCapture,
+                            application::ContractFailureKind::
+                                InvalidValue);
+                    }
+                    source_pixels[pixel].visible = true;
+                }
+                session.geometry = prepared->geometry;
+                session.evidence.source_pixels =
+                    std::make_shared<const std::vector<
+                        core::PaintAppearanceSourcePixel>>(
+                        std::move(source_pixels));
+                session.stage =
+                    AutomaticPaintCaptureStage::SourceCapture;
+                return std::optional<
+                    application::CapturedPaintJob>{};
+            }
+            case AutomaticPaintCaptureStage::SourceCapture:
+            {
+                if (session.next_source_pass >=
+                    session.seed.pass_plan.passes.size())
+                {
+                    session.stage =
+                        AutomaticPaintCaptureStage::Failed;
+                    return runtime_failure(
+                        application::RuntimeContractId::
+                            PaintCapture,
+                        application::ContractFailureKind::
+                            InvalidValue);
+                }
+                const auto captured =
+                    capture_automatic_source_pass(
+                        session,
+                        session.seed.pass_plan.passes[
+                            session.next_source_pass]);
+                if (!captured)
+                {
+                    session.stage =
+                        AutomaticPaintCaptureStage::Failed;
+                    return std::unexpected(captured.error());
+                }
+                ++session.next_source_pass;
+                if (session.next_source_pass ==
+                    session.seed.pass_plan.passes.size())
+                {
+                    const auto started =
+                        paint_appearance_worker_.start(
+                            generation,
+                            application::
+                                PaintAppearanceCapturePrepareWork{
+                                session.geometry,
+                                session.evidence,
+                                session.seed.settings
+                                    .include_scene_lighting,
+                                std::nullopt,
+                            });
+                    if (!started)
+                    {
+                        session.stage =
+                            AutomaticPaintCaptureStage::Failed;
+                        return runtime_failure(
+                            application::RuntimeContractId::
+                                PaintCapture,
+                            application::ContractFailureKind::
+                                ExecutionFailure);
+                    }
+                    session.stage =
+                        AutomaticPaintCaptureStage::ModelPending;
+                }
+                return std::optional<
+                    application::CapturedPaintJob>{};
+            }
+            case AutomaticPaintCaptureStage::ModelPending:
+            {
+                auto completion = paint_appearance_worker_.poll();
+                if (!completion)
+                {
+                    return std::optional<
+                        application::CapturedPaintJob>{};
+                }
+                const auto* prepared =
+                    completion->generation == generation &&
+                            completion->result
+                        ? std::get_if<
+                              application::PaintAppearancePrepared>(
+                              &*completion->result)
+                        : nullptr;
+                if (prepared == nullptr || !prepared->model ||
+                    prepared->parameters.empty())
+                {
+                    session.stage =
+                        AutomaticPaintCaptureStage::Failed;
+                    return runtime_failure(
+                        application::RuntimeContractId::
+                            PaintCapture,
+                        application::ContractFailureKind::
+                            InvalidValue);
+                }
+                session.model = prepared->model;
+                session.parameters = prepared->parameters;
+                session.stage =
+                    AutomaticPaintCaptureStage::ModelReady;
+                return std::optional<
+                    application::CapturedPaintJob>{};
+            }
+            case AutomaticPaintCaptureStage::ModelReady:
+                // Source evidence is complete, but publishing remains
+                // fail-closed until the target-E0 and exact preview restore
+                // transaction is installed.
+                return runtime_failure(
+                    application::RuntimeContractId::PaintCapture,
+                    application::ContractFailureKind::InvalidValue);
+            case AutomaticPaintCaptureStage::Failed:
+                return runtime_failure(
+                    application::RuntimeContractId::PaintCapture,
+                    application::ContractFailureKind::InvalidValue);
+            }
+        }
+        catch (...)
+        {
+            automatic_paint_capture_->stage =
+                AutomaticPaintCaptureStage::Failed;
+            return runtime_failure(
+                application::RuntimeContractId::PaintCapture,
+                application::ContractFailureKind::
+                    ExecutionFailure);
+        }
         return runtime_failure(
             application::RuntimeContractId::PaintCapture,
-            application::ContractFailureKind::
-                InvalidValue);
+            application::ContractFailureKind::InvalidValue);
     }
 
     auto cancel_automatic_paint_capture(
-        application::JobGeneration)
+        application::JobGeneration generation)
         -> std::expected<
             bool,
             application::RuntimeExecutionError>
     {
-        return runtime_failure(
-            application::RuntimeContractId::PaintCapture,
-            application::ContractFailureKind::
-                InvalidValue);
+        if (!IsInGameThreadRaw())
+        {
+            return std::unexpected(
+                application::RuntimeExecutionError{
+                    application::RuntimeExecutionErrorCode::
+                        WrongThread,
+                    std::nullopt,
+                });
+        }
+        if (!automatic_paint_capture_ || generation == 0U ||
+            automatic_paint_capture_->generation != generation)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::PaintCapture,
+                application::ContractFailureKind::StaleObject);
+        }
+        try
+        {
+            const auto stage = automatic_paint_capture_->stage;
+            if (stage ==
+                    AutomaticPaintCaptureStage::GeometryPending ||
+                stage ==
+                    AutomaticPaintCaptureStage::ModelPending)
+            {
+                const auto requested =
+                    paint_appearance_worker_.request_cancel(
+                        generation);
+                if (requested ==
+                        application::
+                            PaintAppearanceWorkCancelResult::
+                                StaleGeneration ||
+                    requested ==
+                        application::
+                            PaintAppearanceWorkCancelResult::Idle)
+                {
+                    return runtime_failure(
+                        application::RuntimeContractId::
+                            PaintCapture,
+                        application::ContractFailureKind::
+                            ExecutionFailure);
+                }
+                if (!paint_appearance_worker_.poll())
+                {
+                    return false;
+                }
+            }
+            automatic_paint_capture_.reset();
+            return true;
+        }
+        catch (...)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::PaintCapture,
+                application::ContractFailureKind::
+                    ExecutionFailure);
+        }
     }
 
     auto capture_image_paint(core::BodyProfile body)
@@ -6889,6 +7643,7 @@ private:
         esp_avatar_directory_.reset();
         queue_tracker_.reset();
         input_mutation_.reset();
+        automatic_paint_capture_.reset();
         callback_context_ = nullptr;
         callback_ = nullptr;
         active_frame_sequence_ = 0U;
@@ -7016,6 +7771,7 @@ private:
         auto lock = std::unique_lock{mutex_};
         idle_.wait(lock, [this] { return in_flight_ == 0U; });
         lock.unlock();
+        paint_appearance_worker_.shutdown();
         restore_input_noexcept();
         for (auto attempt = 0U; attempt < 3U; ++attempt)
         {
@@ -7052,6 +7808,10 @@ private:
     std::shared_ptr<
         const application::ImagePaintProfileCatalog>
         image_paint_profiles_{};
+    application::PaintAppearanceWorker
+        paint_appearance_worker_{};
+    std::optional<AutomaticPaintCaptureSession>
+        automatic_paint_capture_{};
     product_ui::ProductUiPointerCapture pointer_capture_{};
     HWND input_window_{};
     void* callback_context_{};

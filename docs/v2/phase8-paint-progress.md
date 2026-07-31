@@ -6,9 +6,9 @@ generation-tagged dispatch boundaries are implemented and verified. Its exact
 reflected `PaintAtUVWithBrush` contract and production game-thread sender now
 compile against the pinned UE4SS graph. The exact production queue observer
 and preview channel adapter also compile against that graph. A fail-closed
-manual-color scene-capture seed now compiles against the same graph. Auto
-Material appearance feedback, composition-root ownership, and live evidence
-remain.
+manual-color scene-capture seed and generation-tagged Auto Material source
+session now compile against the same graph. Exact trial-preview mutation,
+feedback restoration, composition-root ownership, and live evidence remain.
 
 The Auto Material numerical boundary is now project-owned and independently
 testable. It preserves finite HDR values up to the reviewed 64.0 rejection
@@ -172,15 +172,20 @@ BaseColor; manual lit capture also uses FinalColor HDR. Deterministic
 linear-to-sRGB conversion occurs after the game-thread readback.
 
 This remains contract/build evidence, not a live capture claim. Auto Material
-is rejected before mutation because its trial-preview feedback transaction is
-not implemented. The intrinsic-emission SceneCapture profile now applies the
-reviewed 33 all-disabled show flags through a borrowed call-lifetime array,
-then requires an exact 33-entry component readback matching every ordered name
-and value. This path compiles against the pinned UE4SS graph but has not yet
-been admitted by the production Auto Material session. The composition root
-does not expose the production scene-capture path, and live brush-plane
-hiding, readback orientation, color semantics, cleanup, and frame-budget
-behavior remain unverified.
+now admits the exact profile, current bone transforms, and calibrated camera;
+prepares deformation/projection on the appearance worker; captures at most one
+background-only source pass per later HUD callback; and then prepares the
+immutable appearance model on the worker. Camera fingerprints retain the real
+viewport even when the bounded capture raster is scaled, so a window resize is
+not hidden by fixed render-target dimensions. The intrinsic-emission pass
+applies the reviewed 33 all-disabled show flags through a borrowed
+call-lifetime array and requires exact ordered component readback. Generation-
+owned cancellation drains either worker stage before releasing the session.
+The completed source model still fails closed before any texture mutation
+because the exact target-E0/trial-preview feedback and restoration transaction
+is not implemented. The composition root does not expose the production
+scene-capture path, and live brush-plane hiding, readback orientation, color
+semantics, cleanup, and frame-budget behavior remain unverified.
 
 The application boundary for that transaction is now fixed even though the
 production appearance stages remain fail-closed. `ApplicationRoot` routes
@@ -403,7 +408,7 @@ ordering, packed-PBR quantization, edge clipping, original immutability,
 invalid plan/buffer rejection, cancellation, and resource-limit evidence.
 `paint_appearance_capture` covers exact pass-value preservation,
 deduplicated projected-pixel queries, front-facing visibility, and camera
-movement rejection. `paint_appearance_worker` additionally proves owned
+movement and viewport-resize rejection. `paint_appearance_worker` additionally proves owned
 profile/transform/evidence lifetimes across both worker stages and typed
 geometry/evidence failures. The secret-free Linux normal and fresh
 ASan/UBSan suites currently pass all 93 registered tests. The production
@@ -424,9 +429,11 @@ unchanged. This is build evidence, not a live Paint pass.
   evidence, camera-stability gate, bounded projected-pixel query, observation
   builder, cancellable preparation worker, typed target-visible feedback
   passes, preview-byte readback references, and response calibration are
-  complete. The production multi-HUD-frame pass scheduler, trial-preview
-  apply/capture/restore transaction, a bounded frame budget, and live
-  brush-plane/orientation/color/cleanup evidence remain.
+  complete. The production generation-tagged source session and one-pass-per-
+  HUD-frame scheduler now compile and drain cancellation without publishing.
+  Exact projected-pixel visibility/surface identity, the target-E0 and trial-
+  preview apply/capture/restore transaction, a measured bounded frame budget,
+  and live brush-plane/orientation/color/cleanup evidence remain.
 - Implement the remaining production UE4SS capture contracts, connect the
   completed sender and queue observer through the exported composition root,
   and connect the completed preview adapter through that same root.

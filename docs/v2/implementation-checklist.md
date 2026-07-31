@@ -476,6 +476,13 @@ Evidence:
         feedback passes, build immutable preview-byte readback references on
         the worker, and require stable source/feedback cameras plus calibrated
         identity or red/blue-swapped linear response before evaluation.
+      - [x] Admit the exact profile, current bone transforms, and calibrated
+        camera into the production generation-tagged session; prepare geometry
+        on the worker, capture at most one background-only source pass per
+        later HUD frame, prepare the immutable model on the worker, and drain
+        generation-owned cancellation without publishing or mutating a
+        preview. Retain the real viewport in every camera fingerprint when the
+        bounded capture raster is scaled.
       - [x] Freeze the exact 0x10
         `SceneCaptureComponent.SetShowFlagSettings` array schema and require
         exact ordered readback of the reviewed 33 intrinsic-emission flags.

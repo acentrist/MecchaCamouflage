@@ -221,7 +221,7 @@ auto main() -> int
                 1.0,
                 1.0,
             },
-            EspViewport{4.0, 4.0},
+            EspViewport{8.0, 8.0},
             4U,
             4U);
     if (!feedback_fingerprint)
@@ -332,6 +332,18 @@ auto main() -> int
             swapped_feedback->readback.transform ==
                 AppearanceReadbackTransform::SwapRedBlue,
         "swapped target BaseColor readback was not calibrated");
+    auto resized_viewport_evidence = swapped_evidence;
+    resized_viewport_evidence.final_hdr.camera.viewport_width =
+        9.0;
+    passed &= expect(
+        references &&
+            prepare_paint_appearance_feedback(
+                *feedback_fingerprint,
+                *references,
+                resized_viewport_evidence) ==
+                std::unexpected(
+                    PaintAppearanceCaptureError::CameraChanged),
+        "target-visible feedback from a resized viewport was accepted");
     swapped_evidence.final_hdr.camera.location.x += 1.01;
     passed &= expect(
         references &&

@@ -124,8 +124,7 @@ auto make_paint_appearance_camera_fingerprint(
         PaintAppearanceCameraFingerprint{width, height});
     if (!count || !std::isfinite(viewport.width) ||
         !std::isfinite(viewport.height) ||
-        viewport.width != static_cast<double>(width) ||
-        viewport.height != static_cast<double>(height) ||
+        viewport.width < 1.0 || viewport.height < 1.0 ||
         !std::isfinite(view.location.x) ||
         !std::isfinite(view.location.y) ||
         !std::isfinite(view.location.z) ||
