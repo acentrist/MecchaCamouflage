@@ -2,6 +2,7 @@
 
 #include <meccha/application/production_resources.hpp>
 #include <meccha/product_ui/product_ui_key_binding.hpp>
+#include <meccha/runtime/unreal_runtime_adapter.hpp>
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -130,6 +131,9 @@ public:
           input_queue_{
               std::make_shared<
                   meccha::product_ui::ProductUiInputQueue>()},
+          runtime_{
+              input_queue_,
+              resources_.image_paint_profiles},
           key_binding_{input_queue_}
     {
         ModName = STR("MecchaCamouflage");
@@ -178,6 +182,7 @@ private:
     meccha::application::ProductionResources resources_;
     std::shared_ptr<meccha::product_ui::ProductUiInputQueue>
         input_queue_;
+    meccha::runtime::UnrealRuntimeAdapter runtime_;
     meccha::product_ui::ProductUiFunctionKeyBinding
         key_binding_;
 };

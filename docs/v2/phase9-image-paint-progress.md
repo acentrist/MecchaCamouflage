@@ -95,8 +95,12 @@ closed. The exported mod owner resolves its loaded module through Win32,
 requires the exact canonical
 `Mods/MecchaCamouflage/dlls/main.dll` package layout, derives the sibling
 `resources` directory, and retains the completed bundle before any callback
-or key registration. The remaining composition work is to inject those owned
-resources into the single runtime/application/UI graph before starting it.
+or key registration. It constructs and owns the sole
+`UnrealRuntimeAdapter` with the retained profile catalog and shared input
+queue; that constructor performs no reflection, UObject access, callback
+registration, or key registration. The remaining composition work is to
+consume the retained localization and guides in the complete
+runtime/application/UI graph before starting that graph.
 
 `UnrealRuntimeAdapter` consumes that catalog through
 `ImagePaintGameRuntimePort`. Initial contract resolution requires the exact

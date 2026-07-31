@@ -576,9 +576,12 @@ Evidence:
       `Mods/MecchaCamouflage/dlls/main.dll` module path and make the exported
       mod owner construct and retain that bundle before any callback or key
       registration.
-    - [ ] Inject the retained catalog and resources into the single runtime
-      adapter and complete exported composition-root ownership before
-      callback registration.
+    - [x] Inject the retained profile catalog and shared input queue into one
+      exported-mod-owned runtime adapter without registering callbacks or
+      touching UObjects during construction.
+    - [ ] Complete exported composition-root ownership, consume the retained
+      localization and guides in the UI graph, and initialize the whole graph
+      before callback registration.
     - [x] On the game thread, validate the live RuntimePaintable target mesh
       and exact `SkinnedAsset` path/export against the selected catalog entry
       before returning the acknowledged component and pacing.
