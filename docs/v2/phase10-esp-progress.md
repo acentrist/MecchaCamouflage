@@ -1,8 +1,9 @@
 # Phase 10 ESP Progress
 
 This checkpoint establishes the project-owned, graphics-API-independent ESP
-frame boundary. It does not claim that the production UE4SS capture or UCanvas
-draw adapters exist, and it does not satisfy the live architecture gate.
+frame boundary and the production UCanvas line/text draw route. It does not
+claim that production UE4SS target capture exists, and it does not satisfy the
+live architecture gate.
 
 ## Pure frame model
 
@@ -72,9 +73,29 @@ production adapter remains responsible for:
 - rebuilding bindings after travel, HUD replacement, role changes, avatar
   replacement, freecam, and spectator transitions;
 - copying coherent target data on the game thread;
-- selecting and validating game-specific skeleton topology; and
-- translating the resulting line and text values to UCanvas calls on the same
-  validated frame.
+- selecting and validating game-specific skeleton topology.
+
+## Production Canvas draw route
+
+`UnrealRuntimeAdapter` implements the draw side of `EspGameRuntimePort`. It
+requires the UE4SS game thread, the exact active `HudFrameIdentity`, and a
+positive viewport before accepting a primitive frame. A stale World,
+controller, HUD, or Canvas identity fails closed under the typed `EspFrame`
+runtime contract.
+
+`encode_esp_canvas_frame` converts the immutable ESP line and text values into
+one bounded `CanvasFrame`. It preserves line geometry, RGB color, thickness,
+UTF-8 text, and anchors; supplies opaque alpha and the fixed text scale; and
+uses the existing Canvas builder for finite geometry, clipping, UTF-8, and
+resource validation. The adapter then delegates the complete frame to the
+single production Canvas renderer, whose validated `K2_DrawLine` and
+`K2_DrawText` contracts are already owned by `UnrealRuntimeAdapter`.
+
+The capture side deliberately returns a typed fail-closed `EspFrame` contract
+failure. No GameState roster, role, pawn, camera, pose, or skeleton property ABI
+is guessed before current-build reflection and live evidence are frozen. The
+exported composition root also remains inert, so this partial port cannot
+silently activate ESP runtime access.
 
 No DXGI, D3D11, D3D12, Present, ProcessEvent-vtable, or MinHook renderer was
 introduced.
@@ -95,15 +116,27 @@ root renders ESP while the panel is closed, keeps it independent across panel
 open/close transitions, stops runtime access when disabled, and publishes the
 immutable frame result.
 
-The secret-free suite passes all 48 Linux tests and all 56 Windows x64 Release
-tests. The Windows build retains only the known WSL UNC/case-sensitive
-incremental-build `MSB8064` warnings; compilation still uses `/W4 /WX`.
+`esp_canvas_frame_test` proves that a representative skeleton line and
+Japanese UTF-8 name become one Canvas frame without changing geometry, color,
+thickness, text, anchor, alpha, or scale.
+
+All 85 registered secret-free tests pass in the normal Linux graph and in a
+fresh ASan/UBSan graph. At project commit `319d6cf`, all 103 Windows tests pass
+after a complete MSVC x64 `Game__Shipping__Win64` build, including the new ESP
+Canvas test.
+
+The full-build verifier binds that commit to canonical UE4SS source commit
+`6c26f038751b3d96059d4a9148f5d093012d55ad`, verifies the source stage after
+the build, and proves that `main.dll`, `UE4SS.dll`, and `dwmapi.dll` are x64
+PE binaries built with the configured MSVC 19.44.35228.0 toolchain.
+`main.dll` exports only `start_mod` and `uninstall_mod` and imports the
+UE4SS DLL produced by the same graph. This is build evidence, not a live ESP
+capture or draw pass.
 
 ## Remaining work
 
 - Implement the production UE4SS capture adapter and validated weak-handle
   invalidation.
-- Implement the production UCanvas line/text draw adapter.
 - Add topology/profile selection owned by the runtime adapter.
 - Exercise lobby, match, travel, HUD replacement, freecam, spectator, role,
   avatar, and unload transitions in the live game.

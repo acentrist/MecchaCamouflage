@@ -625,7 +625,9 @@ Evidence:
     primitive construction without graphics or Unreal dependencies.
   - [x] Coordinate exact-HUD-frame capture/build/draw through a typed runtime
     port and publish immutable frame diagnostics.
-  - [ ] Implement the production UE4SS capture and UCanvas draw adapters.
+  - [x] Implement production UCanvas line/text drawing through the one
+    validated, complete-frame Canvas renderer with exact HUD-frame identity.
+  - [ ] Implement the production UE4SS target capture adapter.
 - [ ] Implement every scope, primitive, role color, and clipping rule.
   - [x] Cover every configured scope, primitive toggle, role color, and
     viewport/behind-camera clipping rule in the pure builder.

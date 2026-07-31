@@ -6,10 +6,10 @@ The secret-free application runtime foundation is implemented and tested. A
 production `UnrealRuntimeAdapter` now compiles against the pinned recursive
 UE4SS graph and implements the validated HUD callback/game-thread boundary plus
 the exact game-owned Paint stroke, queue observation, preview channel, Canvas
-texture, Image Paint mesh-identity capture, input, and transient-cleanup
-operations. The adapter is not yet owned by the exported mod composition root,
-production Paint mesh/sample capture remains, and no live callback has been
-registered in the game, so Phase 4 remains open.
+texture, ESP Canvas draw, Image Paint mesh-identity capture, input, and
+transient-cleanup operations. The adapter is not yet owned by the exported mod
+composition root, production Paint mesh/sample and ESP target capture remain,
+and no live callback has been registered in the game, so Phase 4 remains open.
 
 ## Implemented contracts
 
@@ -40,6 +40,13 @@ registered in the game, so Phase 4 remains open.
   with the object index for World, controller, HUD, and Canvas. A stale,
   incomplete, or wrong-thread frame is delivered as an invalid identity and
   fails closed in the existing lifecycle.
+- The adapter implements the production ESP draw boundary on that same game
+  thread and exact active HUD-frame identity. It converts one immutable,
+  bounded ESP primitive frame into the project-owned Canvas protocol and
+  delegates it to the single complete-frame renderer backed by the validated
+  `K2_DrawLine` and `K2_DrawText` contracts. The capture side fails closed
+  under the typed `EspFrame` runtime contract until the game-specific roster,
+  camera, pose, and topology schemas are frozen.
 - `ApplicationRoot` owns the runtime lifecycle, loaded configuration, bounded
   typed command queue, Paint planner/worker/coordinator, job and preview state
   machines, compatibility state, bounded diagnostics, and immutable snapshot
@@ -202,15 +209,16 @@ before lifecycle transient restore and callback finalization end to end. A
 second root fixture holds authoritative visual/outgoing queues nonempty and
 proves lifecycle quiescing cannot overtake active Paint cancellation/drain.
 
-All 84 registered secret-free tests pass in the Linux graph. At project commit
-`2f8cf23`, all 102 Windows tests also pass and the changed runtime graph
-compiles in the MSVC `Game__Shipping__Win64` build with project sources under
-`/W4 /WX`.
+All 85 registered secret-free tests pass in the normal Linux graph and in a
+fresh ASan/UBSan graph. At project commit `319d6cf`, all 103 Windows tests also
+pass after a complete MSVC x64 `Game__Shipping__Win64` build, including the
+production ESP Canvas draw changes.
 
 The production adapter additionally compiles and links with the
 manifest-verified canonical UE4SS source stage, UEPseudo, and patternsleuth
-graph in MSVC x64 `Game__Shipping__Win64`. The stage passes exact post-build
-one-diff verification. `main.dll` remains PE32+ x64, exports exactly
+graph at UE4SS commit `6c26f038751b3d96059d4a9148f5d093012d55ad` in MSVC
+x64 `Game__Shipping__Win64`. The stage passes exact post-build verification.
+`main.dll` remains PE32+ x64, exports exactly
 `start_mod` and `uninstall_mod`, and imports the UE4SS DLL built by that graph.
 This is build evidence only; it does not count as a live callback registration
 or teardown pass.
@@ -225,6 +233,9 @@ or teardown pass.
 - Implement production Paint capture, connect the completed Paint-stroke,
   queue, and preview ports to the composition root, then run the controlled
   single-/two-client calls.
+- Implement production ESP target capture, connect it and the completed Canvas
+  draw side to the composition root, and validate its weak-handle invalidation
+  across the live transition matrix.
 - Connect the implemented Image texture coordinator and production runtime
   port through the exported composition root, then prove create/render/release
   behavior in the live transition matrix.
