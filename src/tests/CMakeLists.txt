@@ -1093,6 +1093,21 @@ if(WIN32)
     )
 
     add_executable(
+        meccha_image_editor_services_tests
+        image_editor_services_win32_test.cpp
+    )
+    target_link_libraries(
+        meccha_image_editor_services_tests
+        PRIVATE
+            MecchaCamouflage::Application
+            meccha_build_options
+    )
+    add_test(
+        NAME image_editor_services
+        COMMAND meccha_image_editor_services_tests
+    )
+
+    add_executable(
         meccha_runtime_storage_tests
         runtime_storage_win32_test.cpp
     )

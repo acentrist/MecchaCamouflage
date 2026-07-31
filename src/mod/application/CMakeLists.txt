@@ -66,6 +66,7 @@ if(WIN32)
             src/atomic_file_win32.cpp
             src/config_storage_win32.cpp
             src/image_decoder_wic.cpp
+            src/image_editor_services_win32.cpp
             src/image_file_picker_win32.cpp
             src/image_project_storage_win32.cpp
     )

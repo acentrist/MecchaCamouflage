@@ -8,8 +8,9 @@ active-draft debounce worker are also implemented. Named project commands have
 an owned off-thread I/O worker, and one editor session now coordinates those
 operations with decode/composition, draft persistence, immutable snapshots,
 and `ApplicationRoot`. Startup recovery is now part of root initialization.
-Production Win32 composition construction, UCanvas controls, and glyph
-coverage are not yet complete.
+One production Windows lifetime owner now constructs the complete native
+persistence/decoder/compositor/editor-session graph. Production UCanvas
+binding and glyph coverage are not yet complete.
 
 ## Configuration contract
 
@@ -219,6 +220,14 @@ final debounced draft are settled. The session is then closed only after
 lifecycle callback unregistration, so callback code cannot race destroyed
 editor state.
 
+`Win32ImageEditorServices` is the production ownership boundary for the native
+Image Paint service graph. It validates the isolated LocalAppData root and
+draft debounce before constructing the Win32 config/project stores, native
+BCrypt preset hasher, persistence coordinator, WIC/libwebp decoder, core atlas
+composer, and one `ImageEditorSession`. Construction failures are contained as
+typed results, and destruction performs terminal session shutdown before its
+worker dependencies are destroyed.
+
 `image_project_persistence` verifies missing-reference recovery,
 newer-draft precedence, corrupt-draft isolation, the named-project-first
 partial-failure case, load-before-activate, reference-before-delete,
@@ -233,13 +242,16 @@ delete-after-draft-drain, immutable pressure, reuse, and terminal shutdown.
 `application_root_image_paint` verifies root-owned startup recovery before
 callback registration, fail-closed recovery, all four typed project commands,
 config publication, editor snapshot routing, and close-after-lifecycle
-ordering.
+ordering. Windows-only `image_editor_services` uses the real stores, native
+hasher/decoder, and core compositor to import and compose a WebP project,
+publish the named config reference, reconstruct the complete service graph,
+and recover the same project after restart.
 The portable suite passes on Linux and Windows MSVC Release.
 
 ## Remaining gate
 
-- Production composition must construct the accepted session with the Win32
-  stores, native decoders, and final UCanvas editor.
+- Bind the constructed native editor services and their ready content to the
+  final UCanvas/UE4SS composition root.
 - The final v2-only UI key set and game/OFL fallback glyph coverage remain.
 - Complete per-step fault injection, power-loss/antivirus-lock simulation, and
   native file-picker coverage before Phase 7 closes.

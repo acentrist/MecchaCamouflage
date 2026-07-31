@@ -8,10 +8,11 @@ validated immutable project/layer values and decoded RGBA buffers. Owned
 application workers run decode and composition off-thread, and an editor
 pipeline connects them by exact project identity and revision. An editor
 session now coordinates the derived pipeline, active draft, typed project
-operations, and application root. Exact-profile guide generation and the
-project-owned game-thread texture coordinator are implemented, but their
-narrow port does not yet create reflected Unreal textures or drive the
-complete in-game editor lifecycle.
+operations, and application root. The production Windows service owner
+constructs that session from the isolated native stores, hasher, decoder, and
+composer. Exact-profile guide generation and the project-owned game-thread
+texture coordinator are implemented, but their narrow port does not yet create
+reflected Unreal textures or drive the complete in-game editor lifecycle.
 Phase 9 therefore remains open.
 
 ## Portable Canvas editor
@@ -344,10 +345,17 @@ triangle/barycentric anchors and real queue observations from reflected game
 contracts. Until that adapter is complete, this is a tested root boundary, not
 a live production path.
 
+On Windows, `Win32ImageEditorServices` composes the real atomic config/project
+stores, native preset hasher, WIC/libwebp decoder, core atlas composer,
+persistence coordinator, and one editor session under one terminal lifetime.
+Its integration test imports a real WebP-backed v2 preset, waits for native
+decode and canonical composition, verifies the named config publication, then
+reconstructs the graph and recovers that exact project after restart.
+
 ## Remaining work
 
-- Construct the production session from the Win32 stores; root-owned startup
-  recovery is already connected.
+- Bind the constructed Windows session and its ready atlas/source/guide content
+  to the production callback composition root.
 - Bind game-thread texture creation/release to the accepted reflected Unreal
   runtime port and verify it through travel, HUD replacement, and unload.
 - Capture triangle/barycentric anchors through the production runtime adapter.
