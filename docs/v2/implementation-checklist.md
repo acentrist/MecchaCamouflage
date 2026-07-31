@@ -495,11 +495,8 @@ Evidence:
       - [x] Run the deterministic three-iteration, six-candidate cluster-local
         SPSA session across later HUD frames, evaluate each candidate only
         after verified exact restoration, enforce stable-camera/calibrated-
-        readback/minimum-pair response gates, and resolve either the strictly
-        accepted best response or the exact safe fallback on the worker. The
-        resolved raster remains deliberately fail-closed until the retained
-        endpoint-calibration/non-emission policy and live evidence gates are
-        complete.
+        readback/minimum-pair response gates, and freeze the response-gated
+        Emissive values throughout refinement.
       - [x] Freeze the exact `HitTestAtScreenPosition` 0x70 parameter and
         `FScreenSpacePaintResult` 0x48 result contracts; retain at most the
         nearest packaged sample per projected raster pixel, cap the evenly
@@ -509,6 +506,22 @@ Evidence:
         the retained one-centimetre same-surface tolerance and its returned UV
         lies inside the same packaged topology triangle. Camera drift, invalid
         hit vectors, and unqueried/occluded samples remain fail-closed.
+      - [x] Retain the production endpoint policy as an ordered worker/runtime
+        transaction: evaluate the safe baseline and exact E=1 response
+        endpoint, calibrate and response-gate Emissive per cluster, evaluate
+        the exact A=0 endpoint, calibrate bounded Albedo plus robust
+        per-channel chromaticity gains, and evaluate the non-emission candidate
+        before refinement. Admit RGB feedback only after its median/tail
+        chromaticity and fit epoch gates; otherwise replay the parameter
+        baseline without RGB feedback before SPSA.
+      - [x] Re-export and byte-compare the complete game-owned packed AMRE
+        channel for every candidate, aggregate that proof across the session,
+        apply the response-gated effective emission ROI recall/stability rules,
+        and resolve only the strictly accepted candidate or the exact safe
+        fallback on the worker. Publish the immutable captured job only after
+        verified exact restoration; cancellation, candidate failure, and
+        fallback selection cannot publish a mutated or partially verified
+        preview.
 - [x] Validate round, cube, and fukuyoka profiles.
 - [x] Implement immutable planning for Paint/Fill/Skip, lighting, Auto Material,
   PBR, compression, and Fill-first ordering.

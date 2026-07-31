@@ -1,6 +1,7 @@
 #include <meccha/core/paint_appearance.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <iostream>
@@ -158,6 +159,70 @@ auto main() -> int
             calibration.emissive < 1.0 &&
             calibration.response_energy > 0.0,
         "bounded emissive response projection was rejected");
+
+    const auto channel_response = [](const AppearanceRgb& albedo)
+    {
+        return AppearanceRgb{
+            0.75 * albedo.r,
+            0.60 * albedo.g,
+            1.10 * albedo.b,
+        };
+    };
+    const auto calibrated_rgb =
+        appearance_calibrate_albedo_chromaticity(
+            AppearanceRgb{0.20, 0.20, 0.20},
+            AppearanceRgb{0.30, 0.30, 0.30},
+            channel_response(
+                AppearanceRgb{0.20, 0.20, 0.20}));
+    const auto corrected_response =
+        channel_response(calibrated_rgb.albedo);
+    const auto corrected_sum =
+        corrected_response.r + corrected_response.g +
+        corrected_response.b;
+    passed &= expect(
+        calibrated_rgb.supported &&
+            calibrated_rgb.responsive_channels == 3 &&
+            close(
+                appearance_luminance(calibrated_rgb.albedo),
+                appearance_luminance(
+                    AppearanceRgb{0.20, 0.20, 0.20})) &&
+            close(corrected_response.r / corrected_sum, 1.0 / 3.0) &&
+            close(corrected_response.g / corrected_sum, 1.0 / 3.0) &&
+            close(corrected_response.b / corrected_sum, 1.0 / 3.0),
+        "per-channel albedo response did not recover source chromaticity");
+
+    auto cluster_log_gains =
+        std::array<std::vector<double>, 3>{};
+    for (auto index = 0;
+         index < AppearanceClusterEmissiveMinimumSamples;
+         ++index)
+    {
+        cluster_log_gains[0].push_back(std::log(0.90));
+        cluster_log_gains[1].push_back(std::log(1.10));
+        cluster_log_gains[2].push_back(std::log(1.00));
+    }
+    cluster_log_gains[0].push_back(std::log(0.01));
+    cluster_log_gains[1].push_back(std::log(100.0));
+    const auto robust_gain =
+        appearance_robust_albedo_chromaticity_gain(
+            cluster_log_gains);
+    const auto robust_albedo =
+        appearance_apply_albedo_chromaticity_gain(
+            AppearanceRgb{0.20, 0.20, 0.20},
+            robust_gain.gain);
+    passed &= expect(
+        robust_gain.supported &&
+            robust_gain.responsive_channels == 3 &&
+            close(robust_gain.gain.r, 0.90) &&
+            close(robust_gain.gain.g, 1.10) &&
+            close(robust_gain.gain.b, 1.00) &&
+            robust_albedo.r < robust_albedo.b &&
+            robust_albedo.b < robust_albedo.g &&
+            close(
+                appearance_luminance(robust_albedo),
+                appearance_luminance(
+                    AppearanceRgb{0.20, 0.20, 0.20})),
+        "cluster chromaticity gains were not robust or luminance preserving");
     passed &= expect(
         close(
             appearance_emission_projected_value(0.0, true),
@@ -310,6 +375,58 @@ auto main() -> int
                     0.2,
                 }),
         "non-emission acceptance admitted packed-B contamination");
+
+    passed &= expect(
+        appearance_emission_roi_accepted(
+            AppearanceEmissionRoiAcceptance{
+                100,
+                90,
+                100,
+                1,
+                true,
+                true,
+                true,
+                1.0,
+                0.80,
+                0.50,
+                0.505,
+            }) &&
+            !appearance_emission_roi_accepted(
+                AppearanceEmissionRoiAcceptance{
+                    100,
+                    89,
+                    100,
+                    1,
+                    true,
+                    true,
+                    true,
+                    1.0,
+                    0.80,
+                    0.50,
+                    0.505,
+                }),
+        "the retained emission recall, false-positive, response, or packed-B "
+        "gate changed");
+    passed &= expect(
+        appearance_calibrated_cluster_emissive_supported(
+            AppearanceCalibratedClusterEmissiveEvidence{
+                64,
+                64,
+                0.20,
+                1.0,
+                1.005,
+                48,
+            }) &&
+            !appearance_calibrated_cluster_emissive_supported(
+                AppearanceCalibratedClusterEmissiveEvidence{
+                    64,
+                    63,
+                    0.20,
+                    1.0,
+                    0.80,
+                    48,
+                }),
+        "the endpoint-calibrated cluster response gate changed");
 
     if (passed)
     {

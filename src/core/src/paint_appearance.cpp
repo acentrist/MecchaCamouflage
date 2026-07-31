@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <set>
 #include <vector>
@@ -720,6 +721,171 @@ auto appearance_calibrate_albedo_blend(
         1.0);
 }
 
+auto appearance_calibrate_albedo_chromaticity(
+    const AppearanceRgb& base_albedo,
+    const AppearanceRgb& source_hdr,
+    const AppearanceRgb& base_albedo_capture_hdr)
+    -> AppearanceAlbedoRgbCalibration
+{
+    auto output = AppearanceAlbedoRgbCalibration{};
+    output.albedo = appearance_clamp_albedo(base_albedo);
+    if (!appearance_rgb_finite(base_albedo) ||
+        !appearance_rgb_finite(source_hdr) ||
+        !appearance_rgb_finite(base_albedo_capture_hdr))
+    {
+        return output;
+    }
+    const auto source_sum =
+        source_hdr.r + source_hdr.g + source_hdr.b;
+    const auto target_sum =
+        base_albedo_capture_hdr.r +
+        base_albedo_capture_hdr.g +
+        base_albedo_capture_hdr.b;
+    const auto base_luminance =
+        appearance_luminance(base_albedo);
+    if (!std::isfinite(source_sum) ||
+        !std::isfinite(target_sum) ||
+        source_sum <= 0.001 || target_sum <= 0.001 ||
+        base_luminance <= 0.00001)
+    {
+        return output;
+    }
+
+    const auto calibrate_channel = [](
+        double base,
+        double source_chroma,
+        double target_chroma,
+        double& calibrated)
+    {
+        if (!std::isfinite(source_chroma) ||
+            !std::isfinite(target_chroma) ||
+            target_chroma <= 0.005)
+        {
+            return false;
+        }
+        calibrated = base * source_chroma / target_chroma;
+        return std::isfinite(calibrated);
+    };
+    output.channel_supported[0] = calibrate_channel(
+        base_albedo.r,
+        source_hdr.r / source_sum,
+        base_albedo_capture_hdr.r / target_sum,
+        output.albedo.r);
+    output.channel_supported[1] = calibrate_channel(
+        base_albedo.g,
+        source_hdr.g / source_sum,
+        base_albedo_capture_hdr.g / target_sum,
+        output.albedo.g);
+    output.channel_supported[2] = calibrate_channel(
+        base_albedo.b,
+        source_hdr.b / source_sum,
+        base_albedo_capture_hdr.b / target_sum,
+        output.albedo.b);
+    output.responsive_channels =
+        static_cast<int>(output.channel_supported[0]) +
+        static_cast<int>(output.channel_supported[1]) +
+        static_cast<int>(output.channel_supported[2]);
+    output.supported = output.responsive_channels >= 2;
+    const auto calibrated_luminance =
+        appearance_luminance(output.albedo);
+    if (!output.supported ||
+        !std::isfinite(calibrated_luminance) ||
+        calibrated_luminance <= 0.00001)
+    {
+        output.albedo = appearance_clamp_albedo(base_albedo);
+        output.supported = false;
+        return output;
+    }
+    const auto preserve_luminance =
+        base_luminance / calibrated_luminance;
+    output.albedo = appearance_clamp_albedo(
+        AppearanceRgb{
+            output.albedo.r * preserve_luminance,
+            output.albedo.g * preserve_luminance,
+            output.albedo.b * preserve_luminance,
+        });
+    return output;
+}
+
+auto appearance_robust_albedo_chromaticity_gain(
+    const std::array<std::vector<double>, 3>&
+        log_gain_estimates)
+    -> AppearanceAlbedoChromaticityGain
+{
+    auto output = AppearanceAlbedoChromaticityGain{};
+    auto gains = std::array<double, 3>{1.0, 1.0, 1.0};
+    for (auto channel = std::size_t{};
+         channel < log_gain_estimates.size(); ++channel)
+    {
+        auto finite = std::vector<double>{};
+        finite.reserve(log_gain_estimates[channel].size());
+        std::ranges::copy_if(
+            log_gain_estimates[channel],
+            std::back_inserter(finite),
+            [](double estimate)
+            {
+                return std::isfinite(estimate);
+            });
+        if (finite.size() < static_cast<std::size_t>(
+                AppearanceClusterEmissiveMinimumSamples))
+        {
+            continue;
+        }
+        const auto middle = finite.begin() +
+            static_cast<std::ptrdiff_t>(finite.size() / 2U);
+        std::nth_element(finite.begin(), middle, finite.end());
+        const auto gain = std::exp(*middle);
+        if (!std::isfinite(gain) || gain <= 0.0)
+        {
+            continue;
+        }
+        gains[channel] = gain;
+        ++output.responsive_channels;
+    }
+    output.supported = output.responsive_channels >= 2;
+    if (output.supported)
+    {
+        output.gain = AppearanceRgb{
+            gains[0], gains[1], gains[2]};
+    }
+    return output;
+}
+
+auto appearance_apply_albedo_chromaticity_gain(
+    const AppearanceRgb& base_albedo,
+    const AppearanceRgb& gain) -> AppearanceRgb
+{
+    const auto base = appearance_clamp_albedo(base_albedo);
+    if (!appearance_rgb_finite(base) ||
+        !appearance_rgb_finite(gain) ||
+        gain.r <= 0.0 || gain.g <= 0.0 || gain.b <= 0.0)
+    {
+        return base;
+    }
+    const auto adjusted = AppearanceRgb{
+        base.r * gain.r,
+        base.g * gain.g,
+        base.b * gain.b,
+    };
+    const auto base_luminance = appearance_luminance(base);
+    const auto adjusted_luminance =
+        appearance_luminance(adjusted);
+    if (!std::isfinite(base_luminance) ||
+        !std::isfinite(adjusted_luminance) ||
+        adjusted_luminance <= 0.00001)
+    {
+        return base;
+    }
+    const auto preserve_luminance =
+        base_luminance / adjusted_luminance;
+    return appearance_clamp_albedo(
+        AppearanceRgb{
+            adjusted.r * preserve_luminance,
+            adjusted.g * preserve_luminance,
+            adjusted.b * preserve_luminance,
+        });
+}
+
 auto appearance_make_fallback(
     const AppearanceRgb& display_linear) -> AppearanceFallback
 {
@@ -1138,6 +1304,94 @@ auto appearance_fit_accepted(
     return improvement >= AppearanceFitMinimumImprovement &&
            value.median_delta_e <=
                AppearanceFitMedianDeltaEMaximum;
+}
+
+auto appearance_emission_roi_accepted(
+    const AppearanceEmissionRoiAcceptance& value) -> bool
+{
+    const auto recall =
+        value.emission_roi_samples > 0
+            ? static_cast<double>(
+                  value.emission_roi_nonzero_b_samples) /
+                  static_cast<double>(
+                      value.emission_roi_samples)
+            : 0.0;
+    const auto false_positive_rate =
+        value.non_emission_samples > 0
+            ? static_cast<double>(
+                  value.non_emission_nonzero_b_samples) /
+                  static_cast<double>(
+                      value.non_emission_samples)
+            : 0.0;
+    const auto roi_improvement =
+        std::isfinite(value.emission_roi_loss_initial) &&
+                std::isfinite(value.emission_roi_loss_best) &&
+                value.emission_roi_loss_initial > 0.0
+            ? (value.emission_roi_loss_initial -
+               value.emission_roi_loss_best) /
+                  value.emission_roi_loss_initial
+            : -std::numeric_limits<double>::infinity();
+    const auto non_emission_delta =
+        value.non_emission_loss_best -
+        value.non_emission_loss_initial;
+    const auto non_emission_stable =
+        value.non_emission_samples == 0 ||
+        (std::isfinite(non_emission_delta) &&
+         non_emission_delta <= 0.01);
+    return value.emission_roi_samples > 0 &&
+           value.non_emission_samples >= 0 &&
+           value.camera_stable &&
+           value.readback_calibrated &&
+           value.packed_b_verified &&
+           std::isfinite(recall) && recall >= 0.90 &&
+           std::isfinite(false_positive_rate) &&
+           false_positive_rate <= 0.01 &&
+           std::isfinite(roi_improvement) &&
+           roi_improvement >=
+               AppearanceFitMinimumImprovement &&
+           non_emission_stable;
+}
+
+auto appearance_calibrated_cluster_emissive_supported(
+    const AppearanceCalibratedClusterEmissiveEvidence& value)
+    -> bool
+{
+    if (value.paired_samples <
+            AppearanceClusterEmissiveMinimumSamples ||
+        value.responsive_samples <
+            AppearanceClusterEmissiveMinimumSamples ||
+        !std::isfinite(value.calibrated_emissive) ||
+        appearance_quantize_unit(
+            value.calibrated_emissive) == 0U ||
+        !std::isfinite(value.fallback_loss) ||
+        !std::isfinite(value.calibrated_loss) ||
+        value.fallback_loss <= 0.0)
+    {
+        return false;
+    }
+    const auto coverage =
+        static_cast<double>(value.responsive_samples) /
+        static_cast<double>(value.paired_samples);
+    const auto improvement =
+        (value.fallback_loss - value.calibrated_loss) /
+        value.fallback_loss;
+    if (coverage >=
+            AppearanceClusterEmissiveMinimumCoverage &&
+        improvement >=
+            AppearanceClusterCandidateMinimumImprovement)
+    {
+        return true;
+    }
+    const auto intrinsic_core_coverage =
+        static_cast<double>(
+            std::max(0, value.intrinsic_core_samples)) /
+        static_cast<double>(value.paired_samples);
+    return coverage >=
+               AppearanceClusterCalibratedMinimumCoverage &&
+           intrinsic_core_coverage >=
+               AppearanceClusterIntrinsicCoreMinimumCoverage &&
+           improvement >=
+               -AppearanceClusterNearNeutralMaximumLossIncrease;
 }
 
 auto appearance_non_emission_candidate_accepted(

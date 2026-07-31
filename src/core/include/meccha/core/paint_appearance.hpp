@@ -15,6 +15,16 @@ inline constexpr int AppearanceSpsaIterations = 3;
 inline constexpr double AppearanceFitMedianDeltaEMaximum = 0.05;
 inline constexpr double AppearanceFitMinimumImprovement = 0.15;
 inline constexpr int AppearanceFitMinimumSamples = 256;
+inline constexpr int AppearanceClusterEmissiveMinimumSamples = 64;
+inline constexpr double AppearanceClusterEmissiveMinimumCoverage = 0.10;
+inline constexpr double AppearanceClusterCandidateMinimumImprovement =
+    0.0001;
+inline constexpr double AppearanceClusterIntrinsicCoreMinimumCoverage =
+    0.75;
+inline constexpr double AppearanceClusterCalibratedMinimumCoverage =
+    0.90;
+inline constexpr double AppearanceClusterNearNeutralMaximumLossIncrease =
+    0.01;
 
 struct AppearanceRgb
 {
@@ -154,6 +164,35 @@ struct AppearanceBoundedResponseCalibration
     const AppearanceRgb& base_albedo_capture_hdr)
     -> AppearanceBoundedResponseCalibration;
 
+struct AppearanceAlbedoRgbCalibration
+{
+    bool supported{};
+    int responsive_channels{};
+    AppearanceRgb albedo{};
+    std::array<bool, 3> channel_supported{};
+};
+
+[[nodiscard]] auto appearance_calibrate_albedo_chromaticity(
+    const AppearanceRgb& base_albedo,
+    const AppearanceRgb& source_hdr,
+    const AppearanceRgb& base_albedo_capture_hdr)
+    -> AppearanceAlbedoRgbCalibration;
+
+struct AppearanceAlbedoChromaticityGain
+{
+    bool supported{};
+    int responsive_channels{};
+    AppearanceRgb gain{1.0, 1.0, 1.0};
+};
+
+[[nodiscard]] auto appearance_robust_albedo_chromaticity_gain(
+    const std::array<std::vector<double>, 3>&
+        log_gain_estimates)
+    -> AppearanceAlbedoChromaticityGain;
+[[nodiscard]] auto appearance_apply_albedo_chromaticity_gain(
+    const AppearanceRgb& base_albedo,
+    const AppearanceRgb& gain) -> AppearanceRgb;
+
 struct AppearanceMaterial
 {
     double albedo_blend{};
@@ -275,6 +314,45 @@ struct AppearanceFitAcceptance
 
 [[nodiscard]] auto appearance_fit_accepted(
     const AppearanceFitAcceptance& value) -> bool;
+
+struct AppearanceEmissionRoiAcceptance
+{
+    int emission_roi_samples{};
+    int emission_roi_nonzero_b_samples{};
+    int non_emission_samples{};
+    int non_emission_nonzero_b_samples{};
+    bool camera_stable{};
+    bool readback_calibrated{};
+    bool packed_b_verified{};
+    double emission_roi_loss_initial{
+        std::numeric_limits<double>::infinity()};
+    double emission_roi_loss_best{
+        std::numeric_limits<double>::infinity()};
+    double non_emission_loss_initial{
+        std::numeric_limits<double>::infinity()};
+    double non_emission_loss_best{
+        std::numeric_limits<double>::infinity()};
+};
+
+[[nodiscard]] auto appearance_emission_roi_accepted(
+    const AppearanceEmissionRoiAcceptance& value) -> bool;
+
+struct AppearanceCalibratedClusterEmissiveEvidence
+{
+    int paired_samples{};
+    int responsive_samples{};
+    double calibrated_emissive{};
+    double fallback_loss{
+        std::numeric_limits<double>::infinity()};
+    double calibrated_loss{
+        std::numeric_limits<double>::infinity()};
+    int intrinsic_core_samples{};
+};
+
+[[nodiscard]] auto
+appearance_calibrated_cluster_emissive_supported(
+    const AppearanceCalibratedClusterEmissiveEvidence& value)
+    -> bool;
 
 struct AppearanceNonEmissionCandidateAcceptance
 {

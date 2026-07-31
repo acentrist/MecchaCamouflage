@@ -337,6 +337,133 @@ auto main(int argc, char** argv) -> int
             evaluated->evaluation.paired_samples == 256 &&
             evaluated->evaluation.loss == 0.0,
         "feedback evaluation did not publish its tagged zero-loss result");
+    if (!evaluated)
+    {
+        return 1;
+    }
+
+    passed &= expect(
+        worker.start(
+                  32U,
+                  PaintAppearanceEvaluateWork{
+                      prepared->model,
+                      std::make_shared<const std::vector<
+                          core::AppearanceRgb>>(
+                          256U,
+                          core::AppearanceRgb{
+                              2.0,
+                              1.0,
+                              0.5,
+                          }),
+                      true,
+                      true,
+                      core::AppearanceReadbackTransform::
+                          Identity,
+                  })
+                .has_value(),
+        "endpoint feedback evaluation did not start");
+    const auto endpoint_completion = wait_for(worker);
+    const auto* endpoint =
+        endpoint_completion && endpoint_completion->result
+            ? std::get_if<PaintAppearanceEvaluated>(
+                  &*endpoint_completion->result)
+            : nullptr;
+    passed &= expect(
+        endpoint &&
+            endpoint->evaluation.target_hdr_by_sample.size() ==
+                256U,
+        "endpoint feedback did not retain per-sample HDR response");
+    if (!endpoint)
+    {
+        return 1;
+    }
+
+    passed &= expect(
+        worker.start(
+                  33U,
+                  PaintAppearanceEmissiveCalibrateWork{
+                      prepared->model,
+                      prepared->parameters,
+                      evaluated->evaluation,
+                      endpoint->evaluation,
+                  })
+                .has_value(),
+        "emissive endpoint calibration did not start");
+    const auto emissive_completion = wait_for(worker);
+    const auto* emissive =
+        emissive_completion && emissive_completion->result
+            ? std::get_if<PaintAppearanceEmissiveCalibrated>(
+                  &*emissive_completion->result)
+            : nullptr;
+    passed &= expect(
+        emissive && emissive->calibration.parameters.size() ==
+                        prepared->parameters.size() &&
+            emissive->calibration.responsive_samples == 0,
+        "worker did not publish bounded emissive endpoint calibration");
+    if (!emissive)
+    {
+        return 1;
+    }
+
+    passed &= expect(
+        worker.start(
+                  34U,
+                  PaintAppearanceEmissiveGateWork{
+                      prepared->model,
+                      emissive->calibration,
+                      evaluated->evaluation,
+                      endpoint->evaluation,
+                  })
+                .has_value(),
+        "emissive response gating did not start");
+    const auto gated_completion = wait_for(worker);
+    const auto* gated =
+        gated_completion && gated_completion->result
+            ? std::get_if<PaintAppearanceEmissiveGated>(
+                  &*gated_completion->result)
+            : nullptr;
+    passed &= expect(
+        gated && gated->calibration.cluster_supported.size() ==
+                     prepared->model->clusters.size() &&
+            gated->calibration.active_clusters == 0,
+        "worker did not publish cluster-gated emissive calibration");
+
+    passed &= expect(
+        worker.start(
+                  35U,
+                  PaintAppearanceAlbedoCalibrateWork{
+                      prepared->model,
+                      emissive->calibration.parameters,
+                      evaluated->evaluation,
+                      endpoint->evaluation,
+                  })
+                .has_value(),
+        "albedo endpoint calibration did not start");
+    const auto albedo_completion = wait_for(worker);
+    const auto* albedo =
+        albedo_completion && albedo_completion->result
+            ? std::get_if<PaintAppearanceAlbedoCalibrated>(
+                  &*albedo_completion->result)
+            : nullptr;
+    passed &= expect(
+        albedo && albedo->calibration.parameters.size() ==
+                      prepared->parameters.size() &&
+            albedo->calibration.responsive_samples == 256 &&
+            albedo->calibration.calibrated_samples == 256 &&
+            albedo->calibration.feedback_albedo_by_sample.size() == 256U,
+        "worker did not publish bounded albedo and RGB endpoint calibration");
+
+    auto feedback_values = std::vector<
+        core::PaintAppearanceFeedbackAlbedo>(
+            256U,
+            core::PaintAppearanceFeedbackAlbedo{
+                true,
+                core::AppearanceRgb{0.70, 0.10, 0.05},
+            });
+    auto feedback_albedo =
+        std::make_shared<const std::vector<
+            core::PaintAppearanceFeedbackAlbedo>>(
+            std::move(feedback_values));
 
     passed &= expect(
         worker.start(
@@ -353,6 +480,7 @@ auto main(int argc, char** argv) -> int
                           core::Rgb8{180U, 150U, 120U}),
                       core::paint_appearance_fallback_parameters(
                           *prepared->model),
+                      feedback_albedo,
                   })
                 .has_value(),
         "final appearance resolution did not start");
@@ -367,8 +495,13 @@ auto main(int argc, char** argv) -> int
             resolved_completion->generation == 31U && resolved &&
             resolved->appearances &&
             resolved->appearances->size() == 256U &&
-            resolved->parameters.size() == 16U,
-        "worker did not publish final immutable appearances");
+            resolved->parameters.size() == 16U &&
+            resolved->appearances->front().color.red >
+                resolved->appearances->front().color.green &&
+            resolved->appearances->front().color.green >
+                resolved->appearances->front().color.blue,
+        "worker did not publish final immutable feedback-calibrated "
+        "appearances");
 
     passed &= expect(
         worker.start(

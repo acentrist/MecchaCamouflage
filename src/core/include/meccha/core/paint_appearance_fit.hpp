@@ -98,7 +98,53 @@ struct PaintAppearanceEvaluation
         std::numeric_limits<double>::infinity()};
     double maximum_chromaticity_delta{
         std::numeric_limits<double>::infinity()};
+    int emission_roi_paired_samples{};
+    double emission_roi_loss{
+        std::numeric_limits<double>::infinity()};
+    int non_emission_paired_samples{};
+    double non_emission_loss{
+        std::numeric_limits<double>::infinity()};
+    std::vector<AppearanceHdrSample> target_hdr_by_sample{};
     std::vector<PaintAppearanceClusterEvaluation> clusters{};
+};
+
+struct PaintAppearanceEmissiveCalibration
+{
+    std::vector<double> parameters{};
+    std::vector<int> cluster_responsive_samples{};
+    std::vector<double> cluster_emissive{};
+    std::vector<bool> cluster_supported{};
+    int responsive_samples{};
+    int eligible_responsive_samples{};
+    int active_clusters{};
+    int rejected_clusters{};
+    int supported_emission_samples{};
+    int rejected_emission_samples{};
+    double emissive_mean{};
+    double emissive_max{};
+};
+
+struct PaintAppearanceFeedbackAlbedo
+{
+    bool valid{};
+    AppearanceRgb value{};
+};
+
+struct PaintAppearanceAlbedoCalibration
+{
+    std::vector<double> parameters{};
+    std::vector<int> cluster_responsive_samples{};
+    std::vector<double> cluster_blend{};
+    std::vector<PaintAppearanceFeedbackAlbedo>
+        feedback_albedo_by_sample{};
+    int responsive_samples{};
+    int active_clusters{};
+    int calibrated_samples{};
+    int responsive_channels{};
+    double blend_mean{};
+    double blend_min{1.0};
+    double blend_max{};
+    double mean_absolute_adjustment{};
 };
 
 enum class PaintAppearanceTrialPhase : std::uint8_t
@@ -129,6 +175,7 @@ struct PaintAppearanceFitSession
     std::size_t cluster_count{};
     std::uint64_t seed{};
     int iteration{};
+    bool freeze_emissive{};
     PaintAppearanceFitSessionStage stage{
         PaintAppearanceFitSessionStage::NeedPlus};
     std::vector<double> fallback_parameters{};
@@ -180,10 +227,87 @@ enum class PaintAppearanceFitError : std::uint8_t
     const PaintAppearanceModel& model)
     -> std::vector<double>;
 
+[[nodiscard]] auto paint_appearance_emissive_endpoint_parameters(
+    const PaintAppearanceModel& model)
+    -> std::expected<
+        std::vector<double>,
+        PaintAppearanceFitError>;
+
+[[nodiscard]] auto calibrate_paint_appearance_emissive_endpoint(
+    const PaintAppearanceModel& model,
+    std::span<const double> source_parameters,
+    const PaintAppearanceEvaluation& fallback,
+    const PaintAppearanceEvaluation& endpoint)
+    -> std::expected<
+        PaintAppearanceEmissiveCalibration,
+        PaintAppearanceFitError>;
+
+[[nodiscard]] auto gate_paint_appearance_emissive_calibration(
+    const PaintAppearanceModel& model,
+    const PaintAppearanceEmissiveCalibration& calibration,
+    const PaintAppearanceEvaluation& fallback,
+    const PaintAppearanceEvaluation& calibrated)
+    -> std::expected<
+        PaintAppearanceEmissiveCalibration,
+        PaintAppearanceFitError>;
+
+[[nodiscard]] auto paint_appearance_albedo_endpoint_parameters(
+    const PaintAppearanceModel& model,
+    std::span<const double> calibrated_parameters)
+    -> std::expected<
+        std::vector<double>,
+        PaintAppearanceFitError>;
+
+[[nodiscard]] auto calibrate_paint_appearance_albedo_endpoint(
+    const PaintAppearanceModel& model,
+    std::span<const double> baseline_parameters,
+    const PaintAppearanceEvaluation& baseline,
+    const PaintAppearanceEvaluation& endpoint)
+    -> std::expected<
+        PaintAppearanceAlbedoCalibration,
+        PaintAppearanceFitError>;
+
+[[nodiscard]] auto paint_appearance_non_emission_parameters(
+    const PaintAppearanceModel& model,
+    std::span<const double> calibrated_parameters)
+    -> std::expected<
+        std::vector<double>,
+        PaintAppearanceFitError>;
+
+[[nodiscard]] auto
+paint_appearance_feedback_albedo_authoritative(
+    const PaintAppearanceModel& model,
+    const PaintAppearanceAlbedoCalibration& calibration,
+    const PaintAppearanceEvaluation& fallback,
+    const PaintAppearanceEvaluation& albedo_endpoint,
+    const PaintAppearanceEvaluation& candidate) -> bool;
+
+[[nodiscard]] auto
+paint_appearance_non_emission_candidate_accepted(
+    const PaintAppearanceModel& model,
+    std::span<const double> parameters,
+    bool packed_b_verified,
+    const PaintAppearanceEvaluation& fallback,
+    const PaintAppearanceEvaluation& albedo_endpoint,
+    const PaintAppearanceEvaluation& candidate) -> bool;
+
+[[nodiscard]] auto paint_appearance_emission_candidate_accepted(
+    const PaintAppearanceModel& model,
+    const PaintAppearanceEmissiveCalibration& calibration,
+    std::span<const double> parameters,
+    bool packed_b_verified,
+    const PaintAppearanceEvaluation& fallback,
+    const PaintAppearanceEvaluation& candidate) -> bool;
+
 [[nodiscard]] auto begin_paint_appearance_fit(
     const PaintAppearanceModel& model,
     std::vector<double> fallback_parameters,
     PaintAppearanceEvaluation fallback_evaluation,
+    std::optional<std::vector<double>> initial_parameters =
+        std::nullopt,
+    std::optional<PaintAppearanceEvaluation> initial_evaluation =
+        std::nullopt,
+    bool freeze_emissive = false,
     std::uint64_t seed = 0x218a55e5ULL)
     -> std::expected<
         PaintAppearanceFitSession,
@@ -211,6 +335,9 @@ enum class PaintAppearanceFitError : std::uint8_t
     std::span<const Rgb8> base_colors,
     std::span<const Rgb8> scene_colors,
     std::span<const double> parameters,
+    std::span<const PaintAppearanceFeedbackAlbedo>
+        feedback_albedo_by_sample = {},
+    bool safe_fallback = false,
     std::stop_token cancellation = {})
     -> std::expected<
         std::vector<ResolvedPaintAppearance>,

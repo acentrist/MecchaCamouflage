@@ -377,6 +377,13 @@ auto PaintAppearanceWorker::run(
                             *work.base_colors,
                             *work.scene_colors,
                             work.parameters,
+                            work.feedback_albedo_by_sample
+                                ? std::span<const core::
+                                      PaintAppearanceFeedbackAlbedo>{
+                                      *work.feedback_albedo_by_sample}
+                                : std::span<const core::
+                                      PaintAppearanceFeedbackAlbedo>{},
+                            work.safe_fallback,
                             cancellation);
                     if (!appearances)
                     {
@@ -513,6 +520,13 @@ auto PaintAppearanceWorker::run(
                             *work.base_colors,
                             *work.scene_colors,
                             work.parameters,
+                            work.feedback_albedo_by_sample
+                                ? std::span<const core::
+                                      PaintAppearanceFeedbackAlbedo>{
+                                      *work.feedback_albedo_by_sample}
+                                : std::span<const core::
+                                      PaintAppearanceFeedbackAlbedo>{},
+                            work.safe_fallback,
                             cancellation);
                     if (!appearances)
                     {
@@ -527,7 +541,10 @@ auto PaintAppearanceWorker::run(
                             std::move(work.parameters),
                         }};
                 }
-                else
+                else if constexpr (
+                    std::is_same_v<
+                        Work,
+                        PaintAppearanceEvaluateWork>)
                 {
                     if (!work.model || !work.target_hdr)
                     {
@@ -549,6 +566,75 @@ auto PaintAppearanceWorker::run(
                     return PaintAppearanceWorkValue{
                         PaintAppearanceEvaluated{
                             std::move(*evaluation),
+                        }};
+                }
+                else if constexpr (
+                    std::is_same_v<
+                        Work,
+                        PaintAppearanceEmissiveCalibrateWork>)
+                {
+                    if (!work.model)
+                    {
+                        return invalid_request();
+                    }
+                    auto calibration =
+                        core::calibrate_paint_appearance_emissive_endpoint(
+                            *work.model,
+                            work.source_parameters,
+                            work.fallback,
+                            work.endpoint);
+                    if (!calibration)
+                    {
+                        return core_failure(calibration.error());
+                    }
+                    return PaintAppearanceWorkValue{
+                        PaintAppearanceEmissiveCalibrated{
+                            std::move(*calibration),
+                        }};
+                }
+                else if constexpr (
+                    std::is_same_v<
+                        Work,
+                        PaintAppearanceEmissiveGateWork>)
+                {
+                    if (!work.model)
+                    {
+                        return invalid_request();
+                    }
+                    auto calibration =
+                        core::gate_paint_appearance_emissive_calibration(
+                            *work.model,
+                            work.calibration,
+                            work.fallback,
+                            work.calibrated);
+                    if (!calibration)
+                    {
+                        return core_failure(calibration.error());
+                    }
+                    return PaintAppearanceWorkValue{
+                        PaintAppearanceEmissiveGated{
+                            std::move(*calibration),
+                        }};
+                }
+                else
+                {
+                    if (!work.model)
+                    {
+                        return invalid_request();
+                    }
+                    auto calibration =
+                        core::calibrate_paint_appearance_albedo_endpoint(
+                            *work.model,
+                            work.baseline_parameters,
+                            work.baseline,
+                            work.endpoint);
+                    if (!calibration)
+                    {
+                        return core_failure(calibration.error());
+                    }
+                    return PaintAppearanceWorkValue{
+                        PaintAppearanceAlbedoCalibrated{
+                            std::move(*calibration),
                         }};
                 }
             },

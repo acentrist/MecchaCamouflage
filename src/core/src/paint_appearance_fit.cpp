@@ -758,6 +758,759 @@ auto paint_appearance_fallback_parameters(
 
 namespace
 {
+auto endpoint_model_valid(const PaintAppearanceModel& model) -> bool
+{
+    return !model.samples.empty() && !model.clusters.empty() &&
+           model.supported_samples == model.samples.size() &&
+           model.emission_roi_samples ==
+               static_cast<std::size_t>(std::ranges::count_if(
+                   model.samples,
+                   [](const PaintAppearanceModelSample& sample)
+                   {
+                       return sample.emission_roi;
+                   }));
+}
+
+auto endpoint_parameters_valid(
+    std::span<const double> parameters,
+    std::size_t cluster_count) -> bool
+{
+    return !parameters.empty() &&
+           parameters.size() == cluster_count * 4U &&
+           std::ranges::all_of(
+               parameters,
+               [](double value)
+               {
+                   return unit(value);
+               });
+}
+
+auto endpoint_evaluation_valid(
+    const PaintAppearanceEvaluation& evaluation,
+    const PaintAppearanceModel& model) -> bool
+{
+    return evaluation.camera_stable &&
+           evaluation.readback_calibrated &&
+           evaluation.paired_samples >=
+               AppearanceFitMinimumSamples &&
+           std::isfinite(evaluation.loss) &&
+           evaluation.loss >= 0.0 &&
+           std::isfinite(evaluation.median_delta_e) &&
+           evaluation.median_delta_e >= 0.0 &&
+           evaluation.target_hdr_by_sample.size() ==
+               model.samples.size() &&
+           evaluation.clusters.size() ==
+               model.clusters.size();
+}
+} // namespace
+
+auto paint_appearance_emissive_endpoint_parameters(
+    const PaintAppearanceModel& model)
+    -> std::expected<
+        std::vector<double>,
+        PaintAppearanceFitError>
+{
+    if (!endpoint_model_valid(model))
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidModel);
+    }
+    auto output = paint_appearance_fallback_parameters(model);
+    for (auto offset = std::size_t{3U};
+         offset < output.size(); offset += 4U)
+    {
+        output[offset] = 1.0;
+    }
+    return output;
+}
+
+auto calibrate_paint_appearance_emissive_endpoint(
+    const PaintAppearanceModel& model,
+    std::span<const double> source_parameters,
+    const PaintAppearanceEvaluation& fallback,
+    const PaintAppearanceEvaluation& endpoint)
+    -> std::expected<
+        PaintAppearanceEmissiveCalibration,
+        PaintAppearanceFitError>
+{
+    if (!endpoint_model_valid(model))
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidModel);
+    }
+    if (!endpoint_parameters_valid(
+            source_parameters,
+            model.clusters.size()))
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidParameters);
+    }
+    if (!endpoint_evaluation_valid(fallback, model) ||
+        !endpoint_evaluation_valid(endpoint, model))
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidResponse);
+    }
+
+    auto estimates = std::vector<std::vector<double>>(
+        model.clusters.size());
+    auto output = PaintAppearanceEmissiveCalibration{};
+    output.cluster_responsive_samples.resize(
+        model.clusters.size(), 0);
+    output.cluster_emissive.resize(
+        model.clusters.size(), 0.0);
+    output.parameters.reserve(model.clusters.size() * 4U);
+    for (auto sample_index = std::size_t{};
+         sample_index < model.samples.size(); ++sample_index)
+    {
+        const auto& sample = model.samples[sample_index];
+        if (!sample.emission_roi ||
+            sample.cluster >= estimates.size())
+        {
+            continue;
+        }
+        const auto& baseline_hdr =
+            fallback.target_hdr_by_sample[sample_index];
+        const auto& endpoint_hdr =
+            endpoint.target_hdr_by_sample[sample_index];
+        if (!baseline_hdr.finite || baseline_hdr.clipped ||
+            !endpoint_hdr.finite || endpoint_hdr.clipped)
+        {
+            continue;
+        }
+        const auto calibrated = appearance_calibrate_emissive(
+            sample.source_final_hdr,
+            baseline_hdr.value,
+            endpoint_hdr.value);
+        if (!calibrated.supported)
+        {
+            continue;
+        }
+        estimates[sample.cluster].push_back(
+            calibrated.emissive);
+        ++output.cluster_responsive_samples[sample.cluster];
+        ++output.responsive_samples;
+    }
+
+    auto total = 0.0;
+    for (auto cluster_index = std::size_t{};
+         cluster_index < model.clusters.size(); ++cluster_index)
+    {
+        auto emissive = 0.0;
+        auto& cluster_estimates = estimates[cluster_index];
+        if (!cluster_estimates.empty())
+        {
+            emissive = std::clamp(
+                median(cluster_estimates), 0.0, 1.0);
+        }
+        const auto& fallback_cluster =
+            fallback.clusters[cluster_index];
+        const auto& endpoint_cluster =
+            endpoint.clusters[cluster_index];
+        const auto supported =
+            fallback_cluster.paired_samples > 0 &&
+            endpoint_cluster.paired_samples > 0 &&
+            std::isfinite(fallback_cluster.loss) &&
+            std::isfinite(endpoint_cluster.loss) &&
+            output.cluster_responsive_samples[cluster_index] > 0;
+        if (!supported)
+        {
+            emissive = 0.0;
+        }
+        else
+        {
+            emissive = appearance_emission_projected_value(
+                emissive, true);
+        }
+        output.cluster_emissive[cluster_index] = emissive;
+        output.parameters.push_back(1.0);
+        output.parameters.push_back(0.0);
+        output.parameters.push_back(
+            AppearanceFallbackRoughness);
+        output.parameters.push_back(emissive);
+        total += emissive;
+        output.emissive_max =
+            std::max(output.emissive_max, emissive);
+        if (appearance_quantize_unit(emissive) > 0U)
+        {
+            ++output.active_clusters;
+            output.eligible_responsive_samples +=
+                output.cluster_responsive_samples[cluster_index];
+        }
+    }
+    output.emissive_mean =
+        total / static_cast<double>(model.clusters.size());
+    return output;
+}
+
+auto gate_paint_appearance_emissive_calibration(
+    const PaintAppearanceModel& model,
+    const PaintAppearanceEmissiveCalibration& calibration,
+    const PaintAppearanceEvaluation& fallback,
+    const PaintAppearanceEvaluation& calibrated)
+    -> std::expected<
+        PaintAppearanceEmissiveCalibration,
+        PaintAppearanceFitError>
+{
+    if (!endpoint_model_valid(model))
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidModel);
+    }
+    if (!endpoint_parameters_valid(
+            calibration.parameters,
+            model.clusters.size()) ||
+        calibration.cluster_responsive_samples.size() !=
+            model.clusters.size() ||
+        calibration.cluster_emissive.size() !=
+            model.clusters.size())
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidParameters);
+    }
+    if (!endpoint_evaluation_valid(fallback, model) ||
+        !endpoint_evaluation_valid(calibrated, model))
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidResponse);
+    }
+
+    auto output = calibration;
+    output.cluster_supported.assign(
+        model.clusters.size(), false);
+    output.active_clusters = 0;
+    output.rejected_clusters = 0;
+    output.eligible_responsive_samples = 0;
+    output.supported_emission_samples = 0;
+    output.rejected_emission_samples = 0;
+    output.emissive_mean = 0.0;
+    output.emissive_max = 0.0;
+    const auto intrinsic_core_threshold = std::max(
+        model.effective_emission_noise.threshold * 4.0,
+        model.effective_emission_noise.threshold + 0.05);
+    for (auto cluster_index = std::size_t{};
+         cluster_index < model.clusters.size(); ++cluster_index)
+    {
+        auto emission_samples = 0;
+        auto intrinsic_core_samples = 0;
+        for (const auto sample_index :
+             model.clusters[cluster_index].sample_indices)
+        {
+            if (sample_index >= model.samples.size())
+            {
+                return std::unexpected(
+                    PaintAppearanceFitError::InvalidModel);
+            }
+            const auto& sample = model.samples[sample_index];
+            if (!sample.emission_roi)
+            {
+                continue;
+            }
+            ++emission_samples;
+            if (std::isfinite(
+                    appearance_luminance(
+                        sample.intrinsic_emission)) &&
+                appearance_luminance(
+                    sample.intrinsic_emission) >=
+                    intrinsic_core_threshold)
+            {
+                ++intrinsic_core_samples;
+            }
+        }
+        if (emission_samples == 0)
+        {
+            output.parameters[cluster_index * 4U + 3U] =
+                0.0;
+            output.cluster_emissive[cluster_index] = 0.0;
+            continue;
+        }
+        const auto supported =
+            appearance_calibrated_cluster_emissive_supported(
+                AppearanceCalibratedClusterEmissiveEvidence{
+                    fallback.clusters[cluster_index]
+                        .paired_samples,
+                    output.cluster_responsive_samples[
+                        cluster_index],
+                    output.cluster_emissive[cluster_index],
+                    fallback.clusters[cluster_index].loss,
+                    calibrated.clusters[cluster_index].loss,
+                    intrinsic_core_samples,
+                });
+        output.cluster_supported[cluster_index] = supported;
+        if (!supported)
+        {
+            output.parameters[cluster_index * 4U + 3U] =
+                0.0;
+            output.cluster_emissive[cluster_index] = 0.0;
+            ++output.rejected_clusters;
+            output.rejected_emission_samples +=
+                emission_samples;
+            continue;
+        }
+        ++output.active_clusters;
+        output.eligible_responsive_samples +=
+            output.cluster_responsive_samples[cluster_index];
+        output.supported_emission_samples += emission_samples;
+        output.emissive_max = std::max(
+            output.emissive_max,
+            output.cluster_emissive[cluster_index]);
+        output.emissive_mean +=
+            output.cluster_emissive[cluster_index];
+    }
+    output.emissive_mean /=
+        static_cast<double>(model.clusters.size());
+    return output;
+}
+
+auto paint_appearance_albedo_endpoint_parameters(
+    const PaintAppearanceModel& model,
+    std::span<const double> calibrated_parameters)
+    -> std::expected<
+        std::vector<double>,
+        PaintAppearanceFitError>
+{
+    if (!endpoint_model_valid(model))
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidModel);
+    }
+    if (!endpoint_parameters_valid(
+            calibrated_parameters,
+            model.clusters.size()))
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidParameters);
+    }
+    auto output = std::vector<double>{
+        calibrated_parameters.begin(),
+        calibrated_parameters.end()};
+    for (auto offset = std::size_t{};
+         offset < output.size(); offset += 4U)
+    {
+        output[offset] = 0.0;
+    }
+    return output;
+}
+
+auto calibrate_paint_appearance_albedo_endpoint(
+    const PaintAppearanceModel& model,
+    std::span<const double> baseline_parameters,
+    const PaintAppearanceEvaluation& baseline,
+    const PaintAppearanceEvaluation& endpoint)
+    -> std::expected<
+        PaintAppearanceAlbedoCalibration,
+        PaintAppearanceFitError>
+{
+    if (!endpoint_model_valid(model))
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidModel);
+    }
+    if (!endpoint_parameters_valid(
+            baseline_parameters,
+            model.clusters.size()))
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidParameters);
+    }
+    if (!endpoint_evaluation_valid(baseline, model) ||
+        !endpoint_evaluation_valid(endpoint, model))
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidResponse);
+    }
+
+    auto estimates = std::vector<std::vector<double>>(
+        model.clusters.size());
+    auto cluster_log_gain_estimates = std::vector<
+        std::array<std::vector<double>, 3>>(
+            model.clusters.size());
+    auto output = PaintAppearanceAlbedoCalibration{};
+    output.parameters.assign(
+        baseline_parameters.begin(),
+        baseline_parameters.end());
+    output.cluster_responsive_samples.resize(
+        model.clusters.size(), 0);
+    output.cluster_blend.resize(model.clusters.size(), 1.0);
+    output.feedback_albedo_by_sample.resize(
+        model.samples.size());
+    for (auto sample_index = std::size_t{};
+         sample_index < model.samples.size(); ++sample_index)
+    {
+        const auto& sample = model.samples[sample_index];
+        if (sample.cluster >= estimates.size())
+        {
+            return std::unexpected(
+                PaintAppearanceFitError::InvalidModel);
+        }
+        const auto& baseline_hdr =
+            baseline.target_hdr_by_sample[sample_index];
+        const auto& endpoint_hdr =
+            endpoint.target_hdr_by_sample[sample_index];
+        if (!baseline_hdr.finite || baseline_hdr.clipped ||
+            !endpoint_hdr.finite || endpoint_hdr.clipped)
+        {
+            continue;
+        }
+        const auto calibrated =
+            appearance_calibrate_albedo_blend(
+                sample.source_final_hdr,
+                baseline_hdr.value,
+                endpoint_hdr.value);
+        if (!calibrated.supported)
+        {
+            continue;
+        }
+        estimates[sample.cluster].push_back(
+            calibrated.parameter);
+        ++output.cluster_responsive_samples[sample.cluster];
+        ++output.responsive_samples;
+
+        if (sample.emission_roi)
+        {
+            continue;
+        }
+        const auto calibrated_rgb =
+            appearance_calibrate_albedo_chromaticity(
+                sample.base_linear,
+                sample.source_final_hdr,
+                endpoint_hdr.value);
+        if (!calibrated_rgb.supported)
+        {
+            continue;
+        }
+        const auto base_channels = std::array<double, 3>{
+            sample.base_linear.r,
+            sample.base_linear.g,
+            sample.base_linear.b,
+        };
+        const auto calibrated_channels = std::array<double, 3>{
+            calibrated_rgb.albedo.r,
+            calibrated_rgb.albedo.g,
+            calibrated_rgb.albedo.b,
+        };
+        auto& gain_estimates =
+            cluster_log_gain_estimates[sample.cluster];
+        for (auto channel = std::size_t{};
+             channel < gain_estimates.size(); ++channel)
+        {
+            if (!calibrated_rgb.channel_supported[channel] ||
+                base_channels[channel] <= 1.0 / 255.0 ||
+                calibrated_channels[channel] <= 0.0)
+            {
+                continue;
+            }
+            const auto log_gain = std::log(
+                calibrated_channels[channel] /
+                base_channels[channel]);
+            if (std::isfinite(log_gain))
+            {
+                gain_estimates[channel].push_back(log_gain);
+            }
+        }
+    }
+
+    auto total = 0.0;
+    output.blend_min = 1.0;
+    for (auto cluster_index = std::size_t{};
+         cluster_index < model.clusters.size(); ++cluster_index)
+    {
+        auto blend = 1.0;
+        auto& cluster_estimates = estimates[cluster_index];
+        if (!cluster_estimates.empty())
+        {
+            blend = std::clamp(
+                median(cluster_estimates), 0.0, 1.0);
+        }
+        output.cluster_blend[cluster_index] = blend;
+        output.parameters[cluster_index * 4U] = blend;
+        total += blend;
+        output.blend_min = std::min(output.blend_min, blend);
+        output.blend_max = std::max(output.blend_max, blend);
+        if (appearance_quantize_unit(
+                std::abs(blend - 1.0)) > 0U)
+        {
+            ++output.active_clusters;
+        }
+    }
+    output.blend_mean =
+        total / static_cast<double>(model.clusters.size());
+
+    auto cluster_gains =
+        std::vector<AppearanceAlbedoChromaticityGain>{};
+    cluster_gains.reserve(cluster_log_gain_estimates.size());
+    for (const auto& gain_estimates :
+         cluster_log_gain_estimates)
+    {
+        cluster_gains.push_back(
+            appearance_robust_albedo_chromaticity_gain(
+                gain_estimates));
+    }
+    auto total_adjustment = 0.0;
+    for (auto sample_index = std::size_t{};
+         sample_index < model.samples.size(); ++sample_index)
+    {
+        const auto& sample = model.samples[sample_index];
+        if (sample.emission_roi ||
+            sample.cluster >= cluster_gains.size())
+        {
+            continue;
+        }
+        const auto& gain = cluster_gains[sample.cluster];
+        if (!gain.supported)
+        {
+            continue;
+        }
+        const auto calibrated =
+            appearance_apply_albedo_chromaticity_gain(
+                sample.base_linear,
+                gain.gain);
+        output.feedback_albedo_by_sample[sample_index] = {
+            true,
+            calibrated,
+        };
+        ++output.calibrated_samples;
+        output.responsive_channels += gain.responsive_channels;
+        total_adjustment +=
+            (std::abs(calibrated.r - sample.base_linear.r) +
+             std::abs(calibrated.g - sample.base_linear.g) +
+             std::abs(calibrated.b - sample.base_linear.b)) /
+            3.0;
+    }
+    if (output.calibrated_samples > 0)
+    {
+        output.mean_absolute_adjustment =
+            total_adjustment /
+            static_cast<double>(output.calibrated_samples);
+    }
+    return output;
+}
+
+auto paint_appearance_non_emission_parameters(
+    const PaintAppearanceModel& model,
+    std::span<const double> calibrated_parameters)
+    -> std::expected<
+        std::vector<double>,
+        PaintAppearanceFitError>
+{
+    if (!endpoint_model_valid(model))
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidModel);
+    }
+    if (!endpoint_parameters_valid(
+            calibrated_parameters,
+            model.clusters.size()))
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidParameters);
+    }
+    auto output = std::vector<double>{
+        calibrated_parameters.begin(),
+        calibrated_parameters.end()};
+    if (model.emission_roi_samples == 0U)
+    {
+        for (auto offset = std::size_t{3U};
+             offset < output.size(); offset += 4U)
+        {
+            output[offset] = 0.0;
+        }
+    }
+    return output;
+}
+
+auto paint_appearance_feedback_albedo_authoritative(
+    const PaintAppearanceModel& model,
+    const PaintAppearanceAlbedoCalibration& calibration,
+    const PaintAppearanceEvaluation& fallback,
+    const PaintAppearanceEvaluation& albedo_endpoint,
+    const PaintAppearanceEvaluation& candidate) -> bool
+{
+    if (!endpoint_model_valid(model) ||
+        !endpoint_parameters_valid(
+            calibration.parameters,
+            model.clusters.size()) ||
+        calibration.feedback_albedo_by_sample.size() !=
+            model.samples.size() ||
+        calibration.calibrated_samples <= 0 ||
+        calibration.responsive_channels <= 0 ||
+        !std::isfinite(calibration.mean_absolute_adjustment) ||
+        calibration.mean_absolute_adjustment < 0.0 ||
+        !endpoint_evaluation_valid(fallback, model) ||
+        !endpoint_evaluation_valid(albedo_endpoint, model) ||
+        !endpoint_evaluation_valid(candidate, model) ||
+        !std::isfinite(
+            albedo_endpoint.median_chromaticity_delta) ||
+        !std::isfinite(
+            candidate.median_chromaticity_delta) ||
+        !std::isfinite(
+            albedo_endpoint.maximum_chromaticity_delta) ||
+        !std::isfinite(
+            candidate.maximum_chromaticity_delta) ||
+        candidate.median_chromaticity_delta >
+            albedo_endpoint.median_chromaticity_delta + 0.0005 ||
+        candidate.maximum_chromaticity_delta >
+            albedo_endpoint.maximum_chromaticity_delta +
+                1.0 / 255.0)
+    {
+        return false;
+    }
+    auto calibrated_samples = 0;
+    for (auto sample_index = std::size_t{};
+         sample_index < model.samples.size(); ++sample_index)
+    {
+        const auto& feedback =
+            calibration.feedback_albedo_by_sample[sample_index];
+        if (!feedback.valid)
+        {
+            continue;
+        }
+        if (model.samples[sample_index].emission_roi ||
+            !appearance_rgb_finite(feedback.value))
+        {
+            return false;
+        }
+        ++calibrated_samples;
+    }
+    if (calibrated_samples != calibration.calibrated_samples)
+    {
+        return false;
+    }
+    return appearance_fit_accepted(
+        AppearanceFitAcceptance{
+            candidate.paired_samples,
+            candidate.camera_stable,
+            candidate.readback_calibrated,
+            fallback.loss,
+            candidate.loss,
+            candidate.median_delta_e,
+        });
+}
+
+auto paint_appearance_non_emission_candidate_accepted(
+    const PaintAppearanceModel& model,
+    std::span<const double> parameters,
+    bool packed_b_verified,
+    const PaintAppearanceEvaluation& fallback,
+    const PaintAppearanceEvaluation& albedo_endpoint,
+    const PaintAppearanceEvaluation& candidate) -> bool
+{
+    if (!endpoint_model_valid(model) ||
+        !endpoint_parameters_valid(
+            parameters,
+            model.clusters.size()) ||
+        model.emission_roi_samples != 0U ||
+        !endpoint_evaluation_valid(fallback, model) ||
+        !endpoint_evaluation_valid(albedo_endpoint, model) ||
+        !endpoint_evaluation_valid(candidate, model) ||
+        !std::isfinite(
+            albedo_endpoint.median_chromaticity_delta) ||
+        !std::isfinite(
+            candidate.median_chromaticity_delta) ||
+        candidate.median_chromaticity_delta >
+            albedo_endpoint.median_chromaticity_delta + 0.0005)
+    {
+        return false;
+    }
+    auto emissive_nonzero_samples = 0;
+    for (const auto& sample : model.samples)
+    {
+        if (sample.cluster >= model.clusters.size())
+        {
+            return false;
+        }
+        emissive_nonzero_samples +=
+            appearance_quantize_unit(
+                parameters[sample.cluster * 4U + 3U]) > 0U
+                ? 1
+                : 0;
+    }
+    return appearance_non_emission_candidate_accepted(
+        AppearanceNonEmissionCandidateAcceptance{
+            candidate.paired_samples,
+            emissive_nonzero_samples,
+            candidate.camera_stable,
+            candidate.readback_calibrated,
+            packed_b_verified,
+            fallback.loss,
+            candidate.loss,
+            candidate.median_delta_e,
+            static_cast<int>(model.emission_roi_samples),
+            fallback.emission_roi_loss,
+            candidate.emission_roi_loss,
+            albedo_endpoint.maximum_chromaticity_delta,
+            candidate.maximum_chromaticity_delta,
+        });
+}
+
+auto paint_appearance_emission_candidate_accepted(
+    const PaintAppearanceModel& model,
+    const PaintAppearanceEmissiveCalibration& calibration,
+    std::span<const double> parameters,
+    bool packed_b_verified,
+    const PaintAppearanceEvaluation& fallback,
+    const PaintAppearanceEvaluation& candidate) -> bool
+{
+    if (!endpoint_model_valid(model) ||
+        !endpoint_parameters_valid(
+            parameters,
+            model.clusters.size()) ||
+        calibration.cluster_supported.size() !=
+            model.clusters.size() ||
+        !endpoint_parameters_valid(
+            calibration.parameters,
+            model.clusters.size()) ||
+        model.emission_roi_samples == 0U ||
+        !endpoint_evaluation_valid(fallback, model) ||
+        !endpoint_evaluation_valid(candidate, model))
+    {
+        return false;
+    }
+    auto emission_samples = 0;
+    auto emission_nonzero = 0;
+    auto non_emission_samples = 0;
+    auto non_emission_nonzero = 0;
+    for (const auto& sample : model.samples)
+    {
+        if (sample.cluster >= model.clusters.size())
+        {
+            return false;
+        }
+        const auto effective_emission_roi =
+            sample.emission_roi &&
+            calibration.cluster_supported[sample.cluster];
+        const auto nonzero = effective_emission_roi &&
+            appearance_quantize_unit(
+                parameters[sample.cluster * 4U + 3U]) > 0U;
+        if (effective_emission_roi)
+        {
+            ++emission_samples;
+            emission_nonzero += nonzero ? 1 : 0;
+        }
+        else
+        {
+            ++non_emission_samples;
+            non_emission_nonzero += nonzero ? 1 : 0;
+        }
+    }
+    return appearance_emission_roi_accepted(
+        AppearanceEmissionRoiAcceptance{
+            emission_samples,
+            emission_nonzero,
+            non_emission_samples,
+            non_emission_nonzero,
+            candidate.camera_stable,
+            candidate.readback_calibrated,
+            packed_b_verified,
+            fallback.emission_roi_loss,
+            candidate.emission_roi_loss,
+            fallback.non_emission_loss,
+            candidate.non_emission_loss,
+        });
+}
+
+namespace
+{
 auto fit_evaluation_valid(
     const PaintAppearanceEvaluation& evaluation,
     std::size_t cluster_count) -> bool
@@ -806,6 +1559,9 @@ auto begin_paint_appearance_fit(
     const PaintAppearanceModel& model,
     std::vector<double> fallback_parameters,
     PaintAppearanceEvaluation fallback_evaluation,
+    std::optional<std::vector<double>> initial_parameters,
+    std::optional<PaintAppearanceEvaluation> initial_evaluation,
+    bool freeze_emissive,
     std::uint64_t seed)
     -> std::expected<
         PaintAppearanceFitSession,
@@ -831,13 +1587,44 @@ auto begin_paint_appearance_fit(
         return std::unexpected(
             PaintAppearanceFitError::InvalidResponse);
     }
-    auto parameters = fallback_parameters;
+    if (initial_parameters.has_value() !=
+        initial_evaluation.has_value())
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidInput);
+    }
+    if (initial_parameters &&
+        !fit_parameters_valid(
+            *initial_parameters,
+            model.clusters.size()))
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidParameters);
+    }
+    if (initial_evaluation &&
+        !fit_evaluation_valid(
+            *initial_evaluation,
+            model.clusters.size()))
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidResponse);
+    }
+    auto parameters = initial_parameters
+                          ? std::move(*initial_parameters)
+                          : fallback_parameters;
     auto best_parameters = fallback_parameters;
     auto best_evaluation = fallback_evaluation;
+    if (initial_evaluation &&
+        initial_evaluation->loss < best_evaluation.loss)
+    {
+        best_parameters = parameters;
+        best_evaluation = std::move(*initial_evaluation);
+    }
     return PaintAppearanceFitSession{
         model.clusters.size(),
         seed,
         0,
+        freeze_emissive,
         PaintAppearanceFitSessionStage::NeedPlus,
         std::move(fallback_parameters),
         std::move(fallback_evaluation),
@@ -876,6 +1663,17 @@ auto next_paint_appearance_trial(
             session.parameters,
             session.iteration,
             session.seed);
+        if (session.freeze_emissive)
+        {
+            for (auto offset = std::size_t{3U};
+                 offset < session.parameters.size(); offset += 4U)
+            {
+                session.pair.plus[offset] =
+                    session.parameters[offset];
+                session.pair.minus[offset] =
+                    session.parameters[offset];
+            }
+        }
         if (!fit_parameters_valid(
                 session.pair.plus,
                 session.cluster_count) ||
@@ -968,6 +1766,15 @@ auto observe_paint_appearance_trial(
         plus_losses,
         minus_losses,
         session.iteration);
+    if (session.freeze_emissive)
+    {
+        for (auto offset = std::size_t{3U};
+             offset < session.parameters.size(); offset += 4U)
+        {
+            session.parameters[offset] =
+                session.pair.plus[offset];
+        }
+    }
     if (!fit_parameters_valid(
             session.parameters,
             session.cluster_count))
@@ -1035,6 +1842,9 @@ auto resolve_paint_appearance_raster(
     std::span<const Rgb8> base_colors,
     std::span<const Rgb8> scene_colors,
     std::span<const double> parameters,
+    std::span<const PaintAppearanceFeedbackAlbedo>
+        feedback_albedo_by_sample,
+    bool safe_fallback,
     std::stop_token cancellation)
     -> std::expected<
         std::vector<ResolvedPaintAppearance>,
@@ -1066,6 +1876,21 @@ auto resolve_paint_appearance_raster(
             {
                 return unit(value);
             }))
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidParameters);
+    }
+    if (!feedback_albedo_by_sample.empty() &&
+        feedback_albedo_by_sample.size() != model.samples.size())
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidParameters);
+    }
+    if (safe_fallback &&
+        (!feedback_albedo_by_sample.empty() ||
+         !std::ranges::equal(
+             parameters,
+             paint_appearance_fallback_parameters(model))))
     {
         return std::unexpected(
             PaintAppearanceFitError::InvalidParameters);
@@ -1119,6 +1944,31 @@ auto resolve_paint_appearance_raster(
             return std::unexpected(
                 PaintAppearanceFitError::InvalidModel);
         }
+        if (safe_fallback)
+        {
+            auto fallback =
+                appearance_make_safe_final_fallback(
+                    sample.base_linear,
+                    sample.display_linear,
+                    true,
+                    sample.emission_roi);
+            if (model.include_scene_lighting &&
+                !sample.emission_roi)
+            {
+                fallback = appearance_make_fallback(
+                    sample.display_linear);
+            }
+            output[sample.raster_pixel] =
+                ResolvedPaintAppearance{
+                    linear_rgb8(fallback.albedo),
+                    Material{
+                        fallback.material.metallic,
+                        fallback.material.roughness,
+                        fallback.material.emissive,
+                    },
+                };
+            continue;
+        }
         const auto offset = sample.cluster * 4U;
         const auto target =
             appearance_source_albedo_target(
@@ -1127,12 +1977,20 @@ auto resolve_paint_appearance_raster(
                 sample.emission_albedo,
                 sample.emission_roi,
                 model.include_scene_lighting);
-        const auto albedo =
-            appearance_parameterized_albedo(
-                sample.base_linear,
-                target,
-                parameters[offset],
-                sample.emission_roi);
+        const auto use_feedback_albedo =
+            !sample.emission_roi &&
+            !feedback_albedo_by_sample.empty() &&
+            feedback_albedo_by_sample[index].valid &&
+            appearance_rgb_finite(
+                feedback_albedo_by_sample[index].value);
+        const auto albedo = use_feedback_albedo
+            ? appearance_clamp_albedo(
+                  feedback_albedo_by_sample[index].value)
+            : appearance_parameterized_albedo(
+                  sample.base_linear,
+                  target,
+                  parameters[offset],
+                  sample.emission_roi);
         const auto emissive =
             sample.emission_roi
                 ? parameters[offset + 3U]
@@ -1265,6 +2123,7 @@ auto evaluate_paint_appearance_response(
     output.camera_stable = camera_stable;
     output.readback_calibrated = readback_calibrated;
     output.clusters.resize(model.clusters.size());
+    output.target_hdr_by_sample.resize(model.samples.size());
     auto delta_es = std::vector<double>{};
     auto chromaticity_deltas = std::vector<double>{};
     auto cluster_losses =
@@ -1273,6 +2132,8 @@ auto evaluate_paint_appearance_response(
         std::vector<std::vector<double>>(
             model.clusters.size());
     auto total_loss = 0.0;
+    auto emission_roi_loss = 0.0;
+    auto non_emission_loss = 0.0;
     for (auto index = std::size_t{};
          index < model.samples.size();
          ++index)
@@ -1298,6 +2159,7 @@ auto evaluate_paint_appearance_response(
         }
         const auto sanitized =
             appearance_sanitize_hdr(target);
+        output.target_hdr_by_sample[index] = sanitized;
         if (!sanitized.finite || sanitized.clipped)
         {
             continue;
@@ -1329,6 +2191,16 @@ auto evaluate_paint_appearance_response(
                       source_luminance -
                       target_luminance);
         total_loss += loss;
+        if (sample.emission_roi)
+        {
+            emission_roi_loss += loss;
+            ++output.emission_roi_paired_samples;
+        }
+        else
+        {
+            non_emission_loss += loss;
+            ++output.non_emission_paired_samples;
+        }
         delta_es.push_back(delta_e);
         chromaticity_deltas.push_back(chromaticity);
         cluster_losses[sample.cluster] += loss;
@@ -1350,6 +2222,18 @@ auto evaluate_paint_appearance_response(
         *std::max_element(
             chromaticity_deltas.begin(),
             chromaticity_deltas.end());
+    if (output.emission_roi_paired_samples > 0)
+    {
+        output.emission_roi_loss = emission_roi_loss /
+            static_cast<double>(
+                output.emission_roi_paired_samples);
+    }
+    if (output.non_emission_paired_samples > 0)
+    {
+        output.non_emission_loss = non_emission_loss /
+            static_cast<double>(
+                output.non_emission_paired_samples);
+    }
     for (auto index = std::size_t{};
          index < output.clusters.size();
          ++index)

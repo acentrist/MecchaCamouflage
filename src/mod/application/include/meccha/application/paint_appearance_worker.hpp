@@ -39,6 +39,10 @@ struct PaintAppearanceCandidateWork
     double brush_size_texels{};
     std::uint32_t texture_dimension{};
     PaintTextureImage original{};
+    std::shared_ptr<const std::vector<
+        core::PaintAppearanceFeedbackAlbedo>>
+        feedback_albedo_by_sample{};
+    bool safe_fallback{};
 };
 
 struct PaintAppearanceTargetE0PrepareWork
@@ -84,6 +88,30 @@ struct PaintAppearanceEvaluateWork
         core::AppearanceReadbackTransform::Identity};
 };
 
+struct PaintAppearanceEmissiveCalibrateWork
+{
+    std::shared_ptr<const core::PaintAppearanceModel> model{};
+    std::vector<double> source_parameters{};
+    core::PaintAppearanceEvaluation fallback{};
+    core::PaintAppearanceEvaluation endpoint{};
+};
+
+struct PaintAppearanceEmissiveGateWork
+{
+    std::shared_ptr<const core::PaintAppearanceModel> model{};
+    core::PaintAppearanceEmissiveCalibration calibration{};
+    core::PaintAppearanceEvaluation fallback{};
+    core::PaintAppearanceEvaluation calibrated{};
+};
+
+struct PaintAppearanceAlbedoCalibrateWork
+{
+    std::shared_ptr<const core::PaintAppearanceModel> model{};
+    std::vector<double> baseline_parameters{};
+    core::PaintAppearanceEvaluation baseline{};
+    core::PaintAppearanceEvaluation endpoint{};
+};
+
 struct PaintAppearanceResolveWork
 {
     std::shared_ptr<const core::PaintAppearanceModel> model{};
@@ -92,6 +120,10 @@ struct PaintAppearanceResolveWork
     std::shared_ptr<const std::vector<core::Rgb8>>
         scene_colors{};
     std::vector<double> parameters{};
+    std::shared_ptr<const std::vector<
+        core::PaintAppearanceFeedbackAlbedo>>
+        feedback_albedo_by_sample{};
+    bool safe_fallback{};
 };
 
 using PaintAppearanceWorkRequest = std::variant<
@@ -101,7 +133,10 @@ using PaintAppearanceWorkRequest = std::variant<
     PaintAppearanceCandidateWork,
     PaintAppearanceTargetE0PrepareWork,
     PaintAppearanceResolveWork,
-    PaintAppearanceEvaluateWork>;
+    PaintAppearanceEvaluateWork,
+    PaintAppearanceEmissiveCalibrateWork,
+    PaintAppearanceEmissiveGateWork,
+    PaintAppearanceAlbedoCalibrateWork>;
 
 struct PaintAppearancePrepared
 {
@@ -142,6 +177,21 @@ struct PaintAppearanceEvaluated
     core::PaintAppearanceEvaluation evaluation{};
 };
 
+struct PaintAppearanceEmissiveCalibrated
+{
+    core::PaintAppearanceEmissiveCalibration calibration{};
+};
+
+struct PaintAppearanceEmissiveGated
+{
+    core::PaintAppearanceEmissiveCalibration calibration{};
+};
+
+struct PaintAppearanceAlbedoCalibrated
+{
+    core::PaintAppearanceAlbedoCalibration calibration{};
+};
+
 struct PaintAppearanceResolved
 {
     std::shared_ptr<
@@ -156,7 +206,10 @@ using PaintAppearanceWorkValue = std::variant<
     PaintAppearanceCandidate,
     PaintAppearanceTargetE0Prepared,
     PaintAppearanceResolved,
-    PaintAppearanceEvaluated>;
+    PaintAppearanceEvaluated,
+    PaintAppearanceEmissiveCalibrated,
+    PaintAppearanceEmissiveGated,
+    PaintAppearanceAlbedoCalibrated>;
 
 enum class PaintAppearanceWorkFailureKind : std::uint8_t
 {
