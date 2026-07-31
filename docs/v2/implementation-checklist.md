@@ -720,6 +720,11 @@ Evidence:
   - [x] Consume bounded registered-key event batches through the frame
     coordinator, hand the next press to Settings capture when armed, suppress
     repeats through the shared router, and release held state on input loss.
+  - [x] Implement a bounded thread-safe callback-to-HUD-frame input queue that
+    validates F1–F24 and single-line UTF-8 text events, converts each
+    edge-only function-key callback into one ordered Pressed/Released pair,
+    rejects an overflowing frame without partial publication, discards input
+    on focus loss, and makes callbacks inert on stop.
   - [ ] Register all supported keys once and connect the production UE4SS input
     callbacks to the router.
 - [ ] Complete progress, backpressure, compatibility, and diagnostics display.
@@ -779,6 +784,9 @@ Evidence:
   - [x] Prove direct F1–F24 Settings capture, exact isolated remapping,
     localized duplicate refusal, Esc cancellation, input-loss reset,
     unavailable-state reset, tab/panel-close reset, and out-of-range refusal.
+  - [x] Prove callback-thread input validation, exact edge ordering, event and
+    byte bounds, overflow recovery without partial publication, focus-loss
+    discard, and terminal callback refusal.
   - [x] Prove Load/Add-images picker-effect isolation, no-document Load,
     unavailable-control suppression, exact project/revision capture, source
     deduplication, source-byte/layer limits, hash/collision failure, immutable

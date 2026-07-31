@@ -174,6 +174,21 @@ add_test(
 )
 
 add_executable(
+    meccha_product_ui_input_queue_tests
+    product_ui_input_queue_test.cpp
+)
+target_link_libraries(
+    meccha_product_ui_input_queue_tests
+    PRIVATE
+        MecchaCamouflage::ProductUi
+        meccha_build_options
+)
+add_test(
+    NAME product_ui_input_queue
+    COMMAND meccha_product_ui_input_queue_tests
+)
+
+add_executable(
     meccha_application_root_tests
     application_root_test.cpp
 )

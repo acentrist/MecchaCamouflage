@@ -40,6 +40,7 @@ add_library(
         src/product_panel_settings.cpp
         src/product_panel_status.cpp
         src/product_ui_frame_coordinator.cpp
+        src/product_ui_input_queue.cpp
 )
 add_library(MecchaCamouflage::ProductUi ALIAS meccha_product_ui)
 

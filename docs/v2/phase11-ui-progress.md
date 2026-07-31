@@ -9,9 +9,9 @@ v2-only preset import/activation path. The three exact body guides, portable
 game-thread texture lifetime boundary, and complete project-owned HUD-frame
 coordinator are also implemented and attached to `ApplicationRoot` through one
 project-owned frame-extension contract. Production UCanvas rendering, Unreal
-input registration, game-font/fallback selection, the reflected Unreal
-texture port, and live verification remain intentionally unimplemented until
-the protected UE4SS graph exposes the exact accepted interfaces.
+input registration/lease, callback composition, game-font/fallback selection,
+and live verification remain open. The reflected Unreal texture port is
+implemented but still requires live travel and teardown evidence.
 
 ## Ownership and dependency direction
 
@@ -27,14 +27,24 @@ primitive UI library while allowing the panel composer to consume immutable
 `ProductUiModel` values and emit `ProductUiActionEnvelope` values. It does not
 link UE4SS, Unreal, Windows UI, or a graphics API.
 
-The future production input adapter therefore has one narrow responsibility:
-register F1–F24 once and translate physical input into the portable
-boundaries. While a Settings capture is armed, the next press is delivered
-only as `ProductPanelInput::function_key_pressed`; otherwise press/release
-callbacks become bounded `FunctionKeyEvent` values for the command router.
-The adapter passes the current immutable snapshot to the router and enqueues
-the returned commands. It does not choose feature settings, project revisions,
-or command identities.
+`ProductUiInputQueue` is the thread-safe boundary between registered input
+callbacks and one HUD game-thread frame. It accepts only F1–F24, validated
+navigation values, and bounded single-line UTF-8 text-edit events. Each
+debounced function-key edge becomes one adjacent Pressed/Released pair because
+the pinned UE4SS Win32 source emits a new callback only after observing the
+physical release. At most 32 such edges can therefore become the router's
+64-event frame limit. Text input retains the existing 64-event/4096-byte
+bounds. Any overflow discards the complete pending frame; focus loss can
+discard it explicitly; terminal stop clears all storage and makes later
+callbacks inert.
+
+The remaining production input adapter has one narrow responsibility: register
+the supported keys once, translate callbacks into this queue, and drain it
+through `ProductUiFrameCapturePort`. While a Settings capture is armed, the
+coordinator delivers the next press only as
+`ProductPanelInput::function_key_pressed`; otherwise the same immutable batch
+goes through `InputCommandRouter`. The adapter does not choose feature
+settings, project revisions, or command identities.
 
 ## Hotkey command contract
 
@@ -507,7 +517,7 @@ details, omitted counts, the empty state, compact scrolling, and incoherent
 queue refusal.
 
 This remains a partial product UI milestone. The production UE4SS callback,
-reflected Unreal texture port, and UCanvas/input adapters remain open.
+frame capture, input lease, and remaining UCanvas/font adapters remain open.
 
 `ProductUiFrameCoordinator` now implements the application-owned
 `RuntimeFrameExtensionPort`. Each compatible root HUD frame supplies the same
@@ -533,8 +543,8 @@ drawing remain part of the production UCanvas adapter and live gate.
   production UE4SS callback registration adapter.
 - Implement the production UCanvas capture/render and Unreal input-lease ports,
   then register the UE4SS key callbacks once.
-- Bind the game-thread texture coordinator to validated reflected Unreal
-  texture creation/release and select the game-font/OFL fallback path.
+- Select and bind the game-font/OFL fallback path, then live-verify the already
+  bound reflected texture creation/release across travel and teardown.
 - Complete fake-runtime and live UI verification across all languages,
   resolutions, and DPI settings.
 
