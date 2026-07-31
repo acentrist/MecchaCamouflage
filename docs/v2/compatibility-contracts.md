@@ -242,6 +242,24 @@ The derived Image profile and editor guide must remain tied to the exact raw
 profile. Phase 1 treats the separate UnrealMappingsDumper workflow as retained
 research tooling until UE4SS mapping equivalence is proven.
 
+Production Image Paint uses these exact packaged profile pairs as its
+project-owned UV/topology source. The raw decoder must retain validated ordered
+vertex UVs, triangle indices, and UV-island identities; the paired
+ImageReference index order must match exactly. Sampling and barycentric-anchor
+expansion run only on the owned planning worker and remain bounded by the core
+sample limit.
+
+The live game-thread gate validates
+`RuntimePaintableComponent.TargetMeshComponent` as the expected weak object
+property, follows it only while its object identity is live, validates the
+target as a `SkinnedMeshComponent`, and validates
+`SkinnedMeshComponent.SkinnedAsset` as the expected object property. The live
+asset path and export must exactly match the selected profile entry. This gate
+does not read an unreflected runtime triangle cache, scan component memory,
+guess offsets/strides, or accept a count/UV resemblance as identity evidence.
+A missing or mismatched reflected link is an actionable compatibility failure
+and performs no mutation.
+
 ## Phase 4 compatibility-gate output
 
 Phase 4 must replace this inventory with a machine-readable compatibility table

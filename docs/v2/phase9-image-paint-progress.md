@@ -15,6 +15,47 @@ texture coordinator are implemented, but their narrow port does not yet create
 reflected Unreal textures or drive the complete in-game editor lifecycle.
 Phase 9 therefore remains open.
 
+## Approved production sampling architecture
+
+Production Image Paint will not port v1's unreflected component-memory scan for
+an internal runtime-triangle array. The packaged raw profile is already bound
+to an exact game asset, export, profile hash, UV topology, and image-reference
+profile. v2 therefore treats that reviewed profile pair as the canonical
+Image Paint sampling source.
+
+Each raw profile is decoded once into a project-owned immutable sampling
+profile containing only the frozen identity, ordered vertex UVs, ordered
+triangle indices, and UV-island identities. Its paired ImageReference profile
+retains the reference-pose positions and the same ordered index topology. Pair
+validation requires the exact raw/image identity link, matching counts, and
+identical index order before either value can enter planning.
+
+The game-thread capture boundary remains deliberately small. It resolves the
+acknowledged `RuntimePaintableComponent`, follows its reflected
+`TargetMeshComponent` weak object reference, validates the reflected
+`SkinnedAsset`, and compares the live asset path/export with the selected
+preloaded catalog entry. It returns only the generation-bound component,
+immutable profile pair, and replication pacing. A missing, stale, ambiguous,
+or mismatched object fails closed before any Paint command is scheduled.
+
+Brush-spacing rasterization happens only in the owned Image Paint planning
+worker. For every ordered UV triangle, core traverses a deterministic texel
+grid, computes checked barycentric weights, emits a centroid only when a
+positive-area triangle received no grid point, and enforces the existing
+600,000-sample bound. Cancellation is checked before and during triangle/row
+work. The same barycentric anchor maps into the paired ImageReference geometry;
+the resulting atlas face supplies Front/Side/Back routing, while atlas
+coordinates provide deterministic scanline ordering. Skeletal deformation does
+not alter the mesh's Paint UVs, and the live asset-identity check prevents
+reusing the static topology for another mesh.
+
+Profile loading, JSON parsing, topology validation, and sample expansion are
+forbidden on the HUD game thread. No fallback may inspect arbitrary component
+bytes, guess an array stride or offset, accept a merely similar mesh, or call
+`HitTestAtScreenPosition` once per generated sample. If the reflected
+`TargetMeshComponent`/`SkinnedAsset` path is unavailable in the supported live
+build, the compatibility gate stops for review.
+
 ## Portable Canvas editor
 
 The project-owned UI layer now consumes the existing immutable `ImageLayer`
@@ -231,9 +272,10 @@ ordering, and clip-stack recovery after a bounded Canvas failure.
 
 ## Paint-plan boundary
 
-`core/image_paint_plan` converts a canonical atlas and triangle-anchored runtime
-capture samples into the same immutable `PaintPlan` used by normal Paint. It
-does not own reflection, UObjects, or dispatch.
+`core/image_paint_plan` converts a canonical atlas and a validated immutable
+raw sampling profile into the same immutable `PaintPlan` used by normal Paint.
+It expands triangle anchors inside its caller-owned planning worker and does
+not own reflection, UObjects, or dispatch.
 
 - Both raw and image-reference identities must be the frozen matching
   round/cube/fukuyoka pair selected by the project body type.
@@ -241,9 +283,10 @@ does not own reflection, UObjects, or dispatch.
   immutable image-reference positions and indices. It validates exact vertex
   order and finite coordinates before core accepts the geometry.
 - Core computes the frozen canonical center, orientation, and pixels-per-unit
-  scale from those reference vertices. Every captured sample carries validated
-  paint UV/spatial data plus a triangle index and barycentric weights; core
-  derives its Front/Right/Back/Left face and atlas coordinate.
+  scale from those reference vertices. It rasterizes the paired raw UV
+  triangles at validated brush spacing, constructs the triangle index and
+  barycentric weights, and derives the Front/Right/Back/Left face and atlas
+  coordinate from the matching reference triangle.
 - Atlas sampling uses the frozen v1 nearest-pixel orientation, including the
   vertical flip between projection coordinates and image rows.
 - Transparent pixels and the reserved Background marker do not emit image
@@ -273,10 +316,12 @@ unsafe-sample exclusion, and cancellation.
 
 `ImagePaintPlanningWorker` copies the complete plan request into one owned
 generation and publishes an immutable `ImagePaintPlan` tagged with job
-generation, project ID, and project revision. Its contract mirrors the
-composition worker: no concurrent start, stop-token propagation, typed planner
-failure, exception containment, collection before reuse, and cancel/join on
-shutdown. `image_paint_planning_worker_test` directly covers those rules.
+generation, project ID, and project revision. Profile buffers remain shared
+and immutable; all UV sample expansion occurs on this worker. Its contract
+mirrors the composition worker: no concurrent start, stop-token propagation,
+typed planner failure, exception containment, collection before reuse, and
+cancel/join on shutdown. `image_paint_planning_worker_test` directly covers
+those rules.
 
 `ImagePaintJobCoordinator` consumes only an exactly matching generation,
 project ID, and project revision. It aliases the plan's inner immutable
@@ -295,11 +340,12 @@ discard/drain, and typed planner failure.
 ## Application root boundary
 
 `ApplicationRoot` now consumes the `ImageEditorSessionPort` and a narrow
-game-thread `ImagePaintGameRuntimePort`. A typed Start command cannot
-reach game capture until the requested derived atlas is ready. The runtime
-port supplies only the validated raw/reference profiles, triangle/barycentric
-samples, component handle, and pacing; project settings and the atlas remain
-owned by the editor value.
+game-thread `ImagePaintGameRuntimePort`. A typed Start command cannot reach
+game capture until the requested derived atlas is ready. The runtime port
+supplies only the validated immutable raw/reference profile pair, component
+handle, and pacing; project settings and the atlas remain owned by the editor
+value. It never constructs or expands a per-pixel sample collection on the
+game thread.
 
 The root starts `ImagePaintJobCoordinator`, advances it on HUD frames, observes
 game queues through the Image Paint port, publishes editor and job state in the
