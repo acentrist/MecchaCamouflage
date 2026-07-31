@@ -186,10 +186,10 @@ def _bounded_ascii(
     return value
 
 
-def _canonical_path(value: object) -> str:
+def _canonical_relative_path(value: object, label: str) -> str:
     path = _bounded_ascii(
         value,
-        "license path",
+        label,
         maximum=1024,
     )
     if (
@@ -199,7 +199,7 @@ def _canonical_path(value: object) -> str:
         or ":" in path
     ):
         raise DependencyNoticeError(
-            f"Dependency license path is not canonical: {path}"
+            f"Dependency {label} is not canonical: {path}"
         )
     for segment in path.split("/"):
         if (
@@ -210,7 +210,7 @@ def _canonical_path(value: object) -> str:
             or any(character in '<>"|?*' for character in segment)
         ):
             raise DependencyNoticeError(
-                f"Dependency license path is not canonical: {path}"
+                f"Dependency {label} is not canonical: {path}"
             )
         stem = segment.split(".", maxsplit=1)[0].upper()
         if (
@@ -222,9 +222,102 @@ def _canonical_path(value: object) -> str:
             )
         ):
             raise DependencyNoticeError(
-                f"Dependency license path uses a reserved device: {path}"
+                f"Dependency {label} uses a reserved device: {path}"
             )
     return path
+
+
+def _canonical_path(value: object) -> str:
+    return _canonical_relative_path(value, "license path")
+
+
+def _validate_source_stage(
+    stage: object,
+    ue4ss_commit: str,
+) -> None:
+    if (
+        not isinstance(stage, dict)
+        or list(stage)
+        != [
+            "schema_version",
+            "owner",
+            "ue4ss_commit",
+            "policy_sha256",
+            "overlay",
+            "nested_gitlinks",
+            "manifest_sha256",
+        ]
+    ):
+        raise DependencyNoticeError(
+            "Dependency evidence source-stage keys are invalid."
+        )
+    overlay = stage.get("overlay")
+    nested = stage.get("nested_gitlinks")
+    if (
+        type(stage.get("schema_version")) is not int
+        or stage["schema_version"] != 1
+        or stage.get("owner") != "MecchaCamouflage"
+        or stage.get("ue4ss_commit") != ue4ss_commit
+        or not isinstance(stage.get("policy_sha256"), str)
+        or not _SHA256_PATTERN.fullmatch(stage["policy_sha256"])
+        or not isinstance(stage.get("manifest_sha256"), str)
+        or not _SHA256_PATTERN.fullmatch(stage["manifest_sha256"])
+        or not isinstance(overlay, dict)
+        or list(overlay)
+        != [
+            "target",
+            "upstream_sha256",
+            "overlay_sha256",
+            "staged_diff_sha256",
+        ]
+        or not isinstance(nested, list)
+        or len(nested) > 32
+    ):
+        raise DependencyNoticeError(
+            "Dependency evidence source-stage identity is invalid."
+        )
+    target = _canonical_relative_path(
+        overlay["target"],
+        "source-stage overlay path",
+    )
+    if target != "deps/first/patternsleuth_bind/Cargo.lock":
+        raise DependencyNoticeError(
+            "Dependency evidence source-stage overlay is invalid."
+        )
+    for name in (
+        "upstream_sha256",
+        "overlay_sha256",
+        "staged_diff_sha256",
+    ):
+        value = overlay.get(name)
+        if (
+            not isinstance(value, str)
+            or not _SHA256_PATTERN.fullmatch(value)
+        ):
+            raise DependencyNoticeError(
+                "Dependency evidence source-stage overlay is invalid."
+            )
+    paths: list[str] = []
+    for item in nested:
+        if (
+            not isinstance(item, dict)
+            or list(item) != ["path", "commit"]
+            or not isinstance(item.get("commit"), str)
+            or not _COMMIT_PATTERN.fullmatch(item["commit"])
+        ):
+            raise DependencyNoticeError(
+                "Dependency evidence source-stage gitlink is invalid."
+            )
+        paths.append(
+            _canonical_relative_path(
+                item["path"],
+                "source-stage gitlink path",
+            )
+        )
+    if paths != sorted(set(paths)):
+        raise DependencyNoticeError(
+            "Dependency evidence source-stage gitlinks are invalid."
+        )
 
 
 def validate_dependency_evidence(
@@ -234,6 +327,7 @@ def validate_dependency_evidence(
     if list(evidence) != [
         "schema_version",
         "ue4ss_commit",
+        "ue4ss_source_stage",
         "configuration",
         "root_targets",
         "target_graph",
@@ -242,6 +336,10 @@ def validate_dependency_evidence(
         raise DependencyNoticeError(
             "Dependency evidence keys or canonical order are invalid."
         )
+    _validate_source_stage(
+        evidence.get("ue4ss_source_stage"),
+        ue4ss_commit,
+    )
     components = evidence.get("components")
     root_targets = evidence.get("root_targets")
     target_graph = evidence.get("target_graph")

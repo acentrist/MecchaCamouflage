@@ -39,10 +39,33 @@ def canonical_json(value: object) -> bytes:
     ).encode("utf-8")
 
 
+def source_stage_value() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "owner": "MecchaCamouflage",
+        "ue4ss_commit": UE4SS_COMMIT,
+        "policy_sha256": "1" * 64,
+        "overlay": {
+            "target": "deps/first/patternsleuth_bind/Cargo.lock",
+            "upstream_sha256": "2" * 64,
+            "overlay_sha256": "3" * 64,
+            "staged_diff_sha256": "4" * 64,
+        },
+        "nested_gitlinks": [
+            {
+                "path": "deps/first/patternsleuth",
+                "commit": "5" * 40,
+            }
+        ],
+        "manifest_sha256": "6" * 64,
+    }
+
+
 def evidence_value() -> dict[str, object]:
     return {
         "schema_version": 1,
         "ue4ss_commit": UE4SS_COMMIT,
+        "ue4ss_source_stage": source_stage_value(),
         "configuration": "Game__Shipping__Win64",
         "root_targets": ["UE4SS@project:third_party/RE-UE4SS"],
         "target_graph": [
@@ -172,7 +195,7 @@ class DependencyAuditTemplateTests(unittest.TestCase):
             )
 
     def test_refuses_invalid_input_without_replacing_output(self) -> None:
-        mutations = ("encoding", "commit", "overlap")
+        mutations = ("encoding", "commit", "stage", "overlap")
         for mutation in mutations:
             with self.subTest(mutation=mutation):
                 with tempfile.TemporaryDirectory() as temporary:
@@ -185,6 +208,10 @@ class DependencyAuditTemplateTests(unittest.TestCase):
                             json.dumps(value).encode("utf-8")
                         )
                     else:
+                        if mutation == "stage":
+                            value["ue4ss_source_stage"][
+                                "manifest_sha256"
+                            ] = "invalid"
                         evidence.write_bytes(canonical_json(value))
                     output.write_bytes(b"previous\n")
                     inputs = DependencyAuditTemplateInputs(

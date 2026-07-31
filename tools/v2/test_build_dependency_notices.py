@@ -34,6 +34,28 @@ def canonical_json(value: object) -> bytes:
     ).encode("utf-8")
 
 
+def source_stage_value() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "owner": "MecchaCamouflage",
+        "ue4ss_commit": UE4SS_COMMIT,
+        "policy_sha256": "1" * 64,
+        "overlay": {
+            "target": "deps/first/patternsleuth_bind/Cargo.lock",
+            "upstream_sha256": "2" * 64,
+            "overlay_sha256": "3" * 64,
+            "staged_diff_sha256": "4" * 64,
+        },
+        "nested_gitlinks": [
+            {
+                "path": "deps/first/patternsleuth",
+                "commit": "5" * 40,
+            }
+        ],
+        "manifest_sha256": "6" * 64,
+    }
+
+
 class DependencyNoticeTests(unittest.TestCase):
     def make_fixture(self, root: Path) -> DependencyNoticeInputs:
         roots = {
@@ -80,6 +102,7 @@ class DependencyNoticeTests(unittest.TestCase):
         evidence = {
             "schema_version": 1,
             "ue4ss_commit": UE4SS_COMMIT,
+            "ue4ss_source_stage": source_stage_value(),
             "configuration": "Game__Shipping__Win64",
             "root_targets": ["release-root@project:src"],
             "target_graph": [
