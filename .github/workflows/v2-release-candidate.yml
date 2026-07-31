@@ -44,6 +44,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tools/v2/verify_source_graph.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/v2/prepare_ue4ss_source_stage.py `
+            --policy cmake\ue4ss-source-overlay.json `
+            --source-root third_party\RE-UE4SS `
+            --output-root .build\v2\ue4ss-source `
+            --manifest .build\v2\ue4ss-source-stage.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Set up MSVC
         uses: ilammy/msvc-dev-cmd@v1
@@ -52,11 +58,24 @@ jobs:
 
       - name: Configure trusted graph
         shell: powershell
-        run: cmake --preset full-windows
+        run: |
+          $SourceRoot = (Resolve-Path .build\v2\ue4ss-source).Path
+          $SourceManifest = (Resolve-Path .build\v2\ue4ss-source-stage.json).Path
+          cmake --preset full-windows `
+            "-DMECCHA_UE4SS_SOURCE_ROOT=$SourceRoot" `
+            "-DMECCHA_UE4SS_SOURCE_MANIFEST=$SourceManifest"
 
       - name: Build runtime, proxy, mod, and contracts
         shell: powershell
-        run: cmake --build --preset full-windows
+        run: |
+          cmake --build --preset full-windows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/v2/prepare_ue4ss_source_stage.py `
+            --verify-only `
+            --policy cmake\ue4ss-source-overlay.json `
+            --output-root .build\v2\ue4ss-source `
+            --manifest .build\v2\ue4ss-source-stage.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Assemble and verify exact release candidate
         shell: powershell
@@ -64,6 +83,8 @@ jobs:
           .\tools\v2\build-release-candidate.ps1
           -ProjectRoot .
           -BuildRoot .build\v2\full-windows
+          -Ue4ssSourceRoot .build\v2\ue4ss-source
+          -Ue4ssSourceManifest .build\v2\ue4ss-source-stage.json
           -ApprovedLicenseAudit docs\v2\approved-dependency-license-audit.json
           -ReleaseRoot .build\v2\release-candidate
 

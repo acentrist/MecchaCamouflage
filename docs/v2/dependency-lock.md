@@ -2,10 +2,11 @@
 
 This document records the locked Phase 2 source graph. It is both a build input
 and a release audit record. The restricted graph has been initialized from the
-exact commits below, but the current candidate does not yet complete a clean
-locked build. The protected full-build gate must resolve that source defect,
-produce the transitive Cargo/FetchContent evidence, and obtain a separately
-approved license manifest before Phase 2 can be closed.
+exact commits below. One project-owned canonical Cargo lock overlay has been
+approved for an independent build-only source stage; it resolves locally under
+Cargo `--locked` without modifying the accepted gitlink. The protected
+full-build must still prove the resulting native binaries and closed dependency
+graph, and a separate license manifest must be approved before Phase 2 closes.
 
 ## Root gitlinks
 
@@ -56,19 +57,39 @@ MIT texts for UVTD and USMapGenerator, plus font notices under
 The final payload license tool must discover what is actually linked and
 packaged; this list is not a license-pruning decision.
 
-## Patch and provenance policy
+## Approved build-only source overlay and provenance policy
 
-No UE4SS source patch is present. MecchaCamouflage may:
+No edit is made inside the accepted UE4SS gitlink. The approved build-only
+source overlay is:
+
+| Identity | Value |
+| --- | --- |
+| Target | `deps/first/patternsleuth_bind/Cargo.lock` |
+| Upstream lock SHA-256 | `19292c3e0a74c851eb11ad09a3b3ac5e5d8e9b80eebe34dd705df10e09dc7e50` |
+| Canonical lock SHA-256 | `88c3718c03492cdc2650217a9d8bb2a8dbdecdbde1b4ea79e3e529e838b49bbe` |
+| Raw staged Git binary-diff SHA-256 | `0dac25e7c79d430aca62411cddf66c17d95340e2bee174f453f17f610a839f8f` |
+| Policy | `cmake/ue4ss-source-overlay.json` |
+| Canonical bytes | `cmake/ue4ss-overlays/6c26f038751b3d96059d4a9148f5d093012d55ad/patternsleuth_bind.Cargo.lock` |
+
+MecchaCamouflage may:
 
 - select documented UE4SS cache options;
 - add UE4SS with `EXCLUDE_FROM_ALL`;
 - predeclare exact direct FetchContent commits;
+- clone the exact initialized accepted graph into an independent no-hardlink
+  build stage and replace only the tabled Cargo lock with the exact canonical
+  bytes;
 - pass Cargo `--locked` to the imported patternsleuth target so the accepted
   lock cannot be silently pruned or regenerated;
 - link `main.dll` against the `UE4SS` target from that same build.
 
-Any edit inside the UE4SS gitlink, change to a locked commit, or additional
-patch command stops the architecture gate for review.
+The staging tool checks the pristine source and nested commits, original and
+overlay hashes, exact one-file Git diff, and exact canonical manifest. CMake
+accepts only the verified stage and manifest. The verifier runs again after
+build, and provenance plus dependency evidence bind the stage-manifest hash and
+diff identity. Any edit inside the gitlink, locked commit change, additional
+overlay, unexpected/untracked staged entry, or changed hash stops the
+architecture gate for review.
 
 ## Project-native decoder lock
 
@@ -115,11 +136,16 @@ The available maintainer-authorized checkout established:
    one dependency label.
 5. Project-enforced Cargo `--locked` fails before compilation instead of
    accepting that mutation. Cargo `1.88.0` and `1.97.1` both reproduce the
-   rejection.
+   rejection against the upstream lock.
+6. The explicitly approved canonical overlay contains exactly Cargo's
+   deterministic 368-line pruning and one dependency-label normalization.
+   Preparation, repeated reuse, `cargo metadata --locked --offline` for
+   `x86_64-pc-windows-msvc`, and post-command stage verification pass against
+   the accepted real graph.
 
-The diagnostic binary inspection is not clean provenance and is not accepted.
-The current candidate must provide a clean locked graph, or be replaced through
-an explicitly reviewed candidate decision, before the following work can pass:
+The diagnostic binary inspection is not stage-bound provenance and is not
+accepted. The protected build must now produce binaries from the approved
+stage before the following work can pass:
 
 1. Capture the closed production-target identities and target-filtered Cargo
    closure.

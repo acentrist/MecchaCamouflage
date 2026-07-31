@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import configparser
+import hashlib
+import json
 import re
 import subprocess
 import sys
@@ -15,6 +17,17 @@ UE4SS_PATH = Path("third_party/RE-UE4SS")
 UE4SS_COMMIT = "6c26f038751b3d96059d4a9148f5d093012d55ad"
 UEPSEUDO_COMMIT = "b2e876da82b17254c04304746341c8fde0ddb37c"
 PATTERNSLEUTH_COMMIT = "da8bfe4c5a464be0ef225c2c9a6ccaa2d9284018"
+UE4SS_OVERLAY_POLICY = Path("cmake/ue4ss-source-overlay.json")
+UE4SS_OVERLAY_TARGET = "deps/first/patternsleuth_bind/Cargo.lock"
+UE4SS_UPSTREAM_LOCK_SHA256 = (
+    "19292c3e0a74c851eb11ad09a3b3ac5e5d8e9b80eebe34dd705df10e09dc7e50"
+)
+UE4SS_CANONICAL_LOCK_SHA256 = (
+    "88c3718c03492cdc2650217a9d8bb2a8dbdecdbde1b4ea79e3e529e838b49bbe"
+)
+UE4SS_STAGED_DIFF_SHA256 = (
+    "0dac25e7c79d430aca62411cddf66c17d95340e2bee174f453f17f610a839f8f"
+)
 DIRECT_FETCH_COMMITS = {
     "glaze": "3a850807501d98d23bab4bdc5af64d8d4e83e6bc",
     "libwebp": "4fa21912338357f89e4fd51cf2368325b59e9bd9",
@@ -63,7 +76,10 @@ def verify_root_gitlink() -> None:
         fail("third_party/RE-UE4SS is not declared in .gitmodules")
     if modules.get(section, "path", fallback="") != UE4SS_PATH.as_posix():
         fail("RE-UE4SS submodule path is not canonical")
-    if modules.get(section, "url", fallback="") != "https://github.com/UE4SS-RE/RE-UE4SS.git":
+    if (
+        modules.get(section, "url", fallback="")
+        != "https://github.com/UE4SS-RE/RE-UE4SS.git"
+    ):
         fail("RE-UE4SS must use its public HTTPS URL")
 
     fields = git("ls-files", "--stage", UE4SS_PATH.as_posix()).split()
@@ -115,10 +131,36 @@ def verify_build_pin() -> None:
         not in cmake
     ):
         fail("the protected Rust build does not enforce its accepted Cargo.lock")
+    required_stage_fragments = {
+        "MECCHA_UE4SS_SOURCE_ROOT",
+        "MECCHA_UE4SS_SOURCE_MANIFEST",
+        UE4SS_CANONICAL_LOCK_SHA256,
+        '"${_meccha_ue4ss_root}"',
+        '"${CMAKE_CURRENT_BINARY_DIR}/_ue4ss"',
+    }
+    missing_stage_fragments = sorted(
+        fragment
+        for fragment in required_stage_fragments
+        if fragment not in cmake
+    )
+    if missing_stage_fragments:
+        fail(
+            "full build does not require the approved immutable UE4SS "
+            f"source stage: {missing_stage_fragments}"
+        )
     pins = (
         (ROOT / "cmake/ProjectDependencies.cmake").read_text(encoding="utf-8")
         + (ROOT / "cmake/Ue4ssDependencyPins.cmake").read_text(encoding="utf-8")
     )
+    if (
+        "${_meccha_ue4ss_root}/deps/third/fmt" not in pins
+        or (
+            "${CMAKE_CURRENT_SOURCE_DIR}/third_party/RE-UE4SS/"
+            "deps/third/fmt"
+        )
+        in pins
+    ):
+        fail("the fmt patch input is not bound to the verified UE4SS stage")
     missing = sorted(
         f"{name}={commit}"
         for name, commit in DIRECT_FETCH_COMMITS.items()
@@ -126,6 +168,49 @@ def verify_build_pin() -> None:
     )
     if missing:
         fail(f"direct FetchContent graph is not immutable: {missing}")
+
+
+def verify_source_overlay() -> None:
+    policy_path = ROOT / UE4SS_OVERLAY_POLICY
+    policy_bytes = policy_path.read_bytes()
+    policy = json.loads(policy_bytes.decode("utf-8"))
+    expected = {
+        "schema_version": 1,
+        "ue4ss_commit": UE4SS_COMMIT,
+        "overlay": {
+            "source": (
+                "ue4ss-overlays/"
+                f"{UE4SS_COMMIT}/patternsleuth_bind.Cargo.lock"
+            ),
+            "target": UE4SS_OVERLAY_TARGET,
+            "upstream_sha256": UE4SS_UPSTREAM_LOCK_SHA256,
+            "overlay_sha256": UE4SS_CANONICAL_LOCK_SHA256,
+            "staged_diff_sha256": UE4SS_STAGED_DIFF_SHA256,
+        },
+        "nested_gitlinks": [
+            {
+                "path": "deps/first/Unreal",
+                "commit": UEPSEUDO_COMMIT,
+            },
+            {
+                "path": "deps/first/patternsleuth",
+                "commit": PATTERNSLEUTH_COMMIT,
+            },
+        ],
+    }
+    if policy != expected:
+        fail("the project-owned UE4SS source-overlay policy changed")
+    overlay = (
+        policy_path.parent
+        / policy["overlay"]["source"]
+    ).read_bytes()
+    if hashlib.sha256(overlay).hexdigest() != UE4SS_CANONICAL_LOCK_SHA256:
+        fail("the project-owned canonical Cargo lock changed")
+    upstream = (
+        ROOT / UE4SS_PATH / UE4SS_OVERLAY_TARGET
+    ).read_bytes()
+    if hashlib.sha256(upstream).hexdigest() != UE4SS_UPSTREAM_LOCK_SHA256:
+        fail("the accepted upstream Cargo lock changed")
 
 
 def verify_proxy_override_contract() -> None:
@@ -169,9 +254,11 @@ def verify_dependency_record() -> None:
         "MIT License",
         "MIT OR Apache-2.0",
         "restricted",
-        "No UE4SS source patch",
+        "Approved build-only source overlay",
     }
-    missing = sorted(fragment for fragment in required_fragments if fragment not in text)
+    missing = sorted(
+        fragment for fragment in required_fragments if fragment not in text
+    )
     if missing:
         fail(f"dependency lock lacks: {missing}")
     webp_license = ROOT / "resources/licenses/libwebp-COPYING.txt"
@@ -190,6 +277,7 @@ def main() -> int:
         verify_root_gitlink()
         verify_nested_gitlinks()
         verify_build_pin()
+        verify_source_overlay()
         verify_proxy_override_contract()
         verify_dependency_record()
     except (RuntimeError, OSError, configparser.Error) as error:
@@ -199,7 +287,8 @@ def main() -> int:
         "PASS source_graph: "
         f"ue4ss={UE4SS_COMMIT}, uepseudo={UEPSEUDO_COMMIT}, "
         f"patternsleuth={PATTERNSLEUTH_COMMIT}, "
-        "proxy_override=narrow-line-to-native-path, patches=0"
+        "proxy_override=narrow-line-to-native-path, "
+        "approved_overlay=patternsleuth_bind/Cargo.lock"
     )
     return 0
 

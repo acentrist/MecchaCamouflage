@@ -1133,6 +1133,12 @@ add_test(
         "${PROJECT_SOURCE_DIR}/tools/v2/verify_source_graph.py"
 )
 add_test(
+    NAME ue4ss_source_stage_tool
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tools/v2/test_prepare_ue4ss_source_stage.py"
+)
+add_test(
     NAME ci_policy
     COMMAND
         "${Python3_EXECUTABLE}"

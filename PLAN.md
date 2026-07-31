@@ -735,11 +735,27 @@ UE4SS’s restricted UEPseudo dependency means:
 - Contributor documentation explains the Epic-linked GitHub prerequisite for a complete local UE4SS build.
 - Release artifacts always come from the trusted full-build of the exact
   pre-approved merge commit.
-- No UE4SS source patches are accepted initially. A required patch stops the compatibility gate for review.
+- The accepted UE4SS gitlink and its initialized nested checkouts remain
+  byte-for-byte unmodified. The explicitly approved reproducibility exception
+  is one project-owned canonical
+  `deps/first/patternsleuth_bind/Cargo.lock` overlay, applied only to an
+  independent build-only clone of the exact accepted graph. The policy pins
+  the upstream lock hash, overlay hash, resulting Git binary-diff hash, root
+  commit, and nested commits.
+- Trusted builds generate that stage atomically, require it through explicit
+  CMake source-root/manifest inputs, keep Cargo `--locked`, and verify the
+  one-file diff before configure, after build, and during provenance and
+  dependency-evidence collection. The accepted gitlink is never a build
+  mutation target.
+- Any second overlay, change to the approved lock bytes or hashes, different
+  staged diff, or other UE4SS source patch stops the compatibility gate for a
+  new architecture review.
 
 The Windows build pipeline will:
 
-1. Configure the root CMake graph and pinned UE4SS source.
+1. Verify the pristine pinned UE4SS graph, atomically prepare the approved
+   manifest-bound build-only source stage, and configure the root CMake graph
+   against that stage.
 2. Build UE4SS, the C++ mod, native launcher, payload tooling, and tests.
 3. Run unit and contract tests.
 4. Assemble the exact minimal runtime tree.
@@ -957,13 +973,17 @@ or weaken the release matrix.
 6. Establish fork-safe CI for core, launcher, manifest, and fake-runtime targets
    without private dependencies or maintainer secrets.
 7. Emit build provenance and dependency/license inventories.
-8. Do not patch UE4SS. If a source patch appears necessary, document the exact
-   reason and stop.
+8. Keep the accepted UE4SS gitlink pristine. Apply only the explicitly
+   approved, manifest-bound canonical Cargo lock to an independent build-only
+   clone; reject any other staged diff before and after the build.
 
 **Automated verification**
 
-- Clean and incremental x64 Release builds.
+- Clean and incremental x64 Release builds from the exact verified source
+  stage.
 - Recursive submodule revision check.
+- Upstream lock, canonical lock, staged binary-diff, and stage-manifest hash
+  checks before configure, after build, and in dependency evidence.
 - ABI/import/export inspection.
 - Project include-boundary checks.
 - License/notices inventory.
@@ -976,7 +996,8 @@ or weaken the release matrix.
 
 **Exit criteria**
 
-- One exact source graph produces the UE4SS runtime and matching mod.
+- One exact accepted graph plus the single approved canonical lock identity
+  produces the UE4SS runtime and matching mod without mutating the gitlink.
 - Contributor and trusted-CI build responsibilities are documented.
 - The candidate remains a candidate until Phases 3–5 pass live.
 
@@ -984,7 +1005,7 @@ or weaken the release matrix.
 
 - Required source is inaccessible to trusted release CI.
 - The mod and packaged runtime cannot be built with a consistent ABI.
-- An unreviewed UE4SS patch, binary substitution, or license-incompatible
+- An unreviewed additional UE4SS patch, binary substitution, or license-incompatible
   dependency would be required.
 
 ### Phase 3 — Safe isolated deployment and loading gate

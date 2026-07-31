@@ -8,12 +8,19 @@ restricted graph was initialized with an already configured
 maintainer-authorized credential and reached UE4SS, proxy, and mod binaries on
 a native Windows source path.
 
-That diagnostic build exposed a blocking reproducibility defect in the
-candidate: Corrosion's Cargo invocation rewrites the tracked
-`deps/first/patternsleuth_bind/Cargo.lock`. The project now forces
-`--locked`, which correctly stops instead of mutating the accepted source
-graph. Phase 2 therefore remains blocked before license review and none of the
-diagnostic binaries are accepted as release inputs.
+That diagnostic build exposed a reproducibility defect in the candidate:
+Corrosion's Cargo invocation rewrites the tracked
+`deps/first/patternsleuth_bind/Cargo.lock`. The architecture review explicitly
+approved one project-owned canonical lock overlay in an independent immutable
+build-only source stage. The accepted gitlink remains pristine, Cargo remains
+`--locked`, and the stage is bound to exact source, nested-commit, upstream
+lock, overlay, Git binary-diff, and manifest hashes.
+
+The staging tool, real accepted checkout, repeated reuse, offline locked Cargo
+metadata, and post-command verification now pass locally. Phase 2 is still
+open until a protected native-Windows build produces same-stage binary
+provenance and the resolved dependency evidence receives license approval.
+The earlier diagnostic binaries remain rejected.
 
 ## Target graph
 
@@ -39,12 +46,23 @@ touches no UObject, and is not a product release candidate.
 - `MECCHA_WITH_UE4SS=OFF` never reads the restricted nested source.
 - The full build requires Windows x64, MSVC, UEPseudo, and patternsleuth.
 - Direct FetchContent inputs are predeclared by immutable commit.
+- `tools/v2/prepare_ue4ss_source_stage.py` clones the accepted initialized
+  graph without hardlinks or network access, applies only the approved build
+  overlay, and atomically publishes one reusable stage plus its manifest.
+- `cmake/ue4ss-source-overlay.json` pins the upstream lock SHA-256
+  `19292c3e0a74c851eb11ad09a3b3ac5e5d8e9b80eebe34dd705df10e09dc7e50`,
+  canonical lock SHA-256
+  `88c3718c03492cdc2650217a9d8bb2a8dbdecdbde1b4ea79e3e529e838b49bbe`,
+  and resulting raw Git binary-diff SHA-256
+  `0dac25e7c79d430aca62411cddf66c17d95340e2bee174f453f17f610a839f8f`.
 - The patternsleuth Corrosion target receives Cargo `--locked`; a compiler or
   feature selection that would rewrite the accepted lock fails the build.
 - UE4SS is added `EXCLUDE_FROM_ALL`; only UE4SS and the project mod are
   requested by the full preset.
 - UE4SS and the project both select the dynamic MSVC runtime.
-- No UE4SS source edit or project-authored patch is present.
+- The accepted UE4SS gitlink has no source edit. The only approved build-stage
+  diff is the manifest-bound canonical Cargo lock; any other tracked or
+  untracked entry fails pre/post-build verification.
 
 See [`dependency-lock.md`](dependency-lock.md) for commits and license state.
 
@@ -63,7 +81,7 @@ UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
 ctest --test-dir .build/v2/sanitize-linux --output-on-failure
 ```
 
-Result: all 48 registered secret-free tests passed with GCC 13.3.0,
+Result: all 76 registered secret-free tests passed with GCC 13.3.0,
 CMake 3.28.3, Ninja 1.13.2, ASan, UBSan, and leak detection.
 
 The first sanitized run exposed a timing assumption in
@@ -148,6 +166,27 @@ no-argument exit as a verification failure. It must be rerun only after a
 clean source build exists; running it against another clean checkout is not
 valid provenance for these diagnostic binaries.
 
+Approved source-stage verification:
+
+```text
+python tools/v2/prepare_ue4ss_source_stage.py \
+  --policy cmake/ue4ss-source-overlay.json \
+  --source-root third_party/RE-UE4SS \
+  --output-root .build/v2/ue4ss-source \
+  --manifest .build/v2/ue4ss-source-stage.json
+cargo metadata --locked --offline \
+  --filter-platform x86_64-pc-windows-msvc --format-version 1 --no-deps \
+  --manifest-path \
+  .build/v2/ue4ss-source/deps/first/patternsleuth_bind/Cargo.toml
+python tools/v2/prepare_ue4ss_source_stage.py --verify-only \
+  --policy cmake/ue4ss-source-overlay.json \
+  --output-root .build/v2/ue4ss-source \
+  --manifest .build/v2/ue4ss-source-stage.json
+```
+
+Result: preparation, no-accumulation reuse, locked offline resolution, and
+post-command one-diff verification pass against the accepted real graph.
+
 ## Protected full-build evidence
 
 `.github/workflows/v2-full-build.yml` is manual-only, repository/ref guarded,
@@ -158,13 +197,15 @@ configure that environment with required reviewers and the
 After approval, it must:
 
 1. recursively initialize the exact nested graph;
-2. configure `Game__Shipping__Win64` once;
+2. prepare and verify the approved one-overlay source stage, then configure
+   `Game__Shipping__Win64` against that explicit source root once;
 3. build `UE4SS`, its `proxy`, `meccha_mod`, and every project contract
    together without selecting unrelated UE4SS tools or bundled mods;
 4. run `tools/v2/verify-full-build.ps1`;
 5. prove x64 PE format, only `start_mod`/`uninstall_mod` exports, a direct
    `UE4SS.dll` import, matching proxy/mod/runtime dynamic MSVC runtime, clean
-   gitlink, and the exact pinned commit;
+   pristine gitlink, exact pinned commit, source-stage manifest, and approved
+   one-file staged diff;
 6. collect the closed production CMake target graph, exact git revisions and
    tracked diffs, and target-filtered locked Cargo package/checksum/features;
 7. generate a canonical evidence-bound audit template with deliberately empty
@@ -178,8 +219,8 @@ After approval, it must:
 Phase 2 remains externally gated until the protected evidence workflow
 provides:
 
-- a clean locked build of the accepted or explicitly reviewed replacement
-  UE4SS candidate;
+- a locked build of the accepted candidate from the exact approved immutable
+  source stage, with no mutation beyond its manifest-bound Cargo lock;
 - matching x64 Shipping ABI/import/export/runtime evidence and provenance from
   that same clean checkout;
 - the closed production target and Cargo dependency evidence;

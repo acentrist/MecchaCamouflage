@@ -15,7 +15,7 @@ import tempfile
 import tomllib
 from collections import deque
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
 
@@ -33,6 +33,8 @@ class DependencyEvidenceInputs:
     root_targets: tuple[str, ...]
     cargo_metadata: Path
     cargo_lock: Path
+    ue4ss_source_root: Path
+    ue4ss_source_manifest: Path
     cargo_root_package: str
     output: Path
     ue4ss_commit: str
@@ -157,9 +159,10 @@ def _path_alias(
     allow_cargo: bool,
 ) -> str:
     normalized = Path(os.path.abspath(path))
-    accepted_names = ("project", "build", "cargo") if allow_cargo else (
-        "project",
-        "build",
+    accepted_names = (
+        ("ue4ss", "project", "build", "cargo")
+        if allow_cargo
+        else ("ue4ss", "project", "build")
     )
     for name in accepted_names:
         relative = _relative_to(normalized, roots[name])
@@ -252,6 +255,173 @@ def _git_identity(
         head[:12],
         f"git:{head}:tracked-diff:{diff_digest}",
     )
+
+
+def _canonical_relative_path(value: Any, label: str) -> PurePosixPath:
+    if not isinstance(value, str) or not value or "\\" in value:
+        raise DependencyEvidenceError(
+            f"UE4SS source-stage {label} is invalid."
+        )
+    path = PurePosixPath(value)
+    if (
+        path.is_absolute()
+        or any(part in ("", ".", "..") for part in path.parts)
+        or path.as_posix() != value
+    ):
+        raise DependencyEvidenceError(
+            f"UE4SS source-stage {label} is invalid."
+        )
+    return path
+
+
+def _ue4ss_source_stage(
+    inputs: DependencyEvidenceInputs,
+    roots: dict[str, Path],
+) -> dict[str, Any]:
+    manifest, encoded = _load_json(inputs.ue4ss_source_manifest)
+    if not isinstance(manifest, dict) or set(manifest) != {
+        "schema_version",
+        "owner",
+        "ue4ss_commit",
+        "policy_sha256",
+        "overlay",
+        "nested_gitlinks",
+    }:
+        raise DependencyEvidenceError(
+            "UE4SS source-stage manifest fields are invalid."
+        )
+    if (
+        manifest["schema_version"] != 1
+        or manifest["owner"] != "MecchaCamouflage"
+        or manifest["ue4ss_commit"] != inputs.ue4ss_commit
+        or not _CHECKSUM_PATTERN.fullmatch(
+            str(manifest["policy_sha256"])
+        )
+    ):
+        raise DependencyEvidenceError(
+            "UE4SS source-stage manifest identity is invalid."
+        )
+    overlay = manifest["overlay"]
+    if not isinstance(overlay, dict) or set(overlay) != {
+        "target",
+        "upstream_sha256",
+        "overlay_sha256",
+        "staged_diff_sha256",
+    }:
+        raise DependencyEvidenceError(
+            "UE4SS source-stage overlay identity is invalid."
+        )
+    target = _canonical_relative_path(
+        overlay["target"],
+        "overlay target",
+    )
+    for field in (
+        "upstream_sha256",
+        "overlay_sha256",
+        "staged_diff_sha256",
+    ):
+        if not _CHECKSUM_PATTERN.fullmatch(str(overlay[field])):
+            raise DependencyEvidenceError(
+                f"UE4SS source-stage {field} is invalid."
+            )
+    expected_lock = roots["ue4ss"] / Path(*target.parts)
+    if inputs.cargo_lock != expected_lock:
+        raise DependencyEvidenceError(
+            "Cargo.lock is not the manifest-bound UE4SS source-stage lock."
+        )
+    if hashlib.sha256(
+        _plain_file(expected_lock, _MAXIMUM_JSON_BYTES)
+    ).hexdigest() != overlay["overlay_sha256"]:
+        raise DependencyEvidenceError(
+            "UE4SS source-stage Cargo.lock hash is invalid."
+        )
+    head = str(_git(roots["ue4ss"], ["rev-parse", "HEAD"])).strip()
+    if head != inputs.ue4ss_commit:
+        raise DependencyEvidenceError(
+            "UE4SS source-stage git commit is invalid."
+        )
+    tracked_diff = _git(
+        roots["ue4ss"],
+        ["diff", "--binary", "HEAD", "--"],
+        binary=True,
+    )
+    assert isinstance(tracked_diff, bytes)
+    if hashlib.sha256(tracked_diff).hexdigest() != overlay[
+        "staged_diff_sha256"
+    ]:
+        raise DependencyEvidenceError(
+            "UE4SS source-stage tracked diff is invalid."
+        )
+    status = str(
+        _git(
+            roots["ue4ss"],
+            [
+                "status",
+                "--porcelain",
+                "--untracked-files=all",
+                "--ignore-submodules=none",
+            ],
+        )
+    ).splitlines()
+    if status != [f" M {target.as_posix()}"]:
+        raise DependencyEvidenceError(
+            "UE4SS source stage is not the approved one-file overlay."
+        )
+    nested = manifest["nested_gitlinks"]
+    if not isinstance(nested, list) or len(nested) > 32:
+        raise DependencyEvidenceError(
+            "UE4SS source-stage nested gitlinks are invalid."
+        )
+    normalized_nested: list[dict[str, str]] = []
+    seen_paths: set[str] = set()
+    for item in nested:
+        if not isinstance(item, dict) or set(item) != {"path", "commit"}:
+            raise DependencyEvidenceError(
+                "UE4SS source-stage nested gitlink entry is invalid."
+            )
+        path = _canonical_relative_path(
+            item["path"],
+            "nested gitlink path",
+        )
+        commit = item["commit"]
+        if (
+            not isinstance(commit, str)
+            or not _COMMIT_PATTERN.fullmatch(commit)
+            or path.as_posix() in seen_paths
+        ):
+            raise DependencyEvidenceError(
+                "UE4SS source-stage nested gitlink identity is invalid."
+            )
+        seen_paths.add(path.as_posix())
+        nested_root = _plain_directory(
+            roots["ue4ss"] / Path(*path.parts),
+            f"nested source {path.as_posix()}",
+        )
+        nested_head = str(_git(nested_root, ["rev-parse", "HEAD"])).strip()
+        nested_status = str(
+            _git(
+                nested_root,
+                ["status", "--porcelain", "--untracked-files=all"],
+            )
+        ).strip()
+        if nested_head != commit or nested_status:
+            raise DependencyEvidenceError(
+                "UE4SS source-stage nested gitlink checkout is invalid."
+            )
+        normalized_nested.append(
+            {"path": path.as_posix(), "commit": commit}
+        )
+    if normalized_nested != sorted(
+        normalized_nested,
+        key=lambda item: item["path"],
+    ):
+        raise DependencyEvidenceError(
+            "UE4SS source-stage nested gitlinks are not ordered."
+        )
+    return {
+        **manifest,
+        "manifest_sha256": hashlib.sha256(encoded).hexdigest(),
+    }
 
 
 def _codemodel_object(reply: Path) -> tuple[dict[str, Any], Path]:
@@ -812,6 +982,10 @@ def collect_dependency_evidence(
         ),
         "build": _plain_directory(inputs.build_root, "build root"),
         "cargo": _plain_directory(inputs.cargo_root, "Cargo root"),
+        "ue4ss": _plain_directory(
+            inputs.ue4ss_source_root,
+            "UE4SS source root",
+        ),
     }
     inputs.reply_directory = _plain_directory(
         inputs.reply_directory,
@@ -821,7 +995,11 @@ def collect_dependency_evidence(
         os.path.abspath(inputs.cargo_metadata)
     )
     inputs.cargo_lock = Path(os.path.abspath(inputs.cargo_lock))
+    inputs.ue4ss_source_manifest = Path(
+        os.path.abspath(inputs.ue4ss_source_manifest)
+    )
     inputs.output = Path(os.path.abspath(inputs.output))
+    source_stage = _ue4ss_source_stage(inputs, roots)
 
     root_targets, target_graph, sources = _collect_target_graph(
         inputs,
@@ -843,6 +1021,7 @@ def collect_dependency_evidence(
     evidence: dict[str, Any] = {
         "schema_version": 1,
         "ue4ss_commit": inputs.ue4ss_commit,
+        "ue4ss_source_stage": source_stage,
         "configuration": inputs.configuration,
         "root_targets": root_targets,
         "target_graph": target_graph,
@@ -887,6 +1066,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--cargo-metadata", required=True, type=Path)
     parser.add_argument("--cargo-lock", required=True, type=Path)
+    parser.add_argument("--ue4ss-source-root", required=True, type=Path)
+    parser.add_argument(
+        "--ue4ss-source-manifest",
+        required=True,
+        type=Path,
+    )
     parser.add_argument("--cargo-root-package", required=True)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--ue4ss-commit", required=True)
@@ -906,6 +1091,8 @@ def main(arguments: Iterable[str] | None = None) -> int:
                 root_targets=tuple(options.root_targets),
                 cargo_metadata=options.cargo_metadata,
                 cargo_lock=options.cargo_lock,
+                ue4ss_source_root=options.ue4ss_source_root,
+                ue4ss_source_manifest=options.ue4ss_source_manifest,
                 cargo_root_package=options.cargo_root_package,
                 output=options.output,
                 ue4ss_commit=options.ue4ss_commit,

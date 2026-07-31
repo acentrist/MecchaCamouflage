@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "ue4ss_commit": "6c26f038751b3d96059d4a9148f5d093012d55ad",
+  "overlay": {
+    "source": "ue4ss-overlays/6c26f038751b3d96059d4a9148f5d093012d55ad/patternsleuth_bind.Cargo.lock",
+    "target": "deps/first/patternsleuth_bind/Cargo.lock",
+    "upstream_sha256": "19292c3e0a74c851eb11ad09a3b3ac5e5d8e9b80eebe34dd705df10e09dc7e50",
+    "overlay_sha256": "88c3718c03492cdc2650217a9d8bb2a8dbdecdbde1b4ea79e3e529e838b49bbe",
+    "staged_diff_sha256": "0dac25e7c79d430aca62411cddf66c17d95340e2bee174f453f17f610a839f8f"
+  },
+  "nested_gitlinks": [
+    {
+      "path": "deps/first/Unreal",
+      "commit": "b2e876da82b17254c04304746341c8fde0ddb37c"
+    },
+    {
+      "path": "deps/first/patternsleuth",
+      "commit": "da8bfe4c5a464be0ef225c2c9a6ccaa2d9284018"
+    }
+  ]
+}

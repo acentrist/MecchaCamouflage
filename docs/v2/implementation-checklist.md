@@ -78,14 +78,18 @@ Evidence:
 - [ ] Build UE4SS and the minimal mod from the same source/configuration.
   - [x] Reach `UE4SS.dll`, `dwmapi.dll`, and `main.dll` in a diagnostic build
     and inspect their x64 Shipping binary shape.
-  - [ ] BLOCKED — the candidate's Corrosion build rewrites its tracked
-    `patternsleuth_bind/Cargo.lock`; enforcing Cargo `--locked` correctly
-    rejects that graph.
+  - [x] Resolve the reviewed Cargo lock defect through a project-owned
+    canonical one-file overlay in an independent immutable build stage,
+    preserving the accepted gitlink and Cargo `--locked`; verify real-source
+    preparation, reuse, offline locked metadata, and post-command identity.
+  - [ ] Run the native protected build and bind its binaries to that exact
+    source-stage manifest.
 - [ ] Verify x64 Release ABI, imports, exports, runtime library, and provenance.
   - [x] Verify the binary architecture, imports, exports, and dynamic MSVC
     runtime from the diagnostic build.
   - [ ] Bind those binaries to a clean, immutable source checkout.
-- [ ] Confirm no UE4SS source patch or tracked build mutation is required.
+- [x] Keep the accepted UE4SS gitlink and nested checkouts pristine; pin and
+  enforce the explicitly approved build-stage Cargo lock as the only diff.
 - [ ] Confirm a clean full source build with the required Epic-linked GitHub
   access.
 
@@ -183,10 +187,17 @@ Evidence:
 - [x] Implement the composition root and runtime state machine.
 - [x] Implement callback registration, in-flight barrier, and exact
   unregistration.
+  - [x] Compile a production adapter against the pinned UE4SS generic hook API,
+    retain its exact callback ID pair, and validate the complete
+    `ReceiveDrawHUD` reflected signature before registration.
+  - [ ] Own the adapter from the exported mod composition root and live-prove
+    exact callback removal plus in-flight drain before destruction.
 - [x] Implement the bounded game-thread scheduler.
 - [x] Keep `on_update()` free of UObject and ProcessEvent access.
 - [x] Implement project-owned generation-checked
   World/controller/HUD/Canvas rebinding.
+  - [x] Derive each production identity member from a validated live
+    `FWeakObjectPtr` serial and object index on the UE4SS game thread.
 - [x] Implement structured compatibility failures and bounded diagnostics.
 - [ ] Implement representative retained Paint and Image Paint runtime
   operations on the game-thread path.

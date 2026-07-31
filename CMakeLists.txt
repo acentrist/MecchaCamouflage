@@ -42,6 +42,22 @@ set(MECCHA_UE4SS_COMMIT
     CACHE STRING
     "UE4SS source commit accepted by the v2 architecture gate"
 )
+set(
+    MECCHA_UE4SS_SOURCE_ROOT
+    ""
+    CACHE PATH
+    "Verified immutable build-only UE4SS source stage"
+)
+set(
+    MECCHA_UE4SS_SOURCE_MANIFEST
+    ""
+    CACHE FILEPATH
+    "Manifest for the verified build-only UE4SS source stage"
+)
+set(
+    MECCHA_UE4SS_CANONICAL_LOCK_SHA256
+    "88c3718c03492cdc2650217a9d8bb2a8dbdecdbde1b4ea79e3e529e838b49bbe"
+)
 set(MECCHA_CONFIG_SCHEMA_VERSION 1 CACHE STRING "v2 configuration schema")
 set(MECCHA_PRESET_SCHEMA_VERSION 1 CACHE STRING "v2 preset schema")
 set(MECCHA_PAYLOAD_MANIFEST_SCHEMA_VERSION 1 CACHE STRING "v2 payload manifest schema")
@@ -129,12 +145,78 @@ if(MECCHA_WITH_UE4SS)
         message(FATAL_ERROR "MECCHA_WITH_UE4SS supports x64 only.")
     endif()
 
-    set(_meccha_ue4ss_root "${CMAKE_CURRENT_SOURCE_DIR}/third_party/RE-UE4SS")
+    if(MECCHA_UE4SS_SOURCE_ROOT STREQUAL "" OR
+       MECCHA_UE4SS_SOURCE_MANIFEST STREQUAL "")
+        message(
+            FATAL_ERROR
+            "The full build requires the verified immutable UE4SS source "
+            "stage and manifest. Run prepare_ue4ss_source_stage.py first."
+        )
+    endif()
+    file(
+        REAL_PATH
+        "${MECCHA_UE4SS_SOURCE_ROOT}"
+        _meccha_ue4ss_root
+        BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    file(
+        REAL_PATH
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/RE-UE4SS"
+        _meccha_upstream_ue4ss_root
+    )
+    if(_meccha_ue4ss_root STREQUAL _meccha_upstream_ue4ss_root)
+        message(
+            FATAL_ERROR
+            "The accepted UE4SS gitlink cannot be used as the mutable "
+            "full-build source directory."
+        )
+    endif()
     if(NOT EXISTS "${_meccha_ue4ss_root}/CMakeLists.txt")
         message(
             FATAL_ERROR
-            "The pinned RE-UE4SS submodule is missing. Initialize "
-            "third_party/RE-UE4SS before configuring the full build."
+            "The verified UE4SS source stage is missing."
+        )
+    endif()
+    if(NOT EXISTS "${MECCHA_UE4SS_SOURCE_MANIFEST}")
+        message(FATAL_ERROR "The UE4SS source-stage manifest is missing.")
+    endif()
+    set(_meccha_ue4ss_lock
+        "${_meccha_ue4ss_root}/deps/first/patternsleuth_bind/Cargo.lock"
+    )
+    if(NOT EXISTS "${_meccha_ue4ss_lock}")
+        message(FATAL_ERROR "The canonical staged Cargo.lock is missing.")
+    endif()
+    file(SHA256 "${_meccha_ue4ss_lock}" _meccha_ue4ss_lock_sha256)
+    if(NOT _meccha_ue4ss_lock_sha256
+       STREQUAL MECCHA_UE4SS_CANONICAL_LOCK_SHA256)
+        message(
+            FATAL_ERROR
+            "The staged Cargo.lock does not match the approved canonical "
+            "overlay."
+        )
+    endif()
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    execute_process(
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/v2/prepare_ue4ss_source_stage.py"
+            --verify-only
+            --policy
+            "${CMAKE_CURRENT_SOURCE_DIR}/cmake/ue4ss-source-overlay.json"
+            --output-root
+            "${_meccha_ue4ss_root}"
+            --manifest
+            "${MECCHA_UE4SS_SOURCE_MANIFEST}"
+        RESULT_VARIABLE _meccha_ue4ss_stage_result
+        OUTPUT_VARIABLE _meccha_ue4ss_stage_output
+        ERROR_VARIABLE _meccha_ue4ss_stage_error
+    )
+    if(NOT _meccha_ue4ss_stage_result EQUAL 0)
+        message(
+            FATAL_ERROR
+            "The UE4SS source-stage verifier rejected the build input:\n"
+            "${_meccha_ue4ss_stage_output}"
+            "${_meccha_ue4ss_stage_error}"
         )
     endif()
     if(NOT EXISTS "${_meccha_ue4ss_root}/deps/first/Unreal/CMakeLists.txt")
@@ -162,7 +244,11 @@ if(MECCHA_WITH_UE4SS)
     set(UE4SS_INPUT_ENABLED ON CACHE BOOL "Required for configurable product hotkeys" FORCE)
 
     include(cmake/Ue4ssDependencyPins.cmake)
-    add_subdirectory(third_party/RE-UE4SS EXCLUDE_FROM_ALL)
+    add_subdirectory(
+        "${_meccha_ue4ss_root}"
+        "${CMAKE_CURRENT_BINARY_DIR}/_ue4ss"
+        EXCLUDE_FROM_ALL
+    )
     if(NOT COMMAND corrosion_set_cargo_flags OR
        NOT TARGET patternsleuth_bind)
         message(

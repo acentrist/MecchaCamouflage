@@ -36,6 +36,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tools/v2/verify_source_graph.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/v2/prepare_ue4ss_source_stage.py `
+            --policy cmake\ue4ss-source-overlay.json `
+            --source-root third_party\RE-UE4SS `
+            --output-root .build\v2\ue4ss-source `
+            --manifest .build\v2\ue4ss-source-stage.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Set up MSVC
         uses: ilammy/msvc-dev-cmd@v1
@@ -44,11 +50,24 @@ jobs:
 
       - name: Configure trusted graph
         shell: powershell
-        run: cmake --preset full-windows
+        run: |
+          $SourceRoot = (Resolve-Path .build\v2\ue4ss-source).Path
+          $SourceManifest = (Resolve-Path .build\v2\ue4ss-source-stage.json).Path
+          cmake --preset full-windows `
+            "-DMECCHA_UE4SS_SOURCE_ROOT=$SourceRoot" `
+            "-DMECCHA_UE4SS_SOURCE_MANIFEST=$SourceManifest"
 
       - name: Build UE4SS and mod together
         shell: powershell
-        run: cmake --build --preset full-windows
+        run: |
+          cmake --build --preset full-windows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/v2/prepare_ue4ss_source_stage.py `
+            --verify-only `
+            --policy cmake\ue4ss-source-overlay.json `
+            --output-root .build\v2\ue4ss-source `
+            --manifest .build\v2\ue4ss-source-stage.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Verify full-build binaries and provenance
         shell: powershell
@@ -56,6 +75,8 @@ jobs:
           .\tools\v2\verify-full-build.ps1
           -BuildRoot .build\v2\full-windows
           -ReportPath .build\v2\full-windows\phase2-provenance.json
+          -Ue4ssSourceRoot .build\v2\ue4ss-source
+          -Ue4ssSourceManifest .build\v2\ue4ss-source-stage.json
 
       - name: Collect resolved dependency evidence
         shell: powershell
@@ -71,7 +92,7 @@ jobs:
             --offline `
             --filter-platform x86_64-pc-windows-msvc `
             --format-version 1 `
-            --manifest-path third_party\RE-UE4SS\deps\first\patternsleuth_bind\Cargo.toml
+            --manifest-path .build\v2\ue4ss-source\deps\first\patternsleuth_bind\Cargo.toml
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           [System.IO.File]::WriteAllText(
             $Metadata,
@@ -88,7 +109,9 @@ jobs:
             --root-target proxy `
             --root-target UE4SS `
             --cargo-metadata $Metadata `
-            --cargo-lock third_party\RE-UE4SS\deps\first\patternsleuth_bind\Cargo.lock `
+            --cargo-lock .build\v2\ue4ss-source\deps\first\patternsleuth_bind\Cargo.lock `
+            --ue4ss-source-root .build\v2\ue4ss-source `
+            --ue4ss-source-manifest .build\v2\ue4ss-source-stage.json `
             --cargo-root-package patternsleuth_bind `
             --ue4ss-commit 6c26f038751b3d96059d4a9148f5d093012d55ad `
             --output .build\v2\full-windows\dependency-evidence.json
@@ -111,6 +134,7 @@ jobs:
           name: v2-phase2-provenance
           path: |
             .build/v2/full-windows/phase2-provenance.json
+            .build/v2/ue4ss-source-stage.json
             .build/v2/full-windows/dependency-evidence.json
             .build/v2/full-windows/dependency-audit-template.json
           if-no-files-found: error

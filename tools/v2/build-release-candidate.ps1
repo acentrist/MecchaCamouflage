@@ -6,6 +6,12 @@ param(
     [string]$BuildRoot,
 
     [Parameter(Mandatory = $true)]
+    [string]$Ue4ssSourceRoot,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Ue4ssSourceManifest,
+
+    [Parameter(Mandatory = $true)]
     [string]$ApprovedLicenseAudit,
 
     [Parameter(Mandatory = $true)]
@@ -71,6 +77,15 @@ function Resolve-ProvenanceBinary {
 
 $ResolvedProjectRoot = (Resolve-Path -LiteralPath $ProjectRoot).Path
 $ResolvedBuildRoot = (Resolve-Path -LiteralPath $BuildRoot).Path
+if (-not (Test-Path -LiteralPath $Ue4ssSourceRoot -PathType Container)) {
+    throw "UE4SS source stage is missing: $Ue4ssSourceRoot"
+}
+$ResolvedUe4ssSourceRoot = (
+    Resolve-Path -LiteralPath $Ue4ssSourceRoot
+).Path
+$ResolvedUe4ssSourceManifest = Resolve-RequiredFile `
+    -Path $Ue4ssSourceManifest `
+    -Label "UE4SS source-stage manifest"
 $ResolvedAudit = Resolve-RequiredFile `
     -Path $ApprovedLicenseAudit `
     -Label "Approved dependency license audit"
@@ -113,17 +128,31 @@ $PayloadManifest = Join-Path $Evidence "payload-manifest.json"
 $PayloadCab = Join-Path $Intermediate "payload.cab"
 $ReleaseReport = Join-Path $Evidence "release-report.json"
 $ReleaseChecksum = Join-Path $Evidence "$ExecutableName.sha256"
+$SourceStageEvidence = Join-Path $Evidence "ue4ss-source-stage.json"
 
 Push-Location $ResolvedProjectRoot
 try {
     Copy-Item -LiteralPath $ResolvedAudit -Destination $ApprovedAuditCopy
+    Copy-Item `
+        -LiteralPath $ResolvedUe4ssSourceManifest `
+        -Destination $SourceStageEvidence
+
+    Invoke-Checked -FilePath "python" -Arguments @(
+        "tools\v2\prepare_ue4ss_source_stage.py",
+        "--verify-only",
+        "--policy", "cmake\ue4ss-source-overlay.json",
+        "--output-root", $ResolvedUe4ssSourceRoot,
+        "--manifest", $ResolvedUe4ssSourceManifest
+    )
 
     Invoke-Checked -FilePath "powershell" -Arguments @(
         "-NoProfile",
         "-ExecutionPolicy", "Bypass",
         "-File", (Join-Path $ResolvedProjectRoot "tools\v2\verify-full-build.ps1"),
         "-BuildRoot", $ResolvedBuildRoot,
-        "-ReportPath", $Provenance
+        "-ReportPath", $Provenance,
+        "-Ue4ssSourceRoot", $ResolvedUe4ssSourceRoot,
+        "-Ue4ssSourceManifest", $ResolvedUe4ssSourceManifest
     )
 
     $CargoJson = & cargo metadata `
@@ -131,7 +160,7 @@ try {
         --offline `
         --filter-platform x86_64-pc-windows-msvc `
         --format-version 1 `
-        --manifest-path third_party\RE-UE4SS\deps\first\patternsleuth_bind\Cargo.toml
+        --manifest-path (Join-Path $ResolvedUe4ssSourceRoot "deps\first\patternsleuth_bind\Cargo.toml")
     if ($LASTEXITCODE -ne 0) {
         throw "cargo metadata failed with exit code $LASTEXITCODE."
     }
@@ -154,7 +183,9 @@ try {
         "--root-target", "UE4SS",
         "--cargo-metadata", $CargoMetadata,
         "--cargo-lock",
-        (Join-Path $ResolvedProjectRoot "third_party\RE-UE4SS\deps\first\patternsleuth_bind\Cargo.lock"),
+        (Join-Path $ResolvedUe4ssSourceRoot "deps\first\patternsleuth_bind\Cargo.lock"),
+        "--ue4ss-source-root", $ResolvedUe4ssSourceRoot,
+        "--ue4ss-source-manifest", $ResolvedUe4ssSourceManifest,
         "--cargo-root-package", "patternsleuth_bind",
         "--ue4ss-commit", $Ue4ssCommit,
         "--output", $DependencyEvidence

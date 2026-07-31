@@ -3,7 +3,13 @@ param(
     [string]$BuildRoot,
 
     [Parameter(Mandatory = $true)]
-    [string]$ReportPath
+    [string]$ReportPath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Ue4ssSourceRoot,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Ue4ssSourceManifest
 )
 
 $ErrorActionPreference = "Stop"
@@ -11,6 +17,46 @@ Set-StrictMode -Version Latest
 
 $AcceptedUe4ssCommit = "6c26f038751b3d96059d4a9148f5d093012d55ad"
 $ResolvedBuildRoot = (Resolve-Path -LiteralPath $BuildRoot).Path
+$ResolvedUe4ssSourceRoot = (
+    Resolve-Path -LiteralPath $Ue4ssSourceRoot
+).Path
+$ResolvedUe4ssSourceManifest = (
+    Resolve-Path -LiteralPath $Ue4ssSourceManifest
+).Path
+$ProjectRoot = (
+    Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..")
+).Path
+
+$StageOutput = & python `
+    (Join-Path $ProjectRoot "tools\v2\prepare_ue4ss_source_stage.py") `
+    --verify-only `
+    --policy (Join-Path $ProjectRoot "cmake\ue4ss-source-overlay.json") `
+    --output-root $ResolvedUe4ssSourceRoot `
+    --manifest $ResolvedUe4ssSourceManifest 2>&1
+if ($LASTEXITCODE -ne 0) {
+    throw "UE4SS source-stage verification failed.`n$($StageOutput -join [Environment]::NewLine)"
+}
+$StageManifest = Get-Content `
+    -LiteralPath $ResolvedUe4ssSourceManifest `
+    -Raw |
+    ConvertFrom-Json
+if ($StageManifest.ue4ss_commit -ne $AcceptedUe4ssCommit -or
+    $StageManifest.owner -ne "MecchaCamouflage") {
+    throw "UE4SS source-stage manifest identity is invalid."
+}
+$CMakeCache = Join-Path $ResolvedBuildRoot "CMakeCache.txt"
+if (-not (Test-Path -LiteralPath $CMakeCache -PathType Leaf)) {
+    throw "The full-build CMake cache is missing."
+}
+$CacheText = Get-Content -LiteralPath $CMakeCache -Raw
+$NormalizedSourceRoot = $ResolvedUe4ssSourceRoot.Replace("\", "/")
+$NormalizedSourceManifest = $ResolvedUe4ssSourceManifest.Replace("\", "/")
+$ExpectedSourceCache = "MECCHA_UE4SS_SOURCE_ROOT:PATH=$NormalizedSourceRoot"
+$ExpectedManifestCache = "MECCHA_UE4SS_SOURCE_MANIFEST:FILEPATH=$NormalizedSourceManifest"
+if (-not $CacheText.Contains($ExpectedSourceCache) -or
+    -not $CacheText.Contains($ExpectedManifestCache)) {
+    throw "The full-build CMake graph is not bound to the verified UE4SS source stage."
+}
 
 function Get-SingleBinary {
     param(
@@ -132,6 +178,16 @@ $Report = [ordered]@{
     product_version = "2.0.0"
     source_commit = (git rev-parse HEAD).Trim()
     ue4ss_commit = $Ue4ssHead
+    ue4ss_source_stage = [ordered]@{
+        manifest_sha256 = (
+            Get-FileHash `
+                -LiteralPath $ResolvedUe4ssSourceManifest `
+                -Algorithm SHA256
+        ).Hash.ToLowerInvariant()
+        policy_sha256 = $StageManifest.policy_sha256
+        overlay = $StageManifest.overlay
+        nested_gitlinks = $StageManifest.nested_gitlinks
+    }
     configuration = "Game__Shipping__Win64"
     architecture = "x64"
     msvc_runtime = "MultiThreadedDLL"
