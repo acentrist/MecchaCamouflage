@@ -42,6 +42,7 @@ add_library(
         src/product_ui_frame_coordinator.cpp
         src/product_ui_input_queue.cpp
         src/product_ui_key_binding.cpp
+        src/product_ui_pointer_capture.cpp
 )
 add_library(MecchaCamouflage::ProductUi ALIAS meccha_product_ui)
 

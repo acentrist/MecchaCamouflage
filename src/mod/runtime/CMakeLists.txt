@@ -28,4 +28,5 @@ target_link_libraries(
     PRIVATE
         UE4SS
         meccha_build_options
+        user32
 )

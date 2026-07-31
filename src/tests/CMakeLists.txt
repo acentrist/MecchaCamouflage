@@ -204,6 +204,21 @@ add_test(
 )
 
 add_executable(
+    meccha_product_ui_pointer_capture_tests
+    product_ui_pointer_capture_test.cpp
+)
+target_link_libraries(
+    meccha_product_ui_pointer_capture_tests
+    PRIVATE
+        MecchaCamouflage::ProductUi
+        meccha_build_options
+)
+add_test(
+    NAME product_ui_pointer_capture
+    COMMAND meccha_product_ui_pointer_capture_tests
+)
+
+add_executable(
     meccha_application_root_tests
     application_root_test.cpp
 )

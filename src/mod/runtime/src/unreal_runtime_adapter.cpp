@@ -8,6 +8,7 @@
 #include <meccha/runtime/texture_import_codec.hpp>
 #include <meccha/runtime/unreal_contracts.hpp>
 #include <meccha/core/png_encoder.hpp>
+#include <meccha/product_ui/product_ui_pointer_capture.hpp>
 
 #include "unreal_reflection_validation.hpp"
 
@@ -22,6 +23,14 @@
 #include <Unreal/UnrealFlags.hpp>
 #include <Unreal/UnrealInitializer.hpp>
 #include <Unreal/World.hpp>
+
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
 
 #include <algorithm>
 #include <condition_variable>
@@ -470,6 +479,28 @@ auto canvas_failure(const char* detail)
 {
     return std::unexpected(
         product_ui::ProductUiFrameRuntimeError{detail});
+}
+
+auto is_current_process_unreal_window(HWND window) -> bool
+{
+    if (window == nullptr || !IsWindow(window))
+    {
+        return false;
+    }
+    DWORD process_id{};
+    if (GetWindowThreadProcessId(window, &process_id) == 0U ||
+        process_id != GetCurrentProcessId())
+    {
+        return false;
+    }
+    wchar_t class_name[32]{};
+    const auto length = GetClassNameW(
+        window,
+        class_name,
+        static_cast<int>(
+            sizeof(class_name) / sizeof(class_name[0])));
+    return length > 0 &&
+           lstrcmpW(class_name, L"UnrealWindow") == 0;
 }
 
 auto texture_failure(const char* detail)
@@ -1264,6 +1295,13 @@ auto set_input_ignored(
 class UnrealRuntimeAdapter::Impl
 {
 public:
+    explicit Impl(
+        std::shared_ptr<
+            product_ui::ProductUiInputQueue> input_queue)
+        : input_queue_{std::move(input_queue)}
+    {
+    }
+
     ~Impl()
     {
         detach_noexcept();
@@ -2771,6 +2809,137 @@ public:
         }
     }
 
+    auto capture_product_ui_frame(
+        const application::HudFrameIdentity& identity)
+        -> std::expected<
+            product_ui::ProductUiFrameInput,
+            product_ui::ProductUiFrameRuntimeError>
+    {
+        if (!IsInGameThreadRaw())
+        {
+            return canvas_failure("input.wrong_thread");
+        }
+        if (!input_queue_)
+        {
+            return canvas_failure("input.missing_queue");
+        }
+
+        try
+        {
+            auto active = std::optional<ActiveFrame>{};
+            {
+                const auto lock = std::scoped_lock{mutex_};
+                active = active_frame_;
+            }
+            if (!active || active->identity != identity ||
+                active->viewport_width <= 0 ||
+                active->viewport_height <= 0)
+            {
+                return canvas_failure("input.stale_frame");
+            }
+
+            const auto foreground = GetForegroundWindow();
+            auto window = input_window_;
+            const auto cached_window_is_valid =
+                is_current_process_unreal_window(window);
+            if (!cached_window_is_valid)
+            {
+                if (!is_current_process_unreal_window(foreground))
+                {
+                    return canvas_failure(
+                        "input.game_window_unavailable");
+                }
+                window = foreground;
+            }
+
+            auto client = RECT{};
+            if (!GetClientRect(window, &client))
+            {
+                return canvas_failure("input.client_rect_failed");
+            }
+            const auto client_width = client.right - client.left;
+            const auto client_height = client.bottom - client.top;
+            if (client_width <= 0 || client_height <= 0)
+            {
+                return canvas_failure("input.invalid_client_rect");
+            }
+
+            auto cursor = POINT{};
+            if (!GetCursorPos(&cursor) ||
+                !ScreenToClient(window, &cursor))
+            {
+                return canvas_failure("input.pointer_query_failed");
+            }
+            const auto dpi = GetDpiForWindow(window);
+            if (dpi == 0U)
+            {
+                return canvas_failure("input.dpi_query_failed");
+            }
+
+            const auto pointer = pointer_capture_.update(
+                product_ui::ProductUiPointerObservation{
+                    static_cast<double>(
+                        active->viewport_width),
+                    static_cast<double>(
+                        active->viewport_height),
+                    static_cast<double>(client_width),
+                    static_cast<double>(client_height),
+                    static_cast<double>(cursor.x),
+                    static_cast<double>(cursor.y),
+                    static_cast<double>(dpi) / 96.0,
+                    reinterpret_cast<std::uintptr_t>(window),
+                    foreground == window,
+                    GetAsyncKeyState(VK_LBUTTON) < 0,
+                });
+            if (!pointer)
+            {
+                return canvas_failure(
+                    "input.invalid_pointer_observation");
+            }
+            input_window_ = window;
+
+            if (!pointer->function_key_input_available)
+            {
+                input_queue_->discard();
+                return product_ui::ProductUiFrameInput{
+                    pointer->viewport,
+                    {},
+                    pointer->pointer,
+                    {},
+                    {},
+                    {},
+                    false,
+                    pointer->owner_window,
+                };
+            }
+
+            auto batch = input_queue_->drain();
+            if (!batch)
+            {
+                return canvas_failure(
+                    batch.error() ==
+                            product_ui::ProductUiInputDrainError::
+                                EventLimit
+                        ? "input.event_limit"
+                        : "input.queue_stopped");
+            }
+            return product_ui::ProductUiFrameInput{
+                pointer->viewport,
+                {},
+                pointer->pointer,
+                batch->keyboard,
+                std::move(batch->text_edit_events),
+                std::move(batch->function_keys),
+                true,
+                pointer->owner_window,
+            };
+        }
+        catch (...)
+        {
+            return canvas_failure("input.capture_failed");
+        }
+    }
+
 private:
     struct PreviewTarget
     {
@@ -3080,6 +3249,10 @@ private:
         canvas_textures_{};
     std::optional<std::pair<int, int>> hook_ids_{};
     std::optional<InputMutationLease> input_mutation_{};
+    std::shared_ptr<product_ui::ProductUiInputQueue>
+        input_queue_{};
+    product_ui::ProductUiPointerCapture pointer_capture_{};
+    HWND input_window_{};
     void* callback_context_{};
     application::HudCallback callback_{};
     std::size_t in_flight_{};
@@ -3089,8 +3262,10 @@ private:
     bool detaching_{};
 };
 
-UnrealRuntimeAdapter::UnrealRuntimeAdapter()
-    : impl_{std::make_unique<Impl>()}
+UnrealRuntimeAdapter::UnrealRuntimeAdapter(
+    std::shared_ptr<
+        product_ui::ProductUiInputQueue> input_queue)
+    : impl_{std::make_unique<Impl>(std::move(input_queue))}
 {
 }
 
@@ -3200,6 +3375,15 @@ auto UnrealRuntimeAdapter::release_texture(
         product_ui::ImageEditorTextureRuntimeError>
 {
     return impl_->release_canvas_texture(handle);
+}
+
+auto UnrealRuntimeAdapter::capture(
+    const application::HudFrameIdentity& identity)
+    -> std::expected<
+        product_ui::ProductUiFrameInput,
+        product_ui::ProductUiFrameRuntimeError>
+{
+    return impl_->capture_product_ui_frame(identity);
 }
 
 auto UnrealRuntimeAdapter::render(

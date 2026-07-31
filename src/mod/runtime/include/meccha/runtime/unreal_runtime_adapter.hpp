@@ -6,6 +6,7 @@
 #include <meccha/application/runtime_operation_executor.hpp>
 #include <meccha/product_ui/image_editor_texture_coordinator.hpp>
 #include <meccha/product_ui/product_ui_frame_coordinator.hpp>
+#include <meccha/product_ui/product_ui_input_queue.hpp>
 
 #include <memory>
 
@@ -19,11 +20,14 @@ class UnrealRuntimeAdapter final
       public application::PaintQueueRuntimePort,
       public application::PaintPreviewRuntimePort,
       public product_ui::ImageEditorTextureRuntimePort,
+      public product_ui::ProductUiFrameCapturePort,
       public product_ui::ProductUiCanvasRenderPort,
       public ui::InputLeasePort
 {
 public:
-    UnrealRuntimeAdapter();
+    explicit UnrealRuntimeAdapter(
+        std::shared_ptr<
+            product_ui::ProductUiInputQueue> input_queue);
     UnrealRuntimeAdapter(const UnrealRuntimeAdapter&) = delete;
     auto operator=(const UnrealRuntimeAdapter&)
         -> UnrealRuntimeAdapter& = delete;
@@ -96,6 +100,12 @@ public:
         -> std::expected<
             void,
             product_ui::ImageEditorTextureRuntimeError> override;
+
+    [[nodiscard]] auto capture(
+        const application::HudFrameIdentity& identity)
+        -> std::expected<
+            product_ui::ProductUiFrameInput,
+            product_ui::ProductUiFrameRuntimeError> override;
 
     [[nodiscard]] auto render(
         const application::HudFrameIdentity& identity,
