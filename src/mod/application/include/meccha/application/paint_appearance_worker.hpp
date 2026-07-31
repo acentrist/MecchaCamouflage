@@ -2,6 +2,7 @@
 
 #include <meccha/application/job_state.hpp>
 #include <meccha/application/paint_preview_controller.hpp>
+#include <meccha/core/paint_appearance_capture.hpp>
 #include <meccha/core/paint_appearance_fit.hpp>
 #include <meccha/core/paint_preview.hpp>
 
@@ -38,6 +39,28 @@ struct PaintAppearanceCandidateWork
     PaintTextureImage original{};
 };
 
+struct PaintAppearanceGeometryPrepareWork
+{
+    core::PaintSamplingProfile sampling_profile{};
+    core::CanonicalImageProfile image_profile{};
+    std::vector<core::PaintReferenceBoneTransform>
+        current_world_transforms{};
+    double brush_size_texels{};
+    core::EspView view{};
+    core::EspViewport viewport{};
+};
+
+struct PaintAppearanceCapturePrepareWork
+{
+    std::shared_ptr<
+        const std::vector<core::PaintCaptureGeometrySample>>
+        geometry{};
+    core::PaintAppearanceCaptureEvidence evidence{};
+    bool include_scene_lighting{};
+    std::optional<core::AppearanceEmissionNoiseModel>
+        target_e0_noise{};
+};
+
 struct PaintAppearanceEvaluateWork
 {
     std::shared_ptr<const core::PaintAppearanceModel> model{};
@@ -50,6 +73,8 @@ struct PaintAppearanceEvaluateWork
 
 using PaintAppearanceWorkRequest = std::variant<
     PaintAppearancePrepareWork,
+    PaintAppearanceGeometryPrepareWork,
+    PaintAppearanceCapturePrepareWork,
     PaintAppearanceCandidateWork,
     PaintAppearanceEvaluateWork>;
 
@@ -57,6 +82,15 @@ struct PaintAppearancePrepared
 {
     std::shared_ptr<const core::PaintAppearanceModel> model{};
     std::vector<double> parameters{};
+};
+
+struct PaintAppearanceGeometryPrepared
+{
+    std::shared_ptr<
+        const std::vector<core::PaintCaptureGeometrySample>>
+        geometry{};
+    std::shared_ptr<const std::vector<std::size_t>>
+        source_query_pixels{};
 };
 
 struct PaintAppearanceCandidate
@@ -75,12 +109,15 @@ struct PaintAppearanceEvaluated
 
 using PaintAppearanceWorkValue = std::variant<
     PaintAppearancePrepared,
+    PaintAppearanceGeometryPrepared,
     PaintAppearanceCandidate,
     PaintAppearanceEvaluated>;
 
 enum class PaintAppearanceWorkFailureKind : std::uint8_t
 {
     InvalidRequest,
+    CaptureGeometry,
+    CaptureEvidence,
     Core,
     Composer,
     WorkerException,
@@ -93,6 +130,10 @@ struct PaintAppearanceWorkFailure
     std::optional<core::PaintAppearanceFitError> core_error{};
     std::optional<core::PaintPreviewComposeError>
         compose_error{};
+    std::optional<core::PaintCaptureGeometryError>
+        geometry_error{};
+    std::optional<core::PaintAppearanceCaptureError>
+        capture_error{};
 
     auto operator==(const PaintAppearanceWorkFailure&) const
         -> bool = default;

@@ -837,6 +837,26 @@ auto main() -> int
                     1.0F,
                 },
             });
+    const auto hdr_pixels =
+        convert_paint_capture_linear_colors_to_hdr(
+            std::array{
+                PaintCaptureLinearColor{
+                    4.0F,
+                    2.0F,
+                    -1.0F,
+                    1.0F,
+                },
+            });
+    const auto depth_pixels =
+        convert_paint_capture_linear_colors_to_depth(
+            std::array{
+                PaintCaptureLinearColor{
+                    123.5F,
+                    0.0F,
+                    0.0F,
+                    1.0F,
+                },
+            });
     passed &= expect(
         srgb_pixels &&
             *srgb_pixels ==
@@ -854,6 +874,15 @@ auto main() -> int
                     },
                 }),
         "the Paint SceneCapture linear-to-sRGB conversion drifted");
+    passed &= expect(
+        hdr_pixels &&
+            *hdr_pixels ==
+                std::vector<core::AppearanceRgb>{
+                    core::AppearanceRgb{4.0, 2.0, -1.0},
+                } &&
+            depth_pixels &&
+            *depth_pixels == std::vector<double>{123.5},
+        "raw HDR or scene-depth evidence was normalized or clamped");
     passed &= expect(
         is_look_input_ignored_contract().owner_name ==
                 "/Script/Engine.Controller" &&

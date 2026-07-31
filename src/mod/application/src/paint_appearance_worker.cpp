@@ -1,8 +1,10 @@
 #include <meccha/application/paint_appearance_worker.hpp>
 
+#include <cmath>
 #include <cstddef>
 #include <expected>
 #include <memory>
+#include <limits>
 #include <mutex>
 #include <span>
 #include <stop_token>
@@ -32,6 +34,32 @@ auto invalid_request() -> PaintAppearanceWorkResult
         PaintAppearanceWorkFailureKind::InvalidRequest,
         std::nullopt,
         std::nullopt,
+    });
+}
+
+auto capture_geometry_failure(
+    core::PaintCaptureGeometryError error)
+    -> PaintAppearanceWorkResult
+{
+    return std::unexpected(PaintAppearanceWorkFailure{
+        PaintAppearanceWorkFailureKind::CaptureGeometry,
+        std::nullopt,
+        std::nullopt,
+        error,
+        std::nullopt,
+    });
+}
+
+auto capture_evidence_failure(
+    core::PaintAppearanceCaptureError error)
+    -> PaintAppearanceWorkResult
+{
+    return std::unexpected(PaintAppearanceWorkFailure{
+        PaintAppearanceWorkFailureKind::CaptureEvidence,
+        std::nullopt,
+        std::nullopt,
+        std::nullopt,
+        error,
     });
 }
 } // namespace
@@ -191,6 +219,119 @@ auto PaintAppearanceWorker::run(
                             work.width,
                             work.height,
                             work.observations,
+                            work.include_scene_lighting,
+                            work.target_e0_noise,
+                            cancellation);
+                    if (!model)
+                    {
+                        return core_failure(model.error());
+                    }
+                    auto owned_model =
+                        std::make_shared<
+                            const core::PaintAppearanceModel>(
+                            std::move(*model));
+                    auto parameters =
+                        core::paint_appearance_parameters(
+                            *owned_model);
+                    if (parameters.empty())
+                    {
+                        return invalid_request();
+                    }
+                    return PaintAppearanceWorkValue{
+                        PaintAppearancePrepared{
+                            std::move(owned_model),
+                            std::move(parameters),
+                        }};
+                }
+                else if constexpr (
+                    std::is_same_v<
+                        Work,
+                        PaintAppearanceGeometryPrepareWork>)
+                {
+                    auto geometry =
+                        core::build_paint_capture_geometry(
+                            work.sampling_profile,
+                            work.image_profile,
+                            work.current_world_transforms,
+                            work.brush_size_texels,
+                            work.view,
+                            work.viewport,
+                            cancellation);
+                    if (!geometry)
+                    {
+                        return capture_geometry_failure(
+                            geometry.error());
+                    }
+                    if (!std::isfinite(work.viewport.width) ||
+                        !std::isfinite(work.viewport.height) ||
+                        work.viewport.width !=
+                            std::floor(work.viewport.width) ||
+                        work.viewport.height !=
+                            std::floor(work.viewport.height) ||
+                        work.viewport.width >
+                            static_cast<double>(
+                                std::numeric_limits<std::uint32_t>::
+                                    max()) ||
+                        work.viewport.height >
+                            static_cast<double>(
+                                std::numeric_limits<std::uint32_t>::
+                                    max()))
+                    {
+                        return capture_evidence_failure(
+                            core::PaintAppearanceCaptureError::
+                                InvalidEvidence);
+                    }
+                    auto query_pixels =
+                        core::build_paint_appearance_source_query_pixels(
+                            *geometry,
+                            static_cast<std::uint32_t>(
+                                work.viewport.width),
+                            static_cast<std::uint32_t>(
+                                work.viewport.height),
+                            cancellation);
+                    if (!query_pixels)
+                    {
+                        return capture_evidence_failure(
+                            query_pixels.error());
+                    }
+                    auto owned_geometry =
+                        std::make_shared<const std::vector<
+                            core::PaintCaptureGeometrySample>>(
+                            std::move(*geometry));
+                    auto owned_query_pixels =
+                        std::make_shared<
+                            const std::vector<std::size_t>>(
+                            std::move(*query_pixels));
+                    return PaintAppearanceWorkValue{
+                        PaintAppearanceGeometryPrepared{
+                            std::move(owned_geometry),
+                            std::move(owned_query_pixels),
+                        }};
+                }
+                else if constexpr (
+                    std::is_same_v<
+                        Work,
+                        PaintAppearanceCapturePrepareWork>)
+                {
+                    if (!work.geometry)
+                    {
+                        return invalid_request();
+                    }
+                    auto observations =
+                        core::build_paint_appearance_observations(
+                            *work.geometry,
+                            work.evidence,
+                            cancellation);
+                    if (!observations)
+                    {
+                        return capture_evidence_failure(
+                            observations.error());
+                    }
+                    auto model =
+                        core::prepare_paint_appearance_model(
+                            work.evidence.base_color.camera.width,
+                            work.evidence.base_color.camera.height,
+                            *observations,
                             work.include_scene_lighting,
                             work.target_e0_noise,
                             cancellation);

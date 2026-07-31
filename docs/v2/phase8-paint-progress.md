@@ -22,6 +22,24 @@ authorizes that correction. A generation-tagged `PaintAppearanceWorker` owns
 model preparation, immutable trial-preview composition, response evaluation,
 cancellation, and exception containment without any UObject or runtime type.
 
+The source-capture boundary is also project-owned. One immutable evidence
+value carries BaseColor, FinalColor HDR, tone-curve HDR, intrinsic-emission
+HDR, world normal, scene depth, and FinalColor LDR passes with a camera
+fingerprint on every pass. Observation construction rejects changed capture
+dimensions, viewport, FOV, camera position, or direction; maps the projected
+deformed geometry to exact raster pixels; and admits only visible,
+front-facing samples. Raw HDR conversion preserves finite negative and
+greater-than-one channels, while depth conversion preserves the finite raw
+red channel rather than applying display normalization.
+
+Appearance preparation is split into two cancellable worker stages. The first
+owns deformation and projection and returns immutable geometry plus a sorted,
+deduplicated set of only the raster pixels the runtime needs to query. The
+second consumes immutable multi-pass evidence and that geometry to build the
+appearance model. This avoids a game-thread full-raster object query and
+keeps all deformation, observation, clustering, and fitting work outside the
+HUD callback.
+
 ## Immutable capture-to-plan contract
 
 The game-thread boundary may now return either a complete
@@ -372,13 +390,19 @@ quiescing. It also holds fake runtime queues nonempty during shutdown and
 proves the active Paint generation reaches `Cancelled` before quiescing.
 `paint_preview_composer` adds Fill/Paint overwrite
 ordering, packed-PBR quantization, edge clipping, original immutability,
-invalid plan/buffer rejection, cancellation, and resource-limit evidence. The
-secret-free Linux normal and fresh ASan/UBSan suites currently pass all 92
-registered tests. The production adapter, exact sender, queue observer,
-preview channel adapter, capture codecs, and struct-array reflection bridge
-also compile with `/WX` in the pinned Windows MSVC
-`Game__Shipping__Win64` graph; the exact Windows reflection-contract test
-passes. This is build evidence, not a live Paint pass.
+invalid plan/buffer rejection, cancellation, and resource-limit evidence.
+`paint_appearance_capture` covers exact pass-value preservation,
+deduplicated projected-pixel queries, front-facing visibility, and camera
+movement rejection. `paint_appearance_worker` additionally proves owned
+profile/transform/evidence lifetimes across both worker stages and typed
+geometry/evidence failures. The secret-free Linux normal and fresh
+ASan/UBSan suites currently pass all 93 registered tests. The production
+adapter, exact sender, queue observer, preview channel adapter, capture codecs,
+and struct-array reflection bridge also compile with `/WX` in the pinned
+Windows MSVC `Game__Shipping__Win64` graph. The exact Windows
+reflection-contract, appearance-capture, and appearance-worker tests pass,
+and post-build verification confirms the immutable UE4SS stage remains
+unchanged. This is build evidence, not a live Paint pass.
 
 ## Remaining gate
 
@@ -386,10 +410,12 @@ passes. This is build evidence, not a live Paint pass.
   initialization, SceneCapture actor/component/property/function, bounded
   render-target/readback, target-mesh hiding, manual pass, and local cleanup
   paths now compile. Exact current-World brush-plane visual discovery/hiding
-  also compiles from current cooked-package evidence. Auto Material
-  intrinsic-emission and trial-preview feedback/restoration, a bounded
-  multi-frame budget, and live brush-plane/orientation/color/cleanup evidence
-  remain.
+  also compiles from current cooked-package evidence. The immutable seven-pass
+  evidence, camera-stability gate, bounded projected-pixel query, observation
+  builder, and cancellable preparation worker are complete. The production
+  multi-HUD-frame source-pass session, target-visible trial-preview feedback
+  and exact restoration, a bounded frame budget, and live brush-plane/
+  orientation/color/cleanup evidence remain.
 - Implement the remaining production UE4SS capture contracts, connect the
   completed sender and queue observer through the exported composition root,
   and connect the completed preview adapter through that same root.

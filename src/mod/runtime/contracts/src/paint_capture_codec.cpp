@@ -371,6 +371,69 @@ auto convert_paint_capture_linear_colors_to_srgb8(
     return converted;
 }
 
+auto convert_paint_capture_linear_colors_to_hdr(
+    std::span<const PaintCaptureLinearColor> colors)
+    -> std::expected<
+        std::vector<core::AppearanceRgb>,
+        PaintCaptureEncodingError>
+{
+    if (colors.empty() ||
+        colors.size() >
+            static_cast<std::size_t>(
+                core::MaximumPaintCaptureDimension) *
+                core::MaximumPaintCaptureDimension)
+    {
+        return std::unexpected(
+            PaintCaptureEncodingError::InvalidColor);
+    }
+    auto converted = std::vector<core::AppearanceRgb>{};
+    converted.reserve(colors.size());
+    for (const auto& color : colors)
+    {
+        if (!valid_color(color))
+        {
+            return std::unexpected(
+                PaintCaptureEncodingError::InvalidColor);
+        }
+        converted.push_back(core::AppearanceRgb{
+            static_cast<double>(color.red),
+            static_cast<double>(color.green),
+            static_cast<double>(color.blue),
+        });
+    }
+    return converted;
+}
+
+auto convert_paint_capture_linear_colors_to_depth(
+    std::span<const PaintCaptureLinearColor> colors)
+    -> std::expected<
+        std::vector<double>,
+        PaintCaptureEncodingError>
+{
+    if (colors.empty() ||
+        colors.size() >
+            static_cast<std::size_t>(
+                core::MaximumPaintCaptureDimension) *
+                core::MaximumPaintCaptureDimension)
+    {
+        return std::unexpected(
+            PaintCaptureEncodingError::InvalidColor);
+    }
+    auto converted = std::vector<double>{};
+    converted.reserve(colors.size());
+    for (const auto& color : colors)
+    {
+        if (!valid_color(color))
+        {
+            return std::unexpected(
+                PaintCaptureEncodingError::InvalidColor);
+        }
+        converted.push_back(
+            static_cast<double>(color.red));
+    }
+    return converted;
+}
+
 auto paint_brush_plane_visual_contract()
     -> PaintBrushPlaneVisualContract
 {

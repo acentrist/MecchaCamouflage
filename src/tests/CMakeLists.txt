@@ -807,6 +807,21 @@ add_test(
 )
 
 add_executable(
+    meccha_paint_appearance_capture_tests
+    paint_appearance_capture_test.cpp
+)
+target_link_libraries(
+    meccha_paint_appearance_capture_tests
+    PRIVATE
+        MecchaCamouflage::Core
+        meccha_build_options
+)
+add_test(
+    NAME paint_appearance_capture
+    COMMAND meccha_paint_appearance_capture_tests
+)
+
+add_executable(
     meccha_paint_appearance_worker_tests
     paint_appearance_worker_test.cpp
 )
@@ -818,7 +833,9 @@ target_link_libraries(
 )
 add_test(
     NAME paint_appearance_worker
-    COMMAND meccha_paint_appearance_worker_tests
+    COMMAND
+        meccha_paint_appearance_worker_tests
+        "${PROJECT_SOURCE_DIR}/resources/mesh-profiles"
 )
 
 add_executable(

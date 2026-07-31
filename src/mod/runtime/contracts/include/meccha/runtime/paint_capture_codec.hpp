@@ -1,5 +1,6 @@
 #pragma once
 
+#include <meccha/core/paint_appearance.hpp>
 #include <meccha/core/paint_capture_request.hpp>
 #include <meccha/core/paint_sampling_profile.hpp>
 #include <meccha/runtime/esp_capture_codec.hpp>
@@ -302,6 +303,20 @@ convert_paint_capture_linear_colors_to_srgb8(
     std::span<const PaintCaptureLinearColor> colors)
     -> std::expected<
         std::vector<core::Rgb8>,
+        PaintCaptureEncodingError>;
+
+[[nodiscard]] auto
+convert_paint_capture_linear_colors_to_hdr(
+    std::span<const PaintCaptureLinearColor> colors)
+    -> std::expected<
+        std::vector<core::AppearanceRgb>,
+        PaintCaptureEncodingError>;
+
+[[nodiscard]] auto
+convert_paint_capture_linear_colors_to_depth(
+    std::span<const PaintCaptureLinearColor> colors)
+    -> std::expected<
+        std::vector<double>,
         PaintCaptureEncodingError>;
 
 [[nodiscard]] auto paint_brush_plane_visual_contract()

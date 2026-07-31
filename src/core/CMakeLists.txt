@@ -12,6 +12,7 @@ add_library(
         src/mesh_profile.cpp
         src/paint.cpp
         src/paint_appearance.cpp
+        src/paint_appearance_capture.cpp
         src/paint_appearance_fit.cpp
         src/paint_capture_geometry.cpp
         src/paint_capture_request.cpp

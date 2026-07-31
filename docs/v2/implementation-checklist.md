@@ -462,6 +462,16 @@ Evidence:
       - [x] Port the bounded HDR/emission/calibration/SPSA/acceptance
         algorithms, surface-aware emission-halo rejection, and immutable
         candidate/evaluation worker without runtime types.
+      - [x] Define immutable BaseColor, FinalColor HDR, tone-curve HDR,
+        intrinsic-emission HDR, normal, depth, and FinalColor LDR capture
+        evidence with per-pass camera fingerprints, exact projected-raster
+        observation construction, and changed-camera rejection.
+      - [x] Split cancellable appearance preparation into owned deformation/
+        projection plus deduplicated source-query pixels, followed by
+        immutable evidence-to-model preparation, without full-raster
+        game-thread object queries.
+      - [x] Preserve finite raw HDR and scene-depth readback channels in the
+        runtime codec without display normalization or clamping.
       - [x] Freeze the exact 0x10
         `SceneCaptureComponent.SetShowFlagSettings` array schema and require
         exact ordered readback of the reviewed 33 intrinsic-emission flags.
