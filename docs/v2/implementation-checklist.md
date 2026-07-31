@@ -294,6 +294,9 @@ Evidence:
 - [x] Coordinate editor decode/composition, active-draft debounce, optimistic
   named project operations, typed completions, and terminal shutdown through
   one project-owned session wired to `ApplicationRoot`.
+- [x] Construct the production Windows Image Paint service graph from the
+  isolated v2 config/project stores, native preset hasher, WIC/libwebp decoder,
+  core atlas composer, persistence coordinator, and one owned editor session.
 - [x] Run startup recovery before runtime callback registration, submit the
   recovered named/draft project to the derived pipeline exactly once, publish
   its source/diagnostics in the immutable session snapshot, and fail root
@@ -422,6 +425,9 @@ Evidence:
     the application command variant and composition root.
   - [x] Connect persisted startup recovery to the root initialization boundary
     before UE4SS callback registration.
+  - [x] Compose the production Windows persistence, decoder, compositor, and
+    editor-session services behind one lifetime owner, with typed construction
+    failure and terminal worker shutdown.
   - [x] Connect current-project Save/Rename/Delete to the portable UCanvas
     toolbar with typed actions, bounded name editing, and explicit delete
     confirmation.
@@ -526,8 +532,10 @@ Evidence:
   - [x] Route current-project Save, Rename, and confirmed Delete through their
     existing snapshot-bound typed product actions without exposing project
     identity or persistence objects to the Canvas layer.
-  - [ ] Connect every production Canvas widget/editor activation to that
-    product-action boundary and enqueue its typed result.
+  - [x] Connect every portable Canvas widget/editor activation and native
+    picker effect through one game-thread frame coordinator that enqueues
+    typed output only after successful frame rendering.
+  - [ ] Invoke the frame coordinator from the production UE4SS HUD callback.
 - [ ] Complete all editor interactions and body-guide behavior.
   - [x] Bind an exact project/revision-tagged opaque atlas texture and optional
     profile-tagged guide overlay into the portable Image Paint section without
@@ -583,6 +591,9 @@ Evidence:
     out-of-range input without publishing settings, treats the current mapping
     as a no-op, and clears on Esc, input loss, unavailable application state,
     tab departure, or panel close.
+  - [x] Consume bounded registered-key event batches through the frame
+    coordinator, hand the next press to Settings capture when armed, suppress
+    repeats through the shared router, and release held state on input loss.
   - [ ] Register all supported keys once and connect the production UE4SS input
     callbacks to the router.
 - [ ] Complete progress, backpressure, compatibility, and diagnostics display.
@@ -653,6 +664,10 @@ Evidence:
     matching ready atlas/source ownership, localized guide-label ordering,
     game-thread texture publication, partial-create rollback, bounded release
     retry, clear, and terminal shutdown.
+  - [x] Prove full-frame immutable snapshot/model/localization, bounded
+    hotkey/capture routing, render-before-action ordering, modal-effect
+    rebinding, exact input rollback, texture-generation synchronization, and
+    retryable terminal shutdown through a fake runtime port.
 - [ ] DEFERRED — maintainer interaction required: complete the full in-game UI
   walkthrough across languages/resolutions/DPI.
 

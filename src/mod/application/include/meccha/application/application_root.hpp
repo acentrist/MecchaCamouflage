@@ -35,6 +35,7 @@ enum class ApplicationRootError : std::uint8_t
 
 class ApplicationRoot final
     : public ApplicationSnapshotPort,
+      public ApplicationCommandSink,
       private RuntimeLifecycleObserver
 {
 public:
@@ -87,7 +88,7 @@ public:
     auto on_update() noexcept -> void;
 
     [[nodiscard]] auto enqueue_command(ApplicationCommand command)
-        -> CommandEnqueueResult;
+        -> CommandEnqueueResult override;
 
     auto request_shutdown(std::uint64_t shutdown_generation)
         -> std::expected<void, ApplicationRootError>;

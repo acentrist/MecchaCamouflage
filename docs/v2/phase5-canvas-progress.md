@@ -217,8 +217,12 @@ trusted from UI input.
 `image_editor_session` covers consecutive mutations during active composition,
 metadata isolation, revision/asset/range guards, order preservation into the
 debounced draft, and terminal shutdown. `application_root_image_paint` proves
-the typed command route and immutable document publication. The normal Linux,
-ASan/UBSan, and Windows Release graphs pass 73, 73, and 90 tests respectively.
+the typed command route and immutable document publication. The project-owned
+HUD-frame coordinator additionally proves localized composition, exact
+input-lease acquisition and render-failure rollback, render-before-action
+ordering, ready-texture synchronization, and resource-free shutdown through a
+fake runtime port. The normal Linux, ASan/UBSan, and Windows Release graphs pass
+74, 74, and 91 tests respectively.
 
 ## Remaining feasibility work
 

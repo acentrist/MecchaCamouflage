@@ -5,12 +5,12 @@ scroll, text-edit, Image Paint editor, input-lease, and typed editor-mutation
 boundaries are implemented. The current milestones add the application-owned
 hotkey and product-action boundaries plus a portable five-tab product-panel
 shell, native file-selection boundary, latest-snapshot effect executor, and
-v2-only preset import/activation path. The three exact body guides and the
-portable game-thread texture lifetime boundary are also implemented.
-Production UCanvas rendering, Unreal input registration, game-font/fallback
-selection, the reflected Unreal texture port, and live verification remain
-intentionally unimplemented until the protected UE4SS graph exposes the exact
-accepted interfaces.
+v2-only preset import/activation path. The three exact body guides, portable
+game-thread texture lifetime boundary, and complete project-owned HUD-frame
+coordinator are also implemented. Production UCanvas rendering, Unreal input
+registration, game-font/fallback selection, the reflected Unreal texture port,
+and live verification remain intentionally unimplemented until the protected
+UE4SS graph exposes the exact accepted interfaces.
 
 ## Ownership and dependency direction
 
@@ -67,8 +67,8 @@ held-key behavior across snapshot publication, complete remapping, duplicate
 mapping refusal, invalid/event-limit refusal, exact command-ID exhaustion,
 input-loss release, and terminal shutdown.
 
-The complete Linux, Linux ASan/UBSan, and Windows MSVC Release graphs pass 73,
-73, and 90 tests respectively.
+The complete Linux, Linux ASan/UBSan, and Windows MSVC Release graphs pass 74,
+74, and 91 tests respectively.
 
 ## Immutable product presentation
 
@@ -433,6 +433,44 @@ invalidation, localized guide-label ordering, wrong-thread refusal, unchanged
 generation reuse, partial-create rollback, failed-release retry, clear, and
 resource-free terminal shutdown.
 
+## Project-owned HUD-frame coordination
+
+`ProductUiFrameCoordinator` is the portable production composition boundary
+for one validated HUD/Canvas frame. It owns no UE4SS or Unreal type. A narrow
+runtime port captures project-owned viewport, pointer, keyboard, text-edit,
+function-key, input-availability, and owner-window values and renders one
+bounded `CanvasFrame`.
+
+Each admitted frame reads one immutable `ApplicationSnapshot`, builds the
+validated presentation model, captures bounded runtime input, routes physical
+hotkeys or hands the next press to Settings capture, synchronizes an exact
+ready Image Paint texture generation, composes localized panel output,
+reconciles the exact input lease, and renders. The coordinator commits retained
+panel state and routes a Canvas action only after rendering succeeds. A render
+failure immediately restores the previously captured game input state and
+publishes no Canvas action.
+
+Modal picker effects run only after deterministic composition and successful
+rendering. The effect executor re-reads the newest immutable snapshot after the
+dialog, and only its revision-rebound typed action can enter the shared command
+sink. Cancellation remains successful and non-mutating. Physical hotkeys keep
+their independent bounded command path, including repeat suppression and input
+loss release.
+
+Ready Image Paint revisions are synchronized through the game-thread texture
+coordinator before composition. Empty, failed, stopped, replaced, or removed
+documents clear only project texture generations; the shared body-guide
+catalog survives until terminal shutdown. Shutdown closes both hotkey and
+frame admission, restores the exact input lease, retries texture release when
+needed, clears retained interaction state, and becomes terminal only after all
+owned transient state is released.
+
+The fake-runtime integration test covers the closed F9 path, open localized
+render/input acquisition, render-before-typed-action ordering, tab-local state,
+modal cancellation and owner-window propagation, render rollback, closed-panel
+input release, ready texture publication/project clearing, guide lifetime, and
+terminal shutdown without importing a UE4SS or graphics header.
+
 ## Localized status strip
 
 The status strip is now composed by a dedicated portable owner. It renders the
@@ -467,13 +505,15 @@ Portable tests cover localized messages, command IDs, Canvas/missing-function
 details, omitted counts, the empty state, compact scrolling, and incoherent
 queue refusal.
 
-This remains a partial product UI milestone. The reflected Unreal texture port
-and production UCanvas adapter remain open.
+This remains a partial product UI milestone. The production UE4SS callback,
+reflected Unreal texture port, and UCanvas/input adapters remain open.
 
 ## Remaining work
 
-- Enqueue the returned product action through the production callback boundary.
-- Connect the production UE4SS key callbacks and input lease.
+- Invoke the project-owned frame coordinator from the production UE4SS HUD
+  callback.
+- Implement the production UCanvas capture/render and Unreal input-lease ports,
+  then register the UE4SS key callbacks once.
 - Bind the game-thread texture coordinator to validated reflected Unreal
   texture creation/release and select the game-font/OFL fallback path.
 - Complete fake-runtime and live UI verification across all languages,

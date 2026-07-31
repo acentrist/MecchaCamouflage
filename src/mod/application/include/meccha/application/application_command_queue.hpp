@@ -28,6 +28,20 @@ struct CommandQueueSnapshot
         -> bool = default;
 };
 
+class ApplicationCommandSink
+{
+public:
+    ApplicationCommandSink() = default;
+    ApplicationCommandSink(const ApplicationCommandSink&) = delete;
+    auto operator=(const ApplicationCommandSink&)
+        -> ApplicationCommandSink& = delete;
+    virtual ~ApplicationCommandSink() = default;
+
+    [[nodiscard]] virtual auto enqueue_command(
+        ApplicationCommand command)
+        -> CommandEnqueueResult = 0;
+};
+
 class ApplicationCommandQueue
 {
 public:
