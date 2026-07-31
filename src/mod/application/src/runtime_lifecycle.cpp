@@ -90,6 +90,14 @@ auto RuntimeLifecycle::on_hud_frame(
     {
         return std::size_t{};
     }
+    return on_hud_frame_admitted(identity, operation_budget);
+}
+
+auto RuntimeLifecycle::on_hud_frame_admitted(
+    const HudFrameIdentity& identity,
+    std::size_t operation_budget)
+    -> std::expected<std::size_t, RuntimeLifecycleError>
+{
     if (!identity.valid())
     {
         remember_error(RuntimeLifecycleError::InvalidFrameIdentity);
@@ -302,10 +310,15 @@ auto RuntimeLifecycle::hud_trampoline(
         return;
     }
     auto& lifecycle = *static_cast<RuntimeLifecycle*>(context);
+    auto lease = lifecycle.callback_barrier_.try_enter();
+    if (!lease)
+    {
+        return;
+    }
     try
     {
         const auto result =
-            lifecycle.on_hud_frame(identity, 64U);
+            lifecycle.on_hud_frame_admitted(identity, 64U);
         if (lifecycle.observer_ != nullptr)
         {
             lifecycle.observer_->on_hud_frame_complete(

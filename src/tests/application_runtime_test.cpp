@@ -9,6 +9,7 @@
 #include <iostream>
 #include <latch>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string_view>
 #include <thread>
@@ -139,6 +140,74 @@ public:
     std::size_t unregister_count{};
     CallbackId unregistered_id{};
     bool fail_unregistration{};
+};
+
+class ConcurrentCallbacks final : public RuntimeCallbackPort
+{
+public:
+    auto register_hud_callback(
+        void* callback_context,
+        HudCallback callback_function)
+        -> std::expected<CallbackId, CallbackPortError> override
+    {
+        const auto lock = std::scoped_lock{mutex};
+        context = callback_context;
+        callback = callback_function;
+        return CallbackId{92U};
+    }
+
+    auto unregister_hud_callback(CallbackId id)
+        -> std::expected<void, CallbackPortError> override
+    {
+        {
+            const auto lock = std::scoped_lock{mutex};
+            unregistered_id = id;
+            callback = nullptr;
+            context = nullptr;
+        }
+        unregister_entered.count_down();
+        return {};
+    }
+
+    auto invoke(const HudFrameIdentity& identity) -> void
+    {
+        auto callback_context = static_cast<void*>(nullptr);
+        auto callback_function = HudCallback{};
+        {
+            const auto lock = std::scoped_lock{mutex};
+            callback_context = context;
+            callback_function = callback;
+        }
+        if (callback_function != nullptr)
+        {
+            callback_function(callback_context, identity);
+        }
+    }
+
+    std::mutex mutex{};
+    void* context{};
+    HudCallback callback{};
+    CallbackId unregistered_id{};
+    std::latch unregister_entered{1};
+};
+
+class BlockingObserver final : public RuntimeLifecycleObserver
+{
+public:
+    auto on_hud_frame_complete(
+        const std::expected<std::size_t, RuntimeLifecycleError>&,
+        const RuntimeLifecycleSnapshot&) noexcept -> void override
+    {
+        if (block.load(std::memory_order_acquire))
+        {
+            entered.count_down();
+            release.wait();
+        }
+    }
+
+    std::atomic<bool> block{};
+    std::latch entered{1};
+    std::latch release{1};
 };
 } // namespace
 
@@ -500,6 +569,57 @@ auto main() -> int
     passed &= expect(
         repeated_unregistrations == 128U,
         "repeated lifecycle teardown did not unregister exactly once");
+
+    ConcurrentCallbacks concurrent_callbacks{};
+    RecordingExecutor concurrent_executor{true};
+    BlockingObserver concurrent_observer{};
+    RuntimeLifecycle concurrent_lifecycle{
+        concurrent_callbacks,
+        concurrent_executor,
+        2U,
+        &concurrent_observer,
+    };
+    passed &= expect(
+        concurrent_lifecycle.initialize().has_value(),
+        "the concurrent-uninstall lifecycle did not initialize");
+    concurrent_callbacks.invoke(FirstFrame);
+    passed &= expect(
+        concurrent_lifecycle.request_shutdown(129U).has_value(),
+        "the concurrent-uninstall lifecycle did not begin shutdown");
+    concurrent_callbacks.invoke(FirstFrame);
+
+    concurrent_observer.block.store(true, std::memory_order_release);
+    auto callback_thread = std::thread{
+        [&]
+        {
+            concurrent_callbacks.invoke(FirstFrame);
+        }};
+    concurrent_observer.entered.wait();
+
+    auto finalize_finished = std::atomic<bool>{false};
+    auto finalize_succeeded = false;
+    auto finalize_thread = std::thread{
+        [&]
+        {
+            finalize_succeeded =
+                concurrent_lifecycle.finalize_shutdown().has_value();
+            finalize_finished.store(true, std::memory_order_release);
+        }};
+    concurrent_callbacks.unregister_entered.wait();
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+    passed &= expect(
+        !finalize_finished.load(std::memory_order_acquire),
+        "finalize returned while an admitted observer callback was in flight");
+
+    concurrent_observer.release.count_down();
+    callback_thread.join();
+    finalize_thread.join();
+    passed &= expect(
+        finalize_succeeded &&
+            concurrent_callbacks.unregistered_id == 92U &&
+            concurrent_lifecycle.snapshot().phase ==
+                RuntimePhase::Stopped,
+        "concurrent callback drain did not finish exact unregistration");
 
     if (passed)
     {

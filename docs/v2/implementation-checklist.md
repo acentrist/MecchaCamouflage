@@ -201,7 +201,7 @@ Evidence:
   - [x] Drive one attached project-owned frame extension from the exact HUD
     identity, retry its UI/input/texture restoration on the game thread, and
     refuse lifecycle quiescing until that extension reports terminal stop.
-- [ ] Pass fake-runtime, thread-affinity, lifecycle fault, and concurrent
+- [x] Pass fake-runtime, thread-affinity, lifecycle fault, and concurrent
   uninstall tests.
 - [ ] DEFERRED — maintainer interaction required: verify live load, travel,
   HUD replacement, freecam, spectator, explicit unload, and game shutdown.

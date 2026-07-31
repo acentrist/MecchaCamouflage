@@ -27,7 +27,8 @@ open.
   publish a structured incompatibility, and a later valid frame can recover a
   transient frame-identity failure without deleting its diagnostic history.
 - `CallbackBarrier` stops admission atomically, tracks RAII callback leases,
-  and waits until all admitted callbacks have returned.
+  and waits until the complete admitted callback has returned, including its
+  non-throwing observer/composition-root notification.
 - `GameThreadScheduler` is bounded, FIFO, serialized for drain/discard, and
   retains the front operation when execution fails.
 - A non-game thread cannot execute or consume scheduled Unreal work.
@@ -103,6 +104,9 @@ open.
   failure publication, rejection of late/duplicate attachment, and retryable
   extension shutdown before lifecycle restoration and unregistration;
 - callback-unregistration failure publication and exact destructor recovery;
+- concurrent finalization after exact unregistration, proving it remains
+  blocked until an already-admitted observer/composition-root notification
+  returns;
 - 128 consecutive initialize/resolve/restore/unregister cycles;
 - typed Paint/Image runtime dispatch, invalid-request rejection, and direct
   off-thread port isolation;
@@ -132,7 +136,5 @@ The test runs in both the Linux secret-free build and the Windows MSVC
   calls.
 - Bind the project-owned World/controller/HUD/Canvas identity to validated
   UE4SS object generations and prove invalidation in the live UE 5.6 game.
-- Add complete lifecycle fault injection, concurrent uninstall, and repeated
-  initialize/unload tests.
 - Run the deferred live load, travel, HUD replacement, freecam, spectator,
   explicit unload, and game-shutdown matrix.

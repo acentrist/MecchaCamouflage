@@ -137,6 +137,11 @@ private:
         void* context,
         const HudFrameIdentity& identity) noexcept -> void;
 
+    auto on_hud_frame_admitted(
+        const HudFrameIdentity& identity,
+        std::size_t operation_budget)
+        -> std::expected<std::size_t, RuntimeLifecycleError>;
+
     auto remember_error(
         RuntimeLifecycleError error,
         std::optional<CompatibilityFailure> compatibility_failure =
