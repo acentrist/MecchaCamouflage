@@ -13,6 +13,7 @@ body:
     id: feature
     attributes:
       label: Affected feature
+      multiple: true
       options:
         - Paint
         - Preview
@@ -57,10 +58,12 @@ body:
     id: game-mode
     attributes:
       label: Game mode
+      multiple: true
       options:
-        - Basic
-        - Infection
-        - Other
+        - Basic Mode
+        - Infection Mode
+        - Double Mode
+        - Reverse Chicken Mode
         - Not applicable
         - Unsure
     validations:
