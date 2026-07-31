@@ -307,6 +307,37 @@ public:
         });
     }
 
+    auto begin_automatic_capture(
+        const core::PaintSettings&,
+        JobGeneration)
+        -> std::expected<void, RuntimeExecutionError> override
+    {
+        return std::unexpected(RuntimeExecutionError{
+            RuntimeExecutionErrorCode::OperationFailure,
+            std::nullopt,
+        });
+    }
+
+    auto advance_automatic_capture(JobGeneration)
+        -> std::expected<
+            std::optional<CapturedPaintJob>,
+            RuntimeExecutionError> override
+    {
+        return std::unexpected(RuntimeExecutionError{
+            RuntimeExecutionErrorCode::OperationFailure,
+            std::nullopt,
+        });
+    }
+
+    auto cancel_automatic_capture(JobGeneration)
+        -> std::expected<bool, RuntimeExecutionError> override
+    {
+        return std::unexpected(RuntimeExecutionError{
+            RuntimeExecutionErrorCode::OperationFailure,
+            std::nullopt,
+        });
+    }
+
     auto observe_queues(RuntimeObjectHandle, JobGeneration)
         -> std::expected<
             PaintQueueObservation,

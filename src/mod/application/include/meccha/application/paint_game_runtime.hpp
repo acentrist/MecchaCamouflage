@@ -5,6 +5,7 @@
 #include <meccha/application/runtime_operation_executor.hpp>
 
 #include <expected>
+#include <optional>
 
 namespace meccha::application
 {
@@ -47,6 +48,29 @@ public:
     virtual auto capture(const core::PaintSettings& settings)
         -> std::expected<
             CapturedPaintJob,
+            RuntimeExecutionError> = 0;
+
+    // Auto Material is a bounded multi-HUD-frame transaction. A successful
+    // begin owns any preview snapshot until advance publishes a completed job
+    // after exact restoration, or cancel reports true after exact restoration.
+    // Pending advance results and false cancellation results retain ownership.
+    virtual auto begin_automatic_capture(
+        const core::PaintSettings& settings,
+        JobGeneration generation)
+        -> std::expected<
+            void,
+            RuntimeExecutionError> = 0;
+
+    virtual auto advance_automatic_capture(
+        JobGeneration generation)
+        -> std::expected<
+            std::optional<CapturedPaintJob>,
+            RuntimeExecutionError> = 0;
+
+    virtual auto cancel_automatic_capture(
+        JobGeneration generation)
+        -> std::expected<
+            bool,
             RuntimeExecutionError> = 0;
 
     virtual auto observe_queues(

@@ -109,6 +109,17 @@ private:
         RuntimeObjectHandle component{};
     };
 
+    struct ActiveAutomaticPaintCapture
+    {
+        JobGeneration generation{};
+        CommandId command_id{};
+        core::PaintSettings settings{};
+        bool preview{};
+        std::uint64_t admitted_hud_epoch{};
+        bool cancel_requested{};
+        bool failure_recorded{};
+    };
+
     auto on_hud_frame_complete(
         const std::expected<std::size_t, RuntimeLifecycleError>& result,
         const RuntimeLifecycleSnapshot& runtime_snapshot) noexcept
@@ -136,10 +147,25 @@ private:
     auto begin_paint(
         StartPaint request,
         std::uint64_t now_ms) -> void;
+    auto accept_captured_paint(
+        CommandId command_id,
+        const core::PaintSettings& settings,
+        CapturedPaintJob captured,
+        std::uint64_t now_ms) -> void;
     auto begin_image_paint(
         StartImagePaint request,
         std::uint64_t now_ms) -> void;
     auto begin_paint_preview(PreviewPaint request) -> void;
+    auto accept_captured_paint_preview(
+        CommandId command_id,
+        const core::PaintSettings& settings,
+        CapturedPaintJob captured) -> void;
+    auto begin_automatic_paint_capture(
+        CommandId command_id,
+        const core::PaintSettings& settings,
+        bool preview) -> bool;
+    auto advance_automatic_paint_capture(
+        std::uint64_t now_ms) -> void;
     auto restore_paint_preview(
         RestorePaintPreview request) -> void;
     auto defer_for_paint_preview(
@@ -183,9 +209,13 @@ private:
         active_image_paint_component_{};
     std::optional<ActivePaintPreviewBuild>
         active_paint_preview_build_{};
+    std::optional<ActiveAutomaticPaintCapture>
+        active_automatic_paint_capture_{};
     std::optional<ApplicationCommand>
         deferred_paint_preview_command_{};
     JobGeneration paint_preview_generation_{};
+    JobGeneration paint_capture_generation_{};
+    std::uint64_t hud_frame_epoch_{};
     std::atomic<JobGeneration>
         active_paint_preview_generation_{};
     std::optional<std::uint64_t>

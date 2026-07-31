@@ -130,8 +130,22 @@ linear-to-sRGB conversion occurs after the game-thread readback.
 This remains contract/build evidence, not a live capture claim. Auto Material
 is rejected before mutation because its intrinsic-emission and trial-preview
 feedback transaction is not implemented. The composition root does not expose
-this capture path, and live brush-plane hiding, readback orientation, color
-semantics, cleanup, and frame-budget behavior remain unverified.
+the production scene-capture path, and live brush-plane hiding, readback
+orientation, color semantics, cleanup, and frame-budget behavior remain
+unverified.
+
+The application boundary for that transaction is now fixed even though the
+production appearance stages remain fail-closed. `ApplicationRoot` routes
+Auto Material Paint and Paint Preview commands to a separate
+generation-tagged session rather than the synchronous manual `capture()` call.
+Admission does not advance the session in the same HUD callback. Each later
+HUD callback performs at most one runtime advance; only a completed result
+whose runtime contract promises exact restoration can enter the existing
+planning or preview pipeline. Explicit cancellation, a failed advance, and
+shutdown keep ownership and repeatedly request cleanup until the runtime
+reports restoration complete. Fake-runtime coverage proves that no stroke or
+partial plan is published during those paths and that Auto restoration
+precedes generic transient restoration at shutdown.
 
 `PaintJobCoordinator` is the sole planning-to-dispatch transition. It compares
 every completion with both its owned generation and the current shared job
@@ -330,9 +344,13 @@ and cancellation. `application_root_paint` covers the end-to-end real-Paint
 and preview commands,
 capture, workers, game-thread preview apply/restore, restore-before-real-Paint,
 dispatch, execution, observation, completion, command backpressure, and
-frame-owned UI/ESP path. It also holds fake runtime queues nonempty during
-shutdown and proves the active Paint generation reaches `Cancelled` before
-quiescing. `paint_preview_composer` adds Fill/Paint overwrite
+frame-owned UI/ESP path. It additionally proves that Auto Material bypasses
+synchronous capture, cannot progress in its admission frame, publishes only
+after a later multi-frame completion, retains restoration ownership after a
+stage failure or explicit cancellation, and restores before shutdown
+quiescing. It also holds fake runtime queues nonempty during shutdown and
+proves the active Paint generation reaches `Cancelled` before quiescing.
+`paint_preview_composer` adds Fill/Paint overwrite
 ordering, packed-PBR quantization, edge clipping, original immutability,
 invalid plan/buffer rejection, cancellation, and resource-limit evidence. The
 secret-free Linux normal and fresh ASan/UBSan suites currently pass all 89

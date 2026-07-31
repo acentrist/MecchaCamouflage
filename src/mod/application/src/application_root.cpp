@@ -561,12 +561,14 @@ auto ApplicationRoot::process_commands(
 {
     try
     {
+        ++hud_frame_epoch_;
         advance_image_editor();
         for (auto& command :
              command_queue_->drain(CommandBudget))
         {
             process_command(std::move(command), now_ms);
         }
+        advance_automatic_paint_capture(now_ms);
         advance_paint(now_ms);
         advance_image_paint(now_ms);
         advance_paint_preview(now_ms);
@@ -604,6 +606,12 @@ auto ApplicationRoot::process_command(
             }
             else if constexpr (std::is_same_v<Request, CancelPaint>)
             {
+                if (active_automatic_paint_capture_)
+                {
+                    active_automatic_paint_capture_->
+                        cancel_requested = true;
+                    return;
+                }
                 const auto job = jobs_.snapshot();
                 if (!job.feature ||
                     *job.feature != Feature::Paint ||
@@ -892,6 +900,11 @@ auto ApplicationRoot::begin_paint(
     StartPaint request,
     std::uint64_t now_ms) -> void
 {
+    if (active_automatic_paint_capture_)
+    {
+        record_command_error(request.id);
+        return;
+    }
     if (active_paint_preview_build_)
     {
         defer_for_paint_preview(
@@ -916,6 +929,16 @@ auto ApplicationRoot::begin_paint(
         }
     }
 
+    if (request.settings.auto_material)
+    {
+        static_cast<void>(
+            begin_automatic_paint_capture(
+                request.id,
+                request.settings,
+                false));
+        return;
+    }
+
     auto captured =
         paint_runtime_->capture(request.settings);
     if (!captured)
@@ -925,22 +948,35 @@ auto ApplicationRoot::begin_paint(
             request.id);
         return;
     }
-    if (!captured->component.valid() ||
-        paint_settings(captured->planning) != request.settings)
+    accept_captured_paint(
+        request.id,
+        request.settings,
+        std::move(*captured),
+        now_ms);
+}
+
+auto ApplicationRoot::accept_captured_paint(
+    CommandId command_id,
+    const core::PaintSettings& settings,
+    CapturedPaintJob captured,
+    std::uint64_t now_ms) -> void
+{
+    if (!captured.component.valid() ||
+        paint_settings(captured.planning) != settings)
     {
-        record_command_error(request.id);
+        record_command_error(command_id);
         return;
     }
-    const auto component = captured->component;
+    const auto component = captured.component;
     const auto started = paint_jobs_.start(
-        request.id,
+        command_id,
         component,
-        std::move(captured->planning),
-        captured->pacing,
+        std::move(captured.planning),
+        captured.pacing,
         now_ms);
     if (!started)
     {
-        record_command_error(request.id);
+        record_command_error(command_id);
         return;
     }
     active_paint_component_ = component;
@@ -951,6 +987,11 @@ auto ApplicationRoot::begin_image_paint(
     StartImagePaint request,
     std::uint64_t now_ms) -> void
 {
+    if (active_automatic_paint_capture_)
+    {
+        record_command_error(request.id);
+        return;
+    }
     if (active_paint_preview_build_)
     {
         defer_for_paint_preview(
@@ -1031,6 +1072,11 @@ auto ApplicationRoot::begin_image_paint(
 auto ApplicationRoot::begin_paint_preview(
     PreviewPaint request) -> void
 {
+    if (active_automatic_paint_capture_)
+    {
+        record_command_error(request.id);
+        return;
+    }
     if (active_job(jobs_.snapshot().phase) ||
         !paint_previews_)
     {
@@ -1056,6 +1102,16 @@ auto ApplicationRoot::begin_paint_preview(
         }
     }
 
+    if (request.settings.auto_material)
+    {
+        static_cast<void>(
+            begin_automatic_paint_capture(
+                request.id,
+                request.settings,
+                true));
+        return;
+    }
+
     auto captured =
         paint_runtime_->capture(request.settings);
     if (!captured)
@@ -1065,21 +1121,32 @@ auto ApplicationRoot::begin_paint_preview(
             request.id);
         return;
     }
-    if (!captured->component.valid() ||
-        paint_settings(captured->planning) != request.settings)
+    accept_captured_paint_preview(
+        request.id,
+        request.settings,
+        std::move(*captured));
+}
+
+auto ApplicationRoot::accept_captured_paint_preview(
+    CommandId command_id,
+    const core::PaintSettings& settings,
+    CapturedPaintJob captured) -> void
+{
+    if (!captured.component.valid() ||
+        paint_settings(captured.planning) != settings)
     {
-        record_command_error(request.id);
+        record_command_error(command_id);
         return;
     }
 
-    const auto component = captured->component;
+    const auto component = captured.component;
     const auto acquired =
         paint_previews_->begin(Feature::Paint, component);
     if (!acquired)
     {
         record_preview_error(
             acquired.error(),
-            request.id);
+            command_id);
         return;
     }
     auto original =
@@ -1088,7 +1155,7 @@ auto ApplicationRoot::begin_paint_preview(
     {
         record_preview_error(
             original.error(),
-            request.id);
+            command_id);
         static_cast<void>(
             paint_previews_->restore_active());
         return;
@@ -1096,7 +1163,7 @@ auto ApplicationRoot::begin_paint_preview(
     if (paint_preview_generation_ ==
         std::numeric_limits<JobGeneration>::max())
     {
-        record_command_error(request.id);
+        record_command_error(command_id);
         static_cast<void>(
             paint_previews_->restore_active());
         return;
@@ -1106,19 +1173,19 @@ auto ApplicationRoot::begin_paint_preview(
     const auto started = paint_preview_builder_.start(
         generation,
         PaintPreviewBuildRequest{
-            std::move(captured->planning),
+            std::move(captured.planning),
             std::move(*original),
         });
     if (!started)
     {
-        record_command_error(request.id);
+        record_command_error(command_id);
         static_cast<void>(
             paint_previews_->restore_active());
         return;
     }
     active_paint_preview_build_ = ActivePaintPreviewBuild{
         generation,
-        request.id,
+        command_id,
         component,
     };
     active_paint_preview_generation_.store(
@@ -1126,9 +1193,132 @@ auto ApplicationRoot::begin_paint_preview(
         std::memory_order_release);
 }
 
+auto ApplicationRoot::begin_automatic_paint_capture(
+    CommandId command_id,
+    const core::PaintSettings& settings,
+    bool preview) -> bool
+{
+    if (!settings.auto_material ||
+        active_automatic_paint_capture_ ||
+        paint_capture_generation_ ==
+            std::numeric_limits<JobGeneration>::max())
+    {
+        record_command_error(command_id);
+        return false;
+    }
+    const auto generation = ++paint_capture_generation_;
+    const auto begun =
+        paint_runtime_->begin_automatic_capture(
+            settings,
+            generation);
+    if (!begun)
+    {
+        record_runtime_error(begun.error(), command_id);
+        return false;
+    }
+    active_automatic_paint_capture_ =
+        ActiveAutomaticPaintCapture{
+            generation,
+            command_id,
+            settings,
+            preview,
+            hud_frame_epoch_,
+            false,
+            false,
+        };
+    return true;
+}
+
+auto ApplicationRoot::advance_automatic_paint_capture(
+    std::uint64_t now_ms) -> void
+{
+    if (!active_automatic_paint_capture_ ||
+        active_automatic_paint_capture_->
+                admitted_hud_epoch >= hud_frame_epoch_)
+    {
+        return;
+    }
+    auto& active = *active_automatic_paint_capture_;
+    if (active.cancel_requested)
+    {
+        const auto cancelled =
+            paint_runtime_->cancel_automatic_capture(
+                active.generation);
+        if (!cancelled)
+        {
+            if (!active.failure_recorded)
+            {
+                record_runtime_error(
+                    cancelled.error(),
+                    active.command_id);
+                active.failure_recorded = true;
+            }
+            return;
+        }
+        if (!*cancelled)
+        {
+            return;
+        }
+        active_automatic_paint_capture_.reset();
+        return;
+    }
+
+    auto advanced =
+        paint_runtime_->advance_automatic_capture(
+            active.generation);
+    if (!advanced)
+    {
+        if (!active.failure_recorded)
+        {
+            record_runtime_error(
+                advanced.error(),
+                active.command_id);
+            active.failure_recorded = true;
+        }
+        active.cancel_requested = true;
+        return;
+    }
+    if (!*advanced)
+    {
+        return;
+    }
+
+    auto completed = std::move(**advanced);
+    const auto command_id = active.command_id;
+    const auto settings = active.settings;
+    const auto preview = active.preview;
+    active_automatic_paint_capture_.reset();
+    if (preview)
+    {
+        accept_captured_paint_preview(
+            command_id,
+            settings,
+            std::move(completed));
+        return;
+    }
+    accept_captured_paint(
+        command_id,
+        settings,
+        std::move(completed),
+        now_ms);
+}
+
 auto ApplicationRoot::restore_paint_preview(
     RestorePaintPreview request) -> void
 {
+    if (active_automatic_paint_capture_)
+    {
+        if (active_automatic_paint_capture_->preview)
+        {
+            active_automatic_paint_capture_->
+                cancel_requested = true;
+        }
+        else
+        {
+            record_command_error(request.id);
+        }
+        return;
+    }
     if (!paint_previews_)
     {
         record_command_error(request.id);
@@ -1381,6 +1571,31 @@ auto ApplicationRoot::advance_shutdown(
     std::uint64_t now_ms) -> void
 {
     advance_image_editor();
+
+    if (active_automatic_paint_capture_)
+    {
+        auto& active = *active_automatic_paint_capture_;
+        active.cancel_requested = true;
+        const auto cancelled =
+            paint_runtime_->cancel_automatic_capture(
+                active.generation);
+        if (!cancelled)
+        {
+            if (!active.failure_recorded)
+            {
+                record_runtime_error(
+                    cancelled.error(),
+                    active.command_id);
+                active.failure_recorded = true;
+            }
+            return;
+        }
+        if (!*cancelled)
+        {
+            return;
+        }
+        active_automatic_paint_capture_.reset();
+    }
 
     const auto job = jobs_.snapshot();
     if (active_job(job.phase))

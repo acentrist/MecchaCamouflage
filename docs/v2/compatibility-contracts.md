@@ -166,6 +166,15 @@ and the capture frame budget. Debug/research capture, arbitrary actor spawning,
 and texture probing are deleted when they are not needed for product
 Paint/Image Paint.
 
+Auto Material may not use the synchronous manual-capture port. Its application
+boundary is a generation-tagged session admitted on one HUD frame and advanced
+at most once on each later HUD frame. A pending advance retains runtime
+ownership. A completed advance may publish a `CapturedPaintJob` only after the
+runtime has restored and exactly verified its changed preview channels.
+Cancellation, capture-stage failure, and shutdown likewise retain the session
+until the runtime reports restoration complete; no partial job may enter the
+planner or dispatcher.
+
 ## HUD and UCanvas contracts
 
 | Contract ID | Owner/member | Required use |

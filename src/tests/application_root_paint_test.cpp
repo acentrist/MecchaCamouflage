@@ -207,13 +207,10 @@ public:
 class FakePaintRuntime final : public PaintGameRuntimePort
 {
 public:
-    auto capture(const core::PaintSettings& settings)
-        -> std::expected<
-            CapturedPaintJob,
-            RuntimeExecutionError> override
+    [[nodiscard]] auto make_captured(
+        const core::PaintSettings& settings) const
+        -> CapturedPaintJob
     {
-        ++capture_count;
-        captured_settings = settings;
         auto sample = core::CapturedPaintSample{};
         sample.region = core::Region::Side;
         sample.u = 0.25;
@@ -224,6 +221,15 @@ public:
         sample.horizontal = 0.25;
         sample.intrinsic_color = core::Rgb8{10U, 20U, 30U};
         sample.scene_color = sample.intrinsic_color;
+        if (settings.auto_material)
+        {
+            sample.automatic_appearance =
+                core::ResolvedPaintAppearance{
+                    core::Rgb8{40U, 50U, 60U},
+                    core::Material{0.25, 0.5, 0.75},
+                };
+            sample.automatic_appearance_available = true;
+        }
         sample.safe = true;
         return CapturedPaintJob{
             RuntimeObjectHandle{71U, 9U},
@@ -247,6 +253,87 @@ public:
                 0,
             },
         };
+    }
+
+    auto capture(const core::PaintSettings& settings)
+        -> std::expected<
+            CapturedPaintJob,
+            RuntimeExecutionError> override
+    {
+        ++capture_count;
+        captured_settings = settings;
+        return make_captured(settings);
+    }
+
+    auto begin_automatic_capture(
+        const core::PaintSettings& settings,
+        JobGeneration generation)
+        -> std::expected<void, RuntimeExecutionError> override
+    {
+        ++automatic_begin_count;
+        automatic_settings = settings;
+        automatic_generation = generation;
+        automatic_advance_count = 0U;
+        automatic_cancel_count = 0U;
+        automatic_active = true;
+        return {};
+    }
+
+    auto advance_automatic_capture(JobGeneration generation)
+        -> std::expected<
+            std::optional<CapturedPaintJob>,
+            RuntimeExecutionError> override
+    {
+        if (!automatic_active ||
+            generation != automatic_generation)
+        {
+            return std::unexpected(RuntimeExecutionError{
+                RuntimeExecutionErrorCode::InvalidRequest,
+                std::nullopt,
+            });
+        }
+        ++automatic_advance_count;
+        if (fail_next_automatic_advance)
+        {
+            fail_next_automatic_advance = false;
+            return std::unexpected(RuntimeExecutionError{
+                RuntimeExecutionErrorCode::OperationFailure,
+                std::nullopt,
+            });
+        }
+        if (automatic_advance_count <
+            automatic_complete_after)
+        {
+            return std::optional<CapturedPaintJob>{};
+        }
+        automatic_active = false;
+        return std::optional<CapturedPaintJob>{
+            make_captured(automatic_settings)};
+    }
+
+    auto cancel_automatic_capture(JobGeneration generation)
+        -> std::expected<bool, RuntimeExecutionError> override
+    {
+        if (!automatic_active ||
+            generation != automatic_generation)
+        {
+            return std::unexpected(RuntimeExecutionError{
+                RuntimeExecutionErrorCode::InvalidRequest,
+                std::nullopt,
+            });
+        }
+        ++automatic_cancel_count;
+        if (automatic_cancel_count <
+            automatic_cancel_after)
+        {
+            return false;
+        }
+        automatic_active = false;
+        if (events)
+        {
+            events->push_back("automatic_restore");
+        }
+        return true;
     }
 
     auto observe_queues(
@@ -276,6 +363,16 @@ public:
     RuntimeObjectHandle observed_component{};
     JobGeneration observed_generation{};
     bool hold_queues{};
+    std::size_t automatic_begin_count{};
+    std::size_t automatic_advance_count{};
+    std::size_t automatic_cancel_count{};
+    std::size_t automatic_complete_after{3U};
+    std::size_t automatic_cancel_after{2U};
+    core::PaintSettings automatic_settings{};
+    JobGeneration automatic_generation{};
+    bool automatic_active{};
+    bool fail_next_automatic_advance{};
+    std::vector<std::string>* events{};
 };
 } // namespace
 
@@ -370,6 +467,269 @@ auto main() -> int
             paint_calls == 1U,
         "typed capture, planning, dispatch, observation, or drain was not "
         "connected end to end");
+
+    auto automatic_storage = FakeStorage{};
+    auto automatic_callbacks = FakeCallbacks{};
+    auto automatic_executor = RecordingExecutor{};
+    auto automatic_thread = FakeThreadContext{};
+    auto automatic_preview_runtime = FakePreviewRuntime{};
+    auto automatic_runtime = FakePaintRuntime{};
+    auto automatic_root = ApplicationRoot{
+        automatic_callbacks,
+        automatic_executor,
+        automatic_storage,
+        automatic_runtime,
+        automatic_thread,
+        automatic_preview_runtime,
+        4U,
+        2U,
+        8U,
+    };
+    auto automatic_settings = core::PaintSettings{};
+    automatic_settings.auto_material = true;
+    passed &= expect(
+        automatic_root.initialize().has_value() &&
+            automatic_root.enqueue_command(StartPaint{
+                111U,
+                automatic_settings,
+            }) == CommandEnqueueResult::Accepted,
+        "the multi-frame Auto Material fixture did not start");
+    for (auto attempt = 0;
+         attempt < 10 &&
+         automatic_runtime.automatic_begin_count == 0U;
+         ++attempt)
+    {
+        automatic_callbacks.invoke(Frame);
+    }
+    auto automatic_paint_calls_after_admission =
+        std::size_t{};
+    for (const auto& operation : automatic_executor.operations)
+    {
+        if (std::holds_alternative<PaintAtUvWithBrush>(
+                operation))
+        {
+            ++automatic_paint_calls_after_admission;
+        }
+    }
+    passed &= expect(
+        automatic_runtime.automatic_begin_count == 1U &&
+            automatic_runtime.capture_count == 0U &&
+            automatic_runtime.automatic_advance_count == 0U &&
+            automatic_paint_calls_after_admission == 0U,
+        "Auto Material used the synchronous capture path or dispatched in "
+        "its admission frame");
+    automatic_callbacks.invoke(Frame);
+    auto automatic_paint_calls_after_first_advance =
+        std::size_t{};
+    for (const auto& operation : automatic_executor.operations)
+    {
+        if (std::holds_alternative<PaintAtUvWithBrush>(
+                operation))
+        {
+            ++automatic_paint_calls_after_first_advance;
+        }
+    }
+    passed &= expect(
+        automatic_runtime.automatic_advance_count == 1U &&
+            automatic_paint_calls_after_first_advance == 0U,
+        "Auto Material completed without a later HUD-frame feedback step");
+    for (auto attempt = 0; attempt < 1000; ++attempt)
+    {
+        automatic_callbacks.invoke(Frame);
+        if (automatic_root.snapshot()->job.phase ==
+            JobPhase::Completed)
+        {
+            break;
+        }
+        std::this_thread::sleep_for(1ms);
+    }
+    auto automatic_paint_calls = std::size_t{};
+    for (const auto& operation : automatic_executor.operations)
+    {
+        if (std::holds_alternative<PaintAtUvWithBrush>(
+                operation))
+        {
+            ++automatic_paint_calls;
+        }
+    }
+    passed &= expect(
+        automatic_runtime.automatic_advance_count == 3U &&
+            automatic_root.snapshot()->job.command_id == 111U &&
+            automatic_root.snapshot()->job.phase ==
+                JobPhase::Completed &&
+            automatic_paint_calls == 1U,
+        "a restored Auto Material capture did not enter normal planning and "
+        "bounded dispatch");
+
+    auto cancelled_storage = FakeStorage{};
+    auto cancelled_callbacks = FakeCallbacks{};
+    auto cancelled_executor = RecordingExecutor{};
+    auto cancelled_thread = FakeThreadContext{};
+    auto cancelled_preview_runtime = FakePreviewRuntime{};
+    auto cancelled_runtime = FakePaintRuntime{};
+    cancelled_runtime.automatic_complete_after = 100U;
+    auto cancelled_root = ApplicationRoot{
+        cancelled_callbacks,
+        cancelled_executor,
+        cancelled_storage,
+        cancelled_runtime,
+        cancelled_thread,
+        cancelled_preview_runtime,
+        4U,
+        2U,
+        8U,
+    };
+    passed &= expect(
+        cancelled_root.initialize().has_value() &&
+            cancelled_root.enqueue_command(StartPaint{
+                112U,
+                automatic_settings,
+            }) == CommandEnqueueResult::Accepted,
+        "the cancellable Auto Material fixture did not start");
+    for (auto attempt = 0;
+         attempt < 10 &&
+         cancelled_runtime.automatic_begin_count == 0U;
+         ++attempt)
+    {
+        cancelled_callbacks.invoke(Frame);
+    }
+    passed &= expect(
+        cancelled_root.enqueue_command(CancelPaint{113U}) ==
+            CommandEnqueueResult::Accepted,
+        "the active Auto Material cancellation was rejected");
+    cancelled_callbacks.invoke(Frame);
+    cancelled_callbacks.invoke(Frame);
+    auto cancelled_paint_calls = std::size_t{};
+    for (const auto& operation : cancelled_executor.operations)
+    {
+        if (std::holds_alternative<PaintAtUvWithBrush>(
+                operation))
+        {
+            ++cancelled_paint_calls;
+        }
+    }
+    passed &= expect(
+        cancelled_runtime.automatic_cancel_count == 2U &&
+            !cancelled_runtime.automatic_active &&
+            cancelled_paint_calls == 0U,
+        "Auto Material cancellation did not wait for exact restoration or "
+        "admitted a partial Paint job");
+
+    auto failed_storage = FakeStorage{};
+    auto failed_callbacks = FakeCallbacks{};
+    auto failed_executor = RecordingExecutor{};
+    auto failed_thread = FakeThreadContext{};
+    auto failed_preview_runtime = FakePreviewRuntime{};
+    auto failed_runtime = FakePaintRuntime{};
+    failed_runtime.automatic_complete_after = 100U;
+    failed_runtime.fail_next_automatic_advance = true;
+    auto failed_root = ApplicationRoot{
+        failed_callbacks,
+        failed_executor,
+        failed_storage,
+        failed_runtime,
+        failed_thread,
+        failed_preview_runtime,
+        4U,
+        2U,
+        8U,
+    };
+    passed &= expect(
+        failed_root.initialize().has_value() &&
+            failed_root.enqueue_command(StartPaint{
+                114U,
+                automatic_settings,
+            }) == CommandEnqueueResult::Accepted,
+        "the failed Auto Material fixture did not start");
+    for (auto attempt = 0;
+         attempt < 10 &&
+         failed_runtime.automatic_begin_count == 0U;
+         ++attempt)
+    {
+        failed_callbacks.invoke(Frame);
+    }
+    failed_callbacks.invoke(Frame);
+    failed_callbacks.invoke(Frame);
+    failed_callbacks.invoke(Frame);
+    auto failed_paint_calls = std::size_t{};
+    for (const auto& operation : failed_executor.operations)
+    {
+        if (std::holds_alternative<PaintAtUvWithBrush>(
+                operation))
+        {
+            ++failed_paint_calls;
+        }
+    }
+    passed &= expect(
+        failed_runtime.automatic_advance_count == 1U &&
+            failed_runtime.automatic_cancel_count == 2U &&
+            !failed_runtime.automatic_active &&
+            failed_paint_calls == 0U,
+        "a failed Auto Material feedback stage bypassed restoration or "
+        "published a partial job");
+
+    auto automatic_shutdown_storage = FakeStorage{};
+    auto automatic_shutdown_callbacks = FakeCallbacks{};
+    auto automatic_shutdown_executor = RecordingExecutor{};
+    auto automatic_shutdown_thread = FakeThreadContext{};
+    auto automatic_shutdown_preview_runtime = FakePreviewRuntime{};
+    auto automatic_shutdown_runtime = FakePaintRuntime{};
+    automatic_shutdown_runtime.automatic_complete_after = 100U;
+    auto automatic_shutdown_events =
+        std::vector<std::string>{};
+    automatic_shutdown_executor.events =
+        &automatic_shutdown_events;
+    automatic_shutdown_runtime.events =
+        &automatic_shutdown_events;
+    auto automatic_shutdown_root = ApplicationRoot{
+        automatic_shutdown_callbacks,
+        automatic_shutdown_executor,
+        automatic_shutdown_storage,
+        automatic_shutdown_runtime,
+        automatic_shutdown_thread,
+        automatic_shutdown_preview_runtime,
+        4U,
+        2U,
+        8U,
+    };
+    passed &= expect(
+        automatic_shutdown_root.initialize().has_value() &&
+            automatic_shutdown_root.enqueue_command(StartPaint{
+                115U,
+                automatic_settings,
+            }) == CommandEnqueueResult::Accepted,
+        "the Auto Material shutdown fixture did not start");
+    for (auto attempt = 0;
+         attempt < 10 &&
+         automatic_shutdown_runtime.automatic_begin_count ==
+             0U;
+         ++attempt)
+    {
+        automatic_shutdown_callbacks.invoke(Frame);
+    }
+    passed &= expect(
+        automatic_shutdown_root.request_shutdown(91U)
+            .has_value() &&
+            !automatic_shutdown_root.finalize_shutdown(),
+        "shutdown did not wait for active Auto Material ownership");
+    auto automatic_shutdown_finalized = false;
+    for (auto attempt = 0; attempt < 10; ++attempt)
+    {
+        automatic_shutdown_callbacks.invoke(Frame);
+        if (automatic_shutdown_root.finalize_shutdown())
+        {
+            automatic_shutdown_finalized = true;
+            break;
+        }
+    }
+    passed &= expect(
+        automatic_shutdown_events ==
+                std::vector<std::string>{
+                    "automatic_restore",
+                    "transient_restore"} &&
+            automatic_shutdown_finalized,
+        "shutdown did not restore Auto Material before generic transient "
+        "state and lifecycle finalization");
 
     passed &= expect(
         root.enqueue_command(ToggleUi{102U}) ==

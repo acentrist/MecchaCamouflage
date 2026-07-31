@@ -4734,6 +4734,61 @@ public:
         }
     }
 
+    auto begin_automatic_paint_capture(
+        const core::PaintSettings& settings,
+        application::JobGeneration generation)
+        -> std::expected<
+            void,
+            application::RuntimeExecutionError>
+    {
+        if (!IsInGameThreadRaw())
+        {
+            return std::unexpected(
+                application::RuntimeExecutionError{
+                    application::RuntimeExecutionErrorCode::
+                        WrongThread,
+                    std::nullopt,
+                });
+        }
+        if (!settings.auto_material || generation == 0U)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::PaintCapture,
+                application::ContractFailureKind::
+                    InvalidValue);
+        }
+        // The production transaction remains fail-closed until its exact
+        // intrinsic-emission and preview-feedback stages are installed.
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::
+                InvalidValue);
+    }
+
+    auto advance_automatic_paint_capture(
+        application::JobGeneration)
+        -> std::expected<
+            std::optional<application::CapturedPaintJob>,
+            application::RuntimeExecutionError>
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::
+                InvalidValue);
+    }
+
+    auto cancel_automatic_paint_capture(
+        application::JobGeneration)
+        -> std::expected<
+            bool,
+            application::RuntimeExecutionError>
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::
+                InvalidValue);
+    }
+
     auto capture_image_paint(core::BodyProfile body)
         -> std::expected<
             application::CapturedImagePaintJob,
@@ -6801,6 +6856,38 @@ auto UnrealRuntimeAdapter::capture(
         application::RuntimeExecutionError>
 {
     return impl_->capture_paint(settings);
+}
+
+auto UnrealRuntimeAdapter::begin_automatic_capture(
+    const core::PaintSettings& settings,
+    application::JobGeneration generation)
+    -> std::expected<
+        void,
+        application::RuntimeExecutionError>
+{
+    return impl_->begin_automatic_paint_capture(
+        settings,
+        generation);
+}
+
+auto UnrealRuntimeAdapter::advance_automatic_capture(
+    application::JobGeneration generation)
+    -> std::expected<
+        std::optional<application::CapturedPaintJob>,
+        application::RuntimeExecutionError>
+{
+    return impl_->advance_automatic_paint_capture(
+        generation);
+}
+
+auto UnrealRuntimeAdapter::cancel_automatic_capture(
+    application::JobGeneration generation)
+    -> std::expected<
+        bool,
+        application::RuntimeExecutionError>
+{
+    return impl_->cancel_automatic_paint_capture(
+        generation);
 }
 
 auto UnrealRuntimeAdapter::capture(core::BodyProfile body)

@@ -454,6 +454,11 @@ Evidence:
       feedback/restoration, prove bounded multi-frame capture cost, and record
       live brush-plane/readback orientation/color/cleanup evidence before
       connecting the composition root.
+      - [x] Route Auto Material admission through a generation-tagged
+        multi-HUD-frame runtime session instead of the synchronous manual
+        capture port; publish no capture before runtime-confirmed restoration,
+        and retain ownership through cancellation, failure cleanup, and
+        shutdown.
 - [x] Validate round, cube, and fukuyoka profiles.
 - [x] Implement immutable planning for Paint/Fill/Skip, lighting, Auto Material,
   PBR, compression, and Fill-first ordering.
