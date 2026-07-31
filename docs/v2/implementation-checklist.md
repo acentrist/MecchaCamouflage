@@ -735,6 +735,12 @@ Evidence:
     on focus loss, and makes callbacks inert on stop.
   - [ ] Register all supported keys once and connect the production UE4SS input
     callbacks to the router.
+    - [x] Implement a one-shot F1–F24 registration owner with bounded typed
+      failure, partial-registration fail closure, callback-safe shared queue
+      lifetime, explicit stop-before-derived-destruction, and portable,
+      sanitizer, and Windows MSVC Release tests.
+    - [ ] Start registration only after the exported composition root owns the
+      matching HUD-frame queue consumer, and live-prove UE4SS callback removal.
 - [ ] Complete progress, backpressure, compatibility, and diagnostics display.
   - [x] Publish validated progress fractions, queue pressure/utilization,
     compatibility state, and newest bounded ordered diagnostics as portable

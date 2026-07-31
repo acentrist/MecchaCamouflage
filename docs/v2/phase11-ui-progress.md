@@ -38,8 +38,17 @@ bounds. Any overflow discards the complete pending frame; focus loss can
 discard it explicitly; terminal stop clears all storage and makes later
 callbacks inert.
 
-The remaining production input adapter has one narrow responsibility: register
-the supported keys once, translate callbacks into this queue, and drain it
+`ProductUiFunctionKeyBinding` now owns one-shot F1–F24 registration through a
+project-owned registrar interface. Every registered callback retains only the
+thread-safe queue, and terminal stop makes already registered or partially
+registered callbacks inert before derived mod members are destroyed. Duplicate
+start, registration failure/exception, partial registration, callback order,
+post-stop invocation, and callback lifetime beyond the binding object are
+covered without UE4SS types in the portable target.
+
+The remaining production input connection has one narrow responsibility:
+start that binding only after the exported composition root owns the matching
+HUD-frame queue consumer, translate callbacks into the queue, and drain it
 through `ProductUiFrameCapturePort`. While a Settings capture is armed, the
 coordinator delivers the next press only as
 `ProductPanelInput::function_key_pressed`; otherwise the same immutable batch
@@ -78,12 +87,14 @@ held-key behavior across snapshot publication, complete remapping, duplicate
 mapping refusal, invalid/event-limit refusal, exact command-ID exhaustion,
 input-loss release, and terminal shutdown.
 
-The current complete Linux, Linux ASan/UBSan, and Windows MSVC Release graphs
-pass 79, 79, and 97 tests respectively. The Windows graph is built from the
-exact project commit with `UE4SS.dll`, `main.dll`, and the launcher bound to
-the manifest-verified immutable UE4SS source stage. Post-build verification
-confirms that the stage still contains only the pinned source plus the
-project-owned canonical Cargo lock overlay.
+The current complete Linux and Linux ASan/UBSan graphs pass all 80 registered
+tests. The last exact clean full Windows MSVC Release graph passes 97 tests
+with `UE4SS.dll`, `main.dll`, and the launcher bound to the
+manifest-verified immutable UE4SS source stage; the added key-binding target
+also passes a targeted Windows MSVC Release build and execution. A new
+complete clean Windows count is not claimed until that full graph is rerun.
+Post-build verification confirms that the immutable stage still contains only
+the pinned source plus the project-owned canonical Cargo lock overlay.
 
 ## Immutable product presentation
 
