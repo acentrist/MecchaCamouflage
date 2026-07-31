@@ -628,6 +628,11 @@ Evidence:
   - [x] Implement production UCanvas line/text drawing through the one
     validated, complete-frame Canvas renderer with exact HUD-frame identity.
   - [ ] Implement the production UE4SS target capture adapter.
+    - [x] Capture the exact current-build cLeon GameState roster, role,
+      spectator state, PlayerState/Pawn identity, bounded UTF-8 name, camera
+      view, and character capsule samples on the game thread through validated
+      reflection contracts.
+    - [ ] Capture and validate the game-specific skeletal pose and topology.
 - [ ] Implement every scope, primitive, role color, and clipping rule.
   - [x] Cover every configured scope, primitive toggle, role color, and
     viewport/behind-camera clipping rule in the pure builder.
@@ -635,13 +640,15 @@ Evidence:
   changes.
   - [x] Specify and test the project-owned role/avatar cache policy and reject
     stale HUD frame identities before draw.
-  - [ ] Apply the policy to validated production weak Unreal handles across
+  - [x] Apply the policy to validated production weak Unreal handles across
     travel, HUD, freecam, spectator, role, and avatar transitions.
 - [ ] Pass projection, filtering, skeleton, invalidation, fake-runtime, and
   forbidden-hook tests.
   - [x] Pass pure projection/filtering/skeleton/resource tests, coordinator
     failure tests, and root integration proving ESP remains active while the
     panel is closed.
+  - [x] Pass production capture ABI/codec and weak-directory refresh-policy
+    tests plus the Windows UE4SS production-adapter build.
 - [ ] DEFERRED — maintainer interaction required: complete all live ESP and
   lifecycle checks.
 
