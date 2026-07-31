@@ -3,11 +3,14 @@
 ## Current status
 
 The secret-free source/build boundary is implemented and verified on Windows
-and on Linux with AddressSanitizer plus UndefinedBehaviorSanitizer. The full
-UE4SS build is correctly blocked before dependency
-configuration because this workspace does not have the maintainer's
-Epic-linked GitHub credential. This is expected, explicit, and not counted as
-a pass.
+and on Linux with AddressSanitizer plus UndefinedBehaviorSanitizer. The exact
+restricted graph was also initialized with an already configured
+maintainer-authorized credential and built successfully on a native Windows
+source path. UE4SS, its proxy, and `main.dll` now have direct x64 Shipping
+build and ABI evidence.
+
+Phase 2 is not fully closed: the machine dependency evidence still requires a
+maintainer to review and approve every license file before notice assembly.
 
 ## Target graph
 
@@ -82,21 +85,58 @@ UNC-only MSBuild emitted path/case incremental-build warnings in this WSL
 workspace, so those warnings are recorded as host-path noise rather than
 product compiler warnings. GitHub CI uses a native local Windows workspace.
 
-Full-build access probe:
+Full-build source-path probe:
 
 ```text
 cmake -S . -B .build/v2/full-probe -G "Visual Studio 17 2022" -A x64 \
   -DMECCHA_WITH_UE4SS=ON -DMECCHA_BUILD_TESTS=OFF
 ```
 
-Expected result in this workspace:
+The first attempt configured successfully from the WSL workspace but failed
+when Corrosion invoked Cargo:
 
 ```text
-The restricted UEPseudo dependency is missing. A complete build requires
-maintainer-approved Epic-linked GitHub access.
+CMD does not support UNC paths as current directories.
 ```
 
-No fetch, source modification, or partial binary occurs after that failure.
+This is a Windows `cmd.exe` host-path limitation, not a source or compiler
+failure. The same commit and recursive submodules were therefore checked out
+under `C:\Temp` and configured without changing UE4SS.
+
+Native-path full build:
+
+```text
+cmake -S C:\Temp\MecchaCamouflage-v2-full-src \
+  -B C:\Temp\MecchaCamouflage-v2-full-local \
+  -G "Visual Studio 17 2022" -A x64 \
+  -DMECCHA_WITH_UE4SS=ON -DMECCHA_BUILD_TESTS=OFF \
+  -DMECCHA_WARNINGS_AS_ERRORS=ON
+cmake --build C:\Temp\MecchaCamouflage-v2-full-local \
+  --config Game__Shipping__Win64 --target UE4SS
+cmake --build C:\Temp\MecchaCamouflage-v2-full-local\third_party\RE-UE4SS\UE4SS\proxy_generator\proxy \
+  --config Game__Shipping__Win64 --target proxy
+cmake --build C:\Temp\MecchaCamouflage-v2-full-local \
+  --config Game__Shipping__Win64 --target meccha_mod
+```
+
+Result:
+
+- MSVC `19.44.35228.0`, CMake `4.4.0`, Windows x64,
+  `Game__Shipping__Win64`.
+- `UE4SS.dll`, `dwmapi.dll`, and `main.dll` built from the same configured
+  graph.
+- `main.dll` imports that `UE4SS.dll` and exports only `start_mod` and
+  `uninstall_mod`.
+- All three binaries use the dynamic MSVC runtime and pass x64 PE inspection.
+- The UE4SS checkout remains at
+  `6c26f038751b3d96059d4a9148f5d093012d55ad` with no tracked modification.
+- `tools/v2/verify-full-build.ps1` passes and emits the exact binary hashes and
+  provenance report.
+
+The verifier accepts the current `dumpbin` export-alias display while still
+requiring exactly the two approved export names. It reads the resolved
+`cl.exe` file version rather than treating the compiler's expected nonzero
+no-argument exit as a verification failure.
 
 ## Protected full-build evidence
 
@@ -125,13 +165,13 @@ After approval, it must:
 
 ## Open exit evidence
 
-Phase 2 remains externally gated until the protected run provides:
+Phase 2 remains externally gated until the protected evidence workflow
+provides:
 
-- the complete recursive graph and license/notice report;
-- a clean full configure/build without a UE4SS source patch;
-- matching x64 Shipping ABI/import/export/runtime evidence;
-- the provenance JSON from the exact build.
+- the closed production target and Cargo dependency evidence;
+- a maintainer-reviewed license/notice decision for every resolved component;
+- an approved audit bound to that exact evidence hash.
 
 Independent secret-free launcher, payload, domain, persistence, and fake
-runtime work may continue. Live UE4SS loading and runtime phases cannot be
-accepted from this partial gate.
+runtime work may continue. Live UE4SS loading and runtime phases remain
+separate gates and cannot be inferred from this successful source build.

@@ -144,11 +144,13 @@ if(MECCHA_WITH_UE4SS)
             "requires maintainer-approved Epic-linked GitHub access."
         )
     endif()
-    if(NOT EXISTS "${_meccha_ue4ss_root}/deps/first/patternsleuth/CMakeLists.txt")
+    if(NOT EXISTS "${_meccha_ue4ss_root}/deps/first/patternsleuth/Cargo.toml" OR
+       NOT EXISTS "${_meccha_ue4ss_root}/deps/first/patternsleuth_bind/Cargo.toml")
         message(
             FATAL_ERROR
-            "The pinned patternsleuth dependency is missing. Initialize the "
-            "RE-UE4SS submodules recursively in the trusted build."
+            "The pinned patternsleuth source or binding crate is missing. "
+            "Initialize the RE-UE4SS submodules recursively in the trusted "
+            "build."
         )
     endif()
 

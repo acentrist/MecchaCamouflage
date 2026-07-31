@@ -1,9 +1,10 @@
 # MecchaCamouflage v2 Dependency Lock
 
-This document records the public portion of the Phase 2 source graph. It is
-both a build input and a release audit record. The protected full-build gate
-must extend it with the restricted UEPseudo graph and the resolved transitive
-Cargo/FetchContent license manifest before Phase 2 can be closed.
+This document records the locked Phase 2 source graph. It is both a build input
+and a release audit record. The restricted graph has now been initialized and
+built from the exact commits below. The protected full-build gate must still
+produce the resolved transitive Cargo/FetchContent evidence and a separately
+approved license manifest before Phase 2 can be closed.
 
 ## Root gitlinks
 
@@ -81,21 +82,27 @@ closed before decoded allocation.
 
 ## Protected full-build completion
 
-The following evidence is intentionally deferred because it requires a
-maintainer-approved credential with Epic organization access:
+The available maintainer-authorized checkout completed the following direct
+evidence:
 
-1. Initialize UEPseudo and its complete recursive source graph.
-2. Configure the exact `Game__Shipping__Win64` graph with MSVC x64.
-3. Capture the resolved commit and content hash of every nested git,
-   FetchContent, and Cargo input.
-4. Collect and classify every corresponding license/notice text.
-5. Prove UE4SS and `main.dll` share compiler, configuration, architecture,
-   C++ runtime, import ABI, and source provenance.
-6. Confirm the UE4SS gitlink remains clean and no source patch is required.
+1. UEPseudo and patternsleuth resolved to the exact nested gitlinks above.
+2. The complete graph configured as `Game__Shipping__Win64` with MSVC x64.
+3. UE4SS, its proxy, and `main.dll` built from that one graph.
+4. Binary inspection proved the expected architecture, two-export mod ABI,
+   direct UE4SS import, dynamic MSVC runtime, and binary hashes.
+5. The UE4SS gitlink remained clean; no UE4SS patch was required.
 
-Until that report exists, the checklist item for the complete recursive graph
-and the full-build ABI gate remains open. Secret-free work may continue only
-on targets that do not link UE4SS.
+The remaining protected gate is review work, not a compilation assumption:
+
+1. Capture the closed production-target identities and target-filtered Cargo
+   closure from the protected build.
+2. Review every corresponding license and notice file.
+3. Approve the audit only when its component identities and evidence hash
+   exactly match.
+
+Until that review exists, the checklist item for the complete recursive graph
+and licenses remains open. The successful build does not make its unapproved
+dependency audit distributable.
 
 `tools/v2/build_dependency_notices.py` is the fail-closed consumer for that
 future report. It requires the resolved evidence and a separate approved

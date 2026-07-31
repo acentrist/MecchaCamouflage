@@ -75,11 +75,11 @@ Evidence:
   - [x] Run the complete Linux graph under AddressSanitizer and
     UndefinedBehaviorSanitizer in addition to the Windows MSVC Release graph.
 - [x] Add the maintainer-approved protected-ref full-build workflow.
-- [ ] Build UE4SS and the minimal mod from the same source/configuration.
-- [ ] Verify x64 Release ABI, imports, exports, runtime library, and provenance.
-- [ ] Confirm no UE4SS source patch is required.
-- [ ] DEFERRED — maintainer interaction required: confirm a clean full source
-  build with the required Epic-linked GitHub access.
+- [x] Build UE4SS and the minimal mod from the same source/configuration.
+- [x] Verify x64 Release ABI, imports, exports, runtime library, and provenance.
+- [x] Confirm no UE4SS source patch is required.
+- [x] Confirm a clean full source build with the required Epic-linked GitHub
+  access.
 
 Evidence:
 

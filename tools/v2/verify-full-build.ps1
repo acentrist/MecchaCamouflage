@@ -83,7 +83,7 @@ $ExportOutput = Invoke-Dumpbin -Mode "/exports" -Path $Main.FullName
 $Exports = @(
     $ExportOutput |
         ForEach-Object {
-            if ($_ -match "^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(\S+)\s*$") {
+            if ($_ -match "^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(\S+)(?:\s+=\s+\S+)?\s*$") {
                 $Matches[1]
             }
         } |
@@ -124,7 +124,9 @@ if ($LASTEXITCODE -ne 0 -or $Ue4ssStatus.Count -ne 0) {
     throw "The built UE4SS checkout contains a tracked source modification."
 }
 
-$Compiler = (& cl 2>&1 | Select-Object -First 1).ToString().Trim()
+$CompilerPath = (Get-Command cl -ErrorAction Stop).Source
+$CompilerVersion = (Get-Item -LiteralPath $CompilerPath).VersionInfo.FileVersion
+$Compiler = "$CompilerPath $CompilerVersion"
 $Report = [ordered]@{
     schema_version = 1
     product_version = "2.0.0"
