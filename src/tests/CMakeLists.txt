@@ -189,6 +189,21 @@ add_test(
 )
 
 add_executable(
+    meccha_product_ui_key_binding_tests
+    product_ui_key_binding_test.cpp
+)
+target_link_libraries(
+    meccha_product_ui_key_binding_tests
+    PRIVATE
+        MecchaCamouflage::ProductUi
+        meccha_build_options
+)
+add_test(
+    NAME product_ui_key_binding
+    COMMAND meccha_product_ui_key_binding_tests
+)
+
+add_executable(
     meccha_application_root_tests
     application_root_test.cpp
 )
