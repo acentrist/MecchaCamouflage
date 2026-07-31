@@ -257,7 +257,7 @@ shutdown and proves the active Paint generation reaches `Cancelled` before
 quiescing. `paint_preview_composer` adds Fill/Paint overwrite
 ordering, packed-PBR quantization, edge clipping, original immutability,
 invalid plan/buffer rejection, cancellation, and resource-limit evidence. The
-secret-free Linux normal and ASan/UBSan suites currently pass all 77 registered
+secret-free Linux normal and ASan/UBSan suites currently pass all 78 registered
 tests from isolated fresh build directories. The production adapter, exact
 sender, queue observer, and preview channel adapter also compile in the pinned
 Windows MSVC `Game__Shipping__Win64` graph; this is build evidence, not a live

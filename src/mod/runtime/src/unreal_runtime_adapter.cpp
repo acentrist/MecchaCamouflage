@@ -107,6 +107,7 @@ constexpr auto RuntimeBrushSettingsPath =
     STR("/Script/PenguinHotel.RuntimeBrushSettings");
 constexpr auto ReceiveDrawHudParameterBytes = 8;
 constexpr auto FailureMessage = "error.operation.failed";
+constexpr auto MaximumOwnedCanvasTextures = std::size_t{1024U};
 
 struct ReceiveDrawHudParametersAbi
 {
@@ -1850,13 +1851,13 @@ public:
                 return texture_failure(
                     "texture.import_failed");
             }
+            auto rooted = RootedObjectGuard{texture};
             texture->SetRootSet();
             if (!texture->IsRootSet())
             {
                 return texture_failure(
                     "texture.root_failed");
             }
-            auto rooted = RootedObjectGuard{texture};
 
             auto handle = ui::CanvasTextureHandle{};
             {
@@ -1865,7 +1866,8 @@ public:
                     active_frame_->identity !=
                         active->identity ||
                     active_frame_->world != active->world ||
-                    canvas_textures_.size() >= 1024U ||
+                    canvas_textures_.size() >=
+                        MaximumOwnedCanvasTextures ||
                     next_texture_handle_ == 0U ||
                     next_texture_handle_ ==
                         std::numeric_limits<

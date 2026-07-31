@@ -119,8 +119,12 @@ travel in the live game.
 The exact contract and PNG tests pass on Linux and Windows. The modified
 adapter compiles and links under `/W4 /WX` in the pinned MSVC
 `Game__Shipping__Win64` graph against the manifest-verified canonical UE4SS
-source stage. This is compile evidence only; live reflection resolution and
-visible Canvas output remain mandatory.
+source stage. The exact clean project checkout passes all 96 registered
+Windows tests after building `UE4SS.dll`, `main.dll`, and the native launcher
+from that graph. Post-build verification confirms that the source stage still
+contains the pinned upstream commit plus only the approved project-owned Cargo
+lock overlay. This remains compile and contract evidence only; live reflection
+resolution and visible Canvas output are mandatory.
 
 ## Responsive layout and pointer interaction
 
@@ -281,8 +285,9 @@ localized UTF-16 conversion. Composition/pipeline tests prove immutable PNG
 publication, while the texture coordinator/frame tests cover complete
 generation replacement, unchanged-revision reuse, partial-create rollback,
 bounded retry, clear, and resource-free shutdown. The complete 78-test graph
-passes in normal Linux and mandatory ASan/UBSan configurations. All seven
-modified contract targets pass in the Windows MSVC x64 Release graph.
+passes in normal Linux and mandatory ASan/UBSan configurations. The complete
+96-test Windows MSVC x64 Shipping graph passes from the same exact project
+commit and immutable UE4SS source-stage identity.
 
 ## Immutable editor binding
 
@@ -314,7 +319,7 @@ the typed command route and immutable document publication. The project-owned
 HUD-frame coordinator additionally proves localized composition, exact
 input-lease acquisition and render-failure rollback, render-before-action
 ordering, ready-texture synchronization, and resource-free shutdown through a
-fake runtime port. The current normal Linux and ASan/UBSan graphs pass all 77
+fake runtime port. The current normal Linux and ASan/UBSan graphs pass all 78
 registered tests. The accepted immutable Windows checkpoint passed 95 tests;
 the changed runtime contract test and production mod also pass/build in the
 pinned Windows work-source graph.
