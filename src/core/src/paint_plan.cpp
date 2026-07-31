@@ -229,6 +229,7 @@ auto build_paint_plan(
     }
 
     auto plan = PaintPlan{};
+    plan.texture_dimension = request.profile.texture_size;
     plan.strokes.reserve(adaptive->entries.size());
     for (const auto& entry : adaptive->entries)
     {

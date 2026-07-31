@@ -230,6 +230,21 @@ add_test(
     COMMAND meccha_runtime_operation_executor_tests
 )
 
+add_executable(
+    meccha_runtime_reflection_contract_tests
+    runtime_reflection_contract_test.cpp
+)
+target_link_libraries(
+    meccha_runtime_reflection_contract_tests
+    PRIVATE
+        MecchaCamouflage::RuntimeContracts
+        meccha_build_options
+)
+add_test(
+    NAME runtime_reflection_contract
+    COMMAND meccha_runtime_reflection_contract_tests
+)
+
 add_executable(meccha_ui_canvas_tests ui_canvas_test.cpp)
 target_link_libraries(
     meccha_ui_canvas_tests

@@ -21,7 +21,9 @@ auto unit(double value) -> bool
 
 auto valid_plan(const core::PaintPlan& plan) -> bool
 {
-    if (plan.fill_end != plan.fill_count ||
+    if (plan.texture_dimension == 0U ||
+        plan.texture_dimension > 4096U ||
+        plan.fill_end != plan.fill_count ||
         plan.fill_end > plan.strokes.size() ||
         plan.paint_count !=
             plan.strokes.size() - plan.fill_end ||
@@ -44,7 +46,8 @@ auto valid_plan(const core::PaintPlan& plan) -> bool
             !unit(stroke.u) || !unit(stroke.v) ||
             !std::isfinite(stroke.radius_texels) ||
             stroke.radius_texels < 1.0 ||
-            stroke.radius_texels > 1024.0 ||
+            stroke.radius_texels >
+                static_cast<double>(plan.texture_dimension) ||
             !unit(stroke.material.metallic) ||
             !unit(stroke.material.roughness) ||
             !unit(stroke.material.emissive) ||
@@ -181,6 +184,7 @@ auto PaintDispatchController::tick(
                     stroke.u,
                     stroke.v,
                     stroke.radius_texels,
+                    plan_->texture_dimension,
                     stroke.color,
                     stroke.material,
                     stroke.include_scene_lighting,

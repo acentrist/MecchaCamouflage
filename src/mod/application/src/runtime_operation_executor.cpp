@@ -60,6 +60,10 @@ auto validate(const PaintAtUvWithBrush& request)
         request.brush_size_texels < 1.0 ||
         request.brush_size_texels >
             MaximumEffectiveBrushRadiusTexels ||
+        request.texture_dimension == 0U ||
+        request.texture_dimension > MaximumTextureDimension ||
+        request.brush_size_texels >
+            static_cast<double>(request.texture_dimension) ||
         !unit(request.material.metallic) ||
         !unit(request.material.roughness) ||
         !unit(request.material.emissive))
@@ -119,9 +123,15 @@ auto validate(const UpdateImagePreviewTexture& request)
 
 RuntimeOperationExecutor::RuntimeOperationExecutor(
     GameThreadContext& thread_context,
-    UnrealRuntimePort& runtime)
+    UnrealFrameRuntimePort& frame_runtime,
+    PaintStrokeRuntimePort& paint_runtime,
+    ImagePreviewTextureRuntimePort& texture_runtime,
+    TransientStateRuntimePort& transient_runtime)
     : thread_context_{thread_context},
-      runtime_{runtime}
+      frame_runtime_{frame_runtime},
+      paint_runtime_{paint_runtime},
+      texture_runtime_{texture_runtime},
+      transient_runtime_{transient_runtime}
 {
 }
 
@@ -149,7 +159,7 @@ auto RuntimeOperationExecutor::execute(
             if constexpr (
                 std::is_same_v<Request, ResolveInitialContracts>)
             {
-                return runtime_.resolve_initial_contracts();
+                return frame_runtime_.resolve_initial_contracts();
             }
             else if constexpr (
                 std::is_same_v<Request, RebindHudFrame>)
@@ -160,7 +170,8 @@ auto RuntimeOperationExecutor::execute(
                         RuntimeContractId::Canvas,
                         ContractFailureKind::StaleObject);
                 }
-                return runtime_.rebind_hud_frame(request.identity);
+                return frame_runtime_.rebind_hud_frame(
+                    request.identity);
             }
             else if constexpr (
                 std::is_same_v<Request, PaintAtUvWithBrush>)
@@ -170,7 +181,8 @@ auto RuntimeOperationExecutor::execute(
                 {
                     return validated;
                 }
-                return runtime_.paint_at_uv_with_brush(request);
+                return paint_runtime_.paint_at_uv_with_brush(
+                    request);
             }
             else if constexpr (
                 std::is_same_v<
@@ -182,7 +194,8 @@ auto RuntimeOperationExecutor::execute(
                 {
                     return validated;
                 }
-                return runtime_.update_image_preview_texture(request);
+                return texture_runtime_
+                    .update_image_preview_texture(request);
             }
             else
             {
@@ -192,7 +205,7 @@ auto RuntimeOperationExecutor::execute(
                         RuntimeContractId::InputControl,
                         ContractFailureKind::InvalidValue);
                 }
-                return runtime_.restore_transient_state(
+                return transient_runtime_.restore_transient_state(
                     request.shutdown_generation);
             }
         },

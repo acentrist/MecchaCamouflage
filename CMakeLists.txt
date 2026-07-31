@@ -134,6 +134,7 @@ target_link_libraries(meccha_build_identity INTERFACE meccha_build_options)
 add_subdirectory(src/common)
 add_subdirectory(src/core)
 add_subdirectory(src/mod/application)
+add_subdirectory(src/mod/runtime/contracts)
 add_subdirectory(src/mod/ui)
 add_subdirectory(src/launcher)
 

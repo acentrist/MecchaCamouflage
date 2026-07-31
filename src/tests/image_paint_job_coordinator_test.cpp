@@ -33,6 +33,7 @@ auto expect(bool condition, std::string_view message) -> bool
 auto one_stroke_plan() -> core::ImagePaintPlan
 {
     auto result = core::ImagePaintPlan{};
+    result.paint.texture_dimension = 1024U;
     result.paint.strokes.push_back(core::PaintStroke{
         0U,
         core::ReplayPass::Paint,

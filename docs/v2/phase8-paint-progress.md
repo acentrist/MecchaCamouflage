@@ -1,8 +1,10 @@
 # Phase 8 Paint Progress
 
 Phase 8 is open. Its pure immutable planning, owned planning worker, and
-generation-tagged dispatch boundaries are implemented and verified;
-production capture, preview, and UE4SS runtime integration remain.
+generation-tagged dispatch boundaries are implemented and verified. Its exact
+reflected `PaintAtUVWithBrush` contract and production game-thread sender now
+compile against the pinned UE4SS graph; production capture, queue observation,
+preview, composition-root ownership, and live evidence remain.
 
 ## Immutable capture-to-plan contract
 
@@ -32,7 +34,8 @@ manual color and material.
 6. selects manual intrinsic/captured-scene color or the resolved Auto Material
    tuple;
 7. applies deterministic color/material-isolated adaptive compression;
-8. returns one project-owned stroke vector with pass counts and diagnostics.
+8. returns one project-owned stroke vector with the validated source texture
+   dimension, pass counts, and diagnostics.
 
 Planning accepts a `std::stop_token`. Replay construction, candidate
 validation, adaptive search, and final publication check cancellation without
@@ -74,7 +77,9 @@ generation before it can mutate job state or begin dispatch. It also:
 
 - Effective runtime brush radii are validated separately from the user setting
   range. The game-thread operation accepts the fixed 100-texel Fill radius and
-  compressed Paint radii while the persisted setting remains `[1,10]`.
+  compressed Paint radii while the persisted setting remains `[1,10]`. Every
+  immutable plan and scheduled stroke also carries the captured texture
+  dimension, so the runtime never guesses the texel-to-UV conversion.
 - The bounded scheduler has control and frame lanes. Contract resolution, HUD
   rebinding, and transient-state restore drain ahead of Paint strokes.
 - The lifecycle exposes only the project-owned `PaintDispatchQueue` contract
@@ -82,6 +87,16 @@ generation before it can mutate job state or begin dispatch. It also:
 - The only represented production stroke operation remains
   `PaintAtUvWithBrush`; no texture import, bridge sender, or custom multiplayer
   transport exists in v2.
+- A dependency-free exact reflection validator rejects owner/name/total-size,
+  property-set, kind/type, offset/size, array-dimension, and parameter-direction
+  drift. The accepted records are `Vector2D` 0x10,
+  `PaintChannelData` 0x24, `RuntimeBrushSettings` 0x28, and the
+  `PaintAtUVWithBrush` 0x68 parameter buffer.
+- The production `PaintStrokeRuntimePort` resolves only the exact PenguinHotel
+  function, checks a generation-bound weak component owned by the acknowledged
+  local body, converts sRGB bytes to linear albedo, normalizes radius using the
+  captured dimension, fixes the reviewed brush/apply modes, selects the AMRE
+  channel, and invokes UE4SS `ProcessEvent` only on the game thread.
 
 ## Bounded dispatch contract
 
@@ -188,8 +203,11 @@ It has no runtime adapter, UObject, scheduler, or preview-lease access.
 
 `core_contract` additionally covers replay/adaptive resource limits and
 cancellation. `runtime_operation_executor` covers effective Fill radius
-admission and oversized-radius rejection. `application_runtime` covers control
-priority and reserved control capacity over queued Paint work.
+admission, captured-dimension validation, and oversized-radius rejection.
+`runtime_reflection_contract` covers every exact reflected-record mismatch plus
+the reviewed ABI/color/material/radius/channel encoding.
+`application_runtime` covers control priority and reserved control capacity
+over queued Paint work.
 `paint_dispatch` covers cadence, frame admission, backpressure, exact
 generation-tagged stroke conversion, queue observations, confirmation,
 completion, cancellation, selective discard, progress preservation, and stale
@@ -213,13 +231,17 @@ shutdown and proves the active Paint generation reaches `Cancelled` before
 quiescing. `paint_preview_composer` adds Fill/Paint overwrite
 ordering, packed-PBR quantization, edge clipping, original immutability,
 invalid plan/buffer rejection, cancellation, and resource-limit evidence. The
-secret-free Linux suite currently passes all 34 registered tests.
+secret-free Linux normal and ASan/UBSan suites currently pass all 77 registered
+tests. The production adapter and exact sender also compile in the pinned
+Windows MSVC `Game__Shipping__Win64` graph; this is build evidence, not a live
+Paint pass.
 
 ## Remaining gate
 
 - Capture the live component/profile/source appearance and preview snapshot
   through validated reflected contracts on the game thread.
-- Implement the production UE4SS capture/queue-observer contracts and connect
-  exact reflected preview export/import/verification.
+- Implement the production UE4SS capture/queue-observer contracts, connect the
+  completed sender through the exported composition root, and connect exact
+  reflected preview export/import/verification.
 - Complete fake-runtime failures and the deferred single-/two-client live
   matrix before Phase 8 can close.

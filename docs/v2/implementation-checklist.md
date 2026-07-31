@@ -211,7 +211,15 @@ Evidence:
   operations on the game-thread path.
   - [x] Connect typed Paint capture, planning, dispatch, queue observation, and
     completion through `ApplicationRoot` with a fake game-thread runtime.
-  - [ ] Connect representative Image Paint and production UE4SS operations.
+  - [x] Split frame, Paint-stroke, preview-texture, and transient-state
+    execution ports so a production adapter cannot claim unsupported feature
+    operations through no-op implementations.
+  - [x] Validate the exact game-owned `PaintAtUVWithBrush`, `Vector2D`,
+    `PaintChannelData`, and `RuntimeBrushSettings` reflected layouts; encode
+    the captured texture dimension into the reviewed 0x68-byte call ABI; and
+    compile the UE4SS `ProcessEvent` route under MSVC `/W4 /WX`.
+  - [ ] Connect production Paint capture/queue observation and representative
+    Image Paint texture operations.
 - [x] Implement restore-before-unregister explicit unload ordering.
   - [x] Cancel the active Paint generation and wait for local plus observed
     visual/outgoing queue drain before lifecycle quiescing.
@@ -351,6 +359,11 @@ Evidence:
 ## Phase 8 — Paint
 
 - [ ] Implement typed game-thread capture and exact runtime contracts.
+  - [x] Implement dependency-free exact reflection-schema validation and the
+    reviewed Paint call encoder, including sRGB-to-linear color, normalized
+    brush radius, AMRE channel selection, and ABI offset/size assertions.
+  - [ ] Implement production mesh/sample/appearance capture and queue
+    observation.
 - [x] Validate round, cube, and fukuyoka profiles.
 - [x] Implement immutable planning for Paint/Fill/Skip, lighting, Auto Material,
   PBR, compression, and Fill-first ordering.
@@ -371,6 +384,12 @@ Evidence:
   restore-before-real-Paint ordering and game-thread-only capture/apply.
 - [ ] Implement exact preview capture/apply/restore ownership.
 - [ ] Dispatch only through game-owned `PaintAtUVWithBrush`.
+  - [x] Make the production Paint-stroke port resolve only
+    `/Script/PenguinHotel.RuntimePaintableComponent:PaintAtUVWithBrush`,
+    reject schema/owner/object-generation drift, and invoke it on the UE4SS
+    game thread without a second sender.
+  - [ ] Connect that port to the exported production composition root and
+    complete single-/two-client live evidence.
 - [x] Implement bounded per-frame pacing, progress, cancellation, and terminal
   queue drain.
 - [ ] Preserve valid jobs through freecam/controller-pawn changes.

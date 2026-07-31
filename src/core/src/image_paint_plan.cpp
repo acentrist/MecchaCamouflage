@@ -327,6 +327,7 @@ auto build_image_paint_plan(
     }
 
     auto& paint = output.paint;
+    paint.texture_dimension = request.raw_profile.texture_size;
     paint.strokes.reserve(adaptive->entries.size());
     for (const auto& entry : adaptive->entries)
     {

@@ -9,7 +9,9 @@ namespace meccha::runtime
 {
 class UnrealRuntimeAdapter final
     : public application::RuntimeCallbackPort,
-      public application::GameThreadContext
+      public application::GameThreadContext,
+      public application::UnrealFrameRuntimePort,
+      public application::PaintStrokeRuntimePort
 {
 public:
     UnrealRuntimeAdapter();
@@ -32,6 +34,23 @@ public:
 
     [[nodiscard]] auto is_game_thread() const noexcept
         -> bool override;
+
+    auto resolve_initial_contracts()
+        -> std::expected<
+            void,
+            application::RuntimeExecutionError> override;
+
+    auto rebind_hud_frame(
+        const application::HudFrameIdentity& identity)
+        -> std::expected<
+            void,
+            application::RuntimeExecutionError> override;
+
+    auto paint_at_uv_with_brush(
+        const application::PaintAtUvWithBrush& request)
+        -> std::expected<
+            void,
+            application::RuntimeExecutionError> override;
 
 private:
     class Impl;

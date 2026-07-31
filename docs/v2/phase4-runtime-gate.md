@@ -4,9 +4,11 @@
 
 The secret-free application runtime foundation is implemented and tested. A
 production `UnrealRuntimeAdapter` now compiles against the pinned recursive
-UE4SS graph and implements the validated HUD callback/game-thread boundary.
-The adapter is not yet owned by the exported mod composition root, and no live
-callback has been registered in the game, so Phase 4 remains open.
+UE4SS graph and implements the validated HUD callback/game-thread boundary plus
+the exact game-owned Paint stroke operation. The adapter is not yet owned by
+the exported mod composition root, production Paint capture/queue observation
+and Image texture operations remain, and no live callback has been registered
+in the game, so Phase 4 remains open.
 
 ## Implemented contracts
 
@@ -26,7 +28,10 @@ callback has been registered in the game, so Phase 4 remains open.
   before callback registration.
 - Hook registration uses the pinned UE4SS generic reflected-function API,
   retains the returned pre/post ID pair, and supplies the same function and ID
-  pair to exact unregistration. The post-hook exception boundary never lets an
+  pair to exact unregistration. The adapter makes new callbacks inert before
+  removal, waits for its own admitted callbacks before clearing reflected
+  state, and keeps a second application-level callback barrier around the
+  complete root notification. The post-hook exception boundary never lets an
   exception cross into UE4SS.
 - A HUD frame is admitted only when UE4SS reports the actual game thread and
   every object is real, of the validated class, and resolves through a
@@ -77,12 +82,32 @@ callback has been registered in the game, so Phase 4 remains open.
   callback boundary.
 - The scheduler's former representative IDs are replaced by immutable
   project-owned `PaintAtUvWithBrush` and Image preview-texture upload
-  requests. Opaque handles carry identity plus generation, RGBA payloads are
-  immutable shared buffers, and all dimensions/ranges are checked before the
-  runtime port is called.
+  requests. Opaque handles carry identity plus generation, each Paint request
+  carries the captured validated texture dimension required to convert texel
+  radius into Unreal UV radius, RGBA payloads are immutable shared buffers,
+  and all dimensions/ranges are checked before a runtime port is called.
 - `RuntimeOperationExecutor` is the sole typed dispatcher from scheduled
-  operations to `UnrealRuntimePort`. It independently rejects direct
-  off-game-thread calls and preserves adapter failures unchanged.
+  operations to separate frame, Paint-stroke, preview-texture, and
+  transient-state ports. It independently rejects direct off-game-thread
+  calls and preserves adapter failures unchanged. This separation prevents a
+  partial production adapter from using no-op implementations to claim
+  unsupported Image/UI responsibilities.
+- The runtime contract module compares reflected records exactly: owner, name,
+  total byte size, property set, kind, referenced struct/class/enum, offset,
+  element size, array dimension, and parameter direction. It freezes
+  `Vector2D` at 0x10 bytes, `PaintChannelData` at 0x24,
+  `RuntimeBrushSettings` at 0x28, and
+  `PaintAtUVWithBrush` parameters at 0x68. Near-match names, extra or duplicate
+  properties, and any layout drift fail closed before `ProcessEvent`.
+- The production Paint-stroke port resolves only
+  `/Script/PenguinHotel.RuntimePaintableComponent:PaintAtUVWithBrush`, proves
+  the receiver belongs to the acknowledged local body (or retains the same
+  previously proven body during a same-world/same-controller freecam
+  transition), and checks the request's weak-object identity plus generation.
+  Its reviewed ABI encoder converts sRGB bytes to linear color, normalizes the
+  brush radius by the captured texture dimension, fixes Override/Spherical/
+  Normal brush behavior, and selects the combined albedo/metallic/roughness/
+  emissive channel. No alternate production Paint sender exists.
 - `PaintGameRuntimePort` is the only root-facing capture/queue-observation
   boundary. A Start Paint command is captured on the HUD callback, planned
   from copied values off-thread, admitted through the lifecycle-owned queue,
@@ -136,6 +161,12 @@ callback has been registered in the game, so Phase 4 remains open.
 - cancellation of queued work during shutdown;
 - restore-before-unregister ordering.
 
+`runtime_reflection_contract` additionally covers exact accepted schemas,
+near-match function and owner rejection, missing/extra/duplicate property
+rejection, every property kind/type/offset/size/array/direction mismatch,
+reviewed ABI sizes, texel-to-UV radius conversion, sRGB-to-linear conversion,
+material encoding, AMRE selection, and invalid dimension rejection.
+
 `application_root_paint_test` additionally covers bounded command
 backpressure, immutable snapshot queue pressure, typed Paint capture,
 off-thread planning, lifecycle-owned dispatch, runtime queue observation,
@@ -144,8 +175,9 @@ before lifecycle transient restore and callback finalization end to end. A
 second root fixture holds authoritative visual/outgoing queues nonempty and
 proves lifecycle quiescing cannot overtake active Paint cancellation/drain.
 
-The test runs in both the Linux secret-free build and the Windows MSVC
-`/W4 /WX` build.
+All 77 registered secret-free tests pass in the Linux normal and ASan/UBSan
+graphs. The changed runtime graph also compiles in the Windows MSVC
+`Game__Shipping__Win64` build with project sources under `/W4 /WX`.
 
 The production adapter additionally compiles and links with the
 manifest-verified canonical UE4SS source stage, UEPseudo, and patternsleuth
@@ -162,9 +194,11 @@ or teardown pass.
 - Register and unregister the implemented HUD hook in the live game, then
   prove that UE4SS removes the exact recorded callback pair and that all
   admitted callbacks drain before adapter destruction.
-- Bind the typed Paint/Image requests to validated reflected UFunction and
-  texture contracts in the production adapter and run the controlled live
-  calls.
+- Implement production Paint capture and authoritative queue observation,
+  connect the completed Paint-stroke port to the composition root, then run
+  the controlled single-/two-client calls.
+- Bind Image preview texture creation/mutation/release and exact Paint preview
+  export/import/verification to validated reflected contracts.
 - Prove the implemented generation-checked World/controller/HUD/Canvas
   identity invalidates and rebinds correctly in the live UE 5.6 game.
 - Run the deferred live load, travel, HUD replacement, freecam, spectator,

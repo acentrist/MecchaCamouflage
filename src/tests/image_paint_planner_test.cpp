@@ -204,6 +204,11 @@ auto main() -> int
     const auto planned = build_image_paint_plan(request());
     passed &= expect(
         planned &&
+            planned->paint.texture_dimension ==
+                expected_mesh_profile(
+                    BodyProfile::Round,
+                    MeshProfileRole::Raw)
+                    .texture_size &&
             planned->paint.fill_count == 2U &&
             planned->paint.paint_count == 2U &&
             planned->paint.fill_end == 2U &&

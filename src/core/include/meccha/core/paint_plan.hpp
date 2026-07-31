@@ -75,6 +75,7 @@ struct PaintPlan
     std::size_t expanded_paint_count{};
     bool projection_fallback_used{};
     std::size_t projection_fallback_count{};
+    std::uint32_t texture_dimension{};
 };
 
 enum class PaintPlanError : std::uint8_t

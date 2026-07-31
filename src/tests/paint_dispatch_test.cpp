@@ -45,6 +45,7 @@ auto make_plan(std::size_t count)
     -> std::shared_ptr<const core::PaintPlan>
 {
     auto plan = core::PaintPlan{};
+    plan.texture_dimension = 1024U;
     for (auto index = std::size_t{}; index < count; ++index)
     {
         const auto fill = index < 2U;
@@ -151,6 +152,7 @@ auto main() -> int
                 operation->job_generation == generation &&
                 operation->component ==
                     RuntimeObjectHandle{55U, 3U} &&
+                operation->texture_dimension == 1024U &&
                 operation->u ==
                     make_plan(5U)->strokes[index].u,
             "dispatch changed a stroke or lost its generation");

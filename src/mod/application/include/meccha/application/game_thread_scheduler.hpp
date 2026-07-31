@@ -65,6 +65,7 @@ struct PaintAtUvWithBrush
     double u{};
     double v{};
     double brush_size_texels{};
+    std::uint32_t texture_dimension{};
     core::Rgb8 color{};
     core::Material material{};
     bool include_scene_lighting{};

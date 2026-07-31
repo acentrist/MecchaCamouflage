@@ -90,6 +90,8 @@ auto main() -> int
     const auto planned = build_paint_plan(request);
     passed &= expect(
         planned && planned->strokes.size() == 4U &&
+            planned->texture_dimension ==
+                request.profile.texture_size &&
             planned->fill_end == 3U &&
             planned->fill_count == 3U &&
             planned->paint_count == 1U,

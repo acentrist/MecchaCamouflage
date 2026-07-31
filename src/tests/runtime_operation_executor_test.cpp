@@ -37,7 +37,11 @@ public:
     bool game_thread{true};
 };
 
-class FakeRuntimePort final : public UnrealRuntimePort
+class FakeRuntimePort final
+    : public UnrealFrameRuntimePort,
+      public PaintStrokeRuntimePort,
+      public ImagePreviewTextureRuntimePort,
+      public TransientStateRuntimePort
 {
 public:
     auto resolve_initial_contracts()
@@ -98,7 +102,13 @@ auto main() -> int
     auto passed = true;
     FakeThreadContext thread{};
     FakeRuntimePort runtime{};
-    RuntimeOperationExecutor executor{thread, runtime};
+    RuntimeOperationExecutor executor{
+        thread,
+        runtime,
+        runtime,
+        runtime,
+        runtime,
+    };
 
     const auto component = RuntimeObjectHandle{100U, 7U};
     const auto texture = RuntimeObjectHandle{200U, 8U};
@@ -112,6 +122,7 @@ auto main() -> int
         0.25,
         0.75,
         5.0,
+        1024U,
         core::Rgb8{10U, 20U, 30U},
         core::Material{0.2, 0.8, 0.1},
         true,
@@ -160,6 +171,17 @@ auto main() -> int
                 RuntimeExecutionErrorCode::InvalidRequest &&
             runtime.paint_calls.size() == 2U,
         "an excessive effective Paint radius reached the runtime");
+
+    auto missing_texture_dimension = paint;
+    missing_texture_dimension.texture_dimension = 0U;
+    const auto rejected_dimension =
+        executor.execute(missing_texture_dimension);
+    passed &= expect(
+        !rejected_dimension &&
+            rejected_dimension.error().code ==
+                RuntimeExecutionErrorCode::InvalidRequest &&
+            runtime.paint_calls.size() == 2U,
+        "Paint without a captured texture dimension reached the runtime");
 
     const auto invalid_image = UpdateImagePreviewTexture{
         12U,

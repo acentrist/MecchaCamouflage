@@ -29,6 +29,7 @@ auto paint_call(std::uint64_t request_id) -> PaintAtUvWithBrush
         0.25,
         0.75,
         5.0,
+        1024U,
         meccha::core::Rgb8{10U, 20U, 30U},
         meccha::core::Material{0.2, 0.8, 0.1},
         false,

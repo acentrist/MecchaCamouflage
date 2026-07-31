@@ -1,19 +1,29 @@
 #include <meccha/runtime/unreal_runtime_adapter.hpp>
 
+#include <meccha/runtime/paint_call_codec.hpp>
+#include <meccha/runtime/reflection_contract.hpp>
+#include <meccha/runtime/unreal_contracts.hpp>
+
+#include <Helpers/String.hpp>
 #include <Unreal/CoreUObject/UObject/Class.hpp>
 #include <Unreal/CoreUObject/UObject/UnrealType.hpp>
 #include <Unreal/FWeakObjectPtr.hpp>
+#include <Unreal/Property/FEnumProperty.hpp>
 #include <Unreal/UFunctionStructs.hpp>
 #include <Unreal/UObject.hpp>
 #include <Unreal/UObjectGlobals.hpp>
 #include <Unreal/UnrealInitializer.hpp>
 #include <Unreal/World.hpp>
 
+#include <condition_variable>
 #include <cstdint>
 #include <expected>
+#include <limits>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <utility>
+#include <vector>
 
 namespace meccha::runtime
 {
@@ -28,8 +38,21 @@ constexpr auto HudClassPath = STR("/Script/Engine.HUD");
 constexpr auto WorldClassPath = STR("/Script/Engine.World");
 constexpr auto PlayerControllerClassPath =
     STR("/Script/Engine.PlayerController");
+constexpr auto PawnClassPath = STR("/Script/Engine.Pawn");
 constexpr auto CanvasClassPath = STR("/Script/Engine.Canvas");
+constexpr auto RuntimePaintableClassPath =
+    STR("/Script/PenguinHotel.RuntimePaintableComponent");
+constexpr auto PaintAtUvWithBrushPath =
+    STR("/Script/PenguinHotel.RuntimePaintableComponent:"
+        "PaintAtUVWithBrush");
+constexpr auto Vector2dPath =
+    STR("/Script/CoreUObject.Vector2D");
+constexpr auto PaintChannelDataPath =
+    STR("/Script/PenguinHotel.PaintChannelData");
+constexpr auto RuntimeBrushSettingsPath =
+    STR("/Script/PenguinHotel.RuntimeBrushSettings");
 constexpr auto ReceiveDrawHudParameterBytes = 8;
+constexpr auto FailureMessage = "error.operation.failed";
 
 struct HudContracts
 {
@@ -40,6 +63,40 @@ struct HudContracts
     UClass* canvas_class{};
     FObjectPropertyBase* player_owner{};
     FObjectPropertyBase* canvas{};
+};
+
+struct PaintContracts
+{
+    UClass* player_controller_class{};
+    UClass* pawn_class{};
+    UClass* runtime_paintable_class{};
+    FObjectPropertyBase* acknowledged_pawn{};
+    UFunction* paint_at_uv_with_brush{};
+    UScriptStruct* vector2d{};
+    UScriptStruct* paint_channel_data{};
+    UScriptStruct* runtime_brush_settings{};
+};
+
+struct ActiveFrame
+{
+    application::HudFrameIdentity identity{};
+    UObject* world{};
+    UObject* controller{};
+    UObject* hud{};
+    UObject* canvas{};
+};
+
+struct BoundFrame
+{
+    application::HudFrameIdentity identity{};
+    FWeakObjectPtr world{};
+    FWeakObjectPtr controller{};
+    FWeakObjectPtr hud{};
+    FWeakObjectPtr canvas{};
+    FWeakObjectPtr pawn{};
+    FWeakObjectPtr component{};
+    std::uint64_t component_identity{};
+    std::uint64_t component_generation{};
 };
 
 auto find_class(const TCHAR* path) -> UClass*
@@ -81,6 +138,8 @@ auto find_object_property(
             owner->FindProperty(FName{name, FNAME_Find}));
     if (property == nullptr ||
         property->GetArrayDim() != 1 ||
+        property->GetElementSize() !=
+            static_cast<int>(sizeof(void*)) ||
         property->GetPropertyClass().Get() != expected_class ||
         !property->IsInContainer(owner))
     {
@@ -178,6 +237,388 @@ auto read_object(
         property->ContainerPtrToValuePtr<void>(container);
     return property->GetObjectPropertyValue(value);
 }
+
+auto property_direction(FProperty* property)
+    -> ReflectionPropertyDirection
+{
+    if (property->HasAnyPropertyFlags(CPF_ReturnParm))
+    {
+        return ReflectionPropertyDirection::ReturnValue;
+    }
+    if (property->HasAnyPropertyFlags(CPF_OutParm))
+    {
+        return ReflectionPropertyDirection::Output;
+    }
+    if (property->HasAnyPropertyFlags(CPF_Parm))
+    {
+        return ReflectionPropertyDirection::Input;
+    }
+    return ReflectionPropertyDirection::Member;
+}
+
+auto reflected_enum_name(FProperty* property) -> std::string
+{
+    if (auto* enum_property = CastField<FEnumProperty>(property);
+        enum_property != nullptr)
+    {
+        auto* value = enum_property->GetEnum().Get();
+        return value == nullptr
+                   ? std::string{}
+                   : RC::to_string(value->GetName());
+    }
+    if (auto* byte_property = CastField<FByteProperty>(property);
+        byte_property != nullptr)
+    {
+        auto* value = byte_property->GetEnum().Get();
+        return value == nullptr
+                   ? std::string{}
+                   : RC::to_string(value->GetName());
+    }
+    return {};
+}
+
+auto describe_property(FProperty* property)
+    -> std::optional<ReflectionPropertyDescriptor>
+{
+    if (property == nullptr ||
+        property->GetOffset_Internal() < 0 ||
+        property->GetElementSize() <= 0 ||
+        property->GetArrayDim() <= 0)
+    {
+        return std::nullopt;
+    }
+
+    auto kind = ReflectionPropertyKind{};
+    auto type_name = std::string{};
+    if (CastField<FBoolProperty>(property) != nullptr)
+    {
+        kind = ReflectionPropertyKind::Bool;
+    }
+    else if (CastField<FEnumProperty>(property) != nullptr)
+    {
+        kind = ReflectionPropertyKind::Enum;
+        type_name = reflected_enum_name(property);
+    }
+    else if (auto* byte_property =
+                 CastField<FByteProperty>(property);
+             byte_property != nullptr)
+    {
+        type_name = reflected_enum_name(property);
+        kind = type_name.empty()
+                   ? ReflectionPropertyKind::Byte
+                   : ReflectionPropertyKind::Enum;
+    }
+    else if (CastField<FIntProperty>(property) != nullptr)
+    {
+        kind = ReflectionPropertyKind::Int32;
+    }
+    else if (CastField<FFloatProperty>(property) != nullptr)
+    {
+        kind = ReflectionPropertyKind::Float32;
+    }
+    else if (CastField<FDoubleProperty>(property) != nullptr)
+    {
+        kind = ReflectionPropertyKind::Float64;
+    }
+    else if (auto* object_property =
+                 CastField<FObjectPropertyBase>(property);
+             object_property != nullptr)
+    {
+        kind = ReflectionPropertyKind::Object;
+        auto* property_class =
+            object_property->GetPropertyClass().Get();
+        if (property_class == nullptr)
+        {
+            return std::nullopt;
+        }
+        type_name = RC::to_string(property_class->GetName());
+    }
+    else if (auto* struct_property =
+                 CastField<FStructProperty>(property);
+             struct_property != nullptr)
+    {
+        kind = ReflectionPropertyKind::Struct;
+        auto* script_struct = struct_property->GetStruct().Get();
+        if (script_struct == nullptr)
+        {
+            return std::nullopt;
+        }
+        type_name = RC::to_string(script_struct->GetName());
+    }
+    else
+    {
+        return std::nullopt;
+    }
+
+    return ReflectionPropertyDescriptor{
+        RC::to_string(property->GetName()),
+        kind,
+        std::move(type_name),
+        static_cast<std::uint32_t>(
+            property->GetOffset_Internal()),
+        static_cast<std::uint32_t>(
+            property->GetElementSize()),
+        static_cast<std::uint32_t>(
+            property->GetArrayDim()),
+        property_direction(property),
+    };
+}
+
+auto describe_record(UStruct* record)
+    -> std::optional<ReflectionRecordDescriptor>
+{
+    if (record == nullptr || record->GetPropertiesSize() < 0 ||
+        record->GetOuterPrivate() == nullptr)
+    {
+        return std::nullopt;
+    }
+    auto descriptor = ReflectionRecordDescriptor{
+        RC::to_string(record->GetName()),
+        RC::to_string(record->GetOuterPrivate()->GetPathName()),
+        static_cast<std::uint32_t>(record->GetPropertiesSize()),
+        {},
+    };
+    for (auto* property = record->GetFirstProperty();
+         property != nullptr;
+         property = GetNextField(property))
+    {
+        auto described = describe_property(property);
+        if (!described)
+        {
+            return std::nullopt;
+        }
+        descriptor.properties.push_back(std::move(*described));
+    }
+    return descriptor;
+}
+
+auto contract_failure_kind(
+    ReflectionContractErrorCode code)
+    -> application::ContractFailureKind
+{
+    using Error = ReflectionContractErrorCode;
+    using Failure = application::ContractFailureKind;
+    switch (code)
+    {
+    case Error::RecordName:
+    case Error::OwnerName:
+        return Failure::WrongClass;
+    case Error::RecordSize:
+    case Error::PropertyOffset:
+    case Error::PropertySize:
+    case Error::PropertyArrayDimension:
+        return Failure::ParameterSizeMismatch;
+    case Error::MissingProperty:
+        return Failure::MissingProperty;
+    case Error::UnexpectedProperty:
+    case Error::DuplicateProperty:
+    case Error::PropertyKind:
+    case Error::PropertyType:
+    case Error::PropertyDirection:
+        return Failure::WrongPropertyKind;
+    }
+    return Failure::WrongPropertyKind;
+}
+
+auto runtime_failure(
+    application::RuntimeContractId contract,
+    application::ContractFailureKind kind)
+    -> std::unexpected<application::RuntimeExecutionError>
+{
+    return std::unexpected(application::RuntimeExecutionError{
+        application::RuntimeExecutionErrorCode::OperationFailure,
+        application::CompatibilityFailure{
+            contract,
+            kind,
+            FailureMessage,
+        },
+    });
+}
+
+auto validate_record(
+    UStruct* record,
+    const ReflectionRecordDescriptor& expected,
+    application::RuntimeContractId contract)
+    -> std::expected<void, application::RuntimeExecutionError>
+{
+    const auto actual = describe_record(record);
+    if (!actual)
+    {
+        return runtime_failure(
+            contract,
+            application::ContractFailureKind::
+                WrongPropertyKind);
+    }
+    const auto validated =
+        validate_reflection_contract(*actual, expected);
+    if (!validated)
+    {
+        return runtime_failure(
+            contract,
+            contract_failure_kind(validated.error().code));
+    }
+    return {};
+}
+
+auto resolve_paint_contracts(UClass* player_controller_class)
+    -> std::expected<
+        PaintContracts,
+        application::RuntimeExecutionError>
+{
+    auto contracts = PaintContracts{};
+    contracts.player_controller_class = player_controller_class;
+    contracts.pawn_class = find_class(PawnClassPath);
+    contracts.runtime_paintable_class =
+        find_class(RuntimePaintableClassPath);
+    contracts.paint_at_uv_with_brush =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            PaintAtUvWithBrushPath);
+    contracts.vector2d =
+        UObjectGlobals::StaticFindObject<UScriptStruct*>(
+            nullptr,
+            nullptr,
+            Vector2dPath);
+    contracts.paint_channel_data =
+        UObjectGlobals::StaticFindObject<UScriptStruct*>(
+            nullptr,
+            nullptr,
+            PaintChannelDataPath);
+    contracts.runtime_brush_settings =
+        UObjectGlobals::StaticFindObject<UScriptStruct*>(
+            nullptr,
+            nullptr,
+            RuntimeBrushSettingsPath);
+    if (player_controller_class == nullptr ||
+        contracts.pawn_class == nullptr ||
+        contracts.runtime_paintable_class == nullptr ||
+        contracts.vector2d == nullptr ||
+        contracts.paint_channel_data == nullptr ||
+        contracts.runtime_brush_settings == nullptr)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::
+                PaintAtUvWithBrush,
+            application::ContractFailureKind::MissingObject);
+    }
+    if (contracts.paint_at_uv_with_brush == nullptr)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::
+                PaintAtUvWithBrush,
+            application::ContractFailureKind::MissingFunction);
+    }
+    if (contracts.paint_at_uv_with_brush->GetOuterPrivate() !=
+        contracts.runtime_paintable_class)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::
+                PaintAtUvWithBrush,
+            application::ContractFailureKind::WrongClass);
+    }
+
+    contracts.acknowledged_pawn = find_object_property(
+        player_controller_class,
+        STR("AcknowledgedPawn"),
+        contracts.pawn_class);
+    if (contracts.acknowledged_pawn == nullptr)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PlayerController,
+            application::ContractFailureKind::MissingProperty);
+    }
+
+    const auto vector_result = validate_record(
+        contracts.vector2d,
+        vector2d_contract(),
+        application::RuntimeContractId::PaintAtUvWithBrush);
+    if (!vector_result)
+    {
+        return std::unexpected(vector_result.error());
+    }
+    const auto channel_result = validate_record(
+        contracts.paint_channel_data,
+        paint_channel_data_contract(),
+        application::RuntimeContractId::PaintAtUvWithBrush);
+    if (!channel_result)
+    {
+        return std::unexpected(channel_result.error());
+    }
+    const auto brush_result = validate_record(
+        contracts.runtime_brush_settings,
+        runtime_brush_settings_contract(),
+        application::RuntimeContractId::PaintAtUvWithBrush);
+    if (!brush_result)
+    {
+        return std::unexpected(brush_result.error());
+    }
+    const auto function_result = validate_record(
+        contracts.paint_at_uv_with_brush,
+        paint_at_uv_with_brush_contract(),
+        application::RuntimeContractId::PaintAtUvWithBrush);
+    if (!function_result)
+    {
+        return std::unexpected(function_result.error());
+    }
+    return contracts;
+}
+
+auto outer_chain_contains(UObject* object, UObject* expected)
+    -> bool
+{
+    auto depth = 0U;
+    for (auto* current =
+             object == nullptr
+                 ? nullptr
+                 : object->GetOuterPrivate();
+         current != nullptr && depth < 16U;
+         current = current->GetOuterPrivate(), ++depth)
+    {
+        if (current == expected)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+auto resolve_owned_paint_component(
+    const ActiveFrame& frame,
+    const PaintContracts& contracts)
+    -> std::optional<std::pair<UObject*, UObject*>>
+{
+    if (!object_is_live(
+            frame.controller,
+            contracts.player_controller_class))
+    {
+        return std::nullopt;
+    }
+    auto* pawn = read_object(
+        contracts.acknowledged_pawn,
+        frame.controller);
+    if (!object_is_live(pawn, contracts.pawn_class))
+    {
+        return std::nullopt;
+    }
+    auto* component_property = find_object_property(
+        pawn->GetClassPrivate(),
+        STR("RuntimePaintable"),
+        contracts.runtime_paintable_class);
+    if (component_property == nullptr)
+    {
+        return std::nullopt;
+    }
+    auto* component = read_object(component_property, pawn);
+    if (!object_is_live(
+            component,
+            contracts.runtime_paintable_class) ||
+        !outer_chain_contains(component, pawn))
+    {
+        return std::nullopt;
+    }
+    return std::pair{pawn, component};
+}
 } // namespace
 
 class UnrealRuntimeAdapter::Impl
@@ -210,12 +651,13 @@ public:
 
             {
                 const auto lock = std::scoped_lock{mutex_};
-                if (hook_ids_)
+                if (hook_ids_ || detaching_)
                 {
                     return std::unexpected(
-                        application::CallbackPortError::Registration);
+                        application::CallbackPortError::
+                            Registration);
                 }
-                contracts_ = *resolved;
+                hud_contracts_ = *resolved;
                 callback_context_ = context;
                 callback_ = callback;
             }
@@ -234,10 +676,7 @@ public:
         catch (...)
         {
             const auto lock = std::scoped_lock{mutex_};
-            contracts_.reset();
-            callback_context_ = nullptr;
-            callback_ = nullptr;
-            hook_ids_.reset();
+            clear_state_locked();
             return std::unexpected(
                 application::CallbackPortError::Registration);
         }
@@ -252,12 +691,15 @@ public:
         auto ids = std::pair<int, int>{};
         {
             const auto lock = std::scoped_lock{mutex_};
-            if (id != HudCallbackId || !hook_ids_ || !contracts_)
+            if (id != HudCallbackId || !hook_ids_ ||
+                !hud_contracts_ || detaching_)
             {
                 return std::unexpected(
-                    application::CallbackPortError::Unregistration);
+                    application::CallbackPortError::
+                        Unregistration);
             }
-            function = contracts_->receive_draw_hud;
+            detaching_ = true;
+            function = hud_contracts_->receive_draw_hud;
             ids = *hook_ids_;
         }
 
@@ -267,16 +709,281 @@ public:
         }
         catch (...)
         {
+            const auto lock = std::scoped_lock{mutex_};
+            detaching_ = false;
             return std::unexpected(
                 application::CallbackPortError::Unregistration);
         }
 
-        const auto lock = std::scoped_lock{mutex_};
-        hook_ids_.reset();
-        contracts_.reset();
-        callback_context_ = nullptr;
-        callback_ = nullptr;
+        auto lock = std::unique_lock{mutex_};
+        idle_.wait(lock, [this] { return in_flight_ == 0U; });
+        clear_state_locked();
         return {};
+    }
+
+    auto resolve_contracts()
+        -> std::expected<
+            void,
+            application::RuntimeExecutionError>
+    {
+        if (!IsInGameThreadRaw())
+        {
+            return std::unexpected(
+                application::RuntimeExecutionError{
+                    application::RuntimeExecutionErrorCode::
+                        WrongThread,
+                    std::nullopt,
+                });
+        }
+        try
+        {
+            auto hud = std::optional<HudContracts>{};
+            {
+                const auto lock = std::scoped_lock{mutex_};
+                hud = hud_contracts_;
+            }
+            if (!hud)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        RuntimeInitialization,
+                    application::ContractFailureKind::
+                        MissingObject);
+            }
+            auto resolved = resolve_paint_contracts(
+                hud->player_controller_class);
+            if (!resolved)
+            {
+                return std::unexpected(resolved.error());
+            }
+            const auto lock = std::scoped_lock{mutex_};
+            if (detaching_)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        RuntimeInitialization,
+                    application::ContractFailureKind::
+                        ExecutionFailure);
+            }
+            paint_contracts_ = *resolved;
+            return {};
+        }
+        catch (...)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::
+                    RuntimeInitialization,
+                application::ContractFailureKind::
+                    ExecutionFailure);
+        }
+    }
+
+    auto bind_frame(
+        const application::HudFrameIdentity& identity)
+        -> std::expected<
+            void,
+            application::RuntimeExecutionError>
+    {
+        if (!IsInGameThreadRaw())
+        {
+            return std::unexpected(
+                application::RuntimeExecutionError{
+                    application::RuntimeExecutionErrorCode::
+                        WrongThread,
+                    std::nullopt,
+                });
+        }
+        try
+        {
+            auto active = std::optional<ActiveFrame>{};
+            auto paint = std::optional<PaintContracts>{};
+            auto previous = std::optional<BoundFrame>{};
+            {
+                const auto lock = std::scoped_lock{mutex_};
+                active = active_frame_;
+                paint = paint_contracts_;
+                previous = bound_frame_;
+            }
+            if (!active || active->identity != identity)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::Hud,
+                    application::ContractFailureKind::
+                        StaleObject);
+            }
+            if (!paint)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        PaintAtUvWithBrush,
+                    application::ContractFailureKind::
+                        MissingObject);
+            }
+
+            auto* pawn = static_cast<UObject*>(nullptr);
+            auto* component = static_cast<UObject*>(nullptr);
+            if (const auto owned =
+                    resolve_owned_paint_component(*active, *paint))
+            {
+                pawn = owned->first;
+                component = owned->second;
+            }
+            else if (
+                previous &&
+                previous->identity.world == identity.world &&
+                previous->identity.controller ==
+                    identity.controller)
+            {
+                pawn = previous->pawn.Get();
+                component = previous->component.Get();
+                if (!object_is_live(pawn, paint->pawn_class) ||
+                    !object_is_live(
+                        component,
+                        paint->runtime_paintable_class) ||
+                    !outer_chain_contains(component, pawn))
+                {
+                    pawn = nullptr;
+                    component = nullptr;
+                }
+            }
+            if (pawn == nullptr || component == nullptr)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        PaintAtUvWithBrush,
+                    application::ContractFailureKind::
+                        MissingObject);
+            }
+
+            const auto component_id = object_identity(component);
+            auto generation = std::uint64_t{1U};
+            if (previous)
+            {
+                if (previous->component_identity == component_id &&
+                    previous->component.Get() == component)
+                {
+                    generation = previous->component_generation;
+                }
+                else
+                {
+                    if (previous->component_generation ==
+                        std::numeric_limits<std::uint64_t>::max())
+                    {
+                        return runtime_failure(
+                            application::RuntimeContractId::
+                                PaintAtUvWithBrush,
+                            application::ContractFailureKind::
+                                ExecutionFailure);
+                    }
+                    generation =
+                        previous->component_generation + 1U;
+                }
+            }
+
+            const auto lock = std::scoped_lock{mutex_};
+            if (!active_frame_ ||
+                active_frame_->identity != identity ||
+                detaching_)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::Hud,
+                    application::ContractFailureKind::
+                        StaleObject);
+            }
+            bound_frame_ = BoundFrame{
+                identity,
+                FWeakObjectPtr{active->world},
+                FWeakObjectPtr{active->controller},
+                FWeakObjectPtr{active->hud},
+                FWeakObjectPtr{active->canvas},
+                FWeakObjectPtr{pawn},
+                FWeakObjectPtr{component},
+                component_id,
+                generation,
+            };
+            return {};
+        }
+        catch (...)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::Hud,
+                application::ContractFailureKind::
+                    ExecutionFailure);
+        }
+    }
+
+    auto paint(const application::PaintAtUvWithBrush& request)
+        -> std::expected<
+            void,
+            application::RuntimeExecutionError>
+    {
+        if (!IsInGameThreadRaw())
+        {
+            return std::unexpected(
+                application::RuntimeExecutionError{
+                    application::RuntimeExecutionErrorCode::
+                        WrongThread,
+                    std::nullopt,
+                });
+        }
+        try
+        {
+            auto contracts = std::optional<PaintContracts>{};
+            auto bound = std::optional<BoundFrame>{};
+            auto active = std::optional<ActiveFrame>{};
+            {
+                const auto lock = std::scoped_lock{mutex_};
+                contracts = paint_contracts_;
+                bound = bound_frame_;
+                active = active_frame_;
+            }
+            if (!contracts || !bound || !active ||
+                bound->identity != active->identity)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        PaintAtUvWithBrush,
+                    application::ContractFailureKind::
+                        StaleObject);
+            }
+            auto* component = bound->component.Get();
+            if (!object_is_live(
+                    component,
+                    contracts->runtime_paintable_class) ||
+                request.component.identity !=
+                    bound->component_identity ||
+                request.component.generation !=
+                    bound->component_generation)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        PaintAtUvWithBrush,
+                    application::ContractFailureKind::
+                        StaleObject);
+            }
+            const auto parameters = encode_paint_call(request);
+            if (!parameters)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        PaintAtUvWithBrush,
+                    application::ContractFailureKind::
+                        InvalidValue);
+            }
+            auto mutable_parameters = *parameters;
+            component->ProcessEvent(
+                contracts->paint_at_uv_with_brush,
+                &mutable_parameters);
+            return {};
+        }
+        catch (...)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::
+                    PaintAtUvWithBrush,
+                application::ContractFailureKind::
+                    ExecutionFailure);
+        }
     }
 
 private:
@@ -296,7 +1003,8 @@ private:
         }
         try
         {
-            static_cast<Impl*>(custom_data)->dispatch(context.Context);
+            static_cast<Impl*>(custom_data)->dispatch(
+                context.Context);
         }
         catch (...)
         {
@@ -308,19 +1016,24 @@ private:
         auto contracts = std::optional<HudContracts>{};
         auto callback_context = static_cast<void*>(nullptr);
         auto callback = application::HudCallback{};
+        auto sequence = std::uint64_t{};
         {
             const auto lock = std::scoped_lock{mutex_};
-            contracts = contracts_;
+            if (detaching_ || !hud_contracts_ ||
+                callback_context_ == nullptr ||
+                callback_ == nullptr)
+            {
+                return;
+            }
+            contracts = hud_contracts_;
             callback_context = callback_context_;
             callback = callback_;
-        }
-        if (!contracts || callback_context == nullptr ||
-            callback == nullptr)
-        {
-            return;
+            ++in_flight_;
+            sequence = ++dispatch_sequence_;
         }
 
         auto identity = application::HudFrameIdentity{};
+        auto frame = std::optional<ActiveFrame>{};
         if (IsInGameThreadRaw() &&
             object_is_live(hud, contracts->hud_class))
         {
@@ -340,9 +1053,65 @@ private:
                     object_identity(hud),
                     object_identity(canvas),
                 };
+                frame = ActiveFrame{
+                    identity,
+                    world,
+                    controller,
+                    hud,
+                    canvas,
+                };
             }
         }
-        callback(callback_context, identity);
+        {
+            const auto lock = std::scoped_lock{mutex_};
+            if (!detaching_ && frame)
+            {
+                active_frame_ = *frame;
+                active_frame_sequence_ = sequence;
+            }
+        }
+
+        try
+        {
+            callback(callback_context, identity);
+        }
+        catch (...)
+        {
+            finish_dispatch(sequence);
+            throw;
+        }
+        finish_dispatch(sequence);
+    }
+
+    auto finish_dispatch(std::uint64_t sequence) noexcept -> void
+    {
+        const auto lock = std::scoped_lock{mutex_};
+        if (active_frame_sequence_ == sequence)
+        {
+            active_frame_.reset();
+            active_frame_sequence_ = 0U;
+        }
+        if (in_flight_ > 0U)
+        {
+            --in_flight_;
+        }
+        if (in_flight_ == 0U)
+        {
+            idle_.notify_all();
+        }
+    }
+
+    auto clear_state_locked() -> void
+    {
+        hook_ids_.reset();
+        hud_contracts_.reset();
+        paint_contracts_.reset();
+        active_frame_.reset();
+        bound_frame_.reset();
+        callback_context_ = nullptr;
+        callback_ = nullptr;
+        active_frame_sequence_ = 0U;
+        detaching_ = false;
     }
 
     auto detach_noexcept() noexcept -> void
@@ -351,15 +1120,13 @@ private:
         auto ids = std::optional<std::pair<int, int>>{};
         {
             const auto lock = std::scoped_lock{mutex_};
-            if (contracts_)
+            if (hud_contracts_)
             {
-                function = contracts_->receive_draw_hud;
+                function =
+                    hud_contracts_->receive_draw_hud;
             }
             ids = hook_ids_;
-            hook_ids_.reset();
-            contracts_.reset();
-            callback_context_ = nullptr;
-            callback_ = nullptr;
+            detaching_ = true;
         }
         if (function != nullptr && ids)
         {
@@ -371,13 +1138,25 @@ private:
             {
             }
         }
+
+        auto lock = std::unique_lock{mutex_};
+        idle_.wait(lock, [this] { return in_flight_ == 0U; });
+        clear_state_locked();
     }
 
     std::mutex mutex_{};
-    std::optional<HudContracts> contracts_{};
+    std::condition_variable idle_{};
+    std::optional<HudContracts> hud_contracts_{};
+    std::optional<PaintContracts> paint_contracts_{};
+    std::optional<ActiveFrame> active_frame_{};
+    std::optional<BoundFrame> bound_frame_{};
     std::optional<std::pair<int, int>> hook_ids_{};
     void* callback_context_{};
     application::HudCallback callback_{};
+    std::size_t in_flight_{};
+    std::uint64_t dispatch_sequence_{};
+    std::uint64_t active_frame_sequence_{};
+    bool detaching_{};
 };
 
 UnrealRuntimeAdapter::UnrealRuntimeAdapter()
@@ -409,5 +1188,31 @@ auto UnrealRuntimeAdapter::unregister_hud_callback(
 auto UnrealRuntimeAdapter::is_game_thread() const noexcept -> bool
 {
     return RC::Unreal::IsInGameThreadRaw();
+}
+
+auto UnrealRuntimeAdapter::resolve_initial_contracts()
+    -> std::expected<
+        void,
+        application::RuntimeExecutionError>
+{
+    return impl_->resolve_contracts();
+}
+
+auto UnrealRuntimeAdapter::rebind_hud_frame(
+    const application::HudFrameIdentity& identity)
+    -> std::expected<
+        void,
+        application::RuntimeExecutionError>
+{
+    return impl_->bind_frame(identity);
+}
+
+auto UnrealRuntimeAdapter::paint_at_uv_with_brush(
+    const application::PaintAtUvWithBrush& request)
+    -> std::expected<
+        void,
+        application::RuntimeExecutionError>
+{
+    return impl_->paint(request);
 }
 } // namespace meccha::runtime
