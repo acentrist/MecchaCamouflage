@@ -38,13 +38,13 @@ cannot represent the shipping field.
 | `SkeletalMeshComponent.CachedComponentSpaceTransforms` | `0x05F0` | Architecture gate must prove a validated pose API/layout |
 | `BP_FirstPersonCharacter.RuntimePaintable` | `0x0B68` | Replace with owned-component discovery and class validation |
 | `RuntimePaintable.CurrentBrushSettings` | `0x0170` | Resolve reflected struct or use validated function data |
-| `SceneCapture2D.CaptureComponent2D` | `0x02B8` | Resolve reflected object property |
-| `SceneCaptureComponent.CaptureSource` | `0x0241` | Resolve enum property |
+| `SceneCapture2D.CaptureComponent2D` | `0x02B8` | Exact reflected `SceneCaptureComponent2D` object property is validated at runtime |
+| `SceneCaptureComponent.CaptureSource` | `0x0241` | Exact one-byte `ESceneCaptureSource` property is validated at runtime |
 | `SceneCaptureComponent.CaptureFlags` | `0x0242` | Remove if not required by accepted capture path |
-| `SceneCaptureComponent.bAlwaysPersistRenderingState` | `0x0243` | Resolve reflected bool |
-| `SceneCaptureComponent2D.ProjectionType` | `0x0328` | Resolve reflected enum |
-| `SceneCaptureComponent2D.FOVAngle` | `0x032C` | Resolve reflected float |
-| `SceneCaptureComponent2D.TextureTarget` | `0x0350` | Resolve reflected object property |
+| `SceneCaptureComponent.bAlwaysPersistRenderingState` | `0x0243` | Exact reflected bool is validated at runtime together with `bCaptureEveryFrame` and `bCaptureOnMovement` |
+| `SceneCaptureComponent2D.ProjectionType` | `0x0328` | Exact one-byte `ECameraProjectionMode` property is validated at runtime |
+| `SceneCaptureComponent2D.FOVAngle` | `0x032C` | Exact reflected float is validated at runtime |
+| `SceneCaptureComponent2D.TextureTarget` | `0x0350` | Exact reflected `TextureRenderTarget2D` object property is validated at runtime |
 | `PlayerCameraManager` camera cache | `0x1540` in Bridge ESP | Must be replaced by a validated UE4SS/reflected view source |
 
 Any offset retained after Phase 4 requires its own architecture decision,
@@ -153,10 +153,18 @@ The v1 research-only functions `MulticastSyncChannelData`,
 | GAME-RENDER-007 | `PlayerController.GetViewportSize` | Validated viewport dimensions |
 | GAME-RENDER-008 | `PlayerController.DeprojectScreenPositionToWorld` | Validated screen ray |
 | GAME-RENDER-009 | `PlayerController.ProjectWorldLocationToScreen` | Calibration/contract check |
+| GAME-RENDER-010 | `SceneCaptureComponent2D.CaptureScene` | Exact zero-parameter schema; one explicit capture after all properties and hidden components are set |
+| GAME-RENDER-011 | `SceneCaptureComponent.HideComponent` | Exact `0x08` schema with one `PrimitiveComponent` input; hide the local target mesh and, before production connection, every exact live brush-plane visual component |
+| GAME-RENDER-012 | `Actor.K2_DestroyActor` | Exact zero-parameter schema; destroy each transient capture actor on every exit |
 
-Phase 4/8 must determine the minimal accepted subset. Debug/research capture,
-arbitrary actor spawning, and texture probing are deleted when they are not
-needed for product Paint/Image Paint.
+The manual Paint capture seed uses GAME-RENDER-001/002/010/011/012, the exact
+SceneCapture property set above, a pinned UE4SS `UWorld::SpawnActor` call with
+an exact class/result/world check, and the calibrated GAME-ESP-011 view. This
+is compile/contract evidence only. Phase 8 must still validate the minimal
+Auto Material subset, exact brush-plane visuals, live readback semantics and
+cleanup, and the capture frame budget. Debug/research capture, arbitrary actor
+spawning, and texture probing are deleted when they are not needed for product
+Paint/Image Paint.
 
 ## HUD and UCanvas contracts
 

@@ -2,10 +2,12 @@
 
 #include <meccha/core/paint_capture_request.hpp>
 #include <meccha/core/paint_sampling_profile.hpp>
+#include <meccha/runtime/esp_capture_codec.hpp>
 
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <span>
 #include <vector>
 
 namespace meccha::runtime
@@ -74,6 +76,79 @@ enum class PaintCaptureRenderTargetFormat : std::uint8_t
     Rgba16Float = 6U,
 };
 
+enum class PaintSceneCaptureSource : std::uint8_t
+{
+    SceneColorHdr = 0U,
+    SceneColorHdrNoAlpha = 1U,
+    FinalColorLdr = 2U,
+    SceneColorSceneDepth = 3U,
+    SceneDepth = 4U,
+    DeviceDepth = 5U,
+    Normal = 6U,
+    BaseColor = 7U,
+    FinalColorHdr = 8U,
+    FinalToneCurveHdr = 9U,
+};
+
+enum class PaintSceneCaptureProjection : std::uint8_t
+{
+    Perspective = 0U,
+    Orthographic = 1U,
+};
+
+enum class PaintSceneCapturePassKind : std::uint8_t
+{
+    BaseColor,
+    FinalColorHdr,
+    IntrinsicEmissionHdr,
+    FinalToneCurveHdr,
+    Normal,
+    SceneDepth,
+    FinalColorLdr,
+};
+
+enum class PaintSceneCaptureProfile : std::uint8_t
+{
+    Standard,
+    IntrinsicEmission,
+};
+
+struct PaintSceneCapturePass
+{
+    PaintSceneCapturePassKind kind{};
+    PaintSceneCaptureSource source{};
+    PaintCaptureRenderTargetFormat format{
+        PaintCaptureRenderTargetFormat::Rgba8Srgb};
+    PaintSceneCaptureProfile profile{
+        PaintSceneCaptureProfile::Standard};
+    bool normalize_readback{};
+    bool preserve_hdr{};
+
+    auto operator==(const PaintSceneCapturePass&) const
+        -> bool = default;
+};
+
+struct PaintSceneCapturePlan
+{
+    std::vector<PaintSceneCapturePass> passes{};
+    bool requires_preview_feedback{};
+
+    auto operator==(const PaintSceneCapturePlan&) const
+        -> bool = default;
+};
+
+struct PaintSceneCaptureCamera
+{
+    EspVector3dAbi location{};
+    EspRotatorAbi rotation{};
+    float field_of_view_degrees{};
+    std::uint32_t width{};
+    std::uint32_t height{};
+
+    auto operator==(const PaintSceneCaptureCamera&) const
+        -> bool = default;
+};
+
 struct PaintCaptureLinearColor
 {
     float red{};
@@ -140,6 +215,9 @@ enum class PaintCaptureEncodingError : std::uint8_t
     InvalidTransform,
     InvalidRenderTarget,
     InvalidReadback,
+    InvalidSettings,
+    InvalidCamera,
+    InvalidColor,
 };
 
 [[nodiscard]] auto decode_runtime_transform(
@@ -168,5 +246,26 @@ enum class PaintCaptureEncodingError : std::uint8_t
     std::uint32_t height)
     -> std::expected<
         std::vector<PaintCaptureLinearColor>,
+        PaintCaptureEncodingError>;
+
+[[nodiscard]] auto build_paint_scene_capture_plan(
+    const core::PaintSettings& settings)
+    -> std::expected<
+        PaintSceneCapturePlan,
+        PaintCaptureEncodingError>;
+
+[[nodiscard]] auto encode_paint_scene_capture_camera(
+    const core::EspView& view,
+    std::uint32_t width,
+    std::uint32_t height)
+    -> std::expected<
+        PaintSceneCaptureCamera,
+        PaintCaptureEncodingError>;
+
+[[nodiscard]] auto
+convert_paint_capture_linear_colors_to_srgb8(
+    std::span<const PaintCaptureLinearColor> colors)
+    -> std::expected<
+        std::vector<core::Rgb8>,
         PaintCaptureEncodingError>;
 } // namespace meccha::runtime

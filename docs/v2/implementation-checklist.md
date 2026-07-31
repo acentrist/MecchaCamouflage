@@ -438,6 +438,18 @@ Evidence:
     - [x] Freeze the exact 0x10-byte `InitializePaint` reflected schema as
       `MeshComponent` object input at 0x00 and bool return at 0x08; the v1
       zero-filled no-argument call is not accepted.
+    - [x] Resolve and validate the exact SceneCapture actor/component class
+      graph, typed capture/projection/render-target properties, and
+      `CaptureScene`, `HideComponent`, and `K2_DestroyActor` schemas.
+    - [x] Materialize the manual-color capture seed from the shared calibrated
+      camera, profile-bound initialized mesh, complete packaged-bone transform
+      set, BaseColor background, and optional FinalColor-HDR background, with
+      bounded readback and local actor/array/root cleanup on every exit.
+    - [ ] Discover and hide the exact live brush-plane visual components, add
+      Auto Material intrinsic-emission plus trial-preview feedback/restoration,
+      prove bounded multi-frame capture cost, and record live readback
+      orientation/color/cleanup evidence before connecting the composition
+      root.
 - [x] Validate round, cube, and fukuyoka profiles.
 - [x] Implement immutable planning for Paint/Fill/Skip, lighting, Auto Material,
   PBR, compression, and Fill-first ordering.

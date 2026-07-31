@@ -4,6 +4,7 @@
 #include <meccha/runtime/esp_capture_codec.hpp>
 #include <meccha/runtime/input_control_codec.hpp>
 #include <meccha/runtime/paint_call_codec.hpp>
+#include <meccha/runtime/paint_capture_codec.hpp>
 #include <meccha/runtime/paint_preview_codec.hpp>
 #include <meccha/runtime/paint_queue_codec.hpp>
 #include <meccha/runtime/texture_import_codec.hpp>
@@ -17,12 +18,16 @@
 #include <Unreal/CoreUObject/UObject/Class.hpp>
 #include <Unreal/CoreUObject/UObject/FStrProperty.hpp>
 #include <Unreal/CoreUObject/UObject/UnrealType.hpp>
+#include <Unreal/AActor.hpp>
 #include <Unreal/FMemory.hpp>
 #include <Unreal/FSoftObjectPath.hpp>
 #include <Unreal/FWeakObjectPtr.hpp>
+#include <Unreal/Property/FEnumProperty.hpp>
+#include <Unreal/Rotator.hpp>
 #include <Unreal/UFunctionStructs.hpp>
 #include <Unreal/UObject.hpp>
 #include <Unreal/UObjectGlobals.hpp>
+#include <Unreal/UnrealCoreStructs.hpp>
 #include <Unreal/UnrealFlags.hpp>
 #include <Unreal/UnrealInitializer.hpp>
 #include <Unreal/World.hpp>
@@ -67,6 +72,7 @@ constexpr auto HudClassPath = STR("/Script/Engine.HUD");
 constexpr auto WorldClassPath = STR("/Script/Engine.World");
 constexpr auto PlayerControllerClassPath =
     STR("/Script/Engine.PlayerController");
+constexpr auto ActorClassPath = STR("/Script/Engine.Actor");
 constexpr auto ControllerClassPath =
     STR("/Script/Engine.Controller");
 constexpr auto PawnClassPath = STR("/Script/Engine.Pawn");
@@ -79,6 +85,14 @@ constexpr auto PlayerStateClassPath =
     STR("/Script/Engine.PlayerState");
 constexpr auto SceneComponentClassPath =
     STR("/Script/Engine.SceneComponent");
+constexpr auto PrimitiveComponentClassPath =
+    STR("/Script/Engine.PrimitiveComponent");
+constexpr auto SceneCaptureComponentClassPath =
+    STR("/Script/Engine.SceneCaptureComponent");
+constexpr auto SceneCaptureComponent2dClassPath =
+    STR("/Script/Engine.SceneCaptureComponent2D");
+constexpr auto SceneCapture2dClassPath =
+    STR("/Script/Engine.SceneCapture2D");
 constexpr auto CapsuleComponentClassPath =
     STR("/Script/Engine.CapsuleComponent");
 constexpr auto PlayerCameraManagerClassPath =
@@ -108,6 +122,22 @@ constexpr auto SetIgnoreMoveInputPath =
     STR("/Script/Engine.Controller:SetIgnoreMoveInput");
 constexpr auto Texture2dClassPath =
     STR("/Script/Engine.Texture2D");
+constexpr auto TextureRenderTarget2dClassPath =
+    STR("/Script/Engine.TextureRenderTarget2D");
+constexpr auto CreateRenderTarget2dPath =
+    STR("/Script/Engine.KismetRenderingLibrary:"
+        "CreateRenderTarget2D");
+constexpr auto ReadRenderTargetRawPath =
+    STR("/Script/Engine.KismetRenderingLibrary:"
+        "ReadRenderTargetRaw");
+constexpr auto CaptureScenePath =
+    STR("/Script/Engine.SceneCaptureComponent2D:"
+        "CaptureScene");
+constexpr auto HideComponentPath =
+    STR("/Script/Engine.SceneCaptureComponent:"
+        "HideComponent");
+constexpr auto K2DestroyActorPath =
+    STR("/Script/Engine.Actor:K2_DestroyActor");
 constexpr auto RuntimePaintableClassPath =
     STR("/Script/PenguinHotel.RuntimePaintableComponent");
 constexpr auto MeshComponentClassPath =
@@ -282,6 +312,39 @@ struct PaintContracts
     UScriptStruct* paint_channel_data{};
     UScriptStruct* runtime_brush_settings{};
     UScriptStruct* runtime_paint_replication_pressure{};
+};
+
+struct ExactEnumProperty
+{
+    FProperty* property{};
+    FNumericProperty* underlying{};
+    UEnum* enumeration{};
+};
+
+struct PaintSceneCaptureContracts
+{
+    UClass* actor_class{};
+    UClass* scene_component_class{};
+    UClass* primitive_component_class{};
+    UClass* scene_capture_component_class{};
+    UClass* scene_capture_component_2d_class{};
+    UClass* scene_capture_2d_class{};
+    UClass* texture_render_target_2d_class{};
+    UClass* kismet_rendering_library_class{};
+    UObject* kismet_rendering_library_cdo{};
+    FObjectPropertyBase* capture_component_2d{};
+    ExactEnumProperty capture_source{};
+    FBoolProperty* capture_every_frame{};
+    FBoolProperty* capture_on_movement{};
+    FBoolProperty* always_persist_rendering_state{};
+    ExactEnumProperty projection_type{};
+    FFloatProperty* field_of_view_angle{};
+    FObjectPropertyBase* texture_target{};
+    UFunction* create_render_target_2d{};
+    UFunction* read_render_target_raw{};
+    UFunction* capture_scene{};
+    UFunction* hide_component{};
+    UFunction* destroy_actor{};
 };
 
 struct ImagePaintContracts
@@ -521,6 +584,77 @@ auto find_bool_property(UClass* owner, const TCHAR* name)
         return nullptr;
     }
     return property;
+}
+
+auto find_exact_float_property(
+    UClass* lookup_class,
+    UClass* declared_owner,
+    const TCHAR* name) -> FFloatProperty*
+{
+    if (lookup_class == nullptr || declared_owner == nullptr)
+    {
+        return nullptr;
+    }
+    auto* property = CastField<FFloatProperty>(
+        lookup_class->FindProperty(FName{name, FNAME_Find}));
+    if (property == nullptr ||
+        property->GetOwner<UClass>() != declared_owner ||
+        property->GetArrayDim() != 1 ||
+        property->GetElementSize() !=
+            static_cast<int>(sizeof(float)) ||
+        !property->IsInContainer(lookup_class))
+    {
+        return nullptr;
+    }
+    return property;
+}
+
+auto find_exact_enum_property(
+    UClass* lookup_class,
+    UClass* declared_owner,
+    const TCHAR* name,
+    const TCHAR* expected_enum_name)
+    -> ExactEnumProperty
+{
+    if (lookup_class == nullptr || declared_owner == nullptr)
+    {
+        return {};
+    }
+    auto* property =
+        lookup_class->FindProperty(FName{name, FNAME_Find});
+    auto* underlying = static_cast<FNumericProperty*>(nullptr);
+    auto* enumeration = static_cast<UEnum*>(nullptr);
+    if (auto* enum_property =
+            CastField<FEnumProperty>(property);
+        enum_property != nullptr)
+    {
+        underlying = enum_property->GetUnderlyingProperty();
+        enumeration = enum_property->GetEnum().Get();
+    }
+    else if (auto* byte_property =
+                 CastField<FByteProperty>(property);
+             byte_property != nullptr)
+    {
+        underlying = byte_property;
+        enumeration = byte_property->GetIntPropertyEnum();
+    }
+    if (property == nullptr || underlying == nullptr ||
+        enumeration == nullptr ||
+        property->GetOwner<UClass>() != declared_owner ||
+        property->GetArrayDim() != 1 ||
+        property->GetElementSize() != 1 ||
+        !property->IsInContainer(lookup_class) ||
+        !underlying->IsInteger() ||
+        underlying->GetElementSize() != 1 ||
+        enumeration->GetName() != expected_enum_name)
+    {
+        return {};
+    }
+    return ExactEnumProperty{
+        property,
+        underlying,
+        enumeration,
+    };
 }
 
 auto find_weak_object_property(
@@ -1276,6 +1410,100 @@ auto call_esp_project_world_to_screen(
         parameters.screen_location.x,
         parameters.screen_location.y,
     };
+}
+
+auto capture_calibrated_esp_view(
+    const ActiveFrame& active,
+    const EspContracts& contracts,
+    application::RuntimeContractId contract)
+    -> std::expected<
+        core::EspView,
+        application::RuntimeExecutionError>
+{
+    if (active.viewport_width <= 0 ||
+        active.viewport_height <= 0 ||
+        !object_is_live(
+            active.world,
+            contracts.world_class) ||
+        !object_is_live(
+            active.controller,
+            contracts.player_controller_class))
+    {
+        return runtime_failure(
+            contract,
+            application::ContractFailureKind::StaleObject);
+    }
+    auto* camera_manager = read_object(
+        contracts.player_camera_manager,
+        active.controller);
+    if (!object_is_live(
+            camera_manager,
+            contracts.player_camera_manager_class) ||
+        camera_manager->GetWorld() != active.world)
+    {
+        return runtime_failure(
+            contract,
+            application::ContractFailureKind::MissingObject);
+    }
+
+    const auto uncalibrated = decode_esp_view(
+        call_esp_vector(
+            camera_manager,
+            contracts.get_camera_location),
+        call_esp_rotator(
+            camera_manager,
+            contracts.get_camera_rotation),
+        call_esp_float(
+            camera_manager,
+            contracts.get_fov_angle),
+        active.viewport_width,
+        active.viewport_height);
+    if (!uncalibrated)
+    {
+        return runtime_failure(
+            contract,
+            application::ContractFailureKind::InvalidValue);
+    }
+    const auto calibration_points =
+        esp_projection_calibration_points(*uncalibrated);
+    if (!calibration_points)
+    {
+        return runtime_failure(
+            contract,
+            application::ContractFailureKind::InvalidValue);
+    }
+    const auto horizontal_engine_sample =
+        call_esp_project_world_to_screen(
+            active.controller,
+            contracts.project_world_location_to_screen,
+            (*calibration_points)[0U]);
+    const auto vertical_engine_sample =
+        call_esp_project_world_to_screen(
+            active.controller,
+            contracts.project_world_location_to_screen,
+            (*calibration_points)[1U]);
+    if (!horizontal_engine_sample ||
+        !vertical_engine_sample)
+    {
+        return runtime_failure(
+            contract,
+            application::ContractFailureKind::InvalidValue);
+    }
+    const auto calibrated = calibrate_esp_view(
+        *uncalibrated,
+        core::EspViewport{
+            static_cast<double>(active.viewport_width),
+            static_cast<double>(active.viewport_height),
+        },
+        *horizontal_engine_sample,
+        *vertical_engine_sample);
+    if (!calibrated)
+    {
+        return runtime_failure(
+            contract,
+            application::ContractFailureKind::InvalidValue);
+    }
+    return *calibrated;
 }
 
 auto call_esp_socket_location(
@@ -2203,6 +2431,233 @@ auto resolve_paint_contracts(UClass* player_controller_class)
     return contracts;
 }
 
+auto resolve_paint_scene_capture_contracts(
+    UClass* kismet_rendering_library_class,
+    UObject* kismet_rendering_library_cdo)
+    -> std::expected<
+        PaintSceneCaptureContracts,
+        application::RuntimeExecutionError>
+{
+    auto contracts = PaintSceneCaptureContracts{};
+    contracts.actor_class = find_class(ActorClassPath);
+    contracts.scene_component_class =
+        find_class(SceneComponentClassPath);
+    contracts.primitive_component_class =
+        find_class(PrimitiveComponentClassPath);
+    contracts.scene_capture_component_class =
+        find_class(SceneCaptureComponentClassPath);
+    contracts.scene_capture_component_2d_class =
+        find_class(SceneCaptureComponent2dClassPath);
+    contracts.scene_capture_2d_class =
+        find_class(SceneCapture2dClassPath);
+    contracts.texture_render_target_2d_class =
+        find_class(TextureRenderTarget2dClassPath);
+    contracts.kismet_rendering_library_class =
+        kismet_rendering_library_class;
+    contracts.kismet_rendering_library_cdo =
+        kismet_rendering_library_cdo;
+    contracts.create_render_target_2d =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            CreateRenderTarget2dPath);
+    contracts.read_render_target_raw =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            ReadRenderTargetRawPath);
+    contracts.capture_scene =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            CaptureScenePath);
+    contracts.hide_component =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            HideComponentPath);
+    contracts.destroy_actor =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            K2DestroyActorPath);
+
+    const auto required_objects = std::array{
+        static_cast<UObject*>(contracts.actor_class),
+        static_cast<UObject*>(
+            contracts.scene_component_class),
+        static_cast<UObject*>(
+            contracts.primitive_component_class),
+        static_cast<UObject*>(
+            contracts.scene_capture_component_class),
+        static_cast<UObject*>(
+            contracts.scene_capture_component_2d_class),
+        static_cast<UObject*>(contracts.scene_capture_2d_class),
+        static_cast<UObject*>(
+            contracts.texture_render_target_2d_class),
+        static_cast<UObject*>(
+            contracts.kismet_rendering_library_class),
+        contracts.kismet_rendering_library_cdo,
+    };
+    if (std::ranges::any_of(
+            required_objects,
+            [](UObject* object) { return object == nullptr; }))
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::MissingObject);
+    }
+    if (!contracts.primitive_component_class->IsChildOf(
+            contracts.scene_component_class) ||
+        !contracts.scene_capture_component_class->IsChildOf(
+            contracts.scene_component_class) ||
+        !contracts.scene_capture_component_2d_class->IsChildOf(
+            contracts.scene_capture_component_class) ||
+        !contracts.scene_capture_2d_class->IsChildOf(
+            contracts.actor_class) ||
+        contracts.kismet_rendering_library_cdo
+                ->GetClassPrivate() !=
+            contracts.kismet_rendering_library_class ||
+        !contracts.kismet_rendering_library_cdo->HasAnyFlags(
+            RF_ClassDefaultObject) ||
+        !object_is_live(
+            contracts.kismet_rendering_library_cdo,
+            contracts.kismet_rendering_library_class))
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::WrongClass);
+    }
+    const auto required_functions = std::array{
+        contracts.create_render_target_2d,
+        contracts.read_render_target_raw,
+        contracts.capture_scene,
+        contracts.hide_component,
+        contracts.destroy_actor,
+    };
+    if (std::ranges::any_of(
+            required_functions,
+            [](UFunction* function)
+            {
+                return function == nullptr;
+            }))
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::MissingFunction);
+    }
+    if (contracts.create_render_target_2d->GetOuterPrivate() !=
+            contracts.kismet_rendering_library_class ||
+        contracts.read_render_target_raw->GetOuterPrivate() !=
+            contracts.kismet_rendering_library_class ||
+        contracts.capture_scene->GetOuterPrivate() !=
+            contracts.scene_capture_component_2d_class ||
+        contracts.hide_component->GetOuterPrivate() !=
+            contracts.scene_capture_component_class ||
+        contracts.destroy_actor->GetOuterPrivate() !=
+            contracts.actor_class)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::WrongClass);
+    }
+
+    contracts.capture_component_2d =
+        find_exact_object_property(
+            contracts.scene_capture_2d_class,
+            contracts.scene_capture_2d_class,
+            STR("CaptureComponent2D"),
+            contracts.scene_capture_component_2d_class);
+    contracts.capture_source = find_exact_enum_property(
+        contracts.scene_capture_component_class,
+        contracts.scene_capture_component_class,
+        STR("CaptureSource"),
+        STR("ESceneCaptureSource"));
+    contracts.capture_every_frame = find_bool_property(
+        contracts.scene_capture_component_class,
+        STR("bCaptureEveryFrame"));
+    contracts.capture_on_movement = find_bool_property(
+        contracts.scene_capture_component_class,
+        STR("bCaptureOnMovement"));
+    contracts.always_persist_rendering_state =
+        find_bool_property(
+            contracts.scene_capture_component_class,
+            STR("bAlwaysPersistRenderingState"));
+    contracts.projection_type = find_exact_enum_property(
+        contracts.scene_capture_component_2d_class,
+        contracts.scene_capture_component_2d_class,
+        STR("ProjectionType"),
+        STR("ECameraProjectionMode"));
+    contracts.field_of_view_angle =
+        find_exact_float_property(
+            contracts.scene_capture_component_2d_class,
+            contracts.scene_capture_component_2d_class,
+            STR("FOVAngle"));
+    contracts.texture_target = find_exact_object_property(
+        contracts.scene_capture_component_2d_class,
+        contracts.scene_capture_component_2d_class,
+        STR("TextureTarget"),
+        contracts.texture_render_target_2d_class);
+    const auto required_properties = std::array{
+        static_cast<FProperty*>(
+            contracts.capture_component_2d),
+        contracts.capture_source.property,
+        static_cast<FProperty*>(
+            contracts.capture_every_frame),
+        static_cast<FProperty*>(
+            contracts.capture_on_movement),
+        static_cast<FProperty*>(
+            contracts.always_persist_rendering_state),
+        contracts.projection_type.property,
+        static_cast<FProperty*>(
+            contracts.field_of_view_angle),
+        static_cast<FProperty*>(contracts.texture_target),
+    };
+    if (std::ranges::any_of(
+            required_properties,
+            [](FProperty* property)
+            {
+                return property == nullptr;
+            }))
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::MissingProperty);
+    }
+
+    const auto validations = std::array{
+        std::pair{
+            static_cast<UStruct*>(
+                contracts.create_render_target_2d),
+            create_render_target_2d_contract()},
+        std::pair{
+            static_cast<UStruct*>(
+                contracts.read_render_target_raw),
+            read_render_target_raw_contract()},
+        std::pair{
+            static_cast<UStruct*>(contracts.capture_scene),
+            capture_scene_contract()},
+        std::pair{
+            static_cast<UStruct*>(contracts.hide_component),
+            hide_component_contract()},
+        std::pair{
+            static_cast<UStruct*>(contracts.destroy_actor),
+            k2_destroy_actor_contract()},
+    };
+    for (const auto& [record, expected] : validations)
+    {
+        const auto validated = validate_unreal_record(
+            record,
+            expected,
+            application::RuntimeContractId::PaintCapture);
+        if (!validated)
+        {
+            return std::unexpected(validated.error());
+        }
+    }
+    return contracts;
+}
+
 auto resolve_image_paint_contracts(
     UClass* runtime_paintable_class,
     UClass* pawn_class,
@@ -2295,6 +2750,414 @@ auto outer_chain_contains(UObject* object, UObject* expected)
         }
     }
     return false;
+}
+
+struct HideSceneCaptureComponentParametersAbi
+{
+    void* in_component{};
+};
+
+static_assert(
+    sizeof(HideSceneCaptureComponentParametersAbi) == 0x08U);
+
+class SceneCaptureActorGuard final
+{
+public:
+    SceneCaptureActorGuard(
+        AActor* actor,
+        UFunction* destroy_function)
+        : actor_{actor},
+          destroy_function_{destroy_function}
+    {
+    }
+    SceneCaptureActorGuard(const SceneCaptureActorGuard&) =
+        delete;
+    auto operator=(const SceneCaptureActorGuard&)
+        -> SceneCaptureActorGuard& = delete;
+    ~SceneCaptureActorGuard() noexcept
+    {
+        try
+        {
+            if (actor_ != nullptr &&
+                destroy_function_ != nullptr &&
+                FWeakObjectPtr{actor_}.Get() == actor_)
+            {
+                actor_->ProcessEvent(
+                    destroy_function_,
+                    nullptr);
+            }
+        }
+        catch (...)
+        {
+        }
+    }
+
+private:
+    AActor* actor_{};
+    UFunction* destroy_function_{};
+};
+
+class PaintCaptureReadbackGuard final
+{
+public:
+    explicit PaintCaptureReadbackGuard(
+        PaintCaptureLinearColorArray& array)
+        : array_{array}
+    {
+    }
+    PaintCaptureReadbackGuard(
+        const PaintCaptureReadbackGuard&) = delete;
+    auto operator=(const PaintCaptureReadbackGuard&)
+        -> PaintCaptureReadbackGuard& = delete;
+    ~PaintCaptureReadbackGuard() noexcept
+    {
+        if (array_.data == nullptr)
+        {
+            return;
+        }
+        try
+        {
+            FMemory::Free(array_.data);
+        }
+        catch (...)
+        {
+        }
+        array_ = {};
+    }
+
+private:
+    PaintCaptureLinearColorArray& array_;
+};
+
+auto set_scene_capture_enum(
+    const ExactEnumProperty& property,
+    UObject* container,
+    std::uint8_t value) -> bool
+{
+    if (property.property == nullptr ||
+        property.underlying == nullptr ||
+        container == nullptr)
+    {
+        return false;
+    }
+    auto* address =
+        property.property->ContainerPtrToValuePtr<void>(
+            container);
+    if (address == nullptr)
+    {
+        return false;
+    }
+    property.underlying->SetIntPropertyValue(
+        address,
+        static_cast<uint64>(value));
+    return property.underlying
+               ->GetUnsignedIntPropertyValue(address) ==
+           value;
+}
+
+auto set_scene_capture_object(
+    FObjectPropertyBase* property,
+    UObject* container,
+    UObject* value) -> bool
+{
+    if (property == nullptr || container == nullptr ||
+        value == nullptr)
+    {
+        return false;
+    }
+    auto* address =
+        property->ContainerPtrToValuePtr<void>(container);
+    if (address == nullptr)
+    {
+        return false;
+    }
+    property->SetObjectPropertyValue(address, value);
+    return property->GetObjectPropertyValue(address) == value;
+}
+
+auto configure_scene_capture_component(
+    UObject* component,
+    UObject* render_target,
+    const PaintSceneCaptureCamera& camera,
+    const PaintSceneCapturePass& pass,
+    const PaintSceneCaptureContracts& contracts) -> bool
+{
+    if (component == nullptr || render_target == nullptr ||
+        !set_scene_capture_object(
+            contracts.texture_target,
+            component,
+            render_target) ||
+        !set_scene_capture_enum(
+            contracts.capture_source,
+            component,
+            static_cast<std::uint8_t>(pass.source)) ||
+        !set_scene_capture_enum(
+            contracts.projection_type,
+            component,
+            static_cast<std::uint8_t>(
+                PaintSceneCaptureProjection::Perspective)))
+    {
+        return false;
+    }
+    contracts.capture_every_frame->SetPropertyValueInContainer(
+        component,
+        false);
+    contracts.capture_on_movement->SetPropertyValueInContainer(
+        component,
+        false);
+    contracts.always_persist_rendering_state
+        ->SetPropertyValueInContainer(component, true);
+    contracts.field_of_view_angle->SetPropertyValueInContainer(
+        component,
+        camera.field_of_view_degrees);
+    return
+        !contracts.capture_every_frame
+             ->GetPropertyValueInContainer(component) &&
+        !contracts.capture_on_movement
+             ->GetPropertyValueInContainer(component) &&
+        contracts.always_persist_rendering_state
+            ->GetPropertyValueInContainer(component) &&
+        contracts.field_of_view_angle
+                ->GetPropertyValueInContainer(component) ==
+            camera.field_of_view_degrees;
+}
+
+auto capture_paint_scene_pass(
+    UWorld* world,
+    UObject* target_mesh,
+    const PaintSceneCaptureCamera& camera,
+    const PaintSceneCapturePass& pass,
+    const PaintSceneCaptureContracts& contracts)
+    -> std::expected<
+        std::vector<PaintCaptureLinearColor>,
+        application::RuntimeExecutionError>
+{
+    if (world == nullptr ||
+        pass.profile !=
+            PaintSceneCaptureProfile::Standard ||
+        !object_is_live(
+            target_mesh,
+            contracts.primitive_component_class) ||
+        target_mesh->GetWorld() != world)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::StaleObject);
+    }
+    const auto create_parameters =
+        encode_create_paint_capture_render_target(
+            PaintCaptureRenderTargetInput{
+                world,
+                camera.width,
+                camera.height,
+                pass.format,
+            });
+    if (!create_parameters)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::InvalidValue);
+    }
+    auto mutable_create_parameters = *create_parameters;
+    contracts.kismet_rendering_library_cdo->ProcessEvent(
+        contracts.create_render_target_2d,
+        &mutable_create_parameters);
+    auto* render_target = static_cast<UObject*>(
+        mutable_create_parameters.return_value);
+    if (!object_is_live(
+            render_target,
+            contracts.texture_render_target_2d_class))
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::MissingObject);
+    }
+    render_target->SetRootSet();
+    [[maybe_unused]] auto rooted_render_target =
+        RootedObjectGuard{render_target};
+
+    const auto location = FVector{
+        camera.location.x,
+        camera.location.y,
+        camera.location.z,
+    };
+    const auto rotation = FRotator{
+        camera.rotation.pitch,
+        camera.rotation.yaw,
+        camera.rotation.roll,
+    };
+    auto* actor = world->SpawnActor(
+        contracts.scene_capture_2d_class,
+        &location,
+        &rotation);
+    if (!object_is_live_exact(
+            actor,
+            contracts.scene_capture_2d_class) ||
+        actor->GetWorld() != world)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::MissingObject);
+    }
+    [[maybe_unused]] auto actor_guard = SceneCaptureActorGuard{
+        actor,
+        contracts.destroy_actor,
+    };
+    auto* component = read_object(
+        contracts.capture_component_2d,
+        actor);
+    if (!object_is_live_exact(
+            component,
+            contracts.scene_capture_component_2d_class) ||
+        component->GetWorld() != world ||
+        !outer_chain_contains(component, actor) ||
+        !configure_scene_capture_component(
+            component,
+            render_target,
+            camera,
+            pass,
+            contracts))
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::InvalidValue);
+    }
+
+    auto hidden = HideSceneCaptureComponentParametersAbi{
+        target_mesh,
+    };
+    component->ProcessEvent(
+        contracts.hide_component,
+        &hidden);
+    component->ProcessEvent(
+        contracts.capture_scene,
+        nullptr);
+
+    const auto read_parameters =
+        encode_read_paint_capture_render_target(
+            world,
+            render_target,
+            pass.normalize_readback);
+    if (!read_parameters)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::InvalidValue);
+    }
+    auto mutable_read_parameters = *read_parameters;
+    contracts.kismet_rendering_library_cdo->ProcessEvent(
+        contracts.read_render_target_raw,
+        &mutable_read_parameters);
+    [[maybe_unused]] auto readback_guard =
+        PaintCaptureReadbackGuard{
+        mutable_read_parameters.out_linear_samples};
+    const auto decoded = decode_paint_capture_linear_colors(
+        mutable_read_parameters,
+        camera.width,
+        camera.height);
+    if (!decoded)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::InvalidValue);
+    }
+    return *decoded;
+}
+
+auto ensure_paint_mesh_initialized(
+    UObject* component,
+    UObject* mesh,
+    const PaintContracts& contracts) -> bool
+{
+    if (!object_is_live(
+            component,
+            contracts.runtime_paintable_class) ||
+        !object_is_live(
+            mesh,
+            contracts.mesh_component_class))
+    {
+        return false;
+    }
+    auto initialized = IsPaintInitializedParameters{};
+    component->ProcessEvent(
+        contracts.is_initialized,
+        &initialized);
+    if (!initialized.return_value)
+    {
+        const auto encoded = encode_initialize_paint(mesh);
+        if (!encoded)
+        {
+            return false;
+        }
+        auto parameters = *encoded;
+        component->ProcessEvent(
+            contracts.initialize_paint,
+            &parameters);
+        if (!parameters.return_value)
+        {
+            return false;
+        }
+        initialized = {};
+        component->ProcessEvent(
+            contracts.is_initialized,
+            &initialized);
+    }
+    auto initialized_mesh =
+        GetInitializedPaintMeshParameters{};
+    component->ProcessEvent(
+        contracts.get_initialized_paint_mesh,
+        &initialized_mesh);
+    return initialized.return_value &&
+           initialized_mesh.return_value == mesh;
+}
+
+auto capture_paint_bone_transforms(
+    UObject* mesh,
+    const core::PaintSamplingProfile& profile,
+    const PaintContracts& contracts)
+    -> std::optional<
+        std::vector<core::PaintReferenceBoneTransform>>
+{
+    if (!profile.bones ||
+        profile.bones->empty() ||
+        profile.bones->size() !=
+            profile.identity.bone_count)
+    {
+        return std::nullopt;
+    }
+    auto transforms =
+        std::vector<core::PaintReferenceBoneTransform>{};
+    transforms.reserve(profile.bones->size());
+    for (const auto& bone : *profile.bones)
+    {
+        const auto wide_name = RC::to_wstring(bone.name);
+        const auto unreal_name =
+            FName{wide_name.c_str(), FNAME_Find};
+        if (unreal_name.IsNone())
+        {
+            return std::nullopt;
+        }
+        auto parameters = GetSocketTransformParameters{};
+        parameters.socket_name = RuntimeName{
+            unreal_name.GetComparisonIndex().ToUnstableInt(),
+            static_cast<std::uint32_t>(
+                unreal_name.GetNumber()),
+        };
+        parameters.transform_space =
+            RuntimeRelativeTransformSpace::World;
+        mesh->ProcessEvent(
+            contracts.get_socket_transform,
+            &parameters);
+        const auto decoded =
+            decode_runtime_transform(
+                parameters.return_value);
+        if (!decoded)
+        {
+            return std::nullopt;
+        }
+        transforms.push_back(*decoded);
+    }
+    return transforms;
 }
 
 auto capture_esp_skeleton_pose(
@@ -2612,6 +3475,15 @@ public:
             {
                 return std::unexpected(resolved.error());
             }
+            auto paint_scene_capture =
+                resolve_paint_scene_capture_contracts(
+                    canvas->kismet_rendering_library_class,
+                    canvas->kismet_rendering_library_cdo);
+            if (!paint_scene_capture)
+            {
+                return std::unexpected(
+                    paint_scene_capture.error());
+            }
             auto image_paint = resolve_image_paint_contracts(
                 resolved->runtime_paintable_class,
                 resolved->pawn_class,
@@ -2642,6 +3514,8 @@ public:
             canvas_contracts_ = *canvas;
             input_contracts_ = *input;
             paint_contracts_ = *resolved;
+            paint_scene_capture_contracts_ =
+                *paint_scene_capture;
             image_paint_contracts_ = *image_paint;
             return {};
         }
@@ -3364,6 +4238,331 @@ public:
             return runtime_failure(
                 application::RuntimeContractId::
                     PaintQueueObservation,
+                application::ContractFailureKind::
+                    ExecutionFailure);
+        }
+    }
+
+    auto capture_paint(const core::PaintSettings& settings)
+        -> std::expected<
+            application::CapturedPaintJob,
+            application::RuntimeExecutionError>
+    {
+        if (!IsInGameThreadRaw())
+        {
+            return std::unexpected(
+                application::RuntimeExecutionError{
+                    application::RuntimeExecutionErrorCode::
+                        WrongThread,
+                    std::nullopt,
+                });
+        }
+        try
+        {
+            const auto pass_plan =
+                build_paint_scene_capture_plan(settings);
+            if (!pass_plan ||
+                pass_plan->requires_preview_feedback)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::PaintCapture,
+                    application::ContractFailureKind::
+                        InvalidValue);
+            }
+
+            auto paint = std::optional<PaintContracts>{};
+            auto scene =
+                std::optional<PaintSceneCaptureContracts>{};
+            auto image =
+                std::optional<ImagePaintContracts>{};
+            auto bound = std::optional<BoundFrame>{};
+            auto active = std::optional<ActiveFrame>{};
+            {
+                const auto lock = std::scoped_lock{mutex_};
+                if (detaching_)
+                {
+                    return runtime_failure(
+                        application::RuntimeContractId::
+                            PaintCapture,
+                        application::ContractFailureKind::
+                            StaleObject);
+                }
+                paint = paint_contracts_;
+                scene = paint_scene_capture_contracts_;
+                image = image_paint_contracts_;
+                bound = bound_frame_;
+                active = active_frame_;
+            }
+            if (!paint || !scene || !image || !bound ||
+                !active ||
+                bound->identity != active->identity ||
+                !bound->identity.valid())
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::PaintCapture,
+                    application::ContractFailureKind::
+                        MissingObject);
+            }
+            auto* world = bound->world.Get();
+            auto* pawn = bound->pawn.Get();
+            auto* component = bound->component.Get();
+            if (!object_is_live(
+                    world,
+                    image->world_class) ||
+                !object_is_live(
+                    pawn,
+                    image->pawn_class) ||
+                !object_is_live(
+                    component,
+                    paint->runtime_paintable_class) ||
+                component->GetWorld() != world)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::PaintCapture,
+                    application::ContractFailureKind::
+                        StaleObject);
+            }
+            auto* mesh = read_weak_object(
+                image->target_mesh_component,
+                component);
+            if (!object_is_live(
+                    mesh,
+                    image->skinned_mesh_component_class) ||
+                !mesh->IsA(scene->primitive_component_class) ||
+                mesh->GetWorld() != world ||
+                !outer_chain_contains(mesh, pawn))
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::PaintCapture,
+                    application::ContractFailureKind::
+                        WrongClass);
+            }
+            auto* asset = read_object(
+                image->skinned_asset,
+                mesh);
+            if (!object_is_live(
+                    asset,
+                    image->skinned_asset_class))
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::PaintCapture,
+                    application::ContractFailureKind::
+                        MissingObject);
+            }
+            const auto profile =
+                image_paint_profiles_
+                    ? image_paint_profiles_
+                          ->find_by_unreal_asset_path(
+                              RC::to_string(
+                                  asset->GetPathName()))
+                    : nullptr;
+            if (!profile ||
+                RC::to_string(asset->GetName()) !=
+                    profile->sampling.identity.export_name ||
+                !core::validate_deformation(
+                     profile->sampling)
+                     .empty() ||
+                !core::validate_pair(
+                     profile->sampling,
+                     profile->image)
+                     .empty() ||
+                !ensure_paint_mesh_initialized(
+                    component,
+                    mesh,
+                    *paint))
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::PaintCapture,
+                    application::ContractFailureKind::
+                        InvalidValue);
+            }
+            const auto bone_transforms =
+                capture_paint_bone_transforms(
+                    mesh,
+                    profile->sampling,
+                    *paint);
+            if (!bone_transforms)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::PaintCapture,
+                    application::ContractFailureKind::
+                        InvalidValue);
+            }
+
+            const auto esp = resolve_esp_contracts();
+            if (!esp)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::PaintCapture,
+                    application::ContractFailureKind::
+                        MissingObject);
+            }
+            auto view = capture_calibrated_esp_view(
+                *active,
+                *esp,
+                application::RuntimeContractId::PaintCapture);
+            if (!view)
+            {
+                return std::unexpected(view.error());
+            }
+
+            auto capture_width = static_cast<std::uint32_t>(
+                active->viewport_width);
+            auto capture_height = static_cast<std::uint32_t>(
+                active->viewport_height);
+            const auto largest =
+                std::max(capture_width, capture_height);
+            if (largest >
+                core::MaximumPaintCaptureDimension)
+            {
+                const auto scale =
+                    static_cast<double>(
+                        core::MaximumPaintCaptureDimension) /
+                    static_cast<double>(largest);
+                capture_width = std::max(
+                    1U,
+                    static_cast<std::uint32_t>(
+                        std::lround(
+                            static_cast<double>(
+                                capture_width) *
+                            scale)));
+                capture_height = std::max(
+                    1U,
+                    static_cast<std::uint32_t>(
+                        std::lround(
+                            static_cast<double>(
+                                capture_height) *
+                            scale)));
+            }
+            view->aspect_ratio =
+                static_cast<double>(capture_width) /
+                static_cast<double>(capture_height);
+            const auto camera =
+                encode_paint_scene_capture_camera(
+                    *view,
+                    capture_width,
+                    capture_height);
+            if (!camera)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::PaintCapture,
+                    application::ContractFailureKind::
+                        InvalidValue);
+            }
+
+            auto intrinsic =
+                std::shared_ptr<const std::vector<core::Rgb8>>{};
+            auto scene_colors =
+                std::shared_ptr<const std::vector<core::Rgb8>>{};
+            for (const auto& pass : pass_plan->passes)
+            {
+                const auto linear = capture_paint_scene_pass(
+                    static_cast<UWorld*>(world),
+                    mesh,
+                    *camera,
+                    pass,
+                    *scene);
+                if (!linear)
+                {
+                    return std::unexpected(linear.error());
+                }
+                const auto converted =
+                    convert_paint_capture_linear_colors_to_srgb8(
+                        *linear);
+                if (!converted)
+                {
+                    return runtime_failure(
+                        application::RuntimeContractId::
+                            PaintCapture,
+                        application::ContractFailureKind::
+                            InvalidValue);
+                }
+                auto owned =
+                    std::make_shared<const std::vector<core::Rgb8>>(
+                        std::move(*converted));
+                if (pass.kind ==
+                    PaintSceneCapturePassKind::BaseColor)
+                {
+                    intrinsic = std::move(owned);
+                }
+                else if (
+                    pass.kind ==
+                    PaintSceneCapturePassKind::FinalColorHdr)
+                {
+                    scene_colors = std::move(owned);
+                }
+                else
+                {
+                    return runtime_failure(
+                        application::RuntimeContractId::
+                            PaintCapture,
+                        application::ContractFailureKind::
+                            InvalidValue);
+                }
+            }
+            if (!intrinsic)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::PaintCapture,
+                    application::ContractFailureKind::
+                        InvalidValue);
+            }
+            if (!scene_colors)
+            {
+                scene_colors = intrinsic;
+            }
+
+            {
+                const auto lock = std::scoped_lock{mutex_};
+                if (detaching_ || !bound_frame_ ||
+                    !active_frame_ ||
+                    bound_frame_->identity != bound->identity ||
+                    bound_frame_->component_identity !=
+                        bound->component_identity ||
+                    bound_frame_->component_generation !=
+                        bound->component_generation ||
+                    bound_frame_->component.Get() != component ||
+                    active_frame_->identity != active->identity)
+                {
+                    return runtime_failure(
+                        application::RuntimeContractId::
+                            PaintCapture,
+                        application::ContractFailureKind::
+                            StaleObject);
+                }
+            }
+            return application::CapturedPaintJob{
+                application::RuntimeObjectHandle{
+                    bound->component_identity,
+                    bound->component_generation,
+                },
+                application::PaintPlanningRequest{
+                    core::PaintCaptureInput{
+                        profile->sampling,
+                        profile->image,
+                        std::move(*bone_transforms),
+                        settings,
+                        *view,
+                        core::EspViewport{
+                            static_cast<double>(capture_width),
+                            static_cast<double>(capture_height),
+                        },
+                        core::PaintCaptureRaster{
+                            capture_width,
+                            capture_height,
+                            std::move(intrinsic),
+                            std::move(scene_colors),
+                            nullptr,
+                        },
+                    },
+                },
+                core::replication_pacing_plan({}),
+            };
+        }
+        catch (...)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::PaintCapture,
                 application::ContractFailureKind::
                     ExecutionFailure);
         }
@@ -4367,67 +5566,13 @@ public:
                 }
             }
 
-            const auto uncalibrated_view = decode_esp_view(
-                call_esp_vector(
-                    camera_manager,
-                    contracts.get_camera_location),
-                call_esp_rotator(
-                    camera_manager,
-                    contracts.get_camera_rotation),
-                call_esp_float(
-                    camera_manager,
-                    contracts.get_fov_angle),
-                active->viewport_width,
-                active->viewport_height);
-            if (!uncalibrated_view)
-            {
-                return runtime_failure(
-                    application::RuntimeContractId::EspFrame,
-                    application::ContractFailureKind::InvalidValue);
-            }
-            const auto calibration_points =
-                esp_projection_calibration_points(
-                    *uncalibrated_view);
-            if (!calibration_points)
-            {
-                return runtime_failure(
-                    application::RuntimeContractId::EspFrame,
-                    application::ContractFailureKind::InvalidValue);
-            }
-            const auto horizontal_engine_sample =
-                call_esp_project_world_to_screen(
-                    active->controller,
-                    contracts
-                        .project_world_location_to_screen,
-                    (*calibration_points)[0U]);
-            const auto vertical_engine_sample =
-                call_esp_project_world_to_screen(
-                    active->controller,
-                    contracts
-                        .project_world_location_to_screen,
-                    (*calibration_points)[1U]);
-            if (!horizontal_engine_sample ||
-                !vertical_engine_sample)
-            {
-                return runtime_failure(
-                    application::RuntimeContractId::EspFrame,
-                    application::ContractFailureKind::InvalidValue);
-            }
-            const auto view = calibrate_esp_view(
-                *uncalibrated_view,
-                core::EspViewport{
-                    static_cast<double>(
-                        active->viewport_width),
-                    static_cast<double>(
-                        active->viewport_height),
-                },
-                *horizontal_engine_sample,
-                *vertical_engine_sample);
+            const auto view = capture_calibrated_esp_view(
+                *active,
+                contracts,
+                application::RuntimeContractId::EspFrame);
             if (!view)
             {
-                return runtime_failure(
-                    application::RuntimeContractId::EspFrame,
-                    application::ContractFailureKind::InvalidValue);
+                return std::unexpected(view.error());
             }
 
             struct Subject
@@ -5191,6 +6336,7 @@ private:
         canvas_contracts_.reset();
         input_contracts_.reset();
         paint_contracts_.reset();
+        paint_scene_capture_contracts_.reset();
         image_paint_contracts_.reset();
         active_frame_.reset();
         bound_frame_.reset();
@@ -5342,6 +6488,8 @@ private:
     std::optional<CanvasContracts> canvas_contracts_{};
     std::optional<InputContracts> input_contracts_{};
     std::optional<PaintContracts> paint_contracts_{};
+    std::optional<PaintSceneCaptureContracts>
+        paint_scene_capture_contracts_{};
     std::optional<ImagePaintContracts> image_paint_contracts_{};
     std::optional<ActiveFrame> active_frame_{};
     std::optional<BoundFrame> bound_frame_{};
@@ -5478,6 +6626,15 @@ auto UnrealRuntimeAdapter::restore(
         application::RuntimeExecutionError>
 {
     return impl_->restore_preview(snapshot);
+}
+
+auto UnrealRuntimeAdapter::capture(
+    const core::PaintSettings& settings)
+    -> std::expected<
+        application::CapturedPaintJob,
+        application::RuntimeExecutionError>
+{
+    return impl_->capture_paint(settings);
 }
 
 auto UnrealRuntimeAdapter::capture(core::BodyProfile body)

@@ -1,9 +1,11 @@
 #include <meccha/runtime/paint_capture_codec.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <expected>
 #include <limits>
+#include <span>
 #include <vector>
 
 namespace meccha::runtime
@@ -16,6 +18,27 @@ auto valid_color(const PaintCaptureLinearColor& color) -> bool
            std::isfinite(color.green) &&
            std::isfinite(color.blue) &&
            std::isfinite(color.alpha);
+}
+
+auto finite(double value) -> bool
+{
+    return std::isfinite(value);
+}
+
+auto linear_to_srgb(double value) -> double
+{
+    value = std::clamp(value, 0.0, 1.0);
+    return value <= 0.0031308
+               ? value * 12.92
+               : 1.055 * std::pow(value, 1.0 / 2.4) -
+                     0.055;
+}
+
+auto to_srgb8(float value) -> std::uint8_t
+{
+    return static_cast<std::uint8_t>(std::lround(
+        linear_to_srgb(static_cast<double>(value)) *
+        255.0));
 }
 } // namespace
 
@@ -169,5 +192,182 @@ auto decode_paint_capture_linear_colors(
         }
     }
     return output;
+}
+
+auto build_paint_scene_capture_plan(
+    const core::PaintSettings& settings)
+    -> std::expected<
+        PaintSceneCapturePlan,
+        PaintCaptureEncodingError>
+{
+    if (!core::validate(settings).empty())
+    {
+        return std::unexpected(
+            PaintCaptureEncodingError::InvalidSettings);
+    }
+
+    auto plan = PaintSceneCapturePlan{};
+    plan.passes.push_back(PaintSceneCapturePass{
+        PaintSceneCapturePassKind::BaseColor,
+        PaintSceneCaptureSource::BaseColor,
+        PaintCaptureRenderTargetFormat::Rgba8Srgb,
+        PaintSceneCaptureProfile::Standard,
+        false,
+        false,
+    });
+    if (settings.include_scene_lighting ||
+        settings.auto_material)
+    {
+        plan.passes.push_back(PaintSceneCapturePass{
+            PaintSceneCapturePassKind::FinalColorHdr,
+            PaintSceneCaptureSource::FinalColorHdr,
+            PaintCaptureRenderTargetFormat::Rgba16Float,
+            PaintSceneCaptureProfile::Standard,
+            false,
+            true,
+        });
+    }
+    if (!settings.auto_material)
+    {
+        return plan;
+    }
+
+    plan.passes.push_back(PaintSceneCapturePass{
+        PaintSceneCapturePassKind::IntrinsicEmissionHdr,
+        PaintSceneCaptureSource::FinalColorHdr,
+        PaintCaptureRenderTargetFormat::Rgba16Float,
+        PaintSceneCaptureProfile::IntrinsicEmission,
+        false,
+        true,
+    });
+    plan.passes.push_back(PaintSceneCapturePass{
+        PaintSceneCapturePassKind::FinalToneCurveHdr,
+        PaintSceneCaptureSource::FinalToneCurveHdr,
+        PaintCaptureRenderTargetFormat::Rgba16Float,
+        PaintSceneCaptureProfile::Standard,
+        false,
+        true,
+    });
+    plan.passes.push_back(PaintSceneCapturePass{
+        PaintSceneCapturePassKind::Normal,
+        PaintSceneCaptureSource::Normal,
+        PaintCaptureRenderTargetFormat::Rgba16Float,
+        PaintSceneCaptureProfile::Standard,
+        false,
+        true,
+    });
+    plan.passes.push_back(PaintSceneCapturePass{
+        PaintSceneCapturePassKind::SceneDepth,
+        PaintSceneCaptureSource::SceneDepth,
+        PaintCaptureRenderTargetFormat::Rgba16Float,
+        PaintSceneCaptureProfile::Standard,
+        false,
+        true,
+    });
+    plan.passes.push_back(PaintSceneCapturePass{
+        PaintSceneCapturePassKind::FinalColorLdr,
+        PaintSceneCaptureSource::FinalColorLdr,
+        PaintCaptureRenderTargetFormat::Rgba8Srgb,
+        PaintSceneCaptureProfile::Standard,
+        false,
+        false,
+    });
+    plan.requires_preview_feedback = true;
+    return plan;
+}
+
+auto encode_paint_scene_capture_camera(
+    const core::EspView& view,
+    std::uint32_t width,
+    std::uint32_t height)
+    -> std::expected<
+        PaintSceneCaptureCamera,
+        PaintCaptureEncodingError>
+{
+    if (width == 0U || height == 0U ||
+        width > core::MaximumPaintCaptureDimension ||
+        height > core::MaximumPaintCaptureDimension ||
+        !finite(view.location.x) ||
+        !finite(view.location.y) ||
+        !finite(view.location.z) ||
+        !finite(view.pitch_degrees) ||
+        !finite(view.yaw_degrees) ||
+        !finite(view.roll_degrees) ||
+        !finite(view.field_of_view_degrees) ||
+        view.field_of_view_degrees < 20.0 ||
+        view.field_of_view_degrees > 170.0 ||
+        !finite(view.aspect_ratio) ||
+        view.aspect_constraint !=
+            core::EspAspectConstraint::MaintainXFov ||
+        !finite(view.projection_scale_x) ||
+        !finite(view.projection_scale_y) ||
+        view.projection_scale_x < 0.5 ||
+        view.projection_scale_x > 2.5 ||
+        view.projection_scale_y < 0.5 ||
+        view.projection_scale_y > 2.5)
+    {
+        return std::unexpected(
+            PaintCaptureEncodingError::InvalidCamera);
+    }
+    const auto target_aspect =
+        static_cast<double>(width) /
+        static_cast<double>(height);
+    const auto aspect_tolerance =
+        std::max(1.0, target_aspect) * 1.0e-6;
+    if (std::abs(view.aspect_ratio - target_aspect) >
+        aspect_tolerance)
+    {
+        return std::unexpected(
+            PaintCaptureEncodingError::InvalidCamera);
+    }
+    return PaintSceneCaptureCamera{
+        EspVector3dAbi{
+            view.location.x,
+            view.location.y,
+            view.location.z,
+        },
+        EspRotatorAbi{
+            view.pitch_degrees,
+            view.yaw_degrees,
+            view.roll_degrees,
+        },
+        static_cast<float>(
+            view.field_of_view_degrees),
+        width,
+        height,
+    };
+}
+
+auto convert_paint_capture_linear_colors_to_srgb8(
+    std::span<const PaintCaptureLinearColor> colors)
+    -> std::expected<
+        std::vector<core::Rgb8>,
+        PaintCaptureEncodingError>
+{
+    if (colors.empty() ||
+        colors.size() >
+            static_cast<std::size_t>(
+                core::MaximumPaintCaptureDimension) *
+                core::MaximumPaintCaptureDimension)
+    {
+        return std::unexpected(
+            PaintCaptureEncodingError::InvalidColor);
+    }
+    auto converted = std::vector<core::Rgb8>{};
+    converted.reserve(colors.size());
+    for (const auto& color : colors)
+    {
+        if (!valid_color(color))
+        {
+            return std::unexpected(
+                PaintCaptureEncodingError::InvalidColor);
+        }
+        converted.push_back(core::Rgb8{
+            to_srgb8(color.red),
+            to_srgb8(color.green),
+            to_srgb8(color.blue),
+        });
+    }
+    return converted;
 }
 } // namespace meccha::runtime

@@ -5,8 +5,9 @@ projection, sample materialization, owned planning worker, and
 generation-tagged dispatch boundaries are implemented and verified. Its exact
 reflected `PaintAtUVWithBrush` contract and production game-thread sender now
 compile against the pinned UE4SS graph. The exact production queue observer
-and preview channel adapter also compile against that graph. Production scene
-capture/appearance feedback, composition-root ownership, and live evidence
+and preview channel adapter also compile against that graph. A fail-closed
+manual-color scene-capture seed now compiles against the same graph. Auto
+Material appearance feedback, composition-root ownership, and live evidence
 remain.
 
 ## Immutable capture-to-plan contract
@@ -91,15 +92,40 @@ The current shipping executable and source contracts now freeze:
 - `KismetRenderingLibrary.CreateRenderTarget2D` at 0x38, including the current
   `Slices` input at 0x10 and return object at 0x30; and
 - `KismetRenderingLibrary.ReadRenderTargetRaw` at 0x28, including its output
-  `TArray<LinearColor>` at 0x10 and bool return at 0x21.
+  `TArray<LinearColor>` at 0x10 and bool return at 0x21;
+- `SceneCaptureComponent2D.CaptureScene` at 0x00,
+  `SceneCaptureComponent.HideComponent` at 0x08 with an exact
+  `PrimitiveComponent` input, and `Actor.K2_DestroyActor` at 0x00; and
+- exact SceneCapture class ancestry plus reflected
+  `CaptureComponent2D`, `CaptureSource`, `bCaptureEveryFrame`,
+  `bCaptureOnMovement`, `bAlwaysPersistRenderingState`, `ProjectionType`,
+  `FOVAngle`, and `TextureTarget` property kinds, owners, sizes, enum types,
+  and object classes.
 
 The typed render-target codec admits only non-null game-thread objects,
 single-image dimensions at or below 2048, and the reviewed RGBA8-sRGB or
 RGBA16f formats. Readback requires the exact expected pixel count, a plausible
 array header, a true function return, and finite RGBA values. The runtime
 reflection bridge now describes byte arrays and struct arrays without
-weakening exact inner-type validation. This is contract/build evidence; the
-production SceneCapture actor/property path is not connected yet.
+weakening exact inner-type validation.
+
+The production adapter now reuses the calibrated ESP camera, validates and
+initializes the profile-bound target mesh, copies every packaged bone's current
+world transform, and materializes a bounded immutable manual-color capture
+seed. For each accepted pass it creates and roots one transient render target,
+spawns one exact `SceneCapture2D`, configures and reads back every reflected
+property, hides the target mesh, captures once, copies finite raw linear
+samples into project-owned storage, and releases the Unreal array, actor, and
+root on every exit. Manual unlit capture uses BaseColor; manual lit capture
+also uses FinalColor HDR. Deterministic linear-to-sRGB conversion occurs after
+the game-thread readback.
+
+This remains contract/build evidence, not a live capture claim. Auto Material
+is rejected before mutation because its intrinsic-emission and trial-preview
+feedback transaction is not implemented. The live brush-plane visual is not
+yet discovered/hidden, the composition root does not expose this capture path,
+and live readback orientation, color semantics, cleanup, and frame-budget
+behavior remain unverified.
 
 `PaintJobCoordinator` is the sole planning-to-dispatch transition. It compares
 every completion with both its owned generation and the current shared job
@@ -312,11 +338,12 @@ passes. This is build evidence, not a live Paint pass.
 
 ## Remaining gate
 
-- Capture the live component/profile/source appearance through validated
-  reflected contracts on the game thread. The initialization and bounded
-  render-target/readback ABIs are frozen; the SceneCapture actor/component
-  properties, target hiding, capture passes, cleanup, and Auto Material
-  preview-feedback transaction remain to be connected.
+- Finish production source-appearance capture on the game thread. The exact
+  initialization, SceneCapture actor/component/property/function, bounded
+  render-target/readback, target-mesh hiding, manual pass, and local cleanup
+  paths now compile. Exact brush-plane visual discovery/hiding, Auto Material
+  intrinsic-emission and trial-preview feedback/restoration, a bounded
+  multi-frame budget, and live orientation/color/cleanup evidence remain.
 - Implement the remaining production UE4SS capture contracts, connect the
   completed sender and queue observer through the exported composition root,
   and connect the completed preview adapter through that same root.

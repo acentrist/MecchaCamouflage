@@ -22,6 +22,15 @@ namespace meccha::runtime
 [[nodiscard]] auto read_render_target_raw_contract()
     -> ReflectionRecordDescriptor;
 
+[[nodiscard]] auto capture_scene_contract()
+    -> ReflectionRecordDescriptor;
+
+[[nodiscard]] auto hide_component_contract()
+    -> ReflectionRecordDescriptor;
+
+[[nodiscard]] auto k2_destroy_actor_contract()
+    -> ReflectionRecordDescriptor;
+
 [[nodiscard]] auto vector_contract()
     -> ReflectionRecordDescriptor;
 

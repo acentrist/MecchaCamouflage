@@ -23,6 +23,7 @@ class UnrealRuntimeAdapter final
       public application::TransientStateRuntimePort,
       public application::PaintQueueRuntimePort,
       public application::PaintPreviewRuntimePort,
+      public application::PaintGameRuntimePort,
       public application::ImagePaintGameRuntimePort,
       public application::EspGameRuntimePort,
       public product_ui::ImageEditorTextureRuntimePort,
@@ -102,6 +103,11 @@ public:
         const application::PaintPreviewSnapshot& snapshot)
         -> std::expected<
             void,
+            application::RuntimeExecutionError> override;
+
+    auto capture(const core::PaintSettings& settings)
+        -> std::expected<
+            application::CapturedPaintJob,
             application::RuntimeExecutionError> override;
 
     auto capture(core::BodyProfile body)

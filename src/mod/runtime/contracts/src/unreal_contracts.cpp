@@ -518,6 +518,47 @@ auto read_render_target_raw_contract()
     };
 }
 
+auto capture_scene_contract() -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "CaptureScene",
+        "/Script/Engine.SceneCaptureComponent2D",
+        0x00U,
+        {},
+    };
+}
+
+auto hide_component_contract() -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "HideComponent",
+        "/Script/Engine.SceneCaptureComponent",
+        0x08U,
+        {
+            ReflectionPropertyDescriptor{
+                "InComponent",
+                ReflectionPropertyKind::Object,
+                "PrimitiveComponent",
+                0x00U,
+                0x08U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+        },
+    };
+}
+
+auto k2_destroy_actor_contract()
+    -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "K2_DestroyActor",
+        "/Script/Engine.Actor",
+        0x00U,
+        {},
+    };
+}
+
 auto vector_contract() -> ReflectionRecordDescriptor
 {
     return ReflectionRecordDescriptor{

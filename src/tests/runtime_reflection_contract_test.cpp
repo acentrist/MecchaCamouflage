@@ -621,6 +621,182 @@ auto main() -> int
                  1U,
                  1U),
         "SceneCapture linear readback validation drifted");
+    const auto capture_scene = capture_scene_contract();
+    const auto hide_component = hide_component_contract();
+    const auto destroy_capture_actor = k2_destroy_actor_contract();
+    passed &= expect(
+        capture_scene ==
+                ReflectionRecordDescriptor{
+                    "CaptureScene",
+                    "/Script/Engine.SceneCaptureComponent2D",
+                    0x00U,
+                    {},
+                } &&
+            hide_component ==
+                ReflectionRecordDescriptor{
+                    "HideComponent",
+                    "/Script/Engine.SceneCaptureComponent",
+                    0x08U,
+                    {
+                        ReflectionPropertyDescriptor{
+                            "InComponent",
+                            ReflectionPropertyKind::Object,
+                            "PrimitiveComponent",
+                            0x00U,
+                            0x08U,
+                            1U,
+                            ReflectionPropertyDirection::Input,
+                        },
+                    },
+                } &&
+            destroy_capture_actor ==
+                ReflectionRecordDescriptor{
+                    "K2_DestroyActor",
+                    "/Script/Engine.Actor",
+                    0x00U,
+                    {},
+                } &&
+            validate_reflection_contract(
+                capture_scene,
+                capture_scene).has_value() &&
+            validate_reflection_contract(
+                hide_component,
+                hide_component).has_value() &&
+            validate_reflection_contract(
+                destroy_capture_actor,
+                destroy_capture_actor).has_value(),
+        "the exact SceneCapture operation contracts drifted");
+
+    const auto unlit_capture_plan =
+        build_paint_scene_capture_plan(core::PaintSettings{});
+    auto lit_settings = core::PaintSettings{};
+    lit_settings.include_scene_lighting = true;
+    const auto lit_capture_plan =
+        build_paint_scene_capture_plan(lit_settings);
+    auto automatic_settings = lit_settings;
+    automatic_settings.auto_material = true;
+    const auto automatic_capture_plan =
+        build_paint_scene_capture_plan(automatic_settings);
+    auto invalid_capture_settings = core::PaintSettings{};
+    invalid_capture_settings.brush_size_texels =
+        std::numeric_limits<double>::quiet_NaN();
+    passed &= expect(
+        static_cast<std::uint8_t>(
+            PaintSceneCaptureSource::BaseColor) == 7U &&
+            static_cast<std::uint8_t>(
+                PaintSceneCaptureSource::FinalColorHdr) == 8U &&
+            static_cast<std::uint8_t>(
+                PaintSceneCaptureSource::FinalToneCurveHdr) ==
+                9U &&
+            static_cast<std::uint8_t>(
+                PaintSceneCaptureProjection::Perspective) ==
+                0U &&
+        unlit_capture_plan &&
+            unlit_capture_plan->passes ==
+                std::vector<PaintSceneCapturePass>{
+                    PaintSceneCapturePass{
+                        PaintSceneCapturePassKind::BaseColor,
+                        PaintSceneCaptureSource::BaseColor,
+                        PaintCaptureRenderTargetFormat::Rgba8Srgb,
+                        PaintSceneCaptureProfile::Standard,
+                        false,
+                        false,
+                    },
+                } &&
+            !unlit_capture_plan->requires_preview_feedback &&
+            lit_capture_plan &&
+            lit_capture_plan->passes.size() == 2U &&
+            lit_capture_plan->passes[1] ==
+                PaintSceneCapturePass{
+                    PaintSceneCapturePassKind::FinalColorHdr,
+                    PaintSceneCaptureSource::FinalColorHdr,
+                    PaintCaptureRenderTargetFormat::Rgba16Float,
+                    PaintSceneCaptureProfile::Standard,
+                    false,
+                    true,
+                } &&
+            automatic_capture_plan &&
+            automatic_capture_plan->passes.size() == 7U &&
+            automatic_capture_plan->requires_preview_feedback &&
+            automatic_capture_plan->passes[2].kind ==
+                PaintSceneCapturePassKind::IntrinsicEmissionHdr &&
+            automatic_capture_plan->passes[2].profile ==
+                PaintSceneCaptureProfile::IntrinsicEmission &&
+            automatic_capture_plan->passes[4].source ==
+                PaintSceneCaptureSource::Normal &&
+            automatic_capture_plan->passes[5].source ==
+                PaintSceneCaptureSource::SceneDepth &&
+            automatic_capture_plan->passes[6].source ==
+                PaintSceneCaptureSource::FinalColorLdr &&
+            build_paint_scene_capture_plan(
+                invalid_capture_settings) ==
+                std::unexpected(
+                    PaintCaptureEncodingError::
+                        InvalidSettings),
+        "the bounded Paint SceneCapture pass plan drifted");
+
+    const auto capture_camera = encode_paint_scene_capture_camera(
+        core::EspView{
+            {100.0, -25.0, 50.0},
+            10.0,
+            20.0,
+            0.0,
+            90.0,
+            16.0 / 9.0,
+            core::EspAspectConstraint::MaintainXFov,
+            1.0,
+            1.0,
+        },
+        1920U,
+        1080U);
+    passed &= expect(
+        capture_camera &&
+            capture_camera->location ==
+                EspVector3dAbi{100.0, -25.0, 50.0} &&
+            capture_camera->rotation ==
+                EspRotatorAbi{10.0, 20.0, 0.0} &&
+            capture_camera->field_of_view_degrees == 90.0F &&
+            capture_camera->width == 1920U &&
+            capture_camera->height == 1080U &&
+            !encode_paint_scene_capture_camera(
+                core::EspView{},
+                1024U,
+                1024U),
+        "the Paint SceneCapture camera codec drifted");
+
+    const auto srgb_pixels =
+        convert_paint_capture_linear_colors_to_srgb8(
+            std::array{
+                PaintCaptureLinearColor{
+                    0.0F,
+                    0.0031308F,
+                    1.0F,
+                    1.0F,
+                },
+                PaintCaptureLinearColor{
+                    0.21404114F,
+                    2.0F,
+                    -1.0F,
+                    1.0F,
+                },
+            });
+    passed &= expect(
+        srgb_pixels &&
+            *srgb_pixels ==
+                std::vector<core::Rgb8>{
+                    core::Rgb8{0U, 10U, 255U},
+                    core::Rgb8{128U, 255U, 0U},
+                } &&
+            !convert_paint_capture_linear_colors_to_srgb8(
+                std::array{
+                    PaintCaptureLinearColor{
+                        std::numeric_limits<float>::quiet_NaN(),
+                        0.0F,
+                        0.0F,
+                        1.0F,
+                    },
+                }),
+        "the Paint SceneCapture linear-to-sRGB conversion drifted");
     passed &= expect(
         is_look_input_ignored_contract().owner_name ==
                 "/Script/Engine.Controller" &&
