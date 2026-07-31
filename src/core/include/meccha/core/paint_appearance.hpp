@@ -253,6 +253,12 @@ struct AppearanceSpsaPair
     double loss_plus,
     double loss_minus,
     int iteration) -> std::vector<double>;
+[[nodiscard]] auto appearance_spsa_update_by_cluster(
+    const std::vector<double>& parameters,
+    const AppearanceSpsaPair& pair,
+    const std::vector<double>& loss_plus_by_cluster,
+    const std::vector<double>& loss_minus_by_cluster,
+    int iteration) -> std::vector<double>;
 
 struct AppearanceFitAcceptance
 {

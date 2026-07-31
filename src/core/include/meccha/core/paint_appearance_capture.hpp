@@ -39,6 +39,10 @@ struct PaintAppearanceCameraFingerprint
         PaintAppearanceCameraFingerprint,
         PaintAppearanceCaptureError>;
 
+[[nodiscard]] auto paint_appearance_camera_matches(
+    const PaintAppearanceCameraFingerprint& expected,
+    const PaintAppearanceCameraFingerprint& actual) -> bool;
+
 template <typename Pixel>
 struct PaintAppearanceCapturedPass
 {

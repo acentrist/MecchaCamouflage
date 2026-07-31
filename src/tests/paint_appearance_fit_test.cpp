@@ -1,5 +1,6 @@
 #include <meccha/core/paint_appearance_fit.hpp>
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
@@ -194,6 +195,160 @@ auto main() -> int
             exact_evaluation->clusters.size() ==
                 model->clusters.size(),
         "exact target feedback did not evaluate as a zero-loss fit");
+
+    const auto fallback_parameters = model
+                                         ? paint_appearance_fallback_parameters(
+                                               *model)
+                                         : std::vector<double>{};
+    auto fit_evaluation = [model](double loss)
+    {
+        auto output = PaintAppearanceEvaluation{};
+        output.paired_samples = 256;
+        output.camera_stable = true;
+        output.readback_calibrated = true;
+        output.loss = loss;
+        output.median_delta_e = 0.04;
+        output.median_chromaticity_delta = 0.01;
+        output.maximum_chromaticity_delta = 0.02;
+        output.clusters.resize(
+            model ? model->clusters.size() : 0U);
+        for (auto& cluster : output.clusters)
+        {
+            cluster.paired_samples = 64;
+            cluster.loss = loss;
+            cluster.median_delta_e = 0.04;
+        }
+        return output;
+    };
+    auto fit = model
+                   ? begin_paint_appearance_fit(
+                         *model,
+                         fallback_parameters,
+                         fit_evaluation(1.0))
+                   : std::expected<
+                         PaintAppearanceFitSession,
+                         PaintAppearanceFitError>{
+                         std::unexpected(
+                             PaintAppearanceFitError::
+                                 InvalidModel)};
+    auto trial_count = 0;
+    for (auto iteration = 0;
+         fit && iteration < AppearanceSpsaIterations;
+         ++iteration)
+    {
+        const auto plus = next_paint_appearance_trial(*fit);
+        passed &= expect(
+            plus && *plus &&
+                (*plus)->iteration == iteration &&
+                (*plus)->phase ==
+                    PaintAppearanceTrialPhase::Plus,
+            "fit session did not publish its next SPSA plus trial");
+        if (!plus || !*plus)
+        {
+            break;
+        }
+        ++trial_count;
+        passed &= expect(
+            observe_paint_appearance_trial(
+                *fit,
+                fit_evaluation(0.80 - 0.10 * iteration))
+                .has_value(),
+            "fit session rejected a valid SPSA plus response");
+
+        const auto minus = next_paint_appearance_trial(*fit);
+        passed &= expect(
+            minus && *minus &&
+                (*minus)->iteration == iteration &&
+                (*minus)->phase ==
+                    PaintAppearanceTrialPhase::Minus &&
+                (*minus)->parameters != (*plus)->parameters,
+            "fit session did not publish its paired SPSA minus trial");
+        if (!minus || !*minus)
+        {
+            break;
+        }
+        ++trial_count;
+        passed &= expect(
+            observe_paint_appearance_trial(
+                *fit,
+                fit_evaluation(0.90 - 0.10 * iteration))
+                .has_value(),
+            "fit session rejected a valid SPSA minus response");
+    }
+    const auto fitted = fit
+                            ? finish_paint_appearance_fit(*fit)
+                            : std::expected<
+                                  PaintAppearanceFitResult,
+                                  PaintAppearanceFitError>{
+                                  std::unexpected(
+                                      PaintAppearanceFitError::
+                                          InvalidInput)};
+    passed &= expect(
+        fallback_parameters.size() == parameters.size() &&
+            fallback_parameters[0] == 1.0 &&
+            fallback_parameters[1] == 0.0 &&
+            fallback_parameters[2] ==
+                AppearanceFallbackRoughness &&
+            fallback_parameters[3] == 0.0 &&
+            trial_count == AppearanceSpsaIterations * 2 &&
+            fitted && fitted->accepted &&
+            fitted->iterations == AppearanceSpsaIterations &&
+            std::abs(fitted->evaluation.loss - 0.60) < 1.0e-12 &&
+            fitted->parameters != fallback_parameters,
+        "bounded SPSA fit did not accept its best observed trial");
+
+    auto rejected_fit = model
+                            ? begin_paint_appearance_fit(
+                                  *model,
+                                  fallback_parameters,
+                                  fit_evaluation(1.0))
+                            : std::expected<
+                                  PaintAppearanceFitSession,
+                                  PaintAppearanceFitError>{
+                                  std::unexpected(
+                                      PaintAppearanceFitError::
+                                          InvalidModel)};
+    auto rejected_sequence_ok = rejected_fit.has_value();
+    for (auto iteration = 0;
+         rejected_sequence_ok &&
+         iteration < AppearanceSpsaIterations;
+         ++iteration)
+    {
+        const auto plus =
+            next_paint_appearance_trial(*rejected_fit);
+        if (!plus || !*plus ||
+            !observe_paint_appearance_trial(
+                 *rejected_fit,
+                 fit_evaluation(0.90)))
+        {
+            rejected_sequence_ok = false;
+            break;
+        }
+        const auto minus =
+            next_paint_appearance_trial(*rejected_fit);
+        if (!minus || !*minus ||
+            !observe_paint_appearance_trial(
+                 *rejected_fit,
+                 fit_evaluation(0.91)))
+        {
+            rejected_sequence_ok = false;
+            break;
+        }
+    }
+    const auto rejected = rejected_sequence_ok
+                              ? finish_paint_appearance_fit(
+                                    *rejected_fit)
+                              : std::expected<
+                                    PaintAppearanceFitResult,
+                                    PaintAppearanceFitError>{
+                                    std::unexpected(
+                                        PaintAppearanceFitError::
+                                            InvalidInput)};
+    passed &= expect(
+        rejected && !rejected->accepted &&
+            rejected->parameters == fallback_parameters &&
+            rejected->evaluation.loss == 1.0,
+        "an insufficient improvement did not retain the safe fallback");
 
     auto invalid_parameters = parameters;
     invalid_parameters.pop_back();

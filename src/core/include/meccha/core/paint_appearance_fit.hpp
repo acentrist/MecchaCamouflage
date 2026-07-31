@@ -101,6 +101,53 @@ struct PaintAppearanceEvaluation
     std::vector<PaintAppearanceClusterEvaluation> clusters{};
 };
 
+enum class PaintAppearanceTrialPhase : std::uint8_t
+{
+    Plus,
+    Minus,
+};
+
+struct PaintAppearanceTrial
+{
+    int iteration{};
+    PaintAppearanceTrialPhase phase{
+        PaintAppearanceTrialPhase::Plus};
+    std::vector<double> parameters{};
+};
+
+enum class PaintAppearanceFitSessionStage : std::uint8_t
+{
+    NeedPlus,
+    AwaitPlus,
+    NeedMinus,
+    AwaitMinus,
+    Complete,
+};
+
+struct PaintAppearanceFitSession
+{
+    std::size_t cluster_count{};
+    std::uint64_t seed{};
+    int iteration{};
+    PaintAppearanceFitSessionStage stage{
+        PaintAppearanceFitSessionStage::NeedPlus};
+    std::vector<double> fallback_parameters{};
+    PaintAppearanceEvaluation fallback_evaluation{};
+    std::vector<double> parameters{};
+    AppearanceSpsaPair pair{};
+    std::optional<PaintAppearanceEvaluation> plus_evaluation{};
+    std::vector<double> best_parameters{};
+    PaintAppearanceEvaluation best_evaluation{};
+};
+
+struct PaintAppearanceFitResult
+{
+    std::vector<double> parameters{};
+    PaintAppearanceEvaluation evaluation{};
+    bool accepted{};
+    int iterations{};
+};
+
 enum class PaintAppearanceFitError : std::uint8_t
 {
     InvalidInput,
@@ -128,6 +175,36 @@ enum class PaintAppearanceFitError : std::uint8_t
 [[nodiscard]] auto paint_appearance_parameters(
     const PaintAppearanceModel& model)
     -> std::vector<double>;
+
+[[nodiscard]] auto paint_appearance_fallback_parameters(
+    const PaintAppearanceModel& model)
+    -> std::vector<double>;
+
+[[nodiscard]] auto begin_paint_appearance_fit(
+    const PaintAppearanceModel& model,
+    std::vector<double> fallback_parameters,
+    PaintAppearanceEvaluation fallback_evaluation,
+    std::uint64_t seed = 0x218a55e5ULL)
+    -> std::expected<
+        PaintAppearanceFitSession,
+        PaintAppearanceFitError>;
+
+[[nodiscard]] auto next_paint_appearance_trial(
+    PaintAppearanceFitSession& session)
+    -> std::expected<
+        std::optional<PaintAppearanceTrial>,
+        PaintAppearanceFitError>;
+
+[[nodiscard]] auto observe_paint_appearance_trial(
+    PaintAppearanceFitSession& session,
+    PaintAppearanceEvaluation evaluation)
+    -> std::expected<void, PaintAppearanceFitError>;
+
+[[nodiscard]] auto finish_paint_appearance_fit(
+    const PaintAppearanceFitSession& session)
+    -> std::expected<
+        PaintAppearanceFitResult,
+        PaintAppearanceFitError>;
 
 [[nodiscard]] auto resolve_paint_appearance_raster(
     const PaintAppearanceModel& model,

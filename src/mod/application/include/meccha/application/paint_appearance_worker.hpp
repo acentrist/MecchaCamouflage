@@ -84,12 +84,23 @@ struct PaintAppearanceEvaluateWork
         core::AppearanceReadbackTransform::Identity};
 };
 
+struct PaintAppearanceResolveWork
+{
+    std::shared_ptr<const core::PaintAppearanceModel> model{};
+    std::shared_ptr<const std::vector<core::Rgb8>>
+        base_colors{};
+    std::shared_ptr<const std::vector<core::Rgb8>>
+        scene_colors{};
+    std::vector<double> parameters{};
+};
+
 using PaintAppearanceWorkRequest = std::variant<
     PaintAppearancePrepareWork,
     PaintAppearanceGeometryPrepareWork,
     PaintAppearanceCapturePrepareWork,
     PaintAppearanceCandidateWork,
     PaintAppearanceTargetE0PrepareWork,
+    PaintAppearanceResolveWork,
     PaintAppearanceEvaluateWork>;
 
 struct PaintAppearancePrepared
@@ -130,11 +141,20 @@ struct PaintAppearanceEvaluated
     core::PaintAppearanceEvaluation evaluation{};
 };
 
+struct PaintAppearanceResolved
+{
+    std::shared_ptr<
+        const std::vector<core::ResolvedPaintAppearance>>
+        appearances{};
+    std::vector<double> parameters{};
+};
+
 using PaintAppearanceWorkValue = std::variant<
     PaintAppearancePrepared,
     PaintAppearanceGeometryPrepared,
     PaintAppearanceCandidate,
     PaintAppearanceTargetE0Prepared,
+    PaintAppearanceResolved,
     PaintAppearanceEvaluated>;
 
 enum class PaintAppearanceWorkFailureKind : std::uint8_t

@@ -738,6 +738,298 @@ auto paint_appearance_parameters(
     return output;
 }
 
+auto paint_appearance_fallback_parameters(
+    const PaintAppearanceModel& model)
+    -> std::vector<double>
+{
+    auto output = std::vector<double>{};
+    output.reserve(model.clusters.size() * 4U);
+    for (auto cluster = std::size_t{};
+         cluster < model.clusters.size();
+         ++cluster)
+    {
+        output.push_back(1.0);
+        output.push_back(0.0);
+        output.push_back(AppearanceFallbackRoughness);
+        output.push_back(0.0);
+    }
+    return output;
+}
+
+namespace
+{
+auto fit_evaluation_valid(
+    const PaintAppearanceEvaluation& evaluation,
+    std::size_t cluster_count) -> bool
+{
+    return evaluation.paired_samples >=
+               AppearanceFitMinimumSamples &&
+           evaluation.camera_stable &&
+           evaluation.readback_calibrated &&
+           std::isfinite(evaluation.loss) &&
+           evaluation.loss >= 0.0 &&
+           std::isfinite(evaluation.median_delta_e) &&
+           evaluation.median_delta_e >= 0.0 &&
+           evaluation.clusters.size() == cluster_count;
+}
+
+auto fit_parameters_valid(
+    std::span<const double> parameters,
+    std::size_t cluster_count) -> bool
+{
+    return !parameters.empty() &&
+           parameters.size() == cluster_count * 4U &&
+           std::ranges::all_of(
+               parameters,
+               [](double value)
+               {
+                   return unit(value);
+               });
+}
+
+auto consider_fit_candidate(
+    PaintAppearanceFitSession& session,
+    std::span<const double> parameters,
+    const PaintAppearanceEvaluation& evaluation) -> void
+{
+    if (evaluation.loss < session.best_evaluation.loss)
+    {
+        session.best_parameters.assign(
+            parameters.begin(),
+            parameters.end());
+        session.best_evaluation = evaluation;
+    }
+}
+} // namespace
+
+auto begin_paint_appearance_fit(
+    const PaintAppearanceModel& model,
+    std::vector<double> fallback_parameters,
+    PaintAppearanceEvaluation fallback_evaluation,
+    std::uint64_t seed)
+    -> std::expected<
+        PaintAppearanceFitSession,
+        PaintAppearanceFitError>
+{
+    if (model.samples.empty() || model.clusters.empty() ||
+        model.supported_samples != model.samples.size())
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidModel);
+    }
+    if (!fit_parameters_valid(
+            fallback_parameters,
+            model.clusters.size()))
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidParameters);
+    }
+    if (!fit_evaluation_valid(
+            fallback_evaluation,
+            model.clusters.size()))
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidResponse);
+    }
+    auto parameters = fallback_parameters;
+    auto best_parameters = fallback_parameters;
+    auto best_evaluation = fallback_evaluation;
+    return PaintAppearanceFitSession{
+        model.clusters.size(),
+        seed,
+        0,
+        PaintAppearanceFitSessionStage::NeedPlus,
+        std::move(fallback_parameters),
+        std::move(fallback_evaluation),
+        std::move(parameters),
+        {},
+        std::nullopt,
+        std::move(best_parameters),
+        std::move(best_evaluation),
+    };
+}
+
+auto next_paint_appearance_trial(
+    PaintAppearanceFitSession& session)
+    -> std::expected<
+        std::optional<PaintAppearanceTrial>,
+        PaintAppearanceFitError>
+{
+    if (session.stage ==
+        PaintAppearanceFitSessionStage::Complete)
+    {
+        return std::optional<PaintAppearanceTrial>{};
+    }
+    if (!fit_parameters_valid(
+            session.parameters,
+            session.cluster_count) ||
+        session.iteration < 0 ||
+        session.iteration >= AppearanceSpsaIterations)
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidParameters);
+    }
+    if (session.stage ==
+        PaintAppearanceFitSessionStage::NeedPlus)
+    {
+        session.pair = appearance_spsa_pair(
+            session.parameters,
+            session.iteration,
+            session.seed);
+        if (!fit_parameters_valid(
+                session.pair.plus,
+                session.cluster_count) ||
+            !fit_parameters_valid(
+                session.pair.minus,
+                session.cluster_count) ||
+            session.pair.direction.size() !=
+                session.parameters.size())
+        {
+            return std::unexpected(
+                PaintAppearanceFitError::InvalidParameters);
+        }
+        session.plus_evaluation.reset();
+        session.stage =
+            PaintAppearanceFitSessionStage::AwaitPlus;
+        return std::optional<PaintAppearanceTrial>{
+            PaintAppearanceTrial{
+                session.iteration,
+                PaintAppearanceTrialPhase::Plus,
+                session.pair.plus,
+            }};
+    }
+    if (session.stage ==
+        PaintAppearanceFitSessionStage::NeedMinus)
+    {
+        session.stage =
+            PaintAppearanceFitSessionStage::AwaitMinus;
+        return std::optional<PaintAppearanceTrial>{
+            PaintAppearanceTrial{
+                session.iteration,
+                PaintAppearanceTrialPhase::Minus,
+                session.pair.minus,
+            }};
+    }
+    return std::unexpected(
+        PaintAppearanceFitError::InvalidInput);
+}
+
+auto observe_paint_appearance_trial(
+    PaintAppearanceFitSession& session,
+    PaintAppearanceEvaluation evaluation)
+    -> std::expected<void, PaintAppearanceFitError>
+{
+    if (!fit_evaluation_valid(
+            evaluation,
+            session.cluster_count))
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidResponse);
+    }
+    if (session.stage ==
+        PaintAppearanceFitSessionStage::AwaitPlus)
+    {
+        consider_fit_candidate(
+            session,
+            session.pair.plus,
+            evaluation);
+        session.plus_evaluation = std::move(evaluation);
+        session.stage =
+            PaintAppearanceFitSessionStage::NeedMinus;
+        return {};
+    }
+    if (session.stage !=
+            PaintAppearanceFitSessionStage::AwaitMinus ||
+        !session.plus_evaluation)
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidInput);
+    }
+    consider_fit_candidate(
+        session,
+        session.pair.minus,
+        evaluation);
+    auto plus_losses = std::vector<double>{};
+    auto minus_losses = std::vector<double>{};
+    plus_losses.reserve(session.cluster_count);
+    minus_losses.reserve(session.cluster_count);
+    for (auto cluster = std::size_t{};
+         cluster < session.cluster_count;
+         ++cluster)
+    {
+        plus_losses.push_back(
+            session.plus_evaluation->clusters[cluster].loss);
+        minus_losses.push_back(
+            evaluation.clusters[cluster].loss);
+    }
+    session.parameters = appearance_spsa_update_by_cluster(
+        session.parameters,
+        session.pair,
+        plus_losses,
+        minus_losses,
+        session.iteration);
+    if (!fit_parameters_valid(
+            session.parameters,
+            session.cluster_count))
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidParameters);
+    }
+    ++session.iteration;
+    session.plus_evaluation.reset();
+    session.stage =
+        session.iteration == AppearanceSpsaIterations
+            ? PaintAppearanceFitSessionStage::Complete
+            : PaintAppearanceFitSessionStage::NeedPlus;
+    return {};
+}
+
+auto finish_paint_appearance_fit(
+    const PaintAppearanceFitSession& session)
+    -> std::expected<
+        PaintAppearanceFitResult,
+        PaintAppearanceFitError>
+{
+    if (session.stage !=
+            PaintAppearanceFitSessionStage::Complete ||
+        session.iteration != AppearanceSpsaIterations ||
+        !fit_parameters_valid(
+            session.fallback_parameters,
+            session.cluster_count) ||
+        !fit_parameters_valid(
+            session.best_parameters,
+            session.cluster_count) ||
+        !fit_evaluation_valid(
+            session.fallback_evaluation,
+            session.cluster_count) ||
+        !fit_evaluation_valid(
+            session.best_evaluation,
+            session.cluster_count))
+    {
+        return std::unexpected(
+            PaintAppearanceFitError::InvalidInput);
+    }
+    const auto accepted = appearance_fit_accepted(
+        AppearanceFitAcceptance{
+            session.best_evaluation.paired_samples,
+            session.best_evaluation.camera_stable,
+            session.best_evaluation.readback_calibrated,
+            session.fallback_evaluation.loss,
+            session.best_evaluation.loss,
+            session.best_evaluation.median_delta_e,
+        });
+    return PaintAppearanceFitResult{
+        accepted
+            ? session.best_parameters
+            : session.fallback_parameters,
+        accepted
+            ? session.best_evaluation
+            : session.fallback_evaluation,
+        accepted,
+        session.iteration,
+    };
+}
+
 auto resolve_paint_appearance_raster(
     const PaintAppearanceModel& model,
     std::span<const Rgb8> base_colors,

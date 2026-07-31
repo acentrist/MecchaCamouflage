@@ -1060,6 +1060,65 @@ auto appearance_spsa_update(
     return output;
 }
 
+auto appearance_spsa_update_by_cluster(
+    const std::vector<double>& parameters,
+    const AppearanceSpsaPair& pair,
+    const std::vector<double>& loss_plus_by_cluster,
+    const std::vector<double>& loss_minus_by_cluster,
+    int iteration) -> std::vector<double>
+{
+    if (parameters.size() != pair.plus.size() ||
+        parameters.size() != pair.minus.size() ||
+        parameters.size() != pair.direction.size() ||
+        parameters.size() % 4U != 0U ||
+        loss_plus_by_cluster.size() < parameters.size() / 4U ||
+        loss_minus_by_cluster.size() < parameters.size() / 4U)
+    {
+        return parameters;
+    }
+    auto output = parameters;
+    const auto gain_decay = std::pow(
+        static_cast<double>(std::max(1, iteration + 1)),
+        0.602);
+    constexpr auto gains =
+        std::array<double, 4U>{0.18, 0.15, 0.18, 0.20};
+    constexpr auto perturbation =
+        std::array<double, 4U>{0.12, 0.12, 0.15, 0.15};
+    for (auto index = std::size_t{};
+         index < parameters.size();
+         ++index)
+    {
+        const auto cluster = index / 4U;
+        const auto loss_plus =
+            loss_plus_by_cluster[cluster];
+        const auto loss_minus =
+            loss_minus_by_cluster[cluster];
+        const auto delta =
+            perturbation[index % perturbation.size()] /
+            std::pow(
+                static_cast<double>(
+                    std::max(1, iteration + 1)),
+                0.101);
+        if (!std::isfinite(loss_plus) ||
+            !std::isfinite(loss_minus) || delta <= 0.0 ||
+            !std::isfinite(delta) ||
+            pair.direction[index] == 0.0)
+        {
+            continue;
+        }
+        const auto gradient =
+            ((loss_plus - loss_minus) / (2.0 * delta)) *
+            pair.direction[index];
+        const auto gain =
+            gains[index % gains.size()] / gain_decay;
+        output[index] = std::clamp(
+            parameters[index] - gain * gradient,
+            0.0,
+            appearance_parameter_bound(index));
+    }
+    return output;
+}
+
 auto appearance_fit_accepted(
     const AppearanceFitAcceptance& value) -> bool
 {

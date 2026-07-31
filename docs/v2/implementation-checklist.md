@@ -492,6 +492,14 @@ Evidence:
         three target-visible feedback passes per frame, restore and verify the
         original channels before worker analysis, and retain restoration
         ownership through failure, cancellation, and game-thread teardown.
+      - [x] Run the deterministic three-iteration, six-candidate cluster-local
+        SPSA session across later HUD frames, evaluate each candidate only
+        after verified exact restoration, enforce stable-camera/calibrated-
+        readback/minimum-pair response gates, and resolve either the strictly
+        accepted best response or the exact safe fallback on the worker. The
+        resolved raster remains deliberately fail-closed until target-visible
+        source ownership and surface identity are proven for every admitted
+        observation.
 - [x] Validate round, cube, and fukuyoka profiles.
 - [x] Implement immutable planning for Paint/Fill/Skip, lighting, Auto Material,
   PBR, compression, and Fill-first ordering.

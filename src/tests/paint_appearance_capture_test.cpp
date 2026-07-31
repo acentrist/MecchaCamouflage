@@ -457,6 +457,18 @@ auto main() -> int
                 std::unexpected(
                     PaintAppearanceCaptureError::CameraChanged),
             "target E0 evidence from a changed camera was accepted");
+        auto tolerable_camera = *e0_fingerprint;
+        tolerable_camera.location.x += 0.0005;
+        auto changed_camera = *e0_fingerprint;
+        changed_camera.field_of_view_degrees += 0.11;
+        passed &= expect(
+            paint_appearance_camera_matches(
+                *e0_fingerprint,
+                tolerable_camera) &&
+                !paint_appearance_camera_matches(
+                    *e0_fingerprint,
+                    changed_camera),
+            "public trial-camera stability did not preserve reviewed tolerances");
     }
 
     if (passed)

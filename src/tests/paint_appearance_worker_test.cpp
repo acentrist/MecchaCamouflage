@@ -340,6 +340,38 @@ auto main(int argc, char** argv) -> int
 
     passed &= expect(
         worker.start(
+                  31U,
+                  PaintAppearanceResolveWork{
+                      prepared->model,
+                      std::make_shared<const std::vector<
+                          core::Rgb8>>(
+                          256U,
+                          core::Rgb8{64U, 96U, 128U}),
+                      std::make_shared<const std::vector<
+                          core::Rgb8>>(
+                          256U,
+                          core::Rgb8{180U, 150U, 120U}),
+                      core::paint_appearance_fallback_parameters(
+                          *prepared->model),
+                  })
+                .has_value(),
+        "final appearance resolution did not start");
+    const auto resolved_completion = wait_for(worker);
+    const auto* resolved =
+        resolved_completion && resolved_completion->result
+            ? std::get_if<PaintAppearanceResolved>(
+                  &*resolved_completion->result)
+            : nullptr;
+    passed &= expect(
+        resolved_completion &&
+            resolved_completion->generation == 31U && resolved &&
+            resolved->appearances &&
+            resolved->appearances->size() == 256U &&
+            resolved->parameters.size() == 16U,
+        "worker did not publish final immutable appearances");
+
+    passed &= expect(
+        worker.start(
                   4U,
                   PaintAppearanceGeometryPrepareWork{})
                 .has_value(),

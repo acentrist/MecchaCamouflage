@@ -111,6 +111,13 @@ auto camera_matches(
 }
 } // namespace
 
+auto paint_appearance_camera_matches(
+    const PaintAppearanceCameraFingerprint& expected,
+    const PaintAppearanceCameraFingerprint& actual) -> bool
+{
+    return camera_matches(expected, actual);
+}
+
 auto make_paint_appearance_camera_fingerprint(
     const EspView& view,
     EspViewport viewport,

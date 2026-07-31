@@ -495,6 +495,36 @@ auto PaintAppearanceWorker::run(
                             std::move(*target_e0),
                         }};
                 }
+                else if constexpr (
+                    std::is_same_v<
+                        Work,
+                        PaintAppearanceResolveWork>)
+                {
+                    if (!work.model || !work.base_colors ||
+                        !work.scene_colors)
+                    {
+                        return invalid_request();
+                    }
+                    auto appearances =
+                        core::resolve_paint_appearance_raster(
+                            *work.model,
+                            *work.base_colors,
+                            *work.scene_colors,
+                            work.parameters,
+                            cancellation);
+                    if (!appearances)
+                    {
+                        return core_failure(
+                            appearances.error());
+                    }
+                    return PaintAppearanceWorkValue{
+                        PaintAppearanceResolved{
+                            std::make_shared<const std::vector<
+                                core::ResolvedPaintAppearance>>(
+                                std::move(*appearances)),
+                            std::move(work.parameters),
+                        }};
+                }
                 else
                 {
                     if (!work.model || !work.target_hdr)
