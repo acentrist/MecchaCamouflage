@@ -56,6 +56,9 @@ touches no UObject, and is not a product release candidate.
   `88c3718c03492cdc2650217a9d8bb2a8dbdecdbde1b4ea79e3e529e838b49bbe`,
   and resulting raw Git binary-diff SHA-256
   `0dac25e7c79d430aca62411cddf66c17d95340e2bee174f453f17f610a839f8f`.
+- `.gitattributes` fixes project-owned lock files to LF so a clean Windows
+  checkout preserves the canonical byte identity with `core.autocrlf`
+  enabled.
 - The patternsleuth Corrosion target receives Cargo `--locked`; a compiler or
   feature selection that would rewrite the accepted lock fails the build.
 - UE4SS is added `EXCLUDE_FROM_ALL`; only UE4SS and the project mod are

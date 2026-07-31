@@ -4,6 +4,7 @@
 *.hpp text eol=lf
 *.c text eol=lf
 *.cmake text eol=lf
+*.lock text eol=lf
 CMakeLists.txt text eol=lf
 *.ps1 text eol=crlf
 *.sh text eol=lf
