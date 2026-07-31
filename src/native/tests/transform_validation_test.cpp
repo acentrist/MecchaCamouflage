@@ -139,6 +139,19 @@ int main()
     {
         return 31;
     }
+    if (!runtime_contract::runtime_triangle_dynamic_fallback_allowed(
+            false, true, false, 2784, 2784) ||
+        runtime_contract::runtime_triangle_dynamic_fallback_allowed(
+            true, true, false, 2784, 2784) ||
+        runtime_contract::runtime_triangle_dynamic_fallback_allowed(
+            false, true, true, 2784, 2784) ||
+        runtime_contract::runtime_triangle_dynamic_fallback_allowed(
+            false, false, false, 2784, 2784) ||
+        runtime_contract::runtime_triangle_dynamic_fallback_allowed(
+            false, true, false, 2784, 2783))
+    {
+        return 43;
+    }
 
     if (json_string_field(R"({"image_paint_rgba_base64":"AA\u002BAA=="})", "image_paint_rgba_base64") != "AA+AA==" ||
         json_string_field(R"({"label":"\u3042\uD83D\uDE00"})", "label") !=
@@ -341,6 +354,19 @@ int main()
     using EspScope = runtime_contract::EspScope;
     using EspTargetPawnSource =
         runtime_contract::EspTargetPawnSource;
+    if (runtime_contract::esp_active_roster_role(
+            true, 0u) != EspRole::Spectator ||
+        runtime_contract::esp_active_roster_role(
+            false, 0u) != EspRole::Unknown ||
+        runtime_contract::esp_active_roster_role(
+            true, 1u) != EspRole::Hider ||
+        runtime_contract::esp_active_roster_role(
+            true, 2u) != EspRole::Hunter ||
+        runtime_contract::esp_active_roster_role(
+            true, 3u) != EspRole::Unknown)
+    {
+        return 43;
+    }
     if (runtime_contract::esp_select_target_pawn_source(
             EspRole::Hider,
             EspRole::Spectator,
@@ -430,6 +456,12 @@ int main()
             EspRole::Hider ||
         runtime_contract::esp_resolve_target_role(
             EspRole::Hider, EspRole::Spectator) !=
+            EspRole::Spectator ||
+        runtime_contract::esp_resolve_target_role(
+            EspRole::Spectator, EspRole::Hider) !=
+            EspRole::Spectator ||
+        runtime_contract::esp_resolve_target_role(
+            EspRole::Spectator, EspRole::Hunter) !=
             EspRole::Spectator ||
         runtime_contract::esp_resolve_target_role(
             EspRole::Unknown, EspRole::Unknown) !=

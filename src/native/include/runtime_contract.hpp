@@ -3463,6 +3463,20 @@ namespace runtime_contract
         return true;
     }
 
+    constexpr bool runtime_triangle_dynamic_fallback_allowed(
+        bool profile_cache_ok,
+        bool dynamic_cache_ok,
+        bool image_paint_enabled,
+        int expected_triangle_count,
+        int dynamic_triangle_count)
+    {
+        return !profile_cache_ok &&
+               dynamic_cache_ok &&
+               !image_paint_enabled &&
+               expected_triangle_count > 0 &&
+               dynamic_triangle_count == expected_triangle_count;
+    }
+
     constexpr bool event_watch_generation_active(bool enabled,
                                                  std::uint64_t current_generation,
                                                  std::uint64_t captured_generation)
@@ -3590,6 +3604,23 @@ namespace runtime_contract
         RoleRoster = 1,
     };
 
+    constexpr auto esp_active_roster_role(
+        bool authoritative,
+        std::uint8_t membership) -> EspRole
+    {
+        if (membership == 1u)
+        {
+            return EspRole::Hider;
+        }
+        if (membership == 2u)
+        {
+            return EspRole::Hunter;
+        }
+        return authoritative && membership == 0u
+                   ? EspRole::Spectator
+                   : EspRole::Unknown;
+    }
+
     constexpr auto esp_select_target_pawn_source(
         EspRole roster_role,
         EspRole player_array_pawn_role,
@@ -3648,6 +3679,10 @@ namespace runtime_contract
         EspRole roster_role,
         EspRole current_pawn_role) -> EspRole
     {
+        if (roster_role == EspRole::Spectator)
+        {
+            return EspRole::Spectator;
+        }
         return current_pawn_role == EspRole::Unknown
                    ? roster_role
                    : current_pawn_role;

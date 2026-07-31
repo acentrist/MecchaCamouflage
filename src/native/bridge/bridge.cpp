@@ -11051,10 +11051,13 @@ namespace
         return out;
     }
 
-    auto mesh_first_resolve_runtime_triangle_cache_dynamic(std::uintptr_t component) -> MeshFirstRuntimeTriangleCache
+    auto mesh_first_resolve_runtime_triangle_cache_dynamic(
+        std::uintptr_t component,
+        int expected_triangle_count) -> MeshFirstRuntimeTriangleCache
     {
         MeshFirstRuntimeTriangleCache out{};
-        if (!component)
+        out.expected_triangle_count = expected_triangle_count;
+        if (!component || expected_triangle_count <= 0)
         {
             out.failure = "runtime_triangle_cache_invalid_component";
             return out;
@@ -11074,6 +11077,26 @@ namespace
             const auto max = safe_read<int>(component + static_cast<std::uintptr_t>(offset + 12), 0);
             if (!data || num <= 0 || num > 200000 || max < num || max > num + std::max(1024, num / 2))
             {
+                continue;
+            }
+            ++out.array_headers_seen;
+            if (out.closest_triangle_count <= 0 ||
+                std::abs(num - expected_triangle_count) <
+                    std::abs(
+                        out.closest_triangle_count -
+                        expected_triangle_count))
+            {
+                out.closest_triangle_count = num;
+            }
+            if (num != expected_triangle_count)
+            {
+                continue;
+            }
+            ++out.matching_count_arrays_seen;
+            if (max >
+                num + std::max(32, num / 2))
+            {
+                ++out.capacity_rejections;
                 continue;
             }
 
@@ -11098,7 +11121,7 @@ namespace
                 const auto edge0 = sdk_vec_sub(triangle.world[1], triangle.world[0]);
                 const auto edge1 = sdk_vec_sub(triangle.world[2], triangle.world[0]);
                 const double world_area = sdk_vec_len(sdk_vec_cross(edge0, edge1)) * 0.5;
-                if (!std::isfinite(uv_area) || uv_area <= 0.0 ||
+                if (!std::isfinite(uv_area) || uv_area < 0.0 ||
                     !std::isfinite(world_area) || world_area <= 0.000001)
                 {
                     valid = false;
@@ -11109,6 +11132,7 @@ namespace
             }
             if (!valid)
             {
+                ++out.read_rejections;
                 continue;
             }
 
@@ -11132,6 +11156,7 @@ namespace
             }
             if (!valid)
             {
+                ++out.read_rejections;
                 continue;
             }
 
@@ -11345,7 +11370,8 @@ namespace
                                              const SdkContext& ctx,
                                              std::uintptr_t mesh,
                                              const SdkViewportInfo& viewport,
-                                             const char* reason) -> MeshFirstRuntimePaintWarmup
+                                             const char* reason,
+                                             bool force_initialize) -> MeshFirstRuntimePaintWarmup
     {
         MeshFirstRuntimePaintWarmup out{};
         out.attempted = true;
@@ -11375,7 +11401,27 @@ namespace
         }
         else if (out.is_initialized_before)
         {
-            out.initialize_skip_reason = "already_initialized";
+            // A missing triangle cache means the bridge cannot find the
+            // RuntimePaintable's internal arrays even though the component
+            // reports it is initialized.  Force a re-initialization when the
+            // caller explicitly requests it so the game rebuilds its cached
+            // triangles before the bridge re-scans.
+            if (force_initialize)
+            {
+                const auto initialized = sdk_call_no_params_detail(ref, ctx.component, "InitializePaint");
+                out.initialize_called = initialized.wrote_params;
+                out.initialize_ok = initialized.process_ok;
+                out.initialize_skip_reason = initialized.process_ok ? "" : initialized.failure;
+                if (!initialized.process_ok && !initialized.failure.empty())
+                {
+                    if (!out.failure.empty()) { out.failure += ";"; }
+                    out.failure += "initialize_paint:" + initialized.failure;
+                }
+            }
+            else
+            {
+                out.initialize_skip_reason = "already_initialized";
+            }
         }
         else
         {
@@ -18193,6 +18239,7 @@ namespace
         MeshFirstRuntimeTriangleCache runtime_triangle_cache{};
         std::string runtime_triangle_cache_mode{};
         std::string runtime_triangle_profile_cache_failure{};
+        MeshFirstRuntimeTriangleCache runtime_triangle_dynamic_cache{};
         auto resolve_runtime_triangle_cache_once = [&]() {
             MeshFirstRuntimeTriangleCache cache{};
             std::string mode{"profile_verified"};
@@ -18201,7 +18248,26 @@ namespace
             if (!cache.ok)
             {
                 profile_cache_failure = cache.failure;
-                mode = "profile_verified_failed";
+                auto dynamic_cache =
+                    mesh_first_resolve_runtime_triangle_cache_dynamic(
+                        ctx.component,
+                        cache.expected_triangle_count);
+                runtime_triangle_dynamic_cache = dynamic_cache;
+                if (runtime_contract::
+                        runtime_triangle_dynamic_fallback_allowed(
+                            cache.ok,
+                            dynamic_cache.ok,
+                            image_paint_enabled,
+                            cache.expected_triangle_count,
+                            dynamic_cache.triangle_count))
+                {
+                    cache = std::move(dynamic_cache);
+                    mode = "dynamic_uv_only";
+                }
+                else
+                {
+                    mode = "profile_verified_failed";
+                }
             }
             return std::make_tuple(std::move(cache), std::move(mode), std::move(profile_cache_failure));
         };
@@ -18246,7 +18312,8 @@ namespace
                                                                        warmup_viewport,
                                                                        runtime_cache_missing_before_warmup
                                                                            ? "runtime_triangle_cache_unavailable"
-                                                                           : "runtime_triangle_coordinate_cache_unstable");
+                                                                           : "runtime_triangle_coordinate_cache_unstable",
+                                                                       runtime_cache_missing_before_warmup);
             auto resolved = resolve_runtime_triangle_cache_once();
             runtime_triangle_cache = std::move(std::get<0>(resolved));
             runtime_triangle_cache_mode = std::move(std::get<1>(resolved));
@@ -18302,8 +18369,18 @@ namespace
                     json_escape(runtime_triangle_cache.profile_uv_mapping_mode) + "\"";
         metadata += ",\"runtime_triangle_cache_profile_uv_avg_error\":" + std::to_string(runtime_triangle_cache.profile_uv_avg_error);
         metadata += ",\"runtime_triangle_cache_failure\":\"" + json_escape(runtime_triangle_cache.failure) + "\"";
-        const bool runtime_uses_profile_component_world =
+        metadata += ",\"runtime_triangle_dynamic_cache_ok\":" + std::string(json_bool(runtime_triangle_dynamic_cache.ok));
+        metadata += ",\"runtime_triangle_dynamic_cache_triangles\":" + std::to_string(runtime_triangle_dynamic_cache.triangle_count);
+        metadata += ",\"runtime_triangle_dynamic_cache_headers\":" + std::to_string(runtime_triangle_dynamic_cache.array_headers_seen);
+        metadata += ",\"runtime_triangle_dynamic_cache_matching\":" + std::to_string(runtime_triangle_dynamic_cache.matching_count_arrays_seen);
+        metadata += ",\"runtime_triangle_dynamic_cache_read_rejections\":" + std::to_string(runtime_triangle_dynamic_cache.read_rejections);
+        metadata += ",\"runtime_triangle_dynamic_cache_failure\":\"" + json_escape(runtime_triangle_dynamic_cache.failure) + "\"";
+        const bool runtime_uses_profile_topology =
             profile_available && runtime_triangle_cache_mode == "profile_verified";
+        const bool runtime_uses_profile_component_world =
+            runtime_uses_profile_topology;
+        const auto* runtime_planning_profile =
+            runtime_uses_profile_topology ? &profile : nullptr;
         metadata += ",\"planner_position_source\":\"" +
                     std::string(runtime_uses_profile_component_world
                                     ? "runtime_paintable_cached_local_component_world"
@@ -18357,11 +18434,24 @@ namespace
         }
         metadata += ",\"component_world_transform_effective_source\":\"" + json_escape(component_transform_source) + "\"";
         const int active_texture_size = profile_available ? profile.texture_size : 1024;
-        const char region_axis = profile_available ? mesh_first_region_axis(profile)
-                                                   : mesh_first_region_axis_from_runtime_triangles(runtime_triangle_cache.triangles);
+        const char region_axis =
+            runtime_planning_profile
+                ? mesh_first_region_axis(*runtime_planning_profile)
+                : mesh_first_region_axis_from_runtime_triangles(
+                      runtime_triangle_cache.triangles);
         metadata += ",\"mesh_region_axis\":\"" + std::string(mesh_first_region_axis_label(region_axis)) + "\"";
-        metadata += ",\"mesh_region_axis_selection\":\"" + std::string(profile_available ? "profile_min_horizontal_extent" : "runtime_triangle_min_horizontal_extent") + "\"";
-        metadata += ",\"mesh_region_normal_source\":\"" + std::string(profile_available ? "profile_v2_triangle_local_normal" : "runtime_triangle_local_normal") + "\"";
+        metadata += ",\"mesh_region_axis_selection\":\"" +
+                    std::string(
+                        runtime_planning_profile
+                            ? "profile_min_horizontal_extent"
+                            : "runtime_triangle_min_horizontal_extent") +
+                    "\"";
+        metadata += ",\"mesh_region_normal_source\":\"" +
+                    std::string(
+                        runtime_planning_profile
+                            ? "profile_v2_triangle_local_normal"
+                            : "runtime_triangle_local_normal") +
+                    "\"";
         metadata += ",\"texture_size\":" + std::to_string(active_texture_size);
 
         paint_dispatch_set_debug_stage(
@@ -18490,7 +18580,7 @@ namespace
         metadata += ",\"mesh_region_threshold\":0.350000";
         metadata += ",\"mesh_region_threshold_source\":\"fixed_mesh_local_normal\"";
         const auto sample_start = std::chrono::high_resolution_clock::now();
-        const bool sample_gen_ok = mesh_first_generate_plan_samples_from_runtime_cache(profile_available ? &profile : nullptr,
+        const bool sample_gen_ok = mesh_first_generate_plan_samples_from_runtime_cache(runtime_planning_profile,
                                                                  runtime_triangle_cache.triangles,
                                                                  active_texture_size,
                                                                  center_ray.location,
@@ -19223,7 +19313,7 @@ namespace
 
             const auto source_assignment_started =
                 std::chrono::steady_clock::now();
-            mesh_first_assign_colors(profile_available ? &profile : nullptr,
+            mesh_first_assign_colors(runtime_planning_profile,
                                      plan_samples,
                                      capture,
                                      enable_front,
@@ -35024,11 +35114,13 @@ float4 main(float4 position : SV_POSITION, float2 uv : TEXCOORD0) : SV_TARGET
                 "native snapshot is waiting for PlayerArray");
             return;
         }
-        (void)esp_snapshot_collect_roster(
+        const bool hider_roster_available =
+            esp_snapshot_collect_roster(
             resolver.reflection, game_state, EspSnapshotRole::Hider,
             {"Survivors", "LiveSurvivors_PlayerState", "Hiders", "HiderPlayers", "HiderPlayerStates", "HiderPawns", "HiderCharacters", "CurrentHider"},
             hiders);
-        (void)esp_snapshot_collect_roster(
+        const bool hunter_roster_available =
+            esp_snapshot_collect_roster(
             resolver.reflection, game_state, EspSnapshotRole::Hunter,
             {"Hunters", "HuntersPlayerState", "HunterPlayers", "HunterPlayerStates", "HunterPawns", "HunterCharacters", "CurrentHunter"},
             hunters);
@@ -35052,6 +35144,10 @@ float4 main(float4 position : SV_POSITION, float2 uv : TEXCOORD0) : SV_TARGET
         {
             index_role_target(hunter, 2u);
         }
+        const bool active_role_rosters_authoritative =
+            hider_roster_available &&
+            hunter_roster_available &&
+            !role_membership.empty();
         const bool avatar_directory_world_changed =
             resolver.avatar_directory_world != context.world;
         if (avatar_directory_world_changed)
@@ -35092,17 +35188,24 @@ float4 main(float4 position : SV_POSITION, float2 uv : TEXCOORD0) : SV_TARGET
         {
             const auto membership =
                 role_membership.find(target.player_state);
-            if (membership == role_membership.end())
-            {
-                continue;
-            }
+            const auto active_role =
+                runtime_contract::esp_active_roster_role(
+                    active_role_rosters_authoritative,
+                    membership == role_membership.end()
+                        ? 0u
+                        : membership->second);
             target.role =
-                membership->second == 1u
+                active_role == runtime_contract::EspRole::Hider
                     ? EspSnapshotRole::Hider
-                    : membership->second == 2u
+                    : active_role ==
+                              runtime_contract::EspRole::Hunter
                           ? EspSnapshotRole::Hunter
-                          : EspSnapshotRole::Unknown;
-            if (target.role == EspSnapshotRole::Unknown)
+                          : active_role ==
+                                    runtime_contract::EspRole::Spectator
+                                ? EspSnapshotRole::Spectator
+                                : EspSnapshotRole::Unknown;
+            if (target.role != EspSnapshotRole::Hider &&
+                target.role != EspSnapshotRole::Hunter)
             {
                 continue;
             }
@@ -35122,7 +35225,8 @@ float4 main(float4 position : SV_POSITION, float2 uv : TEXCOORD0) : SV_TARGET
         bool unresolved_active_avatar{};
         const auto recover_target_avatar =
             [&](EspSnapshotTarget& target) {
-                if (target.role == EspSnapshotRole::Unknown)
+                if (target.role != EspSnapshotRole::Hider &&
+                    target.role != EspSnapshotRole::Hunter)
                 {
                     return;
                 }
