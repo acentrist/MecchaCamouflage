@@ -53,9 +53,9 @@ FetchContent_Declare(
     GIT_TAG 40626af88bd7df9a5fb80be7b25ac85b122d6c21
     PATCH_COMMAND
         "${CMAKE_COMMAND}"
-        "-DPATCH_SCRIPT_DIR=${CMAKE_CURRENT_SOURCE_DIR}/third_party/RE-UE4SS/deps/third/fmt"
+        "-DPATCH_SCRIPT_DIR=${_meccha_ue4ss_root}/deps/third/fmt"
         -P
-        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/RE-UE4SS/deps/third/fmt/patch_fmt.cmake"
+        "${_meccha_ue4ss_root}/deps/third/fmt/patch_fmt.cmake"
 )
 FetchContent_Declare(
     tracy
