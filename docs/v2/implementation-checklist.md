@@ -289,12 +289,20 @@ Evidence:
     - [ ] Bind game-font-first missing-glyph fallback and glyph-level clipping,
       then live-prove complete line/box/text/texture output without a partial
       frame mutation.
-- [ ] Implement exact cursor/look/movement/input-mode lease restoration.
+- [ ] Implement exact production cursor/look/movement lease restoration while
+  preserving the game's current input mode unchanged.
   - [x] Implement a transactional lease controller that captures the complete
     prior input state once, avoids repeated mutation, restores exactly on
     close/shutdown, rolls back failed acquisition, and retains failed restore
     state for bounded retry.
-  - [ ] Implement and live-verify the production Unreal input-state port.
+  - [x] Validate the exact UE 5.6 `Controller` query/mutation reflection
+    records and `PlayerController.bShowMouseCursor` property; implement the
+    game-thread production port with balanced stack mutations, exact cursor
+    restoration, controller-identity rebinding, retryable rollback, and
+    restore-before-unregister refusal; compile and link it against the pinned
+    UE4SS graph under MSVC `/W4 /WX`.
+  - [ ] Live-verify reflection resolution, controller replacement, travel,
+    shutdown restoration, and unchanged game input-mode behavior.
 - [x] Implement responsive viewport/DPI scaling.
 - [ ] Implement localized game-font and packaged OFL fallback-glyph paths.
   - [x] Generate and package a pinned Noto-derived RGBA fallback atlas with an

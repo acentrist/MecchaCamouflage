@@ -1,6 +1,7 @@
 #include <meccha/runtime/unreal_runtime_adapter.hpp>
 
 #include <meccha/runtime/canvas_call_codec.hpp>
+#include <meccha/runtime/input_control_codec.hpp>
 #include <meccha/runtime/paint_call_codec.hpp>
 #include <meccha/runtime/paint_preview_codec.hpp>
 #include <meccha/runtime/paint_queue_codec.hpp>
@@ -52,6 +53,8 @@ constexpr auto HudClassPath = STR("/Script/Engine.HUD");
 constexpr auto WorldClassPath = STR("/Script/Engine.World");
 constexpr auto PlayerControllerClassPath =
     STR("/Script/Engine.PlayerController");
+constexpr auto ControllerClassPath =
+    STR("/Script/Engine.Controller");
 constexpr auto PawnClassPath = STR("/Script/Engine.Pawn");
 constexpr auto CanvasClassPath = STR("/Script/Engine.Canvas");
 constexpr auto FontClassPath = STR("/Script/Engine.Font");
@@ -68,6 +71,14 @@ constexpr auto KismetRenderingLibraryClassPath =
 constexpr auto ImportBufferAsTexture2DPath =
     STR("/Script/Engine.KismetRenderingLibrary:"
         "ImportBufferAsTexture2D");
+constexpr auto IsLookInputIgnoredPath =
+    STR("/Script/Engine.Controller:IsLookInputIgnored");
+constexpr auto IsMoveInputIgnoredPath =
+    STR("/Script/Engine.Controller:IsMoveInputIgnored");
+constexpr auto SetIgnoreLookInputPath =
+    STR("/Script/Engine.Controller:SetIgnoreLookInput");
+constexpr auto SetIgnoreMoveInputPath =
+    STR("/Script/Engine.Controller:SetIgnoreMoveInput");
 constexpr auto Texture2dClassPath =
     STR("/Script/Engine.Texture2D");
 constexpr auto RuntimePaintableClassPath =
@@ -144,6 +155,17 @@ struct CanvasContracts
     UFunction* import_buffer_as_texture2d{};
 };
 
+struct InputContracts
+{
+    UClass* controller_class{};
+    UClass* player_controller_class{};
+    FBoolProperty* show_mouse_cursor{};
+    UFunction* is_look_input_ignored{};
+    UFunction* is_move_input_ignored{};
+    UFunction* set_ignore_look_input{};
+    UFunction* set_ignore_move_input{};
+};
+
 struct PaintContracts
 {
     UClass* player_controller_class{};
@@ -185,6 +207,22 @@ struct OwnedCanvasTexture
 {
     FWeakObjectPtr object{};
     std::uint64_t object_identity{};
+};
+
+struct InputMutationLease
+{
+    FWeakObjectPtr controller{};
+    ui::RuntimeInputState captured{};
+    bool cursor_changed{};
+    bool look_changed{};
+    bool movement_changed{};
+};
+
+struct InputTarget
+{
+    InputContracts contracts{};
+    UObject* controller{};
+    std::uint64_t identity{};
 };
 
 class RootedObjectGuard final
@@ -279,6 +317,28 @@ auto find_object_property(
         property->GetElementSize() !=
             static_cast<int>(sizeof(void*)) ||
         property->GetPropertyClass().Get() != expected_class ||
+        !property->IsInContainer(owner))
+    {
+        return nullptr;
+    }
+    return property;
+}
+
+auto find_bool_property(UClass* owner, const TCHAR* name)
+    -> FBoolProperty*
+{
+    if (owner == nullptr)
+    {
+        return nullptr;
+    }
+    auto* property =
+        CastField<FBoolProperty>(
+            owner->FindProperty(FName{name, FNAME_Find}));
+    if (property == nullptr ||
+        property->GetArrayDim() != 1 ||
+        property->GetElementSize() != 1 ||
+        property->GetFieldMask() == 0U ||
+        property->GetByteMask() == 0U ||
         !property->IsInContainer(owner))
     {
         return nullptr;
@@ -417,6 +477,117 @@ auto texture_failure(const char* detail)
 {
     return std::unexpected(
         product_ui::ImageEditorTextureRuntimeError{detail});
+}
+
+auto input_failure(const char* detail)
+    -> std::unexpected<ui::InputPortError>
+{
+    return std::unexpected(ui::InputPortError{detail});
+}
+
+auto resolve_input_contracts(
+    UClass* player_controller_class)
+    -> std::expected<
+        InputContracts,
+        application::RuntimeExecutionError>
+{
+    auto contracts = InputContracts{};
+    contracts.controller_class = find_class(ControllerClassPath);
+    contracts.player_controller_class =
+        player_controller_class;
+    contracts.is_look_input_ignored =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            IsLookInputIgnoredPath);
+    contracts.is_move_input_ignored =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            IsMoveInputIgnoredPath);
+    contracts.set_ignore_look_input =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            SetIgnoreLookInputPath);
+    contracts.set_ignore_move_input =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            SetIgnoreMoveInputPath);
+    contracts.show_mouse_cursor = find_bool_property(
+        player_controller_class,
+        STR("bShowMouseCursor"));
+
+    if (contracts.controller_class == nullptr ||
+        contracts.player_controller_class == nullptr)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::InputControl,
+            application::ContractFailureKind::MissingObject);
+    }
+    if (contracts.show_mouse_cursor == nullptr)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::InputControl,
+            application::ContractFailureKind::MissingProperty);
+    }
+    if (contracts.is_look_input_ignored == nullptr ||
+        contracts.is_move_input_ignored == nullptr ||
+        contracts.set_ignore_look_input == nullptr ||
+        contracts.set_ignore_move_input == nullptr)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::InputControl,
+            application::ContractFailureKind::MissingFunction);
+    }
+    if (contracts.is_look_input_ignored->GetOuterPrivate() !=
+            contracts.controller_class ||
+        contracts.is_move_input_ignored->GetOuterPrivate() !=
+            contracts.controller_class ||
+        contracts.set_ignore_look_input->GetOuterPrivate() !=
+            contracts.controller_class ||
+        contracts.set_ignore_move_input->GetOuterPrivate() !=
+            contracts.controller_class)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::InputControl,
+            application::ContractFailureKind::WrongClass);
+    }
+
+    const auto look_query = validate_unreal_record(
+        contracts.is_look_input_ignored,
+        is_look_input_ignored_contract(),
+        application::RuntimeContractId::InputControl);
+    if (!look_query)
+    {
+        return std::unexpected(look_query.error());
+    }
+    const auto move_query = validate_unreal_record(
+        contracts.is_move_input_ignored,
+        is_move_input_ignored_contract(),
+        application::RuntimeContractId::InputControl);
+    if (!move_query)
+    {
+        return std::unexpected(move_query.error());
+    }
+    const auto look_command = validate_unreal_record(
+        contracts.set_ignore_look_input,
+        set_ignore_look_input_contract(),
+        application::RuntimeContractId::InputControl);
+    if (!look_command)
+    {
+        return std::unexpected(look_command.error());
+    }
+    const auto move_command = validate_unreal_record(
+        contracts.set_ignore_move_input,
+        set_ignore_move_input_contract(),
+        application::RuntimeContractId::InputControl);
+    if (!move_command)
+    {
+        return std::unexpected(move_command.error());
+    }
+    return contracts;
 }
 
 auto resolve_canvas_contracts(UClass* canvas_class)
@@ -1070,6 +1241,23 @@ auto resolve_unique_replication_manager(
         });
     return count == 1U ? match : nullptr;
 }
+
+auto query_input_ignored(UObject* controller, UFunction* function)
+    -> bool
+{
+    auto parameters = IgnoreInputQueryParametersAbi{};
+    controller->ProcessEvent(function, &parameters);
+    return parameters.return_value;
+}
+
+auto set_input_ignored(
+    UObject* controller,
+    UFunction* function,
+    bool ignored) -> void
+{
+    auto parameters = encode_ignore_input(ignored);
+    controller->ProcessEvent(function, &parameters);
+}
 } // namespace
 
 class UnrealRuntimeAdapter::Impl
@@ -1144,7 +1332,8 @@ public:
             const auto lock = std::scoped_lock{mutex_};
             if (id != HudCallbackId || !hook_ids_ ||
                 !hud_contracts_ || detaching_ ||
-                !canvas_textures_.empty())
+                !canvas_textures_.empty() ||
+                input_mutation_)
             {
                 return std::unexpected(
                     application::CallbackPortError::
@@ -1208,6 +1397,12 @@ public:
             {
                 return std::unexpected(canvas.error());
             }
+            auto input = resolve_input_contracts(
+                hud->player_controller_class);
+            if (!input)
+            {
+                return std::unexpected(input.error());
+            }
             auto resolved = resolve_paint_contracts(
                 hud->player_controller_class);
             if (!resolved)
@@ -1224,6 +1419,7 @@ public:
                         ExecutionFailure);
             }
             canvas_contracts_ = *canvas;
+            input_contracts_ = *input;
             paint_contracts_ = *resolved;
             return {};
         }
@@ -1234,6 +1430,324 @@ public:
                     RuntimeInitialization,
                 application::ContractFailureKind::
                     ExecutionFailure);
+        }
+    }
+
+    auto input_target()
+        -> std::expected<InputTarget, ui::InputPortError>
+    {
+        if (!IsInGameThreadRaw())
+        {
+            return input_failure(
+                "Input control requires the game thread.");
+        }
+        auto active = std::optional<ActiveFrame>{};
+        auto contracts = std::optional<InputContracts>{};
+        {
+            const auto lock = std::scoped_lock{mutex_};
+            if (detaching_)
+            {
+                return input_failure(
+                    "Input control is detaching.");
+            }
+            active = active_frame_;
+            contracts = input_contracts_;
+        }
+        if (!active || !contracts ||
+            !object_is_live(
+                active->controller,
+                contracts->player_controller_class))
+        {
+            return input_failure(
+                "The active PlayerController is unavailable.");
+        }
+        const auto identity = object_identity(active->controller);
+        if (identity == 0U ||
+            identity != active->identity.controller)
+        {
+            return input_failure(
+                "The active PlayerController identity is stale.");
+        }
+        return InputTarget{
+            *contracts,
+            active->controller,
+            identity,
+        };
+    }
+
+    auto capture_input()
+        -> std::expected<
+            ui::RuntimeInputState,
+            ui::InputPortError>
+    {
+        try
+        {
+            const auto target = input_target();
+            if (!target)
+            {
+                return std::unexpected(target.error());
+            }
+            {
+                const auto lock = std::scoped_lock{mutex_};
+                if (input_mutation_)
+                {
+                    return input_failure(
+                        "An input lease is already captured.");
+                }
+            }
+
+            const auto captured = ui::RuntimeInputState{
+                target->identity,
+                target->contracts.show_mouse_cursor
+                    ->GetPropertyValueInContainer(
+                        target->controller),
+                query_input_ignored(
+                    target->controller,
+                    target->contracts.is_look_input_ignored),
+                query_input_ignored(
+                    target->controller,
+                    target->contracts.is_move_input_ignored),
+                ui::RuntimeInputModeHandling::
+                    PreserveUnchanged,
+            };
+            const auto lock = std::scoped_lock{mutex_};
+            if (detaching_ || input_mutation_ ||
+                !active_frame_ ||
+                active_frame_->identity.controller !=
+                    captured.owner_identity)
+            {
+                return input_failure(
+                    "The input owner changed during capture.");
+            }
+            input_mutation_ = InputMutationLease{
+                FWeakObjectPtr{target->controller},
+                captured,
+            };
+            return captured;
+        }
+        catch (...)
+        {
+            return input_failure(
+                "Input capture failed.");
+        }
+    }
+
+    auto apply_input()
+        -> std::expected<void, ui::InputPortError>
+    {
+        try
+        {
+            const auto target = input_target();
+            if (!target)
+            {
+                return std::unexpected(target.error());
+            }
+            auto lease = std::optional<InputMutationLease>{};
+            {
+                const auto lock = std::scoped_lock{mutex_};
+                lease = input_mutation_;
+            }
+            if (!lease ||
+                lease->captured.owner_identity !=
+                    target->identity ||
+                lease->controller.Get() != target->controller ||
+                lease->cursor_changed ||
+                lease->look_changed ||
+                lease->movement_changed)
+            {
+                return input_failure(
+                    "The captured input lease is unavailable.");
+            }
+
+            if (!lease->captured.cursor_visible)
+            {
+                {
+                    const auto lock = std::scoped_lock{mutex_};
+                    input_mutation_->cursor_changed = true;
+                }
+                target->contracts.show_mouse_cursor
+                    ->SetPropertyValueInContainer(
+                        target->controller,
+                        true);
+                if (!target->contracts.show_mouse_cursor
+                         ->GetPropertyValueInContainer(
+                             target->controller))
+                {
+                    return input_failure(
+                        "The mouse cursor state did not apply.");
+                }
+            }
+            if (!lease->captured.look_input_ignored)
+            {
+                {
+                    const auto lock = std::scoped_lock{mutex_};
+                    input_mutation_->look_changed = true;
+                }
+                set_input_ignored(
+                    target->controller,
+                    target->contracts.set_ignore_look_input,
+                    true);
+                if (!query_input_ignored(
+                        target->controller,
+                        target->contracts
+                            .is_look_input_ignored))
+                {
+                    return input_failure(
+                        "Look-input suspension did not apply.");
+                }
+            }
+            if (!lease->captured.movement_input_ignored)
+            {
+                {
+                    const auto lock = std::scoped_lock{mutex_};
+                    input_mutation_->movement_changed = true;
+                }
+                set_input_ignored(
+                    target->controller,
+                    target->contracts.set_ignore_move_input,
+                    true);
+                if (!query_input_ignored(
+                        target->controller,
+                        target->contracts
+                            .is_move_input_ignored))
+                {
+                    return input_failure(
+                        "Movement-input suspension did not apply.");
+                }
+            }
+            return {};
+        }
+        catch (...)
+        {
+            return input_failure(
+                "Input apply failed.");
+        }
+    }
+
+    auto current_input_owner()
+        -> std::expected<std::uint64_t, ui::InputPortError>
+    {
+        try
+        {
+            const auto target = input_target();
+            if (!target)
+            {
+                return std::unexpected(target.error());
+            }
+            return target->identity;
+        }
+        catch (...)
+        {
+            return input_failure(
+                "Input owner validation failed.");
+        }
+    }
+
+    auto restore_input(
+        const ui::RuntimeInputState& state)
+        -> std::expected<void, ui::InputPortError>
+    {
+        if (!IsInGameThreadRaw())
+        {
+            return input_failure(
+                "Input restoration requires the game thread.");
+        }
+        try
+        {
+            auto contracts = std::optional<InputContracts>{};
+            auto lease = std::optional<InputMutationLease>{};
+            {
+                const auto lock = std::scoped_lock{mutex_};
+                contracts = input_contracts_;
+                lease = input_mutation_;
+            }
+            if (!contracts || !lease ||
+                state != lease->captured ||
+                state.owner_identity == 0U ||
+                state.input_mode !=
+                    ui::RuntimeInputModeHandling::
+                        PreserveUnchanged)
+            {
+                return input_failure(
+                    "The captured input state does not match.");
+            }
+            auto* controller = lease->controller.Get();
+            if (!object_is_live(
+                    controller,
+                    contracts->player_controller_class) ||
+                object_identity(controller) !=
+                    state.owner_identity)
+            {
+                return input_failure(
+                    "The captured PlayerController is stale.");
+            }
+
+            if (lease->movement_changed)
+            {
+                set_input_ignored(
+                    controller,
+                    contracts->set_ignore_move_input,
+                    state.movement_input_ignored);
+                if (query_input_ignored(
+                        controller,
+                        contracts->is_move_input_ignored) !=
+                    state.movement_input_ignored)
+                {
+                    return input_failure(
+                        "Movement-input suspension did not restore.");
+                }
+                const auto lock = std::scoped_lock{mutex_};
+                input_mutation_->movement_changed = false;
+            }
+            if (lease->look_changed)
+            {
+                set_input_ignored(
+                    controller,
+                    contracts->set_ignore_look_input,
+                    state.look_input_ignored);
+                if (query_input_ignored(
+                        controller,
+                        contracts->is_look_input_ignored) !=
+                    state.look_input_ignored)
+                {
+                    return input_failure(
+                        "Look-input suspension did not restore.");
+                }
+                const auto lock = std::scoped_lock{mutex_};
+                input_mutation_->look_changed = false;
+            }
+            if (lease->cursor_changed)
+            {
+                contracts->show_mouse_cursor
+                    ->SetPropertyValueInContainer(
+                        controller,
+                        state.cursor_visible);
+                if (contracts->show_mouse_cursor
+                        ->GetPropertyValueInContainer(
+                            controller) !=
+                    state.cursor_visible)
+                {
+                    return input_failure(
+                        "The mouse cursor state did not restore.");
+                }
+                const auto lock = std::scoped_lock{mutex_};
+                input_mutation_->cursor_changed = false;
+            }
+            {
+                const auto lock = std::scoped_lock{mutex_};
+                if (!input_mutation_->cursor_changed &&
+                    !input_mutation_->look_changed &&
+                    !input_mutation_->movement_changed)
+                {
+                    input_mutation_.reset();
+                }
+            }
+            return {};
+        }
+        catch (...)
+        {
+            return input_failure(
+                "Input restore failed.");
         }
     }
 
@@ -2434,10 +2948,12 @@ private:
         hook_ids_.reset();
         hud_contracts_.reset();
         canvas_contracts_.reset();
+        input_contracts_.reset();
         paint_contracts_.reset();
         active_frame_.reset();
         bound_frame_.reset();
         queue_tracker_.reset();
+        input_mutation_.reset();
         callback_context_ = nullptr;
         callback_ = nullptr;
         active_frame_sequence_ = 0U;
@@ -2481,6 +2997,39 @@ private:
         }
     }
 
+    auto restore_input_noexcept() noexcept -> void
+    {
+        if (!IsInGameThreadRaw())
+        {
+            return;
+        }
+        for (auto attempt = 0U; attempt < 3U; ++attempt)
+        {
+            auto state = std::optional<ui::RuntimeInputState>{};
+            {
+                const auto lock = std::scoped_lock{mutex_};
+                if (input_mutation_)
+                {
+                    state = input_mutation_->captured;
+                }
+            }
+            if (!state)
+            {
+                return;
+            }
+            try
+            {
+                if (restore_input(*state))
+                {
+                    return;
+                }
+            }
+            catch (...)
+            {
+            }
+        }
+    }
+
     auto detach_noexcept() noexcept -> void
     {
         auto function = static_cast<UFunction*>(nullptr);
@@ -2509,6 +3058,7 @@ private:
         auto lock = std::unique_lock{mutex_};
         idle_.wait(lock, [this] { return in_flight_ == 0U; });
         lock.unlock();
+        restore_input_noexcept();
         release_all_canvas_textures_noexcept();
         lock.lock();
         clear_state_locked();
@@ -2518,6 +3068,7 @@ private:
     std::condition_variable idle_{};
     std::optional<HudContracts> hud_contracts_{};
     std::optional<CanvasContracts> canvas_contracts_{};
+    std::optional<InputContracts> input_contracts_{};
     std::optional<PaintContracts> paint_contracts_{};
     std::optional<ActiveFrame> active_frame_{};
     std::optional<BoundFrame> bound_frame_{};
@@ -2527,6 +3078,7 @@ private:
         OwnedCanvasTexture>
         canvas_textures_{};
     std::optional<std::pair<int, int>> hook_ids_{};
+    std::optional<InputMutationLease> input_mutation_{};
     void* callback_context_{};
     application::HudCallback callback_{};
     std::size_t in_flight_{};
@@ -2657,5 +3209,32 @@ auto UnrealRuntimeAdapter::render(
         product_ui::ProductUiFrameRuntimeError>
 {
     return impl_->render_canvas(identity, frame);
+}
+
+auto UnrealRuntimeAdapter::capture()
+    -> std::expected<
+        ui::RuntimeInputState,
+        ui::InputPortError>
+{
+    return impl_->capture_input();
+}
+
+auto UnrealRuntimeAdapter::apply_panel_controls()
+    -> std::expected<void, ui::InputPortError>
+{
+    return impl_->apply_input();
+}
+
+auto UnrealRuntimeAdapter::current_owner()
+    -> std::expected<std::uint64_t, ui::InputPortError>
+{
+    return impl_->current_input_owner();
+}
+
+auto UnrealRuntimeAdapter::restore(
+    const ui::RuntimeInputState& state)
+    -> std::expected<void, ui::InputPortError>
+{
+    return impl_->restore_input(state);
 }
 } // namespace meccha::runtime

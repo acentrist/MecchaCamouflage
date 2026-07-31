@@ -7,19 +7,19 @@
 
 namespace meccha::ui
 {
-enum class RuntimeInputMode : std::uint8_t
+enum class RuntimeInputModeHandling : std::uint8_t
 {
-    GameOnly,
-    UiOnly,
-    GameAndUi,
+    PreserveUnchanged,
 };
 
 struct RuntimeInputState
 {
+    std::uint64_t owner_identity{};
     bool cursor_visible{};
     bool look_input_ignored{};
     bool movement_input_ignored{};
-    RuntimeInputMode mode{RuntimeInputMode::GameOnly};
+    RuntimeInputModeHandling input_mode{
+        RuntimeInputModeHandling::PreserveUnchanged};
 
     auto operator==(const RuntimeInputState&) const -> bool = default;
 };
@@ -43,6 +43,8 @@ public:
         -> std::expected<RuntimeInputState, InputPortError> = 0;
     [[nodiscard]] virtual auto apply_panel_controls()
         -> std::expected<void, InputPortError> = 0;
+    [[nodiscard]] virtual auto current_owner()
+        -> std::expected<std::uint64_t, InputPortError> = 0;
     [[nodiscard]] virtual auto restore(
         const RuntimeInputState& state)
         -> std::expected<void, InputPortError> = 0;
@@ -59,6 +61,7 @@ enum class InputLeaseFailureKind : std::uint8_t
 {
     Capture,
     InvalidCapturedState,
+    OwnerValidation,
     Apply,
     Rollback,
     Restore,

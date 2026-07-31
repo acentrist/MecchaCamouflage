@@ -16,6 +16,18 @@ namespace meccha::runtime
 [[nodiscard]] auto import_buffer_as_texture2d_contract()
     -> ReflectionRecordDescriptor;
 
+[[nodiscard]] auto is_look_input_ignored_contract()
+    -> ReflectionRecordDescriptor;
+
+[[nodiscard]] auto is_move_input_ignored_contract()
+    -> ReflectionRecordDescriptor;
+
+[[nodiscard]] auto set_ignore_look_input_contract()
+    -> ReflectionRecordDescriptor;
+
+[[nodiscard]] auto set_ignore_move_input_contract()
+    -> ReflectionRecordDescriptor;
+
 [[nodiscard]] auto vector2d_contract()
     -> ReflectionRecordDescriptor;
 

@@ -361,6 +361,12 @@ public:
         return {};
     }
 
+    auto current_owner()
+        -> std::expected<std::uint64_t, ui::InputPortError> override
+    {
+        return previous.owner_identity;
+    }
+
     auto restore(const ui::RuntimeInputState& state)
         -> std::expected<void, ui::InputPortError> override
     {
@@ -370,10 +376,11 @@ public:
     }
 
     ui::RuntimeInputState previous{
+        1U,
         false,
         false,
         false,
-        ui::RuntimeInputMode::GameOnly,
+        ui::RuntimeInputModeHandling::PreserveUnchanged,
     };
     std::optional<ui::RuntimeInputState> restored{};
     std::size_t capture_calls{};

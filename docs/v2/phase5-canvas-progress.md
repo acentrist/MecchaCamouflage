@@ -228,23 +228,41 @@ open work.
 
 ## Exact input lease
 
-`InputLeaseController` owns the panel input transition while a future Unreal
-adapter implements the narrow `InputLeasePort`. On the closed-to-open edge it
-captures cursor visibility, look-input suppression, movement-input
-suppression, and the current game/UI input mode exactly once, then asks the
-adapter to apply the panel controls. Stable open/closed frames do not repeat
-runtime mutations.
+`InputLeaseController` owns the panel input transition through the narrow
+`InputLeasePort`. On the closed-to-open edge it captures the exact
+PlayerController generation, cursor visibility, look-input suppression, and
+movement-input suppression once, then asks the adapter to apply the panel
+controls. Unreal exposes no validated reflected getter for the current Slate
+input mode, so the product never changes that mode and explicitly records the
+`PreserveUnchanged` policy instead of inventing a value to restore.
 
 Closing or shutting down restores the complete captured value. A failed apply
 immediately attempts rollback. If rollback or a later restore fails, the
 captured value remains owned in the `Restoring` state so the next frame or
 shutdown step can retry; it is never discarded as if restoration succeeded.
-Port exceptions are contained and failure details are bounded.
+Port exceptions are contained and failure details are bounded. While held,
+each frame validates the current controller identity. Replacement restores the
+old owner before capturing and applying to the new owner; a failed old-owner
+restore blocks reacquisition and remains retryable.
 
-The production port must run on the validated game-thread/HUD boundary. It
-must show the cursor, suspend look and movement, and select the reviewed UI
-input mode while held. These runtime effects and their behavior through
-travel/controller replacement remain part of the live feasibility gate.
+`UnrealRuntimeAdapter` now implements that port on the validated game-thread
+HUD boundary. It freezes the exact one-byte UE 5.6 reflection records for
+`IsLookInputIgnored`, `IsMoveInputIgnored`, `SetIgnoreLookInput`, and
+`SetIgnoreMoveInput`, validates their exact `Controller` owner, and validates
+`PlayerController.bShowMouseCursor` as an in-container `FBoolProperty`.
+Look/movement calls are issued only when the captured value was not already
+ignored and are paired with exactly one release call. Cursor mutation is
+tracked separately and restored to the captured bit value. Partial apply and
+restore progress remains adapter-owned so retries do not repeat already
+completed releases. Normal callback removal refuses a live input mutation;
+the terminal emergency path makes a bounded game-thread restoration attempt
+after admitted callbacks drain.
+
+The reflection contracts, controller replacement state machine, rollback, and
+retry paths pass portable Linux, ASan/UBSan, and targeted Windows MSVC Release
+tests. The production adapter compiles and links under `/W4 /WX` against the
+pinned manifest-verified UE4SS graph. Live reflection resolution and behavior
+through travel, HUD/controller replacement, and unload remain mandatory.
 
 ## Automated evidence
 
@@ -253,8 +271,10 @@ localized UTF-8 text, active clip retention, out-of-clip no-op behavior,
 primitive limits without partial mutation, invalid geometry/text/viewport
 rejection, and clip-balance refusal.
 
-`ui_input_lease` covers exact state capture/restore, stable-frame idempotence,
-apply rollback, failed rollback/restore retention and retry, invalid captured
+`ui_input_lease` covers exact owner/state capture and restoration,
+stable-frame owner validation, restore-before-rebind ordering, failed
+owner-validation containment, apply rollback, failed rollback/restore
+retention and retry, same-frame reacquisition after retry, invalid captured
 state refusal, shutdown restoration, and exception containment.
 
 `ui_layout` covers normal, constrained high-DPI, safe-area, compact-tab, and

@@ -521,7 +521,8 @@ details, omitted counts, the empty state, compact scrolling, and incoherent
 queue refusal.
 
 This remains a partial product UI milestone. The production UE4SS callback,
-frame capture, input lease, and remaining UCanvas/font adapters remain open.
+frame/pointer/text capture, live input-lease proof, and remaining UCanvas/font
+adapters remain open.
 
 `ProductUiFrameCoordinator` now implements the application-owned
 `RuntimeFrameExtensionPort`. Each compatible root HUD frame supplies the same
@@ -545,8 +546,9 @@ drawing remain part of the production UCanvas adapter and live gate.
 
 - Bind the root-owned HUD-frame callback and attached frame coordinator to the
   production UE4SS callback registration adapter.
-- Implement the production UCanvas capture/render and Unreal input-lease ports,
-  then register the UE4SS key callbacks once.
+- Implement production UCanvas frame/pointer/text capture, live-verify the
+  compiled Unreal input-lease port, and connect registered UE4SS key callbacks
+  only when the frame consumer is owned by the composition root.
 - Select and bind the game-font/OFL fallback path, then live-verify the already
   bound reflected texture creation/release across travel and teardown.
 - Complete fake-runtime and live UI verification across all languages,

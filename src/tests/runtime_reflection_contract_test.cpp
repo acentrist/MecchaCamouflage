@@ -1,4 +1,5 @@
 #include <meccha/runtime/canvas_call_codec.hpp>
+#include <meccha/runtime/input_control_codec.hpp>
 #include <meccha/runtime/reflection_contract.hpp>
 #include <meccha/runtime/paint_call_codec.hpp>
 #include <meccha/runtime/paint_preview_codec.hpp>
@@ -220,6 +221,31 @@ auto main() -> int
                 import_buffer_as_texture2d_contract())
                 .has_value(),
         "the reviewed texture-import contract drifted");
+    passed &= expect(
+        is_look_input_ignored_contract().owner_name ==
+                "/Script/Engine.Controller" &&
+            is_look_input_ignored_contract().size == 0x01U &&
+            is_move_input_ignored_contract().size == 0x01U &&
+            set_ignore_look_input_contract().size == 0x01U &&
+            set_ignore_move_input_contract().size == 0x01U &&
+            validate_reflection_contract(
+                is_look_input_ignored_contract(),
+                is_look_input_ignored_contract()).has_value() &&
+            validate_reflection_contract(
+                is_move_input_ignored_contract(),
+                is_move_input_ignored_contract()).has_value() &&
+            validate_reflection_contract(
+                set_ignore_look_input_contract(),
+                set_ignore_look_input_contract()).has_value() &&
+            validate_reflection_contract(
+                set_ignore_move_input_contract(),
+                set_ignore_move_input_contract()).has_value(),
+        "the reviewed input-control contracts drifted");
+    const auto ignored_input = encode_ignore_input(true);
+    passed &= expect(
+        ignored_input.new_input &&
+            !IgnoreInputQueryParametersAbi{}.return_value,
+        "the input-control bool ABI did not preserve its value");
     const auto import_world =
         reinterpret_cast<void*>(0x1000U);
     const auto import_bytes = std::array{

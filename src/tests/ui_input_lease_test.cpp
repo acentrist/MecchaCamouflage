@@ -22,14 +22,18 @@ class FakeInputPort final : public meccha::ui::InputLeasePort
 {
 public:
     meccha::ui::RuntimeInputState initial{
+        17U,
         true,
         false,
         true,
-        meccha::ui::RuntimeInputMode::GameAndUi,
+        meccha::ui::RuntimeInputModeHandling::PreserveUnchanged,
     };
+    std::uint64_t active_owner{initial.owner_identity};
     std::vector<std::string> calls{};
+    std::vector<meccha::ui::RuntimeInputState> restored{};
     int apply_failures{};
     int restore_failures{};
+    int owner_failures{};
     bool throw_on_capture{};
 
     auto capture() -> std::expected<
@@ -56,6 +60,20 @@ public:
         return {};
     }
 
+    auto current_owner() -> std::expected<
+        std::uint64_t,
+        meccha::ui::InputPortError> override
+    {
+        calls.emplace_back("current_owner");
+        if (owner_failures-- > 0)
+        {
+            return std::unexpected(
+                meccha::ui::InputPortError{
+                    "owner validation failed"});
+        }
+        return active_owner;
+    }
+
     auto restore(
         const meccha::ui::RuntimeInputState& state)
         -> std::expected<void, meccha::ui::InputPortError> override
@@ -66,11 +84,7 @@ public:
             return std::unexpected(
                 meccha::ui::InputPortError{"restore failed"});
         }
-        if (state != initial)
-        {
-            return std::unexpected(
-                meccha::ui::InputPortError{"wrong restore state"});
-        }
+        restored.push_back(state);
         return {};
     }
 };
@@ -95,8 +109,34 @@ auto main() -> int
 
     passed &= expect(
         lease.reconcile(true, port) &&
-            port.calls.size() == 2U,
-        "stable open repeated runtime mutations");
+            port.calls ==
+                std::vector<std::string>{
+                    "capture",
+                    "apply",
+                    "current_owner",
+                },
+        "stable open did not validate the exact runtime owner");
+
+    const auto first_owner = port.initial;
+    port.initial.owner_identity = 29U;
+    port.active_owner = 29U;
+    const auto rebound = lease.reconcile(true, port);
+    passed &= expect(
+        rebound &&
+            rebound->phase == InputLeasePhase::Held &&
+            rebound->previous == port.initial &&
+            port.restored ==
+                std::vector<RuntimeInputState>{first_owner} &&
+            std::vector<std::string>(
+                port.calls.end() - 4,
+                port.calls.end()) ==
+                std::vector<std::string>{
+                    "current_owner",
+                    "restore",
+                    "capture",
+                    "apply",
+                },
+        "owner replacement did not restore before reacquiring");
 
     const auto closed = lease.reconcile(false, port);
     passed &= expect(
@@ -105,6 +145,59 @@ auto main() -> int
             !closed->previous &&
             port.calls.back() == "restore",
         "close did not restore and release the exact lease");
+
+    FakeInputPort owner_failure{};
+    InputLeaseController owner_lease{};
+    passed &= expect(
+        owner_lease.reconcile(true, owner_failure).has_value(),
+        "owner-validation fixture did not acquire");
+    owner_failure.owner_failures = 1;
+    const auto failed_owner =
+        owner_lease.reconcile(true, owner_failure);
+    passed &= expect(
+        !failed_owner &&
+            failed_owner.error().kind ==
+                InputLeaseFailureKind::OwnerValidation &&
+            owner_lease.snapshot().phase ==
+                InputLeasePhase::Held &&
+            owner_lease.snapshot().previous ==
+                owner_failure.initial &&
+            owner_lease.reconcile(true, owner_failure)
+                .has_value(),
+        "owner-validation failure discarded or mutated the lease");
+
+    FakeInputPort replacement_restore_failure{};
+    InputLeaseController replacement_lease{};
+    passed &= expect(
+        replacement_lease
+            .reconcile(true, replacement_restore_failure)
+            .has_value(),
+        "owner-replacement fixture did not acquire");
+    replacement_restore_failure.restore_failures = 1;
+    replacement_restore_failure.initial.owner_identity = 41U;
+    replacement_restore_failure.active_owner = 41U;
+    const auto failed_replacement =
+        replacement_lease.reconcile(
+            true,
+            replacement_restore_failure);
+    passed &= expect(
+        !failed_replacement &&
+            failed_replacement.error().kind ==
+                InputLeaseFailureKind::Restore &&
+            replacement_lease.snapshot().phase ==
+                InputLeasePhase::Restoring,
+        "failed owner replacement did not retain restore state");
+    const auto retried_replacement =
+        replacement_lease.reconcile(
+            true,
+            replacement_restore_failure);
+    passed &= expect(
+        retried_replacement &&
+            retried_replacement->phase ==
+                InputLeasePhase::Held &&
+            retried_replacement->previous ==
+                replacement_restore_failure.initial,
+        "owner replacement did not reacquire after restore retry");
 
     FakeInputPort apply_failure{};
     apply_failure.apply_failures = 1;
@@ -170,8 +263,8 @@ auto main() -> int
         "failed apply rollback did not retain and retry exact state");
 
     FakeInputPort invalid_capture{};
-    invalid_capture.initial.mode =
-        static_cast<RuntimeInputMode>(0xFFU);
+    invalid_capture.initial.input_mode =
+        static_cast<RuntimeInputModeHandling>(0xFFU);
     InputLeaseController invalid_lease{};
     const auto invalid_state =
         invalid_lease.reconcile(true, invalid_capture);

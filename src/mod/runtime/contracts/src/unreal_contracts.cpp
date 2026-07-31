@@ -299,6 +299,90 @@ auto import_buffer_as_texture2d_contract()
     };
 }
 
+auto is_look_input_ignored_contract()
+    -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "IsLookInputIgnored",
+        "/Script/Engine.Controller",
+        0x01U,
+        {
+            ReflectionPropertyDescriptor{
+                "ReturnValue",
+                ReflectionPropertyKind::Bool,
+                {},
+                0x00U,
+                0x01U,
+                1U,
+                ReflectionPropertyDirection::ReturnValue,
+            },
+        },
+    };
+}
+
+auto is_move_input_ignored_contract()
+    -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "IsMoveInputIgnored",
+        "/Script/Engine.Controller",
+        0x01U,
+        {
+            ReflectionPropertyDescriptor{
+                "ReturnValue",
+                ReflectionPropertyKind::Bool,
+                {},
+                0x00U,
+                0x01U,
+                1U,
+                ReflectionPropertyDirection::ReturnValue,
+            },
+        },
+    };
+}
+
+auto set_ignore_look_input_contract()
+    -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "SetIgnoreLookInput",
+        "/Script/Engine.Controller",
+        0x01U,
+        {
+            ReflectionPropertyDescriptor{
+                "bNewLookInput",
+                ReflectionPropertyKind::Bool,
+                {},
+                0x00U,
+                0x01U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+        },
+    };
+}
+
+auto set_ignore_move_input_contract()
+    -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "SetIgnoreMoveInput",
+        "/Script/Engine.Controller",
+        0x01U,
+        {
+            ReflectionPropertyDescriptor{
+                "bNewMoveInput",
+                ReflectionPropertyKind::Bool,
+                {},
+                0x00U,
+                0x01U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+        },
+    };
+}
+
 auto vector2d_contract() -> ReflectionRecordDescriptor
 {
     return ReflectionRecordDescriptor{

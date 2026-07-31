@@ -19,7 +19,8 @@ class UnrealRuntimeAdapter final
       public application::PaintQueueRuntimePort,
       public application::PaintPreviewRuntimePort,
       public product_ui::ImageEditorTextureRuntimePort,
-      public product_ui::ProductUiCanvasRenderPort
+      public product_ui::ProductUiCanvasRenderPort,
+      public ui::InputLeasePort
 {
 public:
     UnrealRuntimeAdapter();
@@ -102,6 +103,23 @@ public:
         -> std::expected<
             void,
             product_ui::ProductUiFrameRuntimeError> override;
+
+    [[nodiscard]] auto capture()
+        -> std::expected<
+            ui::RuntimeInputState,
+            ui::InputPortError> override;
+
+    [[nodiscard]] auto apply_panel_controls()
+        -> std::expected<void, ui::InputPortError> override;
+
+    [[nodiscard]] auto current_owner()
+        -> std::expected<
+            std::uint64_t,
+            ui::InputPortError> override;
+
+    [[nodiscard]] auto restore(
+        const ui::RuntimeInputState& state)
+        -> std::expected<void, ui::InputPortError> override;
 
 private:
     class Impl;

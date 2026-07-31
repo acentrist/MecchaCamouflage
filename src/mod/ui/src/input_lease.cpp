@@ -23,11 +23,13 @@ auto bounded_detail(std::string detail) -> std::string
 
 auto valid(const RuntimeInputState& state) -> bool
 {
-    switch (state.mode)
+    if (state.owner_identity == 0U)
     {
-    case RuntimeInputMode::GameOnly:
-    case RuntimeInputMode::UiOnly:
-    case RuntimeInputMode::GameAndUi:
+        return false;
+    }
+    switch (state.input_mode)
+    {
+    case RuntimeInputModeHandling::PreserveUnchanged:
         return true;
     }
     return false;
@@ -95,7 +97,7 @@ auto InputLeaseController::acquire(InputLeasePort& port)
     {
         return fail(
             InputLeaseFailureKind::InvalidCapturedState,
-            "Captured input mode is invalid.");
+            "Captured input state is invalid.");
     }
     snapshot_.previous = *captured;
 
@@ -225,7 +227,13 @@ auto InputLeaseController::reconcile(
 {
     if (snapshot_.phase == InputLeasePhase::Restoring)
     {
-        return release(port, InputLeaseFailureKind::Restore);
+        const auto released =
+            release(port, InputLeaseFailureKind::Restore);
+        if (!released || !panel_open)
+        {
+            return released;
+        }
+        return acquire(port);
     }
     if (panel_open &&
         snapshot_.phase == InputLeasePhase::Released)
@@ -236,6 +244,55 @@ auto InputLeaseController::reconcile(
         snapshot_.phase == InputLeasePhase::Held)
     {
         return release(port, InputLeaseFailureKind::Restore);
+    }
+    if (panel_open &&
+        snapshot_.phase == InputLeasePhase::Held)
+    {
+        if (!snapshot_.previous)
+        {
+            return fail(
+                InputLeaseFailureKind::InvalidCapturedState,
+                "Held input lease has no captured owner.");
+        }
+        std::expected<std::uint64_t, InputPortError> owner;
+        try
+        {
+            owner = port.current_owner();
+        }
+        catch (const std::exception& error)
+        {
+            return fail(
+                InputLeaseFailureKind::PortException,
+                error.what());
+        }
+        catch (...)
+        {
+            return fail(
+                InputLeaseFailureKind::PortException,
+                "Input owner validation threw an unknown exception.");
+        }
+        if (!owner)
+        {
+            return fail(
+                InputLeaseFailureKind::OwnerValidation,
+                owner.error().detail);
+        }
+        if (*owner == 0U)
+        {
+            return fail(
+                InputLeaseFailureKind::OwnerValidation,
+                "Current input owner is invalid.");
+        }
+        if (*owner != snapshot_.previous->owner_identity)
+        {
+            const auto released =
+                release(port, InputLeaseFailureKind::Restore);
+            if (!released)
+            {
+                return released;
+            }
+            return acquire(port);
+        }
     }
     return snapshot_;
 }
