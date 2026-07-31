@@ -23,6 +23,7 @@ enum class RuntimeContractId : std::uint8_t
     Hud,
     Canvas,
     PaintAtUvWithBrush,
+    PaintQueueObservation,
     ImagePaintTexture,
     TextureMutation,
     InputControl,

@@ -3,8 +3,9 @@
 Phase 8 is open. Its pure immutable planning, owned planning worker, and
 generation-tagged dispatch boundaries are implemented and verified. Its exact
 reflected `PaintAtUVWithBrush` contract and production game-thread sender now
-compile against the pinned UE4SS graph; production capture, queue observation,
-preview, composition-root ownership, and live evidence remain.
+compile against the pinned UE4SS graph. The exact production queue observer
+also compiles against that graph; production capture, preview,
+composition-root ownership, and live evidence remain.
 
 ## Immutable capture-to-plan contract
 
@@ -97,6 +98,17 @@ generation before it can mutate job state or begin dispatch. It also:
   local body, converts sRGB bytes to linear albedo, normalizes radius using the
   captured dimension, fixes the reviewed brush/apply modes, selects the AMRE
   channel, and invokes UE4SS `ProcessEvent` only on the game thread.
+- The separate production `PaintQueueRuntimePort` freezes
+  `GetRecordedStrokeCount`, both replication-manager count functions,
+  `GetReplicationPressure`, and `RuntimePaintReplicationPressure` by exact
+  owner/name/property/ABI schema. It accepts exactly one live, exact-class,
+  non-CDO/non-archetype manager whose `GetWorld()` is the active HUD World.
+  The component handle must match the bound weak-object identity and generation
+  before any call. Owned visual and per-component outgoing counters drive
+  completion; global manager count/pressure are validated but never hold this
+  job open for another player's work. Negative or non-finite results fail
+  closed. Visual activity is sticky only within the same component/job
+  generation and resets on replacement.
 
 ## Bounded dispatch contract
 
@@ -204,8 +216,10 @@ It has no runtime adapter, UObject, scheduler, or preview-lease access.
 `core_contract` additionally covers replay/adaptive resource limits and
 cancellation. `runtime_operation_executor` covers effective Fill radius
 admission, captured-dimension validation, and oversized-radius rejection.
-`runtime_reflection_contract` covers every exact reflected-record mismatch plus
-the reviewed ABI/color/material/radius/channel encoding.
+`runtime_reflection_contract` covers every exact reflected-record mismatch,
+the reviewed ABI/color/material/radius/channel encoding, all exact queue
+record sizes, owned-counter mapping, generation isolation, sticky drain
+activity, and invalid counter rejection.
 `application_runtime` covers control priority and reserved control capacity
 over queued Paint work.
 `paint_dispatch` covers cadence, frame admission, backpressure, exact
@@ -240,8 +254,8 @@ Paint pass.
 
 - Capture the live component/profile/source appearance and preview snapshot
   through validated reflected contracts on the game thread.
-- Implement the production UE4SS capture/queue-observer contracts, connect the
-  completed sender through the exported composition root, and connect exact
-  reflected preview export/import/verification.
+- Implement the remaining production UE4SS capture contracts, connect the
+  completed sender and queue observer through the exported composition root,
+  and connect exact reflected preview export/import/verification.
 - Complete fake-runtime failures and the deferred single-/two-client live
   matrix before Phase 8 can close.

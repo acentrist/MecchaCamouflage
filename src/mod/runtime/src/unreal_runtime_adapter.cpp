@@ -1,6 +1,7 @@
 #include <meccha/runtime/unreal_runtime_adapter.hpp>
 
 #include <meccha/runtime/paint_call_codec.hpp>
+#include <meccha/runtime/paint_queue_codec.hpp>
 #include <meccha/runtime/reflection_contract.hpp>
 #include <meccha/runtime/unreal_contracts.hpp>
 
@@ -12,6 +13,7 @@
 #include <Unreal/UFunctionStructs.hpp>
 #include <Unreal/UObject.hpp>
 #include <Unreal/UObjectGlobals.hpp>
+#include <Unreal/UnrealFlags.hpp>
 #include <Unreal/UnrealInitializer.hpp>
 #include <Unreal/World.hpp>
 
@@ -45,6 +47,22 @@ constexpr auto RuntimePaintableClassPath =
 constexpr auto PaintAtUvWithBrushPath =
     STR("/Script/PenguinHotel.RuntimePaintableComponent:"
         "PaintAtUVWithBrush");
+constexpr auto GetRecordedStrokeCountPath =
+    STR("/Script/PenguinHotel.RuntimePaintableComponent:"
+        "GetRecordedStrokeCount");
+constexpr auto RuntimePaintReplicationManagerClassPath =
+    STR("/Script/PenguinHotel.RuntimePaintReplicationManager");
+constexpr auto GetQueuedStrokeCountPath =
+    STR("/Script/PenguinHotel.RuntimePaintReplicationManager:"
+        "GetQueuedStrokeCount");
+constexpr auto GetQueuedStrokeCountForComponentPath =
+    STR("/Script/PenguinHotel.RuntimePaintReplicationManager:"
+        "GetQueuedStrokeCountForComponent");
+constexpr auto GetReplicationPressurePath =
+    STR("/Script/PenguinHotel.RuntimePaintReplicationManager:"
+        "GetReplicationPressure");
+constexpr auto RuntimePaintReplicationPressurePath =
+    STR("/Script/PenguinHotel.RuntimePaintReplicationPressure");
 constexpr auto Vector2dPath =
     STR("/Script/CoreUObject.Vector2D");
 constexpr auto PaintChannelDataPath =
@@ -70,11 +88,17 @@ struct PaintContracts
     UClass* player_controller_class{};
     UClass* pawn_class{};
     UClass* runtime_paintable_class{};
+    UClass* replication_manager_class{};
     FObjectPropertyBase* acknowledged_pawn{};
     UFunction* paint_at_uv_with_brush{};
+    UFunction* get_recorded_stroke_count{};
+    UFunction* get_queued_stroke_count{};
+    UFunction* get_queued_stroke_count_for_component{};
+    UFunction* get_replication_pressure{};
     UScriptStruct* vector2d{};
     UScriptStruct* paint_channel_data{};
     UScriptStruct* runtime_brush_settings{};
+    UScriptStruct* runtime_paint_replication_pressure{};
 };
 
 struct ActiveFrame
@@ -95,6 +119,7 @@ struct BoundFrame
     FWeakObjectPtr canvas{};
     FWeakObjectPtr pawn{};
     FWeakObjectPtr component{};
+    FWeakObjectPtr replication_manager{};
     std::uint64_t component_identity{};
     std::uint64_t component_generation{};
 };
@@ -212,6 +237,18 @@ auto object_is_live(UObject* object, UClass* expected_class) -> bool
     const auto weak = FWeakObjectPtr{object};
     return weak.Get() == object &&
            weak.ObjectSerialNumber != 0;
+}
+
+auto object_is_live_exact(
+    UObject* object,
+    UClass* expected_class) -> bool
+{
+    constexpr auto rejected_flags = static_cast<EObjectFlags>(
+        RF_ClassDefaultObject | RF_ArchetypeObject |
+        RF_BeginDestroyed | RF_FinishDestroyed);
+    return object_is_live(object, expected_class) &&
+           object->GetClassPrivate() == expected_class &&
+           !object->HasAnyFlags(rejected_flags);
 }
 
 auto object_identity(UObject* object) -> std::uint64_t
@@ -470,11 +507,33 @@ auto resolve_paint_contracts(UClass* player_controller_class)
     contracts.pawn_class = find_class(PawnClassPath);
     contracts.runtime_paintable_class =
         find_class(RuntimePaintableClassPath);
+    contracts.replication_manager_class =
+        find_class(RuntimePaintReplicationManagerClassPath);
     contracts.paint_at_uv_with_brush =
         UObjectGlobals::StaticFindObject<UFunction*>(
             nullptr,
             nullptr,
             PaintAtUvWithBrushPath);
+    contracts.get_recorded_stroke_count =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            GetRecordedStrokeCountPath);
+    contracts.get_queued_stroke_count =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            GetQueuedStrokeCountPath);
+    contracts.get_queued_stroke_count_for_component =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            GetQueuedStrokeCountForComponentPath);
+    contracts.get_replication_pressure =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            GetReplicationPressurePath);
     contracts.vector2d =
         UObjectGlobals::StaticFindObject<UScriptStruct*>(
             nullptr,
@@ -490,12 +549,19 @@ auto resolve_paint_contracts(UClass* player_controller_class)
             nullptr,
             nullptr,
             RuntimeBrushSettingsPath);
+    contracts.runtime_paint_replication_pressure =
+        UObjectGlobals::StaticFindObject<UScriptStruct*>(
+            nullptr,
+            nullptr,
+            RuntimePaintReplicationPressurePath);
     if (player_controller_class == nullptr ||
         contracts.pawn_class == nullptr ||
         contracts.runtime_paintable_class == nullptr ||
+        contracts.replication_manager_class == nullptr ||
         contracts.vector2d == nullptr ||
         contracts.paint_channel_data == nullptr ||
-        contracts.runtime_brush_settings == nullptr)
+        contracts.runtime_brush_settings == nullptr ||
+        contracts.runtime_paint_replication_pressure == nullptr)
     {
         return runtime_failure(
             application::RuntimeContractId::
@@ -509,12 +575,37 @@ auto resolve_paint_contracts(UClass* player_controller_class)
                 PaintAtUvWithBrush,
             application::ContractFailureKind::MissingFunction);
     }
+    if (contracts.get_recorded_stroke_count == nullptr ||
+        contracts.get_queued_stroke_count == nullptr ||
+        contracts.get_queued_stroke_count_for_component == nullptr ||
+        contracts.get_replication_pressure == nullptr)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::
+                PaintQueueObservation,
+            application::ContractFailureKind::MissingFunction);
+    }
     if (contracts.paint_at_uv_with_brush->GetOuterPrivate() !=
         contracts.runtime_paintable_class)
     {
         return runtime_failure(
             application::RuntimeContractId::
                 PaintAtUvWithBrush,
+            application::ContractFailureKind::WrongClass);
+    }
+    if (contracts.get_recorded_stroke_count->GetOuterPrivate() !=
+            contracts.runtime_paintable_class ||
+        contracts.get_queued_stroke_count->GetOuterPrivate() !=
+            contracts.replication_manager_class ||
+        contracts.get_queued_stroke_count_for_component
+                ->GetOuterPrivate() !=
+            contracts.replication_manager_class ||
+        contracts.get_replication_pressure->GetOuterPrivate() !=
+            contracts.replication_manager_class)
+    {
+        return runtime_failure(
+            application::RuntimeContractId::
+                PaintQueueObservation,
             application::ContractFailureKind::WrongClass);
     }
 
@@ -560,6 +651,46 @@ auto resolve_paint_contracts(UClass* player_controller_class)
     if (!function_result)
     {
         return std::unexpected(function_result.error());
+    }
+    const auto recorded_result = validate_record(
+        contracts.get_recorded_stroke_count,
+        recorded_stroke_count_contract(),
+        application::RuntimeContractId::PaintQueueObservation);
+    if (!recorded_result)
+    {
+        return std::unexpected(recorded_result.error());
+    }
+    const auto pressure_struct_result = validate_record(
+        contracts.runtime_paint_replication_pressure,
+        runtime_paint_replication_pressure_contract(),
+        application::RuntimeContractId::PaintQueueObservation);
+    if (!pressure_struct_result)
+    {
+        return std::unexpected(pressure_struct_result.error());
+    }
+    const auto manager_count_result = validate_record(
+        contracts.get_queued_stroke_count,
+        queued_stroke_count_contract(),
+        application::RuntimeContractId::PaintQueueObservation);
+    if (!manager_count_result)
+    {
+        return std::unexpected(manager_count_result.error());
+    }
+    const auto component_count_result = validate_record(
+        contracts.get_queued_stroke_count_for_component,
+        queued_stroke_count_for_component_contract(),
+        application::RuntimeContractId::PaintQueueObservation);
+    if (!component_count_result)
+    {
+        return std::unexpected(component_count_result.error());
+    }
+    const auto pressure_result = validate_record(
+        contracts.get_replication_pressure,
+        replication_pressure_contract(),
+        application::RuntimeContractId::PaintQueueObservation);
+    if (!pressure_result)
+    {
+        return std::unexpected(pressure_result.error());
     }
     return contracts;
 }
@@ -618,6 +749,37 @@ auto resolve_owned_paint_component(
         return std::nullopt;
     }
     return std::pair{pawn, component};
+}
+
+auto resolve_unique_replication_manager(
+    UObject* world,
+    const PaintContracts& contracts) -> UObject*
+{
+    if (world == nullptr ||
+        contracts.replication_manager_class == nullptr)
+    {
+        return nullptr;
+    }
+    auto* match = static_cast<UObject*>(nullptr);
+    auto count = std::size_t{};
+    UObjectGlobals::ForEachUObject(
+        [&](UObject* object, std::int32_t, std::int32_t)
+            -> RC::LoopAction
+        {
+            if (!object_is_live_exact(
+                    object,
+                    contracts.replication_manager_class) ||
+                object->GetWorld() != world)
+            {
+                return RC::LoopAction::Continue;
+            }
+            match = object;
+            ++count;
+            return count > 1U
+                       ? RC::LoopAction::Break
+                       : RC::LoopAction::Continue;
+        });
+    return count == 1U ? match : nullptr;
 }
 } // namespace
 
@@ -822,6 +984,18 @@ public:
 
             auto* pawn = static_cast<UObject*>(nullptr);
             auto* component = static_cast<UObject*>(nullptr);
+            auto* replication_manager =
+                resolve_unique_replication_manager(
+                    active->world,
+                    *paint);
+            if (replication_manager == nullptr)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        PaintQueueObservation,
+                    application::ContractFailureKind::
+                        MissingObject);
+            }
             if (const auto owned =
                     resolve_owned_paint_component(*active, *paint))
             {
@@ -898,6 +1072,7 @@ public:
                 FWeakObjectPtr{active->canvas},
                 FWeakObjectPtr{pawn},
                 FWeakObjectPtr{component},
+                FWeakObjectPtr{replication_manager},
                 component_id,
                 generation,
             };
@@ -981,6 +1156,130 @@ public:
             return runtime_failure(
                 application::RuntimeContractId::
                     PaintAtUvWithBrush,
+                application::ContractFailureKind::
+                    ExecutionFailure);
+        }
+    }
+
+    auto observe_queues(
+        application::RuntimeObjectHandle component_handle,
+        application::JobGeneration generation)
+        -> std::expected<
+            application::PaintQueueObservation,
+            application::RuntimeExecutionError>
+    {
+        if (!IsInGameThreadRaw())
+        {
+            return std::unexpected(
+                application::RuntimeExecutionError{
+                    application::RuntimeExecutionErrorCode::
+                        WrongThread,
+                    std::nullopt,
+                });
+        }
+        try
+        {
+            auto contracts = std::optional<PaintContracts>{};
+            auto bound = std::optional<BoundFrame>{};
+            auto active = std::optional<ActiveFrame>{};
+            {
+                const auto lock = std::scoped_lock{mutex_};
+                contracts = paint_contracts_;
+                bound = bound_frame_;
+                active = active_frame_;
+            }
+            if (!contracts || !bound || !active ||
+                bound->identity != active->identity ||
+                generation == 0U ||
+                component_handle.identity !=
+                    bound->component_identity ||
+                component_handle.generation !=
+                    bound->component_generation)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        PaintQueueObservation,
+                    application::ContractFailureKind::
+                        StaleObject);
+            }
+
+            auto* component = bound->component.Get();
+            auto* manager = bound->replication_manager.Get();
+            if (!object_is_live(
+                    component,
+                    contracts->runtime_paintable_class) ||
+                !object_is_live_exact(
+                    manager,
+                    contracts->replication_manager_class) ||
+                manager->GetWorld() != active->world)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        PaintQueueObservation,
+                    application::ContractFailureKind::
+                        StaleObject);
+            }
+
+            auto recorded = RecordedStrokeCountParamsAbi{};
+            component->ProcessEvent(
+                contracts->get_recorded_stroke_count,
+                &recorded);
+
+            auto component_count =
+                QueuedStrokeCountForComponentParamsAbi{};
+            component_count.paint_component = component;
+            manager->ProcessEvent(
+                contracts->get_queued_stroke_count_for_component,
+                &component_count);
+
+            auto manager_count = QueuedStrokeCountParamsAbi{};
+            manager->ProcessEvent(
+                contracts->get_queued_stroke_count,
+                &manager_count);
+
+            auto pressure = ReplicationPressureParamsAbi{};
+            manager->ProcessEvent(
+                contracts->get_replication_pressure,
+                &pressure);
+
+            const auto lock = std::scoped_lock{mutex_};
+            if (detaching_ || !bound_frame_ ||
+                bound_frame_->identity != bound->identity ||
+                bound_frame_->component_identity !=
+                    component_handle.identity ||
+                bound_frame_->component_generation !=
+                    component_handle.generation)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        PaintQueueObservation,
+                    application::ContractFailureKind::
+                        StaleObject);
+            }
+            const auto observed = queue_tracker_.observe(
+                component_handle,
+                generation,
+                PaintQueueCounters{
+                    recorded.return_value,
+                    component_count.return_value,
+                    manager_count.return_value,
+                    pressure.return_value,
+                });
+            if (!observed)
+            {
+                return runtime_failure(
+                    application::RuntimeContractId::
+                        PaintQueueObservation,
+                    application::ContractFailureKind::
+                        InvalidValue);
+            }
+            return *observed;
+        }
+        catch (...)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::
+                    PaintQueueObservation,
                 application::ContractFailureKind::
                     ExecutionFailure);
         }
@@ -1108,6 +1407,7 @@ private:
         paint_contracts_.reset();
         active_frame_.reset();
         bound_frame_.reset();
+        queue_tracker_.reset();
         callback_context_ = nullptr;
         callback_ = nullptr;
         active_frame_sequence_ = 0U;
@@ -1150,6 +1450,7 @@ private:
     std::optional<PaintContracts> paint_contracts_{};
     std::optional<ActiveFrame> active_frame_{};
     std::optional<BoundFrame> bound_frame_{};
+    PaintQueueObservationTracker queue_tracker_{};
     std::optional<std::pair<int, int>> hook_ids_{};
     void* callback_context_{};
     application::HudCallback callback_{};
@@ -1214,5 +1515,15 @@ auto UnrealRuntimeAdapter::paint_at_uv_with_brush(
         application::RuntimeExecutionError>
 {
     return impl_->paint(request);
+}
+
+auto UnrealRuntimeAdapter::observe_paint_queues(
+    application::RuntimeObjectHandle component,
+    application::JobGeneration generation)
+    -> std::expected<
+        application::PaintQueueObservation,
+        application::RuntimeExecutionError>
+{
+    return impl_->observe_queues(component, generation);
 }
 } // namespace meccha::runtime

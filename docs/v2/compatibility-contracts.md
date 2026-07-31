@@ -113,6 +113,14 @@ unassociated components are not candidates.
 | GAME-PAINT-011 | `RuntimePaintReplicationManager.GetQueuedStrokeCount` | manager queue observation |
 | GAME-PAINT-012 | `RuntimePaintReplicationManager.GetReplicationPressure` | queue-pressure snapshot |
 
+The production observer resolves the manager by exact class and requires
+exactly one live non-CDO/non-archetype instance whose `GetWorld()` equals the
+active HUD World. A first-global-object lookup is forbidden. Completion uses
+only `GetRecordedStrokeCount` and
+`GetQueuedStrokeCountForComponent`; the global count and pressure are
+validated diagnostics/pacing inputs and cannot hold one job open for unrelated
+players.
+
 Observed replication-manager properties that may contribute validated pacing:
 
 - `QueuedOutgoingBatches`

@@ -3,6 +3,7 @@ add_library(
     STATIC
         src/reflection_contract.cpp
         src/paint_call_codec.cpp
+        src/paint_queue_codec.cpp
         src/unreal_contracts.cpp
 )
 add_library(

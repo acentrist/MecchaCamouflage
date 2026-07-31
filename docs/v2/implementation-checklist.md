@@ -228,8 +228,12 @@ Evidence:
     `PaintChannelData`, and `RuntimeBrushSettings` reflected layouts; encode
     the captured texture dimension into the reviewed 0x68-byte call ABI; and
     compile the UE4SS `ProcessEvent` route under MSVC `/W4 /WX`.
-  - [ ] Connect production Paint capture/queue observation and representative
-    Image Paint texture operations.
+  - [x] Validate the exact recorded/component/global queue and pressure
+    schemas; require one exact non-default replication manager owned by the
+    current World; and compile the generation/component-bound observer through
+    the pinned UE4SS `ProcessEvent` API.
+  - [ ] Connect production Paint capture and representative Image Paint
+    texture operations.
 - [x] Implement restore-before-unregister explicit unload ordering.
   - [x] Cancel the active Paint generation and wait for local plus observed
     visual/outgoing queue drain before lifecycle quiescing.
@@ -372,8 +376,10 @@ Evidence:
   - [x] Implement dependency-free exact reflection-schema validation and the
     reviewed Paint call encoder, including sRGB-to-linear color, normalized
     brush radius, AMRE channel selection, and ABI offset/size assertions.
-  - [ ] Implement production mesh/sample/appearance capture and queue
-    observation.
+  - [x] Implement the production queue observer with exact function/struct
+    schemas, unique current-World manager discovery, owned component counters,
+    sticky per-job activity, and negative/non-finite counter rejection.
+  - [ ] Implement production mesh/sample/appearance capture.
 - [x] Validate round, cube, and fukuyoka profiles.
 - [x] Implement immutable planning for Paint/Fill/Skip, lighting, Auto Material,
   PBR, compression, and Fill-first ordering.
@@ -403,6 +409,9 @@ Evidence:
 - [x] Implement bounded per-frame pacing, progress, cancellation, and terminal
   queue drain.
 - [ ] Preserve valid jobs through freecam/controller-pawn changes.
+  - [x] Retain the same generation-bound acknowledged-body component for the
+    sender and queue observer only during a same-World/same-controller
+    freecam transition.
 - [ ] Pass all Paint unit, contract, fake-runtime, stress, and failure tests.
 - [ ] DEFERRED — maintainer interaction required: complete single-client Paint
   live checks.
@@ -484,8 +493,8 @@ Evidence:
     readiness plus game-thread capture and queue-observation ports, including
     typed Start/Cancel, edit invalidation, shutdown drain, and immutable
     snapshot publication.
-  - [ ] Implement the production UE4SS triangle-anchor capture and queue
-    observation adapter.
+  - [x] Implement the shared production UE4SS queue-observation adapter.
+  - [ ] Implement the production UE4SS triangle-anchor capture adapter.
 - [ ] Integrate v2 project/preset management.
   - [x] Connect the v2-only project store and session transaction boundary to
     the application command variant and composition root.

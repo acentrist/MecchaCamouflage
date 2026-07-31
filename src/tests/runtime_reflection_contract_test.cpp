@@ -1,10 +1,12 @@
 #include <meccha/runtime/reflection_contract.hpp>
 #include <meccha/runtime/paint_call_codec.hpp>
+#include <meccha/runtime/paint_queue_codec.hpp>
 #include <meccha/runtime/unreal_contracts.hpp>
 
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -70,6 +72,156 @@ auto main() -> int
             paint_channel_data_contract().size == 0x24U &&
             runtime_brush_settings_contract().size == 0x28U,
         "the reviewed game-owned Paint contract sizes drifted");
+    passed &= expect(
+        recorded_stroke_count_contract().owner_name ==
+                "/Script/PenguinHotel.RuntimePaintableComponent" &&
+            recorded_stroke_count_contract().size == 0x04U &&
+            queued_stroke_count_contract().owner_name ==
+                "/Script/PenguinHotel.RuntimePaintReplicationManager" &&
+            queued_stroke_count_contract().size == 0x04U &&
+            queued_stroke_count_for_component_contract().size ==
+                0x10U &&
+            runtime_paint_replication_pressure_contract().size ==
+                0x10U &&
+            replication_pressure_contract().size == 0x10U,
+        "the reviewed queue-observation contract sizes drifted");
+    passed &= expect(
+        validate_reflection_contract(
+            recorded_stroke_count_contract(),
+            recorded_stroke_count_contract()).has_value() &&
+            validate_reflection_contract(
+                queued_stroke_count_contract(),
+                queued_stroke_count_contract()).has_value() &&
+            validate_reflection_contract(
+                queued_stroke_count_for_component_contract(),
+                queued_stroke_count_for_component_contract())
+                .has_value() &&
+            validate_reflection_contract(
+                runtime_paint_replication_pressure_contract(),
+                runtime_paint_replication_pressure_contract())
+                .has_value() &&
+            validate_reflection_contract(
+                replication_pressure_contract(),
+                replication_pressure_contract()).has_value(),
+        "an exact queue-observation contract was rejected");
+
+    auto queue_tracker = PaintQueueObservationTracker{};
+    const auto component = application::RuntimeObjectHandle{8U, 3U};
+    const auto first_queue_sample = queue_tracker.observe(
+        component,
+        application::JobGeneration{5U},
+        PaintQueueCounters{
+            0,
+            0,
+            0,
+            RuntimePaintReplicationPressureAbi{0, 0, 48, 0.0F},
+        });
+    passed &= expect(
+        first_queue_sample &&
+            *first_queue_sample ==
+                application::PaintQueueObservation{
+                    true,
+                    false,
+                    0U,
+                    true,
+                    0U,
+                },
+        "an idle exact queue sample was not preserved");
+    const auto active_queue_sample = queue_tracker.observe(
+        component,
+        application::JobGeneration{5U},
+        PaintQueueCounters{
+            2,
+            3,
+            3,
+            RuntimePaintReplicationPressureAbi{1, 3, 48, 1.0F},
+        });
+    passed &= expect(
+        active_queue_sample &&
+            *active_queue_sample ==
+                application::PaintQueueObservation{
+                    true,
+                    true,
+                    2U,
+                    true,
+                    3U,
+                },
+        "owned visual and outgoing queue counters were not mapped");
+    const auto drained_queue_sample = queue_tracker.observe(
+        component,
+        application::JobGeneration{5U},
+        PaintQueueCounters{
+            0,
+            0,
+            0,
+            RuntimePaintReplicationPressureAbi{0, 0, 48, 0.0F},
+        });
+    passed &= expect(
+        drained_queue_sample &&
+            drained_queue_sample->visual_observed_activity &&
+            drained_queue_sample->visual_pending == 0U &&
+            drained_queue_sample->outgoing_pending == 0U,
+        "visual activity was not sticky through queue drain");
+    const auto next_generation_sample = queue_tracker.observe(
+        component,
+        application::JobGeneration{6U},
+        PaintQueueCounters{
+            0,
+            0,
+            0,
+            RuntimePaintReplicationPressureAbi{0, 0, 48, 0.0F},
+        });
+    passed &= expect(
+        next_generation_sample &&
+            !next_generation_sample->visual_observed_activity,
+        "queue activity leaked into a new job generation");
+    passed &= expect(
+        queue_tracker.observe(
+            component,
+            application::JobGeneration{6U},
+            PaintQueueCounters{
+                -1,
+                0,
+                0,
+                RuntimePaintReplicationPressureAbi{0, 0, 48, 0.0F},
+            }) ==
+            std::unexpected(PaintQueueCodecError::InvalidCounter),
+        "a negative game-owned queue counter was accepted");
+    passed &= expect(
+        queue_tracker.observe(
+            component,
+            application::JobGeneration{6U},
+            PaintQueueCounters{
+                0,
+                0,
+                0,
+                RuntimePaintReplicationPressureAbi{
+                    0,
+                    0,
+                    48,
+                    std::numeric_limits<float>::infinity(),
+                },
+            }) ==
+            std::unexpected(PaintQueueCodecError::InvalidPressure),
+        "a non-finite replication-pressure result was accepted");
+    passed &= expect(
+        queue_tracker.observe(
+            component,
+            application::JobGeneration{6U},
+            PaintQueueCounters{
+                0,
+                std::nullopt,
+                0,
+                RuntimePaintReplicationPressureAbi{
+                    0,
+                    0,
+                    48,
+                    0.0F,
+                },
+            }) ==
+            std::unexpected(
+                PaintQueueCodecError::MissingOwnedObserver),
+        "a queue sample without the component-owned observer was accepted");
 
     const auto request = application::PaintAtUvWithBrush{
         1U,

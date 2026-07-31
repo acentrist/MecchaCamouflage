@@ -84,6 +84,8 @@ auto contract_name(
         return "Canvas";
     case application::RuntimeContractId::PaintAtUvWithBrush:
         return "PaintAtUvWithBrush";
+    case application::RuntimeContractId::PaintQueueObservation:
+        return "PaintQueueObservation";
     case application::RuntimeContractId::ImagePaintTexture:
         return "ImagePaintTexture";
     case application::RuntimeContractId::TextureMutation:

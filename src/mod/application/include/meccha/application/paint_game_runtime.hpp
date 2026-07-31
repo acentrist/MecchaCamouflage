@@ -15,6 +15,23 @@ struct CapturedPaintJob
     core::ReplicationPacingPlan pacing{};
 };
 
+class PaintQueueRuntimePort
+{
+public:
+    PaintQueueRuntimePort() = default;
+    PaintQueueRuntimePort(const PaintQueueRuntimePort&) = delete;
+    auto operator=(const PaintQueueRuntimePort&)
+        -> PaintQueueRuntimePort& = delete;
+    virtual ~PaintQueueRuntimePort() = default;
+
+    virtual auto observe_paint_queues(
+        RuntimeObjectHandle component,
+        JobGeneration generation)
+        -> std::expected<
+            PaintQueueObservation,
+            RuntimeExecutionError> = 0;
+};
+
 class PaintGameRuntimePort
 {
 public:

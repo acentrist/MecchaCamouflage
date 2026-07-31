@@ -1,5 +1,6 @@
 #pragma once
 
+#include <meccha/application/paint_game_runtime.hpp>
 #include <meccha/application/runtime_lifecycle.hpp>
 #include <meccha/application/runtime_operation_executor.hpp>
 
@@ -11,7 +12,8 @@ class UnrealRuntimeAdapter final
     : public application::RuntimeCallbackPort,
       public application::GameThreadContext,
       public application::UnrealFrameRuntimePort,
-      public application::PaintStrokeRuntimePort
+      public application::PaintStrokeRuntimePort,
+      public application::PaintQueueRuntimePort
 {
 public:
     UnrealRuntimeAdapter();
@@ -50,6 +52,13 @@ public:
         const application::PaintAtUvWithBrush& request)
         -> std::expected<
             void,
+            application::RuntimeExecutionError> override;
+
+    auto observe_paint_queues(
+        application::RuntimeObjectHandle component,
+        application::JobGeneration generation)
+        -> std::expected<
+            application::PaintQueueObservation,
             application::RuntimeExecutionError> override;
 
 private:

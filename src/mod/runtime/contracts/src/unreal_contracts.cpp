@@ -196,4 +196,137 @@ auto paint_at_uv_with_brush_contract()
         },
     };
 }
+
+auto recorded_stroke_count_contract()
+    -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "GetRecordedStrokeCount",
+        "/Script/PenguinHotel.RuntimePaintableComponent",
+        0x04U,
+        {
+            ReflectionPropertyDescriptor{
+                "ReturnValue",
+                ReflectionPropertyKind::Int32,
+                {},
+                0x00U,
+                0x04U,
+                1U,
+                ReflectionPropertyDirection::ReturnValue,
+            },
+        },
+    };
+}
+
+auto runtime_paint_replication_pressure_contract()
+    -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "RuntimePaintReplicationPressure",
+        "/Script/PenguinHotel",
+        0x10U,
+        {
+            ReflectionPropertyDescriptor{
+                "QueuedBatchCount",
+                ReflectionPropertyKind::Int32,
+                {},
+                0x00U,
+                0x04U,
+            },
+            ReflectionPropertyDescriptor{
+                "QueuedStrokeCount",
+                ReflectionPropertyKind::Int32,
+                {},
+                0x04U,
+                0x04U,
+            },
+            ReflectionPropertyDescriptor{
+                "MaxStrokesPerTick",
+                ReflectionPropertyKind::Int32,
+                {},
+                0x08U,
+                0x04U,
+            },
+            ReflectionPropertyDescriptor{
+                "EstimatedTicksToDrain",
+                ReflectionPropertyKind::Float32,
+                {},
+                0x0CU,
+                0x04U,
+            },
+        },
+    };
+}
+
+auto queued_stroke_count_contract()
+    -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "GetQueuedStrokeCount",
+        "/Script/PenguinHotel.RuntimePaintReplicationManager",
+        0x04U,
+        {
+            ReflectionPropertyDescriptor{
+                "ReturnValue",
+                ReflectionPropertyKind::Int32,
+                {},
+                0x00U,
+                0x04U,
+                1U,
+                ReflectionPropertyDirection::ReturnValue,
+            },
+        },
+    };
+}
+
+auto queued_stroke_count_for_component_contract()
+    -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "GetQueuedStrokeCountForComponent",
+        "/Script/PenguinHotel.RuntimePaintReplicationManager",
+        0x10U,
+        {
+            ReflectionPropertyDescriptor{
+                "PaintComponent",
+                ReflectionPropertyKind::Object,
+                "RuntimePaintableComponent",
+                0x00U,
+                0x08U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+            ReflectionPropertyDescriptor{
+                "ReturnValue",
+                ReflectionPropertyKind::Int32,
+                {},
+                0x08U,
+                0x04U,
+                1U,
+                ReflectionPropertyDirection::ReturnValue,
+            },
+        },
+    };
+}
+
+auto replication_pressure_contract()
+    -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "GetReplicationPressure",
+        "/Script/PenguinHotel.RuntimePaintReplicationManager",
+        0x10U,
+        {
+            ReflectionPropertyDescriptor{
+                "ReturnValue",
+                ReflectionPropertyKind::Struct,
+                "RuntimePaintReplicationPressure",
+                0x00U,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::ReturnValue,
+            },
+        },
+    };
+}
 } // namespace meccha::runtime
