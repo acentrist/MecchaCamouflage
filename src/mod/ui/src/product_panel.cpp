@@ -209,6 +209,7 @@ auto compatibility_failure_valid(
         case application::RuntimeContractId::PlayerController:
         case application::RuntimeContractId::Hud:
         case application::RuntimeContractId::Canvas:
+        case application::RuntimeContractId::EspFrame:
         case application::RuntimeContractId::PaintAtUvWithBrush:
         case application::RuntimeContractId::PaintQueueObservation:
         case application::RuntimeContractId::ImagePaintTexture:

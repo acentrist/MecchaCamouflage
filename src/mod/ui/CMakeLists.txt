@@ -2,6 +2,7 @@ add_library(
     meccha_ui
     STATIC
         src/canvas.cpp
+        src/esp_canvas_frame.cpp
         src/image_crop.cpp
         src/image_editor_interaction.cpp
         src/image_editor_view.cpp

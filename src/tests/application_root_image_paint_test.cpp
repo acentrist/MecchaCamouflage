@@ -672,7 +672,7 @@ public:
 class FakeEspRuntime final : public EspGameRuntimePort
 {
 public:
-    auto capture()
+    auto capture_esp_frame()
         -> std::expected<
             CapturedEspFrame,
             RuntimeExecutionError> override
@@ -693,7 +693,7 @@ public:
         };
     }
 
-    auto draw(
+    auto draw_esp_frame(
         const HudFrameIdentity& identity,
         const core::EspPrimitiveFrame& frame)
         -> std::expected<void, RuntimeExecutionError> override

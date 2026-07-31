@@ -82,6 +82,8 @@ auto contract_name(
         return "Hud";
     case application::RuntimeContractId::Canvas:
         return "Canvas";
+    case application::RuntimeContractId::EspFrame:
+        return "EspFrame";
     case application::RuntimeContractId::PaintAtUvWithBrush:
         return "PaintAtUvWithBrush";
     case application::RuntimeContractId::PaintQueueObservation:

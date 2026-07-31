@@ -565,6 +565,21 @@ target_link_libraries(
 add_test(NAME esp_frame COMMAND meccha_esp_frame_tests)
 
 add_executable(
+    meccha_esp_canvas_frame_tests
+    esp_canvas_frame_test.cpp
+)
+target_link_libraries(
+    meccha_esp_canvas_frame_tests
+    PRIVATE
+        MecchaCamouflage::Ui
+        meccha_build_options
+)
+add_test(
+    NAME esp_canvas_frame
+    COMMAND meccha_esp_canvas_frame_tests
+)
+
+add_executable(
     meccha_esp_frame_coordinator_tests
     esp_frame_coordinator_test.cpp
 )

@@ -36,7 +36,7 @@ auto EspFrameCoordinator::tick(
 
     try
     {
-        auto captured = runtime_.capture();
+        auto captured = runtime_.capture_esp_frame();
         if (!captured)
         {
             return fail(EspFrameFailure{
@@ -65,7 +65,7 @@ auto EspFrameCoordinator::tick(
                 frame.error(),
             });
         }
-        const auto drawn = runtime_.draw(
+        const auto drawn = runtime_.draw_esp_frame(
             expected_frame,
             *frame);
         if (!drawn)

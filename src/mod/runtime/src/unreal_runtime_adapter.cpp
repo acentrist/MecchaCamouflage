@@ -9,6 +9,7 @@
 #include <meccha/runtime/unreal_contracts.hpp>
 #include <meccha/core/png_encoder.hpp>
 #include <meccha/product_ui/product_ui_pointer_capture.hpp>
+#include <meccha/ui/esp_canvas_frame.hpp>
 
 #include "unreal_reflection_validation.hpp"
 
@@ -3179,6 +3180,79 @@ public:
         }
     }
 
+    auto capture_esp_frame()
+        -> std::expected<
+            application::CapturedEspFrame,
+            application::RuntimeExecutionError>
+    {
+        if (!IsInGameThreadRaw())
+        {
+            return std::unexpected(
+                application::RuntimeExecutionError{
+                    application::RuntimeExecutionErrorCode::
+                        WrongThread,
+                });
+        }
+        return runtime_failure(
+            application::RuntimeContractId::EspFrame,
+            application::ContractFailureKind::InvalidValue);
+    }
+
+    auto draw_esp_frame(
+        const application::HudFrameIdentity& identity,
+        const core::EspPrimitiveFrame& frame)
+        -> std::expected<
+            void,
+            application::RuntimeExecutionError>
+    {
+        if (!IsInGameThreadRaw())
+        {
+            return std::unexpected(
+                application::RuntimeExecutionError{
+                    application::RuntimeExecutionErrorCode::
+                        WrongThread,
+                });
+        }
+
+        auto active = std::optional<ActiveFrame>{};
+        {
+            const auto lock = std::scoped_lock{mutex_};
+            active = active_frame_;
+        }
+        if (!active || active->identity != identity ||
+            active->viewport_width <= 0 ||
+            active->viewport_height <= 0)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::EspFrame,
+                application::ContractFailureKind::StaleObject);
+        }
+
+        const auto encoded = ui::encode_esp_canvas_frame(
+            ui::CanvasViewport{
+                static_cast<double>(active->viewport_width),
+                static_cast<double>(active->viewport_height),
+                1.0,
+            },
+            frame);
+        if (!encoded)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::EspFrame,
+                application::ContractFailureKind::InvalidValue);
+        }
+
+        const auto rendered = render_canvas(identity, *encoded);
+        if (!rendered)
+        {
+            return runtime_failure(
+                application::RuntimeContractId::EspFrame,
+                application::ContractFailureKind::
+                    ExecutionFailure);
+        }
+        return {};
+    }
+
     auto capture_product_ui_frame(
         const application::HudFrameIdentity& identity)
         -> std::expected<
@@ -3793,6 +3867,24 @@ auto UnrealRuntimeAdapter::observe_queues(
         application::RuntimeExecutionError>
 {
     return impl_->observe_queues(component, generation);
+}
+
+auto UnrealRuntimeAdapter::capture_esp_frame()
+    -> std::expected<
+        application::CapturedEspFrame,
+        application::RuntimeExecutionError>
+{
+    return impl_->capture_esp_frame();
+}
+
+auto UnrealRuntimeAdapter::draw_esp_frame(
+    const application::HudFrameIdentity& frame_identity,
+    const core::EspPrimitiveFrame& frame)
+    -> std::expected<
+        void,
+        application::RuntimeExecutionError>
+{
+    return impl_->draw_esp_frame(frame_identity, frame);
 }
 
 auto UnrealRuntimeAdapter::create_texture(

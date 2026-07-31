@@ -22,6 +22,7 @@ enum class RuntimeContractId : std::uint8_t
     PlayerController,
     Hud,
     Canvas,
+    EspFrame,
     PaintAtUvWithBrush,
     PaintQueueObservation,
     ImagePaintTexture,

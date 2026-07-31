@@ -1,5 +1,6 @@
 #pragma once
 
+#include <meccha/application/esp_frame_coordinator.hpp>
 #include <meccha/application/image_paint_game_runtime.hpp>
 #include <meccha/application/image_paint_profile_catalog.hpp>
 #include <meccha/application/paint_game_runtime.hpp>
@@ -23,6 +24,7 @@ class UnrealRuntimeAdapter final
       public application::PaintQueueRuntimePort,
       public application::PaintPreviewRuntimePort,
       public application::ImagePaintGameRuntimePort,
+      public application::EspGameRuntimePort,
       public product_ui::ImageEditorTextureRuntimePort,
       public product_ui::ProductUiFrameCapturePort,
       public product_ui::ProductUiCanvasRenderPort,
@@ -112,6 +114,18 @@ public:
         application::JobGeneration generation)
         -> std::expected<
             application::PaintQueueObservation,
+            application::RuntimeExecutionError> override;
+
+    [[nodiscard]] auto capture_esp_frame()
+        -> std::expected<
+            application::CapturedEspFrame,
+            application::RuntimeExecutionError> override;
+
+    auto draw_esp_frame(
+        const application::HudFrameIdentity& frame_identity,
+        const core::EspPrimitiveFrame& frame)
+        -> std::expected<
+            void,
             application::RuntimeExecutionError> override;
 
     [[nodiscard]] auto create_texture(

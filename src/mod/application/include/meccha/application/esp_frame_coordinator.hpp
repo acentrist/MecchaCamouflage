@@ -29,12 +29,12 @@ public:
         -> EspGameRuntimePort& = delete;
     virtual ~EspGameRuntimePort() = default;
 
-    [[nodiscard]] virtual auto capture()
+    [[nodiscard]] virtual auto capture_esp_frame()
         -> std::expected<
             CapturedEspFrame,
             RuntimeExecutionError> = 0;
 
-    virtual auto draw(
+    virtual auto draw_esp_frame(
         const HudFrameIdentity& frame_identity,
         const core::EspPrimitiveFrame& frame)
         -> std::expected<void, RuntimeExecutionError> = 0;

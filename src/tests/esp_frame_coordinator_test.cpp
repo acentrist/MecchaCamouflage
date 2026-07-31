@@ -24,7 +24,7 @@ auto expect(bool condition, std::string_view message) -> bool
 class FakeRuntime final : public EspGameRuntimePort
 {
 public:
-    auto capture()
+    auto capture_esp_frame()
         -> std::expected<
             CapturedEspFrame,
             RuntimeExecutionError> override
@@ -43,7 +43,7 @@ public:
         return captured;
     }
 
-    auto draw(
+    auto draw_esp_frame(
         const HudFrameIdentity& frame_identity,
         const core::EspPrimitiveFrame& frame)
         -> std::expected<void, RuntimeExecutionError> override
