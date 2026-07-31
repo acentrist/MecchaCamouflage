@@ -10,6 +10,18 @@ manual-color scene-capture seed now compiles against the same graph. Auto
 Material appearance feedback, composition-root ownership, and live evidence
 remain.
 
+The Auto Material numerical boundary is now project-owned and independently
+testable. It preserves finite HDR values up to the reviewed 64.0 rejection
+ceiling, exact sRGB/linear and Oklab loss transforms, source-plus-target E0
+emission noise floors, the 8-cluster/3-iteration bounded SPSA constants,
+emission quantization floor, response calibration, strict sample/improvement/
+DeltaE acceptance gates, and safe non-emission fallback. Source emission
+regions pass both the reviewed four-pixel spatial-component filter and the
+surface-key-aware strong-core/weak-halo filter; an unknown surface key never
+authorizes that correction. A generation-tagged `PaintAppearanceWorker` owns
+model preparation, immutable trial-preview composition, response evaluation,
+cancellation, and exception containment without any UObject or runtime type.
+
 ## Immutable capture-to-plan contract
 
 The game-thread boundary may now return either a complete
@@ -101,6 +113,10 @@ The current shipping executable and source contracts now freeze:
   `bCaptureOnMovement`, `bAlwaysPersistRenderingState`, `ProjectionType`,
   `FOVAngle`, and `TextureTarget` property kinds, owners, sizes, enum types,
   and object classes.
+- `SceneCaptureComponent.SetShowFlagSettings` at 0x10 with one exact
+  `TArray<EngineShowFlagsSetting>` input, plus the component-side
+  `ShowFlagSettings` array and exact `ShowFlagName` FString/`Enabled` bool
+  element schema.
 
 The typed render-target codec admits only non-null game-thread objects,
 single-image dimensions at or below 2048, and the reviewed RGBA8-sRGB or
@@ -128,11 +144,15 @@ BaseColor; manual lit capture also uses FinalColor HDR. Deterministic
 linear-to-sRGB conversion occurs after the game-thread readback.
 
 This remains contract/build evidence, not a live capture claim. Auto Material
-is rejected before mutation because its intrinsic-emission and trial-preview
-feedback transaction is not implemented. The composition root does not expose
-the production scene-capture path, and live brush-plane hiding, readback
-orientation, color semantics, cleanup, and frame-budget behavior remain
-unverified.
+is rejected before mutation because its trial-preview feedback transaction is
+not implemented. The intrinsic-emission SceneCapture profile now applies the
+reviewed 33 all-disabled show flags through a borrowed call-lifetime array,
+then requires an exact 33-entry component readback matching every ordered name
+and value. This path compiles against the pinned UE4SS graph but has not yet
+been admitted by the production Auto Material session. The composition root
+does not expose the production scene-capture path, and live brush-plane
+hiding, readback orientation, color semantics, cleanup, and frame-budget
+behavior remain unverified.
 
 The application boundary for that transaction is now fixed even though the
 production appearance stages remain fail-closed. `ApplicationRoot` routes
@@ -353,7 +373,7 @@ proves the active Paint generation reaches `Cancelled` before quiescing.
 `paint_preview_composer` adds Fill/Paint overwrite
 ordering, packed-PBR quantization, edge clipping, original immutability,
 invalid plan/buffer rejection, cancellation, and resource-limit evidence. The
-secret-free Linux normal and fresh ASan/UBSan suites currently pass all 89
+secret-free Linux normal and fresh ASan/UBSan suites currently pass all 92
 registered tests. The production adapter, exact sender, queue observer,
 preview channel adapter, capture codecs, and struct-array reflection bridge
 also compile with `/WX` in the pinned Windows MSVC

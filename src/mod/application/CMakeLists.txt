@@ -27,6 +27,7 @@ add_library(
         src/localization.cpp
         src/mesh_profile_codec.cpp
         src/paint_dispatch.cpp
+        src/paint_appearance_worker.cpp
         src/paint_job_coordinator.cpp
         src/paint_planning_worker.cpp
         src/paint_preview_build_worker.cpp

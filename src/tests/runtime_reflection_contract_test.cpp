@@ -8,6 +8,7 @@
 #include <meccha/runtime/texture_import_codec.hpp>
 #include <meccha/runtime/unreal_contracts.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cmath>
@@ -622,6 +623,8 @@ auto main() -> int
                  1U),
         "SceneCapture linear readback validation drifted");
     const auto capture_scene = capture_scene_contract();
+    const auto set_show_flags =
+        set_show_flag_settings_contract();
     const auto hide_component = hide_component_contract();
     const auto destroy_capture_actor = k2_destroy_actor_contract();
     passed &= expect(
@@ -631,6 +634,23 @@ auto main() -> int
                     "/Script/Engine.SceneCaptureComponent2D",
                     0x00U,
                     {},
+                } &&
+            set_show_flags ==
+                ReflectionRecordDescriptor{
+                    "SetShowFlagSettings",
+                    "/Script/Engine.SceneCaptureComponent",
+                    0x10U,
+                    {
+                        ReflectionPropertyDescriptor{
+                            "ShowFlagSettings",
+                            ReflectionPropertyKind::Array,
+                            "EngineShowFlagsSetting",
+                            0x00U,
+                            0x10U,
+                            1U,
+                            ReflectionPropertyDirection::Input,
+                        },
+                    },
                 } &&
             hide_component ==
                 ReflectionRecordDescriptor{
@@ -700,6 +720,8 @@ auto main() -> int
     automatic_settings.auto_material = true;
     const auto automatic_capture_plan =
         build_paint_scene_capture_plan(automatic_settings);
+    const auto intrinsic_show_flags =
+        paint_intrinsic_emission_show_flags();
     auto invalid_capture_settings = core::PaintSettings{};
     invalid_capture_settings.brush_size_texels =
         std::numeric_limits<double>::quiet_NaN();
@@ -751,6 +773,18 @@ auto main() -> int
                 PaintSceneCaptureSource::SceneDepth &&
             automatic_capture_plan->passes[6].source ==
                 PaintSceneCaptureSource::FinalColorLdr &&
+            intrinsic_show_flags.size() == 33U &&
+            intrinsic_show_flags.front() ==
+                PaintShowFlagSetting{"Lighting", false} &&
+            intrinsic_show_flags.back() ==
+                PaintShowFlagSetting{"UnlitViewmode", false} &&
+            std::ranges::all_of(
+                intrinsic_show_flags,
+                [](const PaintShowFlagSetting& setting)
+                {
+                    return !setting.name.empty() &&
+                           !setting.enabled;
+                }) &&
             build_paint_scene_capture_plan(
                 invalid_capture_settings) ==
                 std::unexpected(

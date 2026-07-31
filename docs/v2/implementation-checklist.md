@@ -459,6 +459,12 @@ Evidence:
         capture port; publish no capture before runtime-confirmed restoration,
         and retain ownership through cancellation, failure cleanup, and
         shutdown.
+      - [x] Port the bounded HDR/emission/calibration/SPSA/acceptance
+        algorithms, surface-aware emission-halo rejection, and immutable
+        candidate/evaluation worker without runtime types.
+      - [x] Freeze the exact 0x10
+        `SceneCaptureComponent.SetShowFlagSettings` array schema and require
+        exact ordered readback of the reviewed 33 intrinsic-emission flags.
 - [x] Validate round, cube, and fukuyoka profiles.
 - [x] Implement immutable planning for Paint/Fill/Skip, lighting, Auto Material,
   PBR, compression, and Fill-first ordering.

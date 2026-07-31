@@ -393,4 +393,58 @@ auto paint_brush_plane_visual_contract()
         },
     };
 }
+
+auto paint_intrinsic_emission_show_flags()
+    -> const std::array<PaintShowFlagSetting, 33U>&
+{
+    static constexpr auto settings =
+        std::array<PaintShowFlagSetting, 33U>{
+            PaintShowFlagSetting{"Lighting", false},
+            PaintShowFlagSetting{"DeferredLighting", false},
+            PaintShowFlagSetting{"DirectLighting", false},
+            PaintShowFlagSetting{"SkyLighting", false},
+            PaintShowFlagSetting{"DynamicShadows", false},
+            PaintShowFlagSetting{"ContactShadows", false},
+            PaintShowFlagSetting{
+                "RayTracedDistanceFieldShadows",
+                false,
+            },
+            PaintShowFlagSetting{"GlobalIllumination", false},
+            PaintShowFlagSetting{
+                "LumenGlobalIllumination",
+                false,
+            },
+            PaintShowFlagSetting{
+                "ReflectionEnvironment",
+                false,
+            },
+            PaintShowFlagSetting{
+                "ScreenSpaceReflections",
+                false,
+            },
+            PaintShowFlagSetting{"LumenReflections", false},
+            PaintShowFlagSetting{"AmbientOcclusion", false},
+            PaintShowFlagSetting{"AmbientCubemap", false},
+            PaintShowFlagSetting{"Bloom", false},
+            PaintShowFlagSetting{"PostProcessing", false},
+            PaintShowFlagSetting{"Tonemapper", false},
+            PaintShowFlagSetting{"EyeAdaptation", false},
+            PaintShowFlagSetting{"LocalExposure", false},
+            PaintShowFlagSetting{"ColorGrading", false},
+            PaintShowFlagSetting{"Fog", false},
+            PaintShowFlagSetting{"VolumetricFog", false},
+            PaintShowFlagSetting{"Atmosphere", false},
+            PaintShowFlagSetting{"SkyAtmosphere", false},
+            PaintShowFlagSetting{"Cloud", false},
+            PaintShowFlagSetting{"VolumetricCloud", false},
+            PaintShowFlagSetting{"LightShafts", false},
+            PaintShowFlagSetting{"MotionBlur", false},
+            PaintShowFlagSetting{"DepthOfField", false},
+            PaintShowFlagSetting{"LensFlares", false},
+            PaintShowFlagSetting{"Vignette", false},
+            PaintShowFlagSetting{"FilmGrain", false},
+            PaintShowFlagSetting{"UnlitViewmode", false},
+        };
+    return settings;
+}
 } // namespace meccha::runtime

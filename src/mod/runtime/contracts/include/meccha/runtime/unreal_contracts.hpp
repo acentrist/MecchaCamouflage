@@ -25,6 +25,9 @@ namespace meccha::runtime
 [[nodiscard]] auto capture_scene_contract()
     -> ReflectionRecordDescriptor;
 
+[[nodiscard]] auto set_show_flag_settings_contract()
+    -> ReflectionRecordDescriptor;
+
 [[nodiscard]] auto hide_component_contract()
     -> ReflectionRecordDescriptor;
 

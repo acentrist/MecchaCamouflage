@@ -528,6 +528,27 @@ auto capture_scene_contract() -> ReflectionRecordDescriptor
     };
 }
 
+auto set_show_flag_settings_contract()
+    -> ReflectionRecordDescriptor
+{
+    return ReflectionRecordDescriptor{
+        "SetShowFlagSettings",
+        "/Script/Engine.SceneCaptureComponent",
+        0x10U,
+        {
+            ReflectionPropertyDescriptor{
+                "ShowFlagSettings",
+                ReflectionPropertyKind::Array,
+                "EngineShowFlagsSetting",
+                0x00U,
+                0x10U,
+                1U,
+                ReflectionPropertyDirection::Input,
+            },
+        },
+    };
+}
+
 auto hide_component_contract() -> ReflectionRecordDescriptor
 {
     return ReflectionRecordDescriptor{

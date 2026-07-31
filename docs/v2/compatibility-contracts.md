@@ -156,6 +156,7 @@ The v1 research-only functions `MulticastSyncChannelData`,
 | GAME-RENDER-010 | `SceneCaptureComponent2D.CaptureScene` | Exact zero-parameter schema; one explicit capture after all properties and hidden components are set |
 | GAME-RENDER-011 | `SceneCaptureComponent.HideComponent` | Exact `0x08` schema with one `PrimitiveComponent` input; hide the local target mesh plus exact current-World `/Game/BluePrints/cLeon/BP_BrushPlane.BP_BrushPlane_C` children `Plane`, `Plane1`, and `Niagara` on every pass |
 | GAME-RENDER-012 | `Actor.K2_DestroyActor` | Exact zero-parameter schema; destroy each transient capture actor on every exit |
+| GAME-RENDER-013 | `SceneCaptureComponent.SetShowFlagSettings` | Exact `0x10` schema with one `TArray<EngineShowFlagsSetting>` input; intrinsic-emission capture must apply and read back the reviewed 33 ordered name/value pairs exactly |
 
 The manual Paint capture seed uses GAME-RENDER-001/002/010/011/012, the exact
 SceneCapture property set above, a pinned UE4SS `UWorld::SpawnActor` call with

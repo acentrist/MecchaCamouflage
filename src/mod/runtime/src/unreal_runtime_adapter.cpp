@@ -140,6 +140,9 @@ constexpr auto ReadRenderTargetRawPath =
 constexpr auto CaptureScenePath =
     STR("/Script/Engine.SceneCaptureComponent2D:"
         "CaptureScene");
+constexpr auto SetShowFlagSettingsPath =
+    STR("/Script/Engine.SceneCaptureComponent:"
+        "SetShowFlagSettings");
 constexpr auto HideComponentPath =
     STR("/Script/Engine.SceneCaptureComponent:"
         "HideComponent");
@@ -350,6 +353,12 @@ struct PaintSceneCaptureContracts
     UFunction* create_render_target_2d{};
     UFunction* read_render_target_raw{};
     UFunction* capture_scene{};
+    UFunction* set_show_flag_settings{};
+    FArrayProperty* set_show_flag_settings_parameter{};
+    FArrayProperty* show_flag_settings{};
+    UScriptStruct* show_flag_setting_struct{};
+    FStrProperty* show_flag_name{};
+    FBoolProperty* show_flag_enabled{};
     UFunction* hide_component{};
     UFunction* destroy_actor{};
 };
@@ -2486,6 +2495,11 @@ auto resolve_paint_scene_capture_contracts(
             nullptr,
             nullptr,
             CaptureScenePath);
+    contracts.set_show_flag_settings =
+        UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr,
+            nullptr,
+            SetShowFlagSettingsPath);
     contracts.hide_component =
         UObjectGlobals::StaticFindObject<UFunction*>(
             nullptr,
@@ -2547,6 +2561,7 @@ auto resolve_paint_scene_capture_contracts(
         contracts.create_render_target_2d,
         contracts.read_render_target_raw,
         contracts.capture_scene,
+        contracts.set_show_flag_settings,
         contracts.hide_component,
         contracts.destroy_actor,
     };
@@ -2567,6 +2582,8 @@ auto resolve_paint_scene_capture_contracts(
             contracts.kismet_rendering_library_class ||
         contracts.capture_scene->GetOuterPrivate() !=
             contracts.scene_capture_component_2d_class ||
+        contracts.set_show_flag_settings->GetOuterPrivate() !=
+            contracts.scene_capture_component_class ||
         contracts.hide_component->GetOuterPrivate() !=
             contracts.scene_capture_component_class ||
         contracts.destroy_actor->GetOuterPrivate() !=
@@ -2613,6 +2630,53 @@ auto resolve_paint_scene_capture_contracts(
         contracts.scene_capture_component_2d_class,
         STR("TextureTarget"),
         contracts.texture_render_target_2d_class);
+    contracts.set_show_flag_settings_parameter =
+        CastField<FArrayProperty>(
+            contracts.set_show_flag_settings->FindProperty(
+                FName{STR("ShowFlagSettings"), FNAME_Find}));
+    contracts.show_flag_settings =
+        CastField<FArrayProperty>(
+            contracts.scene_capture_component_class->FindProperty(
+                FName{STR("ShowFlagSettings"), FNAME_Find}));
+    auto* parameter_inner =
+        contracts.set_show_flag_settings_parameter == nullptr
+            ? nullptr
+            : CastField<FStructProperty>(
+                  contracts.set_show_flag_settings_parameter
+                      ->GetInner());
+    auto* component_inner =
+        contracts.show_flag_settings == nullptr
+            ? nullptr
+            : CastField<FStructProperty>(
+                  contracts.show_flag_settings->GetInner());
+    auto* parameter_struct =
+        parameter_inner == nullptr
+            ? nullptr
+            : parameter_inner->GetStruct().Get();
+    auto* component_struct =
+        component_inner == nullptr
+            ? nullptr
+            : component_inner->GetStruct().Get();
+    contracts.show_flag_setting_struct =
+        parameter_struct == component_struct
+            ? parameter_struct
+            : nullptr;
+    contracts.show_flag_name =
+        contracts.show_flag_setting_struct == nullptr
+            ? nullptr
+            : CastField<FStrProperty>(
+                  contracts.show_flag_setting_struct
+                      ->FindProperty(
+                          FName{
+                              STR("ShowFlagName"),
+                              FNAME_Find}));
+    contracts.show_flag_enabled =
+        contracts.show_flag_setting_struct == nullptr
+            ? nullptr
+            : CastField<FBoolProperty>(
+                  contracts.show_flag_setting_struct
+                      ->FindProperty(
+                          FName{STR("Enabled"), FNAME_Find}));
     const auto required_properties = std::array{
         static_cast<FProperty*>(
             contracts.capture_component_2d),
@@ -2627,6 +2691,14 @@ auto resolve_paint_scene_capture_contracts(
         static_cast<FProperty*>(
             contracts.field_of_view_angle),
         static_cast<FProperty*>(contracts.texture_target),
+        static_cast<FProperty*>(
+            contracts.set_show_flag_settings_parameter),
+        static_cast<FProperty*>(
+            contracts.show_flag_settings),
+        static_cast<FProperty*>(
+            contracts.show_flag_name),
+        static_cast<FProperty*>(
+            contracts.show_flag_enabled),
     };
     if (std::ranges::any_of(
             required_properties,
@@ -2639,6 +2711,52 @@ auto resolve_paint_scene_capture_contracts(
             application::RuntimeContractId::PaintCapture,
             application::ContractFailureKind::MissingProperty);
     }
+    if (contracts.set_show_flag_settings_parameter
+                ->GetOwner<UFunction>() !=
+            contracts.set_show_flag_settings ||
+        contracts.set_show_flag_settings_parameter
+                ->GetArrayDim() != 1 ||
+        contracts.set_show_flag_settings_parameter
+                ->GetElementSize() !=
+            static_cast<int>(sizeof(FScriptArray)) ||
+        contracts.show_flag_settings->GetOwner<UClass>() !=
+            contracts.scene_capture_component_class ||
+        contracts.show_flag_settings->GetArrayDim() != 1 ||
+        contracts.show_flag_settings->GetElementSize() !=
+            static_cast<int>(sizeof(FScriptArray)) ||
+        !contracts.show_flag_settings->IsInContainer(
+            contracts.scene_capture_component_class) ||
+        contracts.show_flag_setting_struct
+                ->GetPropertiesSize() <= 0 ||
+        RC::to_string(
+            contracts.show_flag_setting_struct->GetName()) !=
+            "EngineShowFlagsSetting" ||
+        parameter_inner->GetElementSize() !=
+            contracts.show_flag_setting_struct
+                ->GetPropertiesSize() ||
+        component_inner->GetElementSize() !=
+            contracts.show_flag_setting_struct
+                ->GetPropertiesSize() ||
+        contracts.show_flag_name
+                ->GetOwner<UScriptStruct>() !=
+            contracts.show_flag_setting_struct ||
+        contracts.show_flag_name->GetArrayDim() != 1 ||
+        contracts.show_flag_name->GetElementSize() !=
+            static_cast<int>(sizeof(FString)) ||
+        !contracts.show_flag_name->IsInContainer(
+            contracts.show_flag_setting_struct) ||
+        contracts.show_flag_enabled
+                ->GetOwner<UScriptStruct>() !=
+            contracts.show_flag_setting_struct ||
+        contracts.show_flag_enabled->GetArrayDim() != 1 ||
+        !contracts.show_flag_enabled->IsInContainer(
+            contracts.show_flag_setting_struct))
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::
+                WrongPropertyKind);
+    }
 
     const auto validations = std::array{
         std::pair{
@@ -2649,6 +2767,10 @@ auto resolve_paint_scene_capture_contracts(
             static_cast<UStruct*>(
                 contracts.read_render_target_raw),
             read_render_target_raw_contract()},
+        std::pair{
+            static_cast<UStruct*>(
+                contracts.set_show_flag_settings),
+            set_show_flag_settings_contract()},
         std::pair{
             static_cast<UStruct*>(contracts.capture_scene),
             capture_scene_contract()},
@@ -2949,6 +3071,189 @@ private:
     PaintCaptureLinearColorArray& array_;
 };
 
+struct BorrowedScriptArrayAbi
+{
+    void* data{};
+    std::int32_t count{};
+    std::int32_t capacity{};
+};
+
+struct BorrowedScriptStringAbi
+{
+    TCHAR* data{};
+    std::int32_t count{};
+    std::int32_t capacity{};
+};
+
+static_assert(sizeof(BorrowedScriptArrayAbi) == 0x10U);
+static_assert(sizeof(BorrowedScriptStringAbi) == 0x10U);
+
+auto read_ascii_show_flag_name(
+    FStrProperty* property,
+    const void* container) -> std::optional<std::string>
+{
+    if (property == nullptr || container == nullptr)
+    {
+        return std::nullopt;
+    }
+    const auto& value =
+        property->GetPropertyValueInContainer(container);
+    const auto& characters = value.GetCharArray();
+    const auto count = characters.Num();
+    if (count <= 1 || count > 129 ||
+        characters.Max() < count ||
+        characters.Max() > 256 ||
+        characters.GetData() == nullptr ||
+        characters.GetData()[count - 1] != STR('\0'))
+    {
+        return std::nullopt;
+    }
+    auto output = std::string{};
+    output.reserve(static_cast<std::size_t>(count - 1));
+    for (auto index = 0; index < count - 1; ++index)
+    {
+        const auto character = characters.GetData()[index];
+        if (character <= 0 || character > 0x7f)
+        {
+            return std::nullopt;
+        }
+        output.push_back(static_cast<char>(character));
+    }
+    return output;
+}
+
+auto apply_intrinsic_emission_show_flags(
+    UObject* component,
+    const PaintSceneCaptureContracts& contracts) -> bool
+{
+    if (!object_is_live_exact(
+            component,
+            contracts.scene_capture_component_2d_class) ||
+        contracts.set_show_flag_settings == nullptr ||
+        contracts.set_show_flag_settings_parameter == nullptr ||
+        contracts.show_flag_settings == nullptr ||
+        contracts.show_flag_name == nullptr ||
+        contracts.show_flag_enabled == nullptr)
+    {
+        return false;
+    }
+    const auto& requested =
+        paint_intrinsic_emission_show_flags();
+    auto parameters = std::vector<std::byte>(
+        static_cast<std::size_t>(
+            contracts.set_show_flag_settings
+                ->GetPropertiesSize()));
+    auto* parameter_array =
+        contracts.set_show_flag_settings_parameter
+            ->ContainerPtrToValuePtr<void>(
+                parameters.data());
+    if (parameter_array == nullptr)
+    {
+        return false;
+    }
+    const auto element_size =
+        contracts.show_flag_setting_struct
+            ->GetPropertiesSize();
+    if (element_size <= 0 ||
+        requested.size() >
+            std::numeric_limits<std::size_t>::max() /
+                static_cast<std::size_t>(element_size))
+    {
+        return false;
+    }
+    auto records = std::vector<std::byte>(
+        requested.size() *
+        static_cast<std::size_t>(element_size));
+    auto string_backing =
+        std::vector<std::basic_string<TCHAR>>{};
+    string_backing.reserve(requested.size());
+    for (auto index = std::size_t{};
+         index < requested.size();
+         ++index)
+    {
+        auto* record =
+            records.data() +
+            index * static_cast<std::size_t>(
+                        element_size);
+        string_backing.push_back(
+            RC::ensure_str(std::string{
+                requested[index].name}));
+        auto* string_value =
+            contracts.show_flag_name
+                ->ContainerPtrToValuePtr<void>(record);
+        if (string_value == nullptr ||
+            string_backing.back().empty() ||
+            string_backing.back().size() + 1U >
+                static_cast<std::size_t>(
+                    std::numeric_limits<std::int32_t>::max()))
+        {
+            return false;
+        }
+        *static_cast<BorrowedScriptStringAbi*>(
+            string_value) = BorrowedScriptStringAbi{
+            string_backing.back().data(),
+            static_cast<std::int32_t>(
+                string_backing.back().size() + 1U),
+            static_cast<std::int32_t>(
+                string_backing.back().size() + 1U),
+        };
+        contracts.show_flag_enabled
+            ->SetPropertyValueInContainer(
+                record,
+                requested[index].enabled);
+        const auto written_name =
+            read_ascii_show_flag_name(
+                contracts.show_flag_name,
+                record);
+        if (!written_name ||
+            *written_name != requested[index].name ||
+            contracts.show_flag_enabled
+                    ->GetPropertyValueInContainer(record) !=
+                requested[index].enabled)
+        {
+            return false;
+        }
+    }
+    *static_cast<BorrowedScriptArrayAbi*>(
+        parameter_array) = BorrowedScriptArrayAbi{
+        records.data(),
+        static_cast<std::int32_t>(requested.size()),
+        static_cast<std::int32_t>(requested.size()),
+    };
+
+    component->ProcessEvent(
+        contracts.set_show_flag_settings,
+        parameters.data());
+
+    auto readback = FScriptArrayHelper_InContainer{
+        contracts.show_flag_settings,
+        component};
+    if (readback.Num() !=
+        static_cast<std::int32_t>(requested.size()))
+    {
+        return false;
+    }
+    for (auto index = std::size_t{};
+         index < requested.size();
+         ++index)
+    {
+        auto* record = readback.GetRawPtr(
+            static_cast<std::int32_t>(index));
+        const auto name = read_ascii_show_flag_name(
+            contracts.show_flag_name,
+            record);
+        if (!name ||
+            *name != requested[index].name ||
+            contracts.show_flag_enabled
+                    ->GetPropertyValueInContainer(record) !=
+                requested[index].enabled)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 auto set_scene_capture_enum(
     const ExactEnumProperty& property,
     UObject* container,
@@ -3054,8 +3359,11 @@ auto capture_paint_scene_pass(
         application::RuntimeExecutionError>
 {
     if (world == nullptr ||
-        pass.profile !=
-            PaintSceneCaptureProfile::Standard ||
+        (pass.profile !=
+             PaintSceneCaptureProfile::Standard &&
+         pass.profile !=
+             PaintSceneCaptureProfile::
+                 IntrinsicEmission) ||
         !object_is_live(
             target_mesh,
             contracts.primitive_component_class) ||
@@ -3146,6 +3454,17 @@ auto capture_paint_scene_pass(
         return runtime_failure(
             application::RuntimeContractId::PaintCapture,
             application::ContractFailureKind::InvalidValue);
+    }
+    if (pass.profile ==
+            PaintSceneCaptureProfile::IntrinsicEmission &&
+        !apply_intrinsic_emission_show_flags(
+            component,
+            contracts))
+    {
+        return runtime_failure(
+            application::RuntimeContractId::PaintCapture,
+            application::ContractFailureKind::
+                InvalidValue);
     }
 
     auto hide_component = [&](UObject* hidden) -> bool

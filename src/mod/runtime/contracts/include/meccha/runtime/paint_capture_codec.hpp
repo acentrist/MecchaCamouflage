@@ -175,6 +175,15 @@ struct PaintBrushPlaneVisualContract
         -> bool = default;
 };
 
+struct PaintShowFlagSetting
+{
+    std::string_view name{};
+    bool enabled{};
+
+    auto operator==(const PaintShowFlagSetting&) const
+        -> bool = default;
+};
+
 struct PaintCaptureLinearColor
 {
     float red{};
@@ -297,4 +306,7 @@ convert_paint_capture_linear_colors_to_srgb8(
 
 [[nodiscard]] auto paint_brush_plane_visual_contract()
     -> PaintBrushPlaneVisualContract;
+
+[[nodiscard]] auto paint_intrinsic_emission_show_flags()
+    -> const std::array<PaintShowFlagSetting, 33U>&;
 } // namespace meccha::runtime
