@@ -722,10 +722,15 @@ UE4SS’s restricted UEPseudo dependency means:
 
 - Default and fork checkout initializes only public dependencies. It does not
   recursively request the restricted UE4SS dependency graph.
-- Automatic fork/PR CI runs with no secrets, uses
-  `MECCHA_WITH_UE4SS=OFF`, and builds/tests the pure core, application,
-  launcher, payload tooling, and fake runtime adapter. It does not claim that
-  the real mod ABI compiled.
+- Automatic fork/PR CI runs with no secrets and uses
+  `MECCHA_WITH_UE4SS=OFF`. Initial, reopened, code-bearing, and unclassifiable
+  updates build/test the pure core, application, launcher, payload tooling, and
+  fake runtime adapter. A synchronized update limited to Markdown and the exact
+  latest-v1 checkpoint manifest may rerun policy contracts under one stable
+  aggregate gate without rebuilding unchanged binaries only when the previous
+  head already has that aggregate gate's successful evidence. Missing prior
+  evidence, missing/empty ranges, and manual runs fail closed to the heavy
+  graph. It does not claim that the real mod ABI compiled.
 - A full recursive build is required before merge, but it runs only from an
   explicitly maintainer-approved commit on a protected repository ref and
   behind an approved CI environment. Do not use `pull_request_target` or expose
@@ -1766,6 +1771,12 @@ with T4 by preparing builds, exact procedures, diagnostics, and evidence
 parsing. T4–T6 remain maintainer-owned whenever the environment cannot directly
 control and observe the required machines. No test is replaced with a source
 assertion merely because the live environment is unavailable.
+
+"Required on every PR" means every initial, reopened, code-bearing, or
+unclassifiable PR update. A synchronize range limited to non-executable
+Markdown/latest-v1 checkpoint metadata may reuse the unchanged binary evidence
+only when the previous head's stable aggregate gate already passed and the new
+head's policy contracts and aggregate gate pass.
 
 ### Live-session protocol
 

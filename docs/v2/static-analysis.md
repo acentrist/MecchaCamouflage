@@ -43,13 +43,41 @@ parallel compile jobs: the analyzer has a materially higher per-translation
 unit memory cost, and an unbounded Ninja fan-out can be terminated by a hosted
 runner before GCC emits a diagnostic.
 
-Every public v2 job checks out the exact pull-request head commit (or the exact
-push commit), rather than GitHub's synthetic pull-request merge ref. This keeps
-the rewrite's frozen v1 comparison evidence and profile identities bound to the
-commit under review even while the target branch changes. The legacy v1
-workflow remains enabled for its normal branches and pull requests but skips
-only the `rewrite/ue4ss-v2` pull request, whose restricted recursive checkout
-is outside the public v2 trust boundary.
+Every public v2 job that reads repository source checks out the exact
+pull-request head commit (or exact manually selected commit), rather than
+GitHub's synthetic pull-request merge ref. This keeps the rewrite's frozen v1
+comparison evidence and profile identities bound to the commit under review
+even while the target branch changes. The legacy v1 workflow remains enabled
+for its normal branches and pull requests but skips only the
+`rewrite/ue4ss-v2` pull request, whose restricted recursive checkout is outside
+the public v2 trust boundary.
+
+The public workflow runs automatically for pull requests and can be run
+manually with `workflow_dispatch`; it has no branch `push` trigger that would
+duplicate every open-PR run. A workflow-level concurrency group is unique to
+the workflow plus pull request (or manual ref), and `cancel-in-progress` stops
+obsolete runs after a newer update arrives.
+
+`policy-contracts` always checks out the exact source commit with full Git
+history, runs the Phase 1 and CI-policy verifiers, and selects the required CI
+depth. On a pull-request `synchronize` event it compares only the previous and
+current head commits. The heavy analyzer, sanitizer, and Windows jobs may be
+skipped only when every changed path is Markdown or the exact
+`src/tests/fixtures/v1/manifest.json` latest-v1 checkpoint **and** the previous
+head already has a successful `Public CI Gate`. That prior result is read from
+GitHub's public Checks API without a token. Missing, malformed, rate-limited,
+or unavailable evidence fails closed to the heavy jobs, as do initial or
+reopened pull requests, manual runs, empty or unavailable ranges,
+non-canonical paths, workflow/verifier changes, source changes, and
+fixture-data changes. Requiring prior green evidence prevents a docs-only
+update from cancelling an unfinished code-bearing run and then inheriting
+evidence that never completed.
+
+`Public CI Gate` always runs after the policy and heavy jobs. It succeeds only
+when policy contracts pass and either all selected heavy jobs pass or all three
+are correctly skipped for a lightweight update. This gives required-check
+configuration one stable job name without weakening the analyzer, sanitizer,
+or Windows evidence for code-bearing changes.
 
 The sanitized Image Paint composition-root test pumps asynchronous work to a
 30-second steady-clock deadline and reports a timeout as a failed assertion.

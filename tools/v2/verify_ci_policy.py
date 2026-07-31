@@ -14,6 +14,7 @@ TRUSTED_WORKFLOW = ROOT / ".github/workflows/v2-full-build.yml"
 RELEASE_WORKFLOW = ROOT / ".github/workflows/v2-release-candidate.yml"
 RELEASE_SCRIPT = ROOT / "tools/v2/build-release-candidate.ps1"
 FULL_BUILD_VERIFIER = ROOT / "tools/v2/verify-full-build.ps1"
+CHANGE_POLICY = ROOT / "tools/v2/ci_change_policy.py"
 
 
 def fail(message: str) -> None:
@@ -69,12 +70,27 @@ def verify_public_workflow() -> None:
         text,
         {
             "pull_request:",
+            "workflow_dispatch:",
+            "concurrency:",
+            "group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}",
+            "cancel-in-progress: true",
             "V2_SOURCE_COMMIT:",
             "github.event.pull_request.head.sha",
+            "github.event.before",
             "ref: ${{ env.V2_SOURCE_COMMIT }}",
+            "fetch-depth: 0",
             "ubuntu-24.04",
             "windows-2022",
             "submodules: false",
+            "policy-contracts:",
+            "run_heavy: ${{ steps.change-policy.outputs.run_heavy }}",
+            "python3 tools/v2/ci_change_policy.py",
+            "--repository \"$GITHUB_REPOSITORY\"",
+            "--api-url \"$GITHUB_API_URL\"",
+            "python3 tools/v2/verify_phase1.py",
+            "python3 tools/v2/verify_ci_policy.py",
+            "needs: policy-contracts",
+            "if: needs.policy-contracts.outputs.run_heavy == 'true'",
             "git submodule update --init third_party/RE-UE4SS",
             "-DMECCHA_WITH_UE4SS=OFF",
             "linux-static-analysis:",
@@ -87,18 +103,29 @@ def verify_public_workflow() -> None:
             "ASAN_OPTIONS:",
             "UBSAN_OPTIONS:",
             "ctest",
+            "public-ci:",
+            "name: Public CI Gate",
+            "if: always()",
+            "needs.policy-contracts.result",
         },
         "public workflow",
     )
     require_occurrences(
         text,
         "ref: ${{ env.V2_SOURCE_COMMIT }}",
+        4,
+        "public workflow",
+    )
+    require_occurrences(
+        text,
+        "if: needs.policy-contracts.outputs.run_heavy == 'true'",
         3,
         "public workflow",
     )
     forbid_fragments(
         text,
         {
+            "push:",
             "secrets.",
             "--recursive",
             "MECCHA_WITH_UE4SS=ON",
@@ -106,6 +133,81 @@ def verify_public_workflow() -> None:
         },
         "public workflow",
     )
+
+
+def verify_public_change_policy() -> None:
+    if not CHANGE_POLICY.exists():
+        fail(f"{CHANGE_POLICY.relative_to(ROOT)} is missing")
+
+    tool_directory = str(CHANGE_POLICY.parent)
+    sys.path.insert(0, tool_directory)
+    try:
+        from ci_change_policy import classify_event, requires_heavy_ci
+    finally:
+        sys.path.remove(tool_directory)
+
+    lightweight_paths = [
+        "PLAN.md",
+        "docs/v2/static-analysis.md",
+        "src/tests/fixtures/v1/manifest.json",
+    ]
+    if requires_heavy_ci(lightweight_paths):
+        fail("documentation/checkpoint-only changes must use lightweight CI")
+
+    heavy_cases = {
+        "empty change set": [],
+        "production source": ["src/core/src/paint.cpp"],
+        "fixture data": ["src/tests/fixtures/v1/paint-domain.json"],
+        "workflow policy": [".github/workflows/v2-ci.yml"],
+        "classifier policy": ["tools/v2/ci_change_policy.py"],
+        "unsafe relative path": ["../outside.md"],
+        "non-canonical separator": [r"docs\v2\static-analysis.md"],
+        "control-character path": ["docs/v2/bad\nname.md"],
+    }
+    for label, paths in heavy_cases.items():
+        if not requires_heavy_ci(paths):
+            fail(f"{label} must fail closed to heavy CI")
+
+    fail_closed_events = {
+        "manual run": ("workflow_dispatch", "", "", "f" * 40),
+        "initial pull request": ("pull_request", "opened", "", "f" * 40),
+        "missing synchronization range": (
+            "pull_request",
+            "synchronize",
+            "",
+            "f" * 40,
+        ),
+    }
+    for label, event in fail_closed_events.items():
+        run_heavy, _, _ = classify_event(*event, repository=ROOT)
+        if not run_heavy:
+            fail(f"{label} must fail closed to heavy CI")
+
+    synchronized_event = (
+        "pull_request",
+        "synchronize",
+        "e" * 40,
+        "f" * 40,
+    )
+    docs_reader = lambda _before, _after, _repository: ["docs/v2/status.md"]
+    run_heavy, _, _ = classify_event(
+        *synchronized_event,
+        repository=ROOT,
+        changed_paths_reader=docs_reader,
+        prior_gate_reader=lambda _commit: True,
+    )
+    if run_heavy:
+        fail("documentation-only change with prior green gate must stay lightweight")
+
+    for prior_result in (False, None):
+        run_heavy, _, _ = classify_event(
+            *synchronized_event,
+            repository=ROOT,
+            changed_paths_reader=docs_reader,
+            prior_gate_reader=lambda _commit, result=prior_result: result,
+        )
+        if not run_heavy:
+            fail("lightweight CI must require a successful prior aggregate gate")
 
 
 def verify_legacy_workflow() -> None:
@@ -282,6 +384,7 @@ def main() -> int:
     try:
         verify_legacy_workflow()
         verify_public_workflow()
+        verify_public_change_policy()
         verify_trusted_workflow()
         verify_release_workflow()
         verify_release_script()

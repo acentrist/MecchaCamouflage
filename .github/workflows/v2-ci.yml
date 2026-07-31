@@ -1,10 +1,12 @@
 name: V2 Secret-free CI
 
 on:
-  push:
-    branches:
-      - rewrite/ue4ss-v2
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -13,7 +15,46 @@ env:
   V2_SOURCE_COMMIT: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
 jobs:
+  policy-contracts:
+    name: Policy Contracts
+    runs-on: ubuntu-24.04
+    outputs:
+      run_heavy: ${{ steps.change-policy.outputs.run_heavy }}
+      classification: ${{ steps.change-policy.outputs.classification }}
+
+    steps:
+      - name: Checkout exact source commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.V2_SOURCE_COMMIT }}
+          fetch-depth: 0
+          submodules: false
+
+      - name: Classify the latest pull-request update
+        id: change-policy
+        env:
+          V2_EVENT_NAME: ${{ github.event_name }}
+          V2_EVENT_ACTION: ${{ github.event.action }}
+          V2_BEFORE_COMMIT: ${{ github.event.before }}
+        run: >
+          python3 tools/v2/ci_change_policy.py
+          --event-name "$V2_EVENT_NAME"
+          --event-action "$V2_EVENT_ACTION"
+          --before "$V2_BEFORE_COMMIT"
+          --after "$V2_SOURCE_COMMIT"
+          --repository "$GITHUB_REPOSITORY"
+          --api-url "$GITHUB_API_URL"
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Verify frozen-v1 and traceability contracts
+        run: python3 tools/v2/verify_phase1.py
+
+      - name: Verify CI trust and execution policy
+        run: python3 tools/v2/verify_ci_policy.py
+
   linux-static-analysis:
+    needs: policy-contracts
+    if: needs.policy-contracts.outputs.run_heavy == 'true'
     runs-on: ubuntu-24.04
 
     steps:
@@ -42,6 +83,8 @@ jobs:
           meccha_launcher_core --parallel 2
 
   linux-sanitizers:
+    needs: policy-contracts
+    if: needs.policy-contracts.outputs.run_heavy == 'true'
     runs-on: ubuntu-24.04
 
     steps:
@@ -75,6 +118,8 @@ jobs:
           --output-on-failure
 
   windows:
+    needs: policy-contracts
+    if: needs.policy-contracts.outputs.run_heavy == 'true'
     runs-on: windows-2022
 
     steps:
@@ -113,3 +158,46 @@ jobs:
         run: >
           ctest --test-dir .build/v2/ci-windows
           -C Release --output-on-failure
+
+  public-ci:
+    name: Public CI Gate
+    if: always()
+    needs:
+      - policy-contracts
+      - linux-static-analysis
+      - linux-sanitizers
+      - windows
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Require the selected public CI depth
+        env:
+          POLICY_RESULT: ${{ needs.policy-contracts.result }}
+          RUN_HEAVY: ${{ needs.policy-contracts.outputs.run_heavy }}
+          ANALYZER_RESULT: ${{ needs.linux-static-analysis.result }}
+          SANITIZER_RESULT: ${{ needs.linux-sanitizers.result }}
+          WINDOWS_RESULT: ${{ needs.windows.result }}
+        run: |
+          if [[ "$POLICY_RESULT" != "success" ]]; then
+            echo "Policy contracts did not succeed: $POLICY_RESULT"
+            exit 1
+          fi
+
+          if [[ "$RUN_HEAVY" == "true" ]]; then
+            if [[ "$ANALYZER_RESULT" != "success" ||
+                  "$SANITIZER_RESULT" != "success" ||
+                  "$WINDOWS_RESULT" != "success" ]]; then
+              echo "Heavy CI did not succeed: analyzer=$ANALYZER_RESULT sanitizer=$SANITIZER_RESULT windows=$WINDOWS_RESULT"
+              exit 1
+            fi
+          elif [[ "$RUN_HEAVY" == "false" ]]; then
+            if [[ "$ANALYZER_RESULT" != "skipped" ||
+                  "$SANITIZER_RESULT" != "skipped" ||
+                  "$WINDOWS_RESULT" != "skipped" ]]; then
+              echo "Lightweight CI unexpectedly ran a heavy job"
+              exit 1
+            fi
+          else
+            echo "Policy contracts returned an invalid run_heavy value: $RUN_HEAVY"
+            exit 1
+          fi

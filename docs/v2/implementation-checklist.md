@@ -1060,8 +1060,13 @@ Evidence:
     icon, licenses, and notices into the release EXE.
 - [ ] Build runtime and mod from the same trusted graph.
 - [ ] Complete secret-free PR CI and protected full-build/release CI.
-  - [x] Bind every public v2 job to the exact pull-request head/push commit,
-    keep the legacy recursive v1 job off the rewrite pull request only, bound
+  - [x] Bind every source-reading public v2 job to the exact pull-request
+    head/manual commit, remove duplicate branch-push runs, cancel superseded
+    runs, and retain one stable aggregate gate. Allow only Markdown/latest-v1
+    checkpoint updates with a prior green aggregate gate to skip the heavy
+    analyzer, sanitizer, and Windows jobs; fail missing prior evidence and every
+    unclassifiable or code-bearing update closed to the full graph.
+    Keep the legacy recursive v1 job off the rewrite pull request only, bound
     GCC analyzer parallelism, and cover hosted-runner timing plus Windows 8.3
     dependency-root aliases without weakening reparse rejection.
   - [x] Implement a manual, protected, fail-closed release-candidate workflow
