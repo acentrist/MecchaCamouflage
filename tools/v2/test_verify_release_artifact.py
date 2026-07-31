@@ -312,9 +312,16 @@ class ReleaseArtifactTests(unittest.TestCase):
                 b"profile",
             ),
             (
-                "Mods/MecchaCamouflage/resources/fonts/font.otf",
+                "Mods/MecchaCamouflage/resources/fonts/"
+                "fallback-glyph-atlas.png",
                 "font",
                 b"font",
+            ),
+            (
+                "Mods/MecchaCamouflage/resources/fonts/"
+                "fallback-glyph-atlas.json",
+                "font",
+                b"font manifest",
             ),
             (
                 "Licenses/MecchaCamouflage-LICENSE.txt",
@@ -332,7 +339,7 @@ class ReleaseArtifactTests(unittest.TestCase):
                 b"webp license",
             ),
             (
-                "Licenses/D-DIN-OFL.txt",
+                "Licenses/Noto-CJK-OFL.txt",
                 "license",
                 b"font license",
             ),

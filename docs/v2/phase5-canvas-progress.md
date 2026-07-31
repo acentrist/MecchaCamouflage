@@ -222,12 +222,32 @@ HUD-frame coordinator additionally proves localized composition, exact
 input-lease acquisition and render-failure rollback, render-before-action
 ordering, ready-texture synchronization, and resource-free shutdown through a
 fake runtime port. The normal Linux, ASan/UBSan, and Windows Release graphs pass
-74, 74, and 92 tests respectively.
+75, 75, and 93 tests respectively.
+
+## Packaged fallback glyph atlas
+
+The production adapter will prefer the game's localized UI font, but it no
+longer depends on that font covering every shipped translation. A reviewed
+1536×1440 RGBA atlas now contains the exact 957 drawable/spacing codepoints
+required by all 16 catalogs, localized locale names, and the replacement
+character. Each entry uses a fixed 48×48 cell, sorted codepoint index, and
+bounded advance so the future UCanvas adapter can emit texture primitives
+without loading a native font parser or introducing a graphics hook.
+
+The atlas is generated from the exact Noto Sans CJK `Sans2.004` Regular OTC
+commit and source hash recorded in `dependency-lock.md`. Its JSON manifest
+binds source provenance, OFL hash, atlas hash, RGBA geometry, and every
+codepoint/index. `fallback_glyph_atlas` rejects manifest, inventory, PNG hash,
+format, geometry, license, and catalog drift. The runtime assembler reruns the
+same verification before packaging. The eight v1 D-DIN files are removed from
+the v2 payload because no v2 runtime path consumes them.
 
 ## Remaining feasibility work
 
 - Bind the project-owned texture coordinator to reflected Unreal texture
   creation/release.
+- Resolve the game-localized font first and bind missing text through the
+  fallback atlas in the production UCanvas adapter.
 - Implement the validated UCanvas and Unreal input adapters only after the
   protected UE4SS graph compiles the exact interfaces.
 - Prove localized font/text, texture creation/lifetime, clipping, mouse input,

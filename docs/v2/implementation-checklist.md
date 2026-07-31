@@ -223,6 +223,10 @@ Evidence:
   - [ ] Implement and live-verify the production Unreal input-state port.
 - [x] Implement responsive viewport/DPI scaling.
 - [ ] Implement localized game-font and packaged OFL fallback-glyph paths.
+  - [x] Generate and package a pinned Noto-derived RGBA fallback atlas with an
+    exact source/hash/OFL manifest and exact all-catalog codepoint inventory.
+  - [ ] Resolve the localized game font first and bind missing glyphs through
+    the production UCanvas texture adapter.
 - [ ] Render representative ESP primitives while the panel is closed.
 - [x] Complete the retained portable two-layer Image Paint editor vertical
   slice with topmost selection, retained move/resize/crop/order transitions,
@@ -288,7 +292,9 @@ Evidence:
 - [ ] Port all 16 localization catalogs and validate placeholders/glyphs.
   - [x] Preserve all 16 catalogs in the v2 resource tree.
   - [x] Validate locale/key sets, placeholders, UTF-8, and glyph inventory.
-  - [ ] Verify game-font and packaged fallback glyph coverage.
+  - [x] Verify the packaged fallback atlas exactly covers every codepoint in
+    all 16 catalogs and localized locale names.
+  - [ ] Verify localized game-font-first selection in the live runtime.
 - [x] Specify the canonical v2-only `.mcpreset` container.
 - [x] Implement project save/load/rename/delete and content-addressed sources.
 - [x] Run named project load/save/rename/delete on one owned I/O worker with
@@ -618,6 +624,8 @@ Evidence:
     the 16 shipped catalogs.
   - [x] Retain bounded per-section scroll state and exclude clipped Settings,
     Paint, Image Paint, and ESP controls from keyboard focus/action admission.
+  - [x] Bind a deterministic packaged fallback-atlas inventory to every
+    shipped localized codepoint without adding a runtime font library.
 - [x] Ensure panel close preserves ESP and active jobs.
 - [ ] Pass UI action/state, gesture, hotkey, layout, and localization tests.
   - [x] Pass portable panel tests for all shipped locales, section switching,
@@ -689,6 +697,9 @@ Evidence:
     UE4SS consoles/debug UI/hot reload/crash dumps, packages only the product
     C++ mod and retained resources/licenses, and emits the canonical layout
     input without modifying the pinned UE4SS source.
+  - [x] Replace the unused v1 D-DIN font family with the exact reviewed
+    fallback atlas, manifest, and Noto CJK OFL license; refuse assembly if
+    atlas provenance, bytes, geometry, or catalog coverage drift.
   - [ ] Confirm the assembled runtime inventory and generated-path allowlist
     through the trusted build and live architecture gate.
 - [x] Generate canonical manifest and deterministic CAB.

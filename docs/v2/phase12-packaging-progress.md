@@ -150,9 +150,9 @@ The output inventory is limited to:
 - a project-owned C++ mod directory with `main.dll` and an empty
   `enabled.txt`;
 - the upstream member-variable layout and a copied release settings file;
-- the exact six profile files, one 16-locale catalog, and eight D-DIN font
-  files; and
-- project, UE4SS, libwebp, D-DIN, and audited dependency notices.
+- the exact six profile files, one 16-locale catalog, and the reviewed
+  Noto-derived fallback glyph atlas plus its exact manifest; and
+- project, UE4SS, libwebp, Noto CJK OFL, and audited dependency notices.
 
 The settings copy keeps scanning and input support but disables UE4SS
 hot-reload paths, UObject-array caching, simple/debug consoles, debug UI, and

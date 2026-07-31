@@ -105,6 +105,14 @@ the final UI catalog; they are data only and have no runtime behavior.
 Cyrillic glyph inventory, English fallback, formatting, placeholder failures,
 locale-set failures, semantic duplicate keys, invalid UTF-8, and size limits.
 
+`fallback_glyph_atlas` additionally verifies that the reviewed Noto-derived
+RGBA atlas inventory is exactly equal to every codepoint produced by that
+catalog validation, including locale display names and the replacement
+character. It binds the pinned upstream commit/font hash, OFL hash, PNG hash,
+RGBA dimensions, fixed cell geometry, and sorted codepoint indices. Runtime
+assembly reruns the same verifier and fails closed on resource or catalog
+drift. Live game-font-first selection remains a production-adapter gate.
+
 Verified in both the Linux secret-free build and the Windows MSVC Release
 build. The repeated MSBuild `MSB8064`/`MSB8065` messages are caused by building
 the Windows tree through a WSL UNC path and are not project compiler warnings.

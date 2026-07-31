@@ -110,7 +110,7 @@ _REQUIRED_PAYLOAD_ROLES = {
     "Licenses/MecchaCamouflage-LICENSE.txt": "license",
     "Licenses/UE4SS-LICENSE.txt": "license",
     "Licenses/libwebp-COPYING.txt": "license",
-    "Licenses/D-DIN-OFL.txt": "license",
+    "Licenses/Noto-CJK-OFL.txt": "license",
     "Licenses/THIRD-PARTY-NOTICES.txt": "license",
 }
 _REQUIRED_ROLE_COUNTS = {

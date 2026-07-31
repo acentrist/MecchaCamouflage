@@ -1180,6 +1180,12 @@ add_test(
         "${Python3_EXECUTABLE}"
         "${PROJECT_SOURCE_DIR}/tools/v2/test_build_payload_cab.py"
 )
+add_test(
+    NAME fallback_glyph_atlas
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${PROJECT_SOURCE_DIR}/tools/v2/test_verify_fallback_glyph_atlas.py"
+)
 
 # The trusted full-build preset must build every project contract without
 # selecting UE4SS's unrelated research tools or bundled mods.

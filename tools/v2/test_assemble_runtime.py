@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 import tempfile
 import unittest
@@ -28,39 +29,25 @@ class RuntimeAssemblyTests(unittest.TestCase):
             "paintman_hukuyoka.image-profile-v2.json",
             "paintman_hukuyoka.mesh-profile-v2.json",
         }
-        font_names = {
-            "D-DIN-Bold.otf",
-            "D-DIN-Italic.otf",
-            "D-DIN.otf",
-            "D-DINCondensed-Bold.otf",
-            "D-DINCondensed.otf",
-            "D-DINExp-Bold.otf",
-            "D-DINExp-Italic.otf",
-            "D-DINExp.otf",
-        }
         project = root / "project"
         resources = project / "resources"
         (resources / "localization").mkdir(parents=True)
         (resources / "mesh-profiles").mkdir()
-        (resources / "fonts/d-din").mkdir(parents=True)
         (resources / "licenses").mkdir()
-        (resources / "localization/catalog.json").write_text(
-            '{"locales":["en"]}\n',
-            encoding="utf-8",
+        source_resources = Path(__file__).resolve().parents[2] / "resources"
+        shutil.copyfile(
+            source_resources / "localization/catalog.json",
+            resources / "localization/catalog.json",
+        )
+        shutil.copytree(
+            source_resources / "fonts/fallback",
+            resources / "fonts/fallback",
         )
         for name in profile_names:
             (resources / "mesh-profiles" / name).write_text(
                 '{"schema_version":1}\n',
                 encoding="utf-8",
             )
-        for name in font_names:
-            (resources / "fonts/d-din" / name).write_bytes(
-                b"font"
-            )
-        (resources / "fonts/d-din/SIL Open Font License.txt").write_text(
-            "OFL license\n",
-            encoding="utf-8",
-        )
         (resources / "licenses/libwebp-COPYING.txt").write_text(
             "libwebp license\n",
             encoding="utf-8",
@@ -139,7 +126,7 @@ class RuntimeAssemblyTests(unittest.TestCase):
                 for item in layout["files"]
             }
             expected_roles = {
-                    "Licenses/D-DIN-OFL.txt": "license",
+                    "Licenses/Noto-CJK-OFL.txt": "license",
                     "Licenses/MecchaCamouflage-LICENSE.txt": "license",
                     "Licenses/THIRD-PARTY-NOTICES.txt": "license",
                     "Licenses/UE4SS-LICENSE.txt": "license",
@@ -158,14 +145,8 @@ class RuntimeAssemblyTests(unittest.TestCase):
                     "Mods/MecchaCamouflage/resources/fonts/"
                     f"{name}": "font"
                     for name in {
-                        "D-DIN-Bold.otf",
-                        "D-DIN-Italic.otf",
-                        "D-DIN.otf",
-                        "D-DINCondensed-Bold.otf",
-                        "D-DINCondensed.otf",
-                        "D-DINExp-Bold.otf",
-                        "D-DINExp-Italic.otf",
-                        "D-DINExp.otf",
+                        "fallback-glyph-atlas.json",
+                        "fallback-glyph-atlas.png",
                     }
                 }
             )
@@ -254,6 +235,25 @@ class RuntimeAssemblyTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 RuntimeAssemblyError,
                 "setting",
+            ):
+                assemble_runtime(inputs)
+
+            self.assertFalse(inputs.output_root.exists())
+            self.assertFalse(inputs.layout_output.exists())
+
+    def test_refuses_tampered_fallback_glyph_atlas(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            inputs = self.make_fixture(root)
+            atlas = (
+                inputs.project_root
+                / "resources/fonts/fallback/fallback-glyph-atlas.png"
+            )
+            atlas.write_bytes(atlas.read_bytes() + b"tamper")
+
+            with self.assertRaisesRegex(
+                RuntimeAssemblyError,
+                "glyph atlas",
             ):
                 assemble_runtime(inputs)
 

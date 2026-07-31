@@ -15,6 +15,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+from verify_fallback_glyph_atlas import (
+    GlyphAtlasVerificationError,
+    verify as verify_fallback_glyph_atlas,
+)
+
 
 class RuntimeAssemblyError(ValueError):
     pass
@@ -43,14 +48,8 @@ _PROFILE_NAMES = {
     "paintman_hukuyoka.mesh-profile-v2.json",
 }
 _FONT_NAMES = {
-    "D-DIN-Bold.otf",
-    "D-DIN-Italic.otf",
-    "D-DIN.otf",
-    "D-DINCondensed-Bold.otf",
-    "D-DINCondensed.otf",
-    "D-DINExp-Bold.otf",
-    "D-DINExp-Italic.otf",
-    "D-DINExp.otf",
+    "fallback-glyph-atlas.json",
+    "fallback-glyph-atlas.png",
 }
 _SETTING_OVERRIDES = {
     "EnableHotReloadSystem": "0",
@@ -229,9 +228,18 @@ def _assemble_staging(
         _PROFILE_NAMES,
     )
     fonts = _directory_files(
-        resources / "fonts/d-din",
-        _FONT_NAMES | {"SIL Open Font License.txt"},
+        resources / "fonts/fallback",
+        _FONT_NAMES | {"Noto-CJK-OFL.txt"},
     )
+    try:
+        verify_fallback_glyph_atlas(
+            catalog_path=localization["catalog.json"],
+            atlas_directory=resources / "fonts/fallback",
+        )
+    except GlyphAtlasVerificationError as error:
+        raise RuntimeAssemblyError(
+            f"Fallback glyph atlas validation failed: {error}"
+        ) from error
     _require_plain_file(inputs.project_root / "LICENSE.txt")
     _require_plain_file(
         resources / "licenses/libwebp-COPYING.txt"
@@ -299,7 +307,7 @@ def _assemble_staging(
             inventory,
         )
     for name, source in sorted(fonts.items()):
-        if name == "SIL Open Font License.txt":
+        if name == "Noto-CJK-OFL.txt":
             continue
         _write_file(
             staging_root,
@@ -322,8 +330,8 @@ def _assemble_staging(
             resources / "licenses/libwebp-COPYING.txt",
         ),
         (
-            "Licenses/D-DIN-OFL.txt",
-            fonts["SIL Open Font License.txt"],
+            "Licenses/Noto-CJK-OFL.txt",
+            fonts["Noto-CJK-OFL.txt"],
         ),
         (
             "Licenses/THIRD-PARTY-NOTICES.txt",

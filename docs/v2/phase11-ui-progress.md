@@ -68,8 +68,8 @@ held-key behavior across snapshot publication, complete remapping, duplicate
 mapping refusal, invalid/event-limit refusal, exact command-ID exhaustion,
 input-loss release, and terminal shutdown.
 
-The complete Linux, Linux ASan/UBSan, and Windows MSVC Release graphs pass 74,
-74, and 92 tests respectively.
+The complete Linux, Linux ASan/UBSan, and Windows MSVC Release graphs pass 75,
+75, and 93 tests respectively.
 
 ## Immutable product presentation
 
@@ -519,6 +519,13 @@ frames and cannot request lifecycle restoration or unregister the callback
 until the coordinator has stopped successfully. Portable tests cover identity
 delivery, Canvas failure mapping, terminal admission closure, failed
 restoration retry, and exact ordering before transient-state restore.
+
+The complete localized label inventory also has a packaged, source-pinned
+Noto-derived RGBA fallback atlas. Its exact codepoint set, PNG geometry/hash,
+manifest provenance, and OFL text are verified in CI and again during trusted
+runtime assembly. This closes portable all-language glyph coverage without a
+runtime font dependency; game-font-first selection and fallback texture
+drawing remain part of the production UCanvas adapter and live gate.
 
 ## Remaining work
 

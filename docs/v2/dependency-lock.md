@@ -62,6 +62,8 @@ No UE4SS source patch is present. MecchaCamouflage may:
 - select documented UE4SS cache options;
 - add UE4SS with `EXCLUDE_FROM_ALL`;
 - predeclare exact direct FetchContent commits;
+- pass Cargo `--locked` to the imported patternsleuth target so the accepted
+  lock cannot be silently pruned or regenerated;
 - link `main.dll` against the `UE4SS` target from that same build.
 
 Any edit inside the UE4SS gitlink, change to a locked commit, or additional
@@ -79,6 +81,25 @@ SharpYUV targets are excluded from the default build graph; only the static
 decoder and its decoder-only object targets remain. No libwebp source patch is
 applied. The runtime accepts still WebP only; an animation feature bit fails
 closed before decoded allocation.
+
+## Project fallback glyph-atlas lock
+
+The fallback is a pre-rendered RGBA atlas rather than a runtime font engine or
+an additional font parser. It is generated from the unmodified Regular OTC at
+the signed Noto Sans CJK `Sans2.004` tag and packages only the atlas, its exact
+geometry/codepoint manifest, and the upstream OFL text.
+
+| Component | Upstream tag | Accepted commit | Source SHA-256 | Packaged evidence |
+| --- | --- | --- | --- | --- |
+| Noto Sans CJK Regular OTC | `Sans2.004` | `523d033d6cb47f4a80c58a35753646f5c3608a78` | `b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a` | `resources/fonts/fallback/fallback-glyph-atlas.{png,json}` and `Noto-CJK-OFL.txt` |
+
+`verify_fallback_glyph_atlas.py` binds the PNG hash and RGBA dimensions to the
+manifest, binds the source commit/font hash and OFL hash, rejects duplicate or
+malformed inventory, and requires exact sorted coverage of every codepoint in
+all 16 shipped translations and locale display names plus the replacement
+character. The trusted runtime assembler reruns that verification before
+copying either atlas file. The original 18.6 MiB OTC and ImageMagick are
+generation inputs only and are not linked, loaded, or distributed.
 
 ## Protected full-build completion
 
