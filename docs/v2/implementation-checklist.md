@@ -18,6 +18,15 @@ Draft PR: [#233](https://github.com/acentrist/MecchaCamouflage/pull/233)
 - Any failed architecture gate stops its dependent phases.
 - Any release-critical deferred item blocks Phase 13 and release.
 
+Review artifacts:
+
+- [`architecture.md`](architecture.md)
+- [`requirements-traceability.md`](requirements-traceability.md)
+- [`compatibility-contracts.md`](compatibility-contracts.md)
+- [`live-test-checklist.md`](live-test-checklist.md)
+- [`risk-register.md`](risk-register.md)
+- [`decisions/`](decisions/)
+
 ## Phase 0 — Repository preservation and rewrite governance
 
 - [x] Approve the detailed v2 rewrite plan.
@@ -1068,6 +1077,9 @@ Evidence:
 
 ## Phase 13 — Stabilization and release matrix
 
+- [x] Inventory every live/protected check with its required environment,
+  owner, procedure, evidence header, and current non-pass result; map the
+  release-critical uncertainty into the risk register.
 - [ ] Freeze behavior and accept only evidence-driven fixes.
 - [ ] Pass the complete automated suite repeatedly from clean trusted builds.
 - [ ] Establish and enforce bounded performance/resource baselines.
