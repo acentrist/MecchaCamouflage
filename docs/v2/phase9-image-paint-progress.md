@@ -72,6 +72,41 @@ bytes, guess an array stride or offset, accept a merely similar mesh, or call
 `TargetMeshComponent`/`SkinnedAsset` path is unavailable in the supported live
 build, the compatibility gate stops for review.
 
+## Production profile capture
+
+The profile-catalog loader preloads all three exact raw/ImageReference pairs
+from the packaged profile directory. The production composition contract must
+construct that immutable catalog before adapter construction and callback
+registration. The catalog rejects missing or duplicate bodies, malformed
+documents, mismatched topology, and any source identity that cannot form the
+exact `/Game/...Asset.Export` object path. No file I/O or profile parsing may
+occur in a HUD callback.
+
+`UnrealRuntimeAdapter` consumes that catalog through
+`ImagePaintGameRuntimePort`. Initial contract resolution requires the exact
+`RuntimePaintableComponent.TargetMeshComponent` weak-object property, an
+explicit `MeshComponent` or `SkinnedMeshComponent` declared property class,
+the exact `SkinnedMeshComponent.SkinnedAsset` object property, and all expected
+owner, array, element-size, and property-class values. Capture then runs only
+on the game thread and fails closed unless the bound component, acknowledged
+pawn, world, target mesh, SkinnedAsset, frame identity, component identity,
+and component generation remain live and unchanged. The live SkinnedAsset path
+and export must exactly equal the selected catalog pair.
+
+The returned job copies only the generation-bound component handle, immutable
+sampling/image profiles, and the reviewed conservative default replication
+pacing plan. It performs no texture mutation, Paint dispatch, component-memory
+scan, runtime topology extraction, or profile I/O. Exact reflected pacing
+tuning can replace that bounded policy only through a separately frozen
+contract.
+
+Portable Linux verification passes all 83 tests, including exact catalog
+loading and static Image Paint sampling. The same source compiles and links
+`main.dll` under the pinned UE4SS/MSVC x64
+`Game__Shipping__Win64` graph. Live object resolution and behavior remain part
+of the explicit architecture/release matrix and are not claimed by these build
+checks.
+
 ## Portable Canvas editor
 
 The project-owned UI layer now consumes the existing immutable `ImageLayer`

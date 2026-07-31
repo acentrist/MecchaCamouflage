@@ -30,6 +30,24 @@ auto read_file(const std::filesystem::path& path) -> std::string
         std::istreambuf_iterator<char>{},
     };
 }
+
+auto expected_unreal_asset_path(core::BodyProfile body)
+    -> std::string_view
+{
+    switch (body)
+    {
+    case core::BodyProfile::Round:
+        return "/Game/3Dmodel/cLeon/charactor/paintman/skeltal/"
+               "paintman.paintman";
+    case core::BodyProfile::Cube:
+        return "/Game/3Dmodel/cLeon/charactor/paintman/"
+               "skeltal_cube/paintman_cube.paintman_cube";
+    case core::BodyProfile::Fukuyoka:
+        return "/Game/3Dmodel/cLeon/charactor/paintman/skeltal/"
+               "paintman_hukuyoka.paintman_hukuyoka";
+    }
+    return {};
+}
 } // namespace
 
 auto main(int argc, char** argv) -> int
@@ -73,10 +91,8 @@ auto main(int argc, char** argv) -> int
                     pair->sampling,
                     pair->image)
                     .empty() &&
-                pair->unreal_asset_path.starts_with("/Game/") &&
-                pair->unreal_asset_path.ends_with(
-                    "." +
-                    pair->sampling.identity.export_name),
+                pair->unreal_asset_path ==
+                    expected_unreal_asset_path(body),
             "a body lookup did not retain its immutable exact pair");
     }
 

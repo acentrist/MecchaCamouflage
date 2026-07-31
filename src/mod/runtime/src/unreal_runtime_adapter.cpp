@@ -93,6 +93,8 @@ constexpr auto Texture2dClassPath =
     STR("/Script/Engine.Texture2D");
 constexpr auto RuntimePaintableClassPath =
     STR("/Script/PenguinHotel.RuntimePaintableComponent");
+constexpr auto MeshComponentClassPath =
+    STR("/Script/Engine.MeshComponent");
 constexpr auto SkinnedMeshComponentClassPath =
     STR("/Script/Engine.SkinnedMeshComponent");
 constexpr auto SkinnedAssetClassPath =
@@ -205,10 +207,11 @@ struct ImagePaintContracts
     UClass* runtime_paintable_class{};
     UClass* pawn_class{};
     UClass* world_class{};
+    UClass* mesh_component_class{};
     UClass* skinned_mesh_component_class{};
     UClass* skinned_asset_class{};
     FWeakObjectProperty* target_mesh_component{};
-    FObjectPropertyBase* skinned_asset{};
+    FObjectProperty* skinned_asset{};
 };
 
 struct ActiveFrame
@@ -341,9 +344,7 @@ auto find_object_property(
         property->GetArrayDim() != 1 ||
         property->GetElementSize() !=
             static_cast<int>(sizeof(void*)) ||
-        property->GetPropertyClass().Get() == nullptr ||
-        !expected_class->IsChildOf(
-            property->GetPropertyClass().Get()) ||
+        property->GetPropertyClass().Get() != expected_class ||
         !property->IsInContainer(owner))
     {
         return nullptr;
@@ -376,10 +377,9 @@ auto find_bool_property(UClass* owner, const TCHAR* name)
 
 auto find_weak_object_property(
     UClass* owner,
-    const TCHAR* name,
-    UClass* expected_class) -> FWeakObjectProperty*
+    const TCHAR* name) -> FWeakObjectProperty*
 {
-    if (owner == nullptr || expected_class == nullptr)
+    if (owner == nullptr)
     {
         return nullptr;
     }
@@ -390,7 +390,7 @@ auto find_weak_object_property(
         property->GetArrayDim() != 1 ||
         property->GetElementSize() !=
             static_cast<int>(sizeof(FWeakObjectPtr)) ||
-        property->GetPropertyClass().Get() != expected_class ||
+        property->GetPropertyClass().Get() == nullptr ||
         !property->IsInContainer(owner))
     {
         return nullptr;
@@ -508,10 +508,7 @@ auto read_weak_object(
     {
         return nullptr;
     }
-    auto* value =
-        property->ContainerPtrToValuePtr<FWeakObjectPtr>(
-            container);
-    return value == nullptr ? nullptr : value->Get();
+    return property->GetPropertyValueInContainer(container).Get();
 }
 
 auto runtime_failure(
@@ -1255,6 +1252,8 @@ auto resolve_image_paint_contracts(
     contracts.runtime_paintable_class = runtime_paintable_class;
     contracts.pawn_class = pawn_class;
     contracts.world_class = world_class;
+    contracts.mesh_component_class =
+        find_class(MeshComponentClassPath);
     contracts.skinned_mesh_component_class =
         find_class(SkinnedMeshComponentClassPath);
     contracts.skinned_asset_class =
@@ -1262,6 +1261,7 @@ auto resolve_image_paint_contracts(
     if (contracts.runtime_paintable_class == nullptr ||
         contracts.pawn_class == nullptr ||
         contracts.world_class == nullptr ||
+        contracts.mesh_component_class == nullptr ||
         contracts.skinned_mesh_component_class == nullptr ||
         contracts.skinned_asset_class == nullptr)
     {
@@ -1273,9 +1273,18 @@ auto resolve_image_paint_contracts(
     contracts.target_mesh_component =
         find_weak_object_property(
             contracts.runtime_paintable_class,
-            STR("TargetMeshComponent"),
-            contracts.skinned_mesh_component_class);
-    if (contracts.target_mesh_component == nullptr)
+            STR("TargetMeshComponent"));
+    auto* target_mesh_property_class =
+        contracts.target_mesh_component == nullptr
+            ? nullptr
+            : contracts.target_mesh_component
+                  ->GetPropertyClass()
+                  .Get();
+    if (contracts.target_mesh_component == nullptr ||
+        (target_mesh_property_class !=
+             contracts.mesh_component_class &&
+         target_mesh_property_class !=
+             contracts.skinned_mesh_component_class))
     {
         return runtime_failure(
             application::RuntimeContractId::
@@ -1283,15 +1292,19 @@ auto resolve_image_paint_contracts(
             application::ContractFailureKind::
                 WrongPropertyKind);
     }
-    contracts.skinned_asset = find_object_property(
-        contracts.skinned_mesh_component_class,
-        STR("SkinnedAsset"),
-        contracts.skinned_asset_class);
+    contracts.skinned_asset = CastField<FObjectProperty>(
+        contracts.skinned_mesh_component_class->FindProperty(
+            FName{STR("SkinnedAsset"), FNAME_Find}));
     if (contracts.skinned_asset == nullptr ||
-        CastField<FWeakObjectProperty>(
-            contracts.skinned_asset) != nullptr ||
         contracts.skinned_asset->GetOwner<UClass>() !=
-            contracts.skinned_mesh_component_class)
+            contracts.skinned_mesh_component_class ||
+        contracts.skinned_asset->GetArrayDim() != 1 ||
+        contracts.skinned_asset->GetElementSize() !=
+            static_cast<int>(sizeof(void*)) ||
+        contracts.skinned_asset->GetPropertyClass().Get() !=
+            contracts.skinned_asset_class ||
+        !contracts.skinned_asset->IsInContainer(
+            contracts.skinned_mesh_component_class))
     {
         return runtime_failure(
             application::RuntimeContractId::

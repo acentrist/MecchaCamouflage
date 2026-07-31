@@ -548,7 +548,7 @@ Evidence:
     typed Start/Cancel, edit invalidation, shutdown drain, and immutable
     snapshot publication.
   - [x] Implement the shared production UE4SS queue-observation adapter.
-  - [ ] Implement the production UE4SS profile-bound Image Paint capture
+  - [x] Implement the production UE4SS profile-bound Image Paint capture
     adapter.
     - [x] Decode a project-owned immutable Paint sampling profile from each
       exact raw packaged profile, retaining only validated UV/topology/island
@@ -557,9 +557,9 @@ Evidence:
       anchors inside the owned planning worker, with cancellation and exact
       raw/image topology matching; never scan a runtime component for an
       unreflected triangle cache.
-    - [ ] Preload and validate all three raw/image profile pairs outside the
+    - [x] Preload and validate all three raw/image profile pairs outside the
       HUD callback, then expose them through an injected immutable catalog.
-    - [ ] On the game thread, validate the live RuntimePaintable target mesh
+    - [x] On the game thread, validate the live RuntimePaintable target mesh
       and exact `SkinnedAsset` path/export against the selected catalog entry
       before returning the acknowledged component and pacing.
 - [ ] Integrate v2 project/preset management.
