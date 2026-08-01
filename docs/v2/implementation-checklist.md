@@ -1106,14 +1106,34 @@ Evidence:
   release-critical uncertainty into the risk register.
 - [ ] Freeze behavior and accept only evidence-driven fixes.
 - [ ] Pass the complete automated suite repeatedly from clean trusted builds.
+  - [x] Repeat all 112 secret-free tests on native Windows at commit
+    `52ce4b017636a099525e489895542f2c102d9c07`: three MSVC Release passes,
+    two MSVC AddressSanitizer passes, and two clang-cl
+    UndefinedBehaviorSanitizer passes, for 784 successful test executions.
+  - [ ] Repeat clean protected UE4SS/mod builds, compare their manifests and
+    provenance, and retain the exact candidate evidence.
 - [ ] Establish and enforce bounded performance/resource baselines.
+  - [x] Retain the reviewed code-level arithmetic, allocation, queue, worker,
+    texture, payload, file, and diagnostic limits with failure tests.
+  - [ ] Measure the exact candidate's live frame, planning, dispatch, queue,
+    memory, texture, thread, log, prepare-time, and storage baselines.
 - [ ] Pass fault-injection, stress, cancellation, and shutdown coverage.
+  - [x] Repeat the current registered fault, cancellation, overflow, stale-
+    generation, retry/restore, worker-exception, transaction-recovery, and
+    shutdown contracts under MSVC, MSVC AddressSanitizer, and clang-cl
+    UndefinedBehaviorSanitizer.
+  - [ ] Complete the protected candidate and live lifecycle fault/stress
+    matrix without weakening any fail-closed boundary.
 - [ ] Complete 25 managed prepare/launch cycles without accumulation.
 - [ ] Close every requirement and risk with evidence.
 - [ ] DEFERRED — maintainer interaction required: complete Windows 10 matrix.
 - [ ] DEFERRED — maintainer interaction required: complete Windows 11 matrix.
 - [ ] DEFERRED — maintainer interaction required: complete the final
   single-client, UI/localization, and two-client game matrices.
+
+Evidence:
+
+- [`phase13-stabilization-progress.md`](phase13-stabilization-progress.md)
 
 ## Phase 14 — Legacy deletion, exact merge candidate, and v2.0.0
 
