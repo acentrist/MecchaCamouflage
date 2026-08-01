@@ -106,6 +106,11 @@ Evidence:
     on that exact configured proxy target.
   - [x] Run the native immutable-stage build from a clean exact checkout and
     bind its binaries to that exact source-stage manifest.
+  - [x] Rebuild code-bearing commit
+    `63fdfea8ef758103b7899e36b7a798db7a4d5199` after the v1.7.2 projective
+    Paint replacement: all 1,209 production build steps, 112/112 full-graph
+    tests, post-build source-stage identity, and x64 Shipping binary/provenance
+    verification pass under MSVC 19.44.35228.0.
   - [ ] Re-run and upload the same evidence through the protected GitHub
     environment.
 - [x] Verify x64 Release ABI, imports, exports, runtime library, and provenance.
@@ -539,6 +544,9 @@ Evidence:
         channel for every candidate and final verification. Publish the
         immutable captured job only after exact restoration and component-
         level validation; no failure may publish a mutated preview.
+      - [x] Compile and link the complete projective runtime state machine as
+        `main.dll` against the pinned private UE4SS/UEPseudo graph in the same
+        verified `Game__Shipping__Win64` build as `UE4SS.dll` and the proxy.
 - [x] Validate round, cube, and fukuyoka profiles.
   - [x] Advance the latest-v1 tracking checkpoint to v1.7.2. The Round
     raw/image-reference pair remains the game 3.3.0 identity introduced on the
@@ -1061,7 +1069,7 @@ Evidence:
     evidence and corresponding license-file hashes.
   - [ ] Bind the final trusted CAB, manifest, profiles, localization, fonts,
     icon, licenses, and notices into the release EXE.
-- [ ] Build runtime and mod from the same trusted graph.
+- [x] Build runtime and mod from the same trusted graph.
 - [ ] Complete secret-free PR CI and protected full-build/release CI.
   - [x] Bind every source-reading public v2 job to the exact pull-request
     head/manual commit, remove duplicate branch-push runs, cancel superseded

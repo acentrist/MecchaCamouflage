@@ -16,8 +16,9 @@ Physical Emissive requires repeatable source separation plus a calibrated
 target E=1 response and carries source chromaticity in bounded Albedo. The
 replacement core/application/runtime/UI path, coverage-preserving compression,
 and measured adaptive dispatch pacing pass the native Windows automated gates.
-Private UE4SS-backed production compilation and live capture/multiplayer
-evidence remain before Phase 8 can close.
+The complete private UE4SS-backed `Game__Shipping__Win64` production graph also
+compiles and links. Live capture/multiplayer evidence remains before Phase 8
+can close.
 
 The source-capture boundary is also project-owned. One immutable evidence
 value carries BaseColor, FinalColor HDR, tone-curve HDR, intrinsic-emission
@@ -455,19 +456,16 @@ The public hosted Windows graph contains 112 secret-free tests. The synchronized
 native Windows graph passes all 112 tests under normal MSVC Release, MSVC ASan,
 and clang-cl UBSan. MSVC `/analyze` passes the three-target production closure
 (`meccha_product_ui`, `meccha_runtime_contracts`, and
-`meccha_launcher_core`). The latest projective runtime source graph and exact
-reflection/capture contracts pass, but this environment does not provide the
-private UE4SS inputs needed to compile the UE4SS-backed mod target. This is
-portable build/source-contract evidence, not a live Paint pass.
+`meccha_launcher_core`). At code-bearing commit
+`63fdfea8ef758103b7899e36b7a798db7a4d5199`, the latest projective runtime also
+compiles and links as `main.dll` against the pinned private UE4SS/UEPseudo graph
+under MSVC 19.44.35228.0. All 1,209 production build steps, 112/112 full-graph
+tests, post-build immutable-source verification, and x64 Shipping binary/
+provenance verification pass. This is production build evidence, not a live
+Paint pass.
 
 ## Remaining gate
 
-- Compile the new projective runtime state machine against the pinned private
-  UE4SS `Game__Shipping__Win64` inputs. The source graph already contains the
-  exact initialization, eight background passes, bounded projected-pixel
-  queries, baseline/endpoint preview transactions, repeated exact restoration,
-  fixed-lattice calibration, component validation, and immutable publication,
-  but the current secret-free checkout cannot produce that private target.
 - Measure the bounded in-game frame cost and record brush-plane hiding,
   projected-pixel visibility, readback orientation/color semantics, cleanup,
   cancellation, travel, and teardown evidence.

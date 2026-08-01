@@ -24,6 +24,14 @@ from that exact stage, passed all 95 registered tests, passed binary/provenance
 verification, and produced a closed 39-target/75-component dependency report.
 The earlier diagnostic binaries remain rejected.
 
+The same clean native-Windows process was repeated after the v1.7.2
+projective Paint replacement at code-bearing commit
+`63fdfea8ef758103b7899e36b7a798db7a4d5199`. MSVC 19.44.35228.0 completed all
+1,209 Ninja steps for `UE4SS`, `proxy`, `meccha_mod`, and project contracts in
+one `Game__Shipping__Win64` graph. The full graph passed 112/112 tests, the
+post-build source-stage verifier retained only the approved Cargo.lock overlay,
+and binary/provenance verification passed for `main.dll` and `UE4SS.dll`.
+
 The technical source/build blocker is closed locally. Phase 2 remains open
 until the protected workflow reproduces and uploads that evidence and a
 maintainer approves every resolved component's license expression and exact
@@ -156,6 +164,18 @@ cmake --preset full-windows `
   "-DMECCHA_UE4SS_SOURCE_ROOT=$sourceRoot" `
   "-DMECCHA_UE4SS_SOURCE_MANIFEST=$sourceManifest"
 cmake --build --preset full-windows
+py -3 tools/v2/prepare_ue4ss_source_stage.py `
+  --verify-only `
+  --policy cmake/ue4ss-source-overlay.json `
+  --output-root .build/v2/ue4ss-source `
+  --manifest .build/v2/ue4ss-source-stage.json
+ctest --test-dir .build/v2/full-windows --output-on-failure
+./tools/v2/verify-full-build.ps1 `
+  -BuildRoot .build/v2/full-windows `
+  -ReportPath .build/v2/full-windows/phase2-provenance.json `
+  -Ue4ssSourceRoot .build/v2/ue4ss-source `
+  -Ue4ssSourceManifest .build/v2/ue4ss-source-stage.json `
+  -ProjectCommit 63fdfea8ef758103b7899e36b7a798db7a4d5199
 ```
 
 The rejected pre-stage diagnostic that motivated the immutable stage proved:
