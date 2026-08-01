@@ -635,6 +635,18 @@ int main()
         return 10;
     }
 
+    if (runtime_contract::local_dispatch_adaptive_delay_ms(21, 0) != 21 ||
+        runtime_contract::local_dispatch_adaptive_delay_ms(21, 4'000) != 21 ||
+        runtime_contract::local_dispatch_adaptive_delay_ms(21, 16'423) != 53 ||
+        runtime_contract::local_dispatch_adaptive_delay_ms(1, 100'000) != 250 ||
+        runtime_contract::local_dispatch_adaptive_delay_ms(
+            1,
+            std::numeric_limits<std::uint64_t>::max()) != 250 ||
+        runtime_contract::local_dispatch_adaptive_delay_ms(300, 100'000) != 300)
+    {
+        return 142;
+    }
+
     const auto conservative_replication =
         runtime_contract::paint_replication_pacing_plan(
             20,
@@ -858,6 +870,7 @@ int main()
     if (no_compression.entries.size() != adaptive_entries.size() ||
         no_compression.compressed_paint_entries != 0 ||
         no_compression.entries[0].radius_multiplier != 1.0 ||
+        no_compression.entries[0].has_color_override ||
         no_compression.entries[1].replay.sample_index != 1)
     {
         return 24;
@@ -866,12 +879,387 @@ int main()
         adaptive_entries, adaptive_samples, 0.01, 1.0);
     if (compressed.entries.size() != 3 ||
         compressed.compressed_paint_entries != 1 ||
+        compressed.expanded_paint_entries != 0 ||
         compressed.entries[0].replay.sample_index != 0 ||
-        compressed.entries[0].radius_multiplier != 8.0 ||
+        compressed.entries[0].radius_multiplier != 1.0 ||
         compressed.entries[1].replay.sample_index != 2 ||
         compressed.entries[2].replay.sample_index != 3)
     {
         return 25;
+    }
+    const std::vector<runtime_contract::AdaptivePaintSample>
+        order_invariant_compression_samples{
+            {0.100, 0.100, runtime_contract::ReplayRegion::Front, 0,
+             0.50, 0.50, 0.50, true, true, 1},
+            {0.139, 0.100, runtime_contract::ReplayRegion::Front, 0,
+             0.50, 0.50, 0.50, true, true, 1},
+            {0.151, 0.100, runtime_contract::ReplayRegion::Front, 0,
+             1.00, 0.00, 0.00, false, true, 1},
+        };
+    const runtime_contract::ReplayEntry order_invariant_first{
+        0, runtime_contract::ReplayPass::Paint,
+        runtime_contract::ReplayRegion::Front, {0, 0.0, 0}};
+    const runtime_contract::ReplayEntry order_invariant_second{
+        1, runtime_contract::ReplayPass::Paint,
+        runtime_contract::ReplayRegion::Front, {0, 1.0, 1}};
+    const auto order_invariant_forward =
+        runtime_contract::build_adaptive_paint_plan(
+            {order_invariant_first, order_invariant_second},
+            order_invariant_compression_samples,
+            0.01,
+            5.0);
+    const auto order_invariant_reverse =
+        runtime_contract::build_adaptive_paint_plan(
+            {order_invariant_second, order_invariant_first},
+            order_invariant_compression_samples,
+            0.01,
+            5.0);
+    if (order_invariant_forward.entries.size() != 2 ||
+        order_invariant_reverse.entries.size() != 2 ||
+        order_invariant_forward.entries[0].replay.sample_index != 0 ||
+        order_invariant_reverse.entries[0].replay.sample_index != 0 ||
+        order_invariant_forward.entries[1].replay.sample_index != 1 ||
+        order_invariant_reverse.entries[1].replay.sample_index != 1 ||
+        order_invariant_forward.entries[0].radius_multiplier != 1.0 ||
+        order_invariant_reverse.entries[0].radius_multiplier != 1.0)
+    {
+        return 132;
+    }
+    const std::vector<runtime_contract::AdaptivePaintSample>
+        isolated_compression_samples{
+            {0.500, 0.500, runtime_contract::ReplayRegion::Front, 0,
+             0.50, 0.50, 0.50, true, true, 1},
+        };
+    const auto isolated_compression =
+        runtime_contract::build_adaptive_paint_plan(
+            {{0,
+              runtime_contract::ReplayPass::Paint,
+              runtime_contract::ReplayRegion::Front,
+              {0, 0.0, 0}}},
+            isolated_compression_samples,
+            0.01,
+            5.0);
+    if (isolated_compression.entries.size() != 1 ||
+        isolated_compression.entries[0].radius_multiplier != 1.0 ||
+        isolated_compression.expanded_paint_entries != 0)
+    {
+        return 133;
+    }
+    std::vector<runtime_contract::AdaptivePaintSample>
+        compression_hole_samples{};
+    for (int y = -8; y <= 8; ++y)
+    {
+        for (int x = -8; x <= 8; ++x)
+        {
+            if (x == 1 && y == 0)
+            {
+                continue;
+            }
+            compression_hole_samples.push_back(
+                {0.505 + static_cast<double>(x) * 0.01,
+                 0.505 + static_cast<double>(y) * 0.01,
+                 runtime_contract::ReplayRegion::Front,
+                 0,
+                 0.50,
+                 0.50,
+                 0.50,
+                 true,
+                 true,
+                 1});
+        }
+    }
+    const std::size_t compression_hole_center =
+        static_cast<std::size_t>(8 * 17 + 8);
+    const auto compression_hole =
+        runtime_contract::build_adaptive_paint_plan(
+            {{compression_hole_center,
+              runtime_contract::ReplayPass::Paint,
+              runtime_contract::ReplayRegion::Front,
+              {0, 0.0, compression_hole_center}}},
+            compression_hole_samples,
+            0.01,
+            5.0);
+    if (compression_hole.entries.size() != 1 ||
+        compression_hole.entries[0].radius_multiplier != 1.0 ||
+        compression_hole.expanded_paint_entries != 0)
+    {
+        return 134;
+    }
+    std::vector<runtime_contract::AdaptivePaintSample>
+        flat_compression_samples{};
+    std::vector<runtime_contract::ReplayEntry>
+        flat_compression_entries{};
+    for (int y = 0; y < 33; ++y)
+    {
+        for (int x = 0; x < 33; ++x)
+        {
+            const auto sample_index = flat_compression_samples.size();
+            flat_compression_samples.push_back(
+                {(20.5 + static_cast<double>(x)) * 0.01,
+                 (20.5 + static_cast<double>(y)) * 0.01,
+                 runtime_contract::ReplayRegion::Front,
+                 0,
+                 0.50,
+                 0.50,
+                 0.50,
+                 true,
+                 true,
+                 1});
+            flat_compression_entries.push_back(
+                {sample_index,
+                 runtime_contract::ReplayPass::Paint,
+                 runtime_contract::ReplayRegion::Front,
+                 {y, static_cast<double>(x), sample_index}});
+        }
+    }
+    const auto flat_compression =
+        runtime_contract::build_adaptive_paint_plan(
+            flat_compression_entries,
+            flat_compression_samples,
+            0.01,
+            5.0);
+    if (flat_compression.entries.size() >=
+            flat_compression_entries.size() / 4 ||
+        flat_compression.compressed_paint_entries <=
+            flat_compression_entries.size() * 3 / 4 ||
+        flat_compression.expanded_paint_entries == 0)
+    {
+        return 135;
+    }
+    std::vector<runtime_contract::AdaptivePaintSample>
+        large_flat_compression_samples{};
+    std::vector<runtime_contract::ReplayEntry>
+        large_flat_compression_entries{};
+    constexpr int large_flat_side = 64;
+    constexpr double large_flat_step =
+        1.0 / static_cast<double>(large_flat_side);
+    for (int y = 0; y < large_flat_side; ++y)
+    {
+        for (int x = 0; x < large_flat_side; ++x)
+        {
+            const auto sample_index =
+                large_flat_compression_samples.size();
+            large_flat_compression_samples.push_back(
+                {(static_cast<double>(x) + 0.5) * large_flat_step,
+                 (static_cast<double>(y) + 0.5) * large_flat_step,
+                 runtime_contract::ReplayRegion::Front,
+                 0,
+                 0.50,
+                 0.50,
+                 0.50,
+                 true,
+                 true,
+                 1});
+            large_flat_compression_entries.push_back(
+                {sample_index,
+                 runtime_contract::ReplayPass::Paint,
+                 runtime_contract::ReplayRegion::Front,
+                 {y, static_cast<double>(x), sample_index}});
+        }
+    }
+    const auto large_flat_compression =
+        runtime_contract::build_adaptive_paint_plan(
+            large_flat_compression_entries,
+            large_flat_compression_samples,
+            large_flat_step,
+            5.0);
+    if (large_flat_compression.entries.size() > 50 ||
+        large_flat_compression.compressed_paint_entries < 4046)
+    {
+        return 140;
+    }
+    auto reversed_large_flat_entries =
+        large_flat_compression_entries;
+    std::reverse(
+        reversed_large_flat_entries.begin(),
+        reversed_large_flat_entries.end());
+    const auto reversed_large_flat_compression =
+        runtime_contract::build_adaptive_paint_plan(
+            reversed_large_flat_entries,
+            large_flat_compression_samples,
+            large_flat_step,
+            5.0);
+    bool large_flat_order_changed_plan =
+        reversed_large_flat_compression.entries.size() !=
+        large_flat_compression.entries.size();
+    for (std::size_t index = 0;
+         !large_flat_order_changed_plan &&
+         index < large_flat_compression.entries.size();
+         ++index)
+    {
+        const auto& forward =
+            large_flat_compression.entries[index];
+        const auto& reverse =
+            reversed_large_flat_compression.entries[index];
+        large_flat_order_changed_plan =
+            forward.replay.sample_index !=
+                reverse.replay.sample_index ||
+            forward.radius_multiplier !=
+                reverse.radius_multiplier ||
+            forward.has_color_override !=
+                reverse.has_color_override ||
+            std::abs(forward.r - reverse.r) > 0.000001 ||
+            std::abs(forward.g - reverse.g) > 0.000001 ||
+            std::abs(forward.b - reverse.b) > 0.000001;
+    }
+    if (large_flat_order_changed_plan)
+    {
+        return 141;
+    }
+    auto flat_compression_with_irrelevant_samples =
+        flat_compression_samples;
+    flat_compression_with_irrelevant_samples.push_back(
+        {0.365,
+         0.365,
+         runtime_contract::ReplayRegion::Side,
+         7,
+         1.00,
+         0.00,
+         0.00,
+         false,
+         true,
+         999,
+         false});
+    const auto flat_compression_with_irrelevant =
+        runtime_contract::build_adaptive_paint_plan(
+            flat_compression_entries,
+            flat_compression_with_irrelevant_samples,
+            0.01,
+            5.0);
+    bool irrelevant_sample_changed_plan =
+        flat_compression_with_irrelevant.entries.size() !=
+        flat_compression.entries.size();
+    for (std::size_t index = 0;
+         !irrelevant_sample_changed_plan &&
+         index < flat_compression.entries.size();
+         ++index)
+    {
+        irrelevant_sample_changed_plan =
+            flat_compression_with_irrelevant.entries[index]
+                    .replay.sample_index !=
+                flat_compression.entries[index]
+                    .replay.sample_index ||
+            flat_compression_with_irrelevant.entries[index]
+                    .radius_multiplier !=
+                flat_compression.entries[index]
+                    .radius_multiplier;
+    }
+    if (irrelevant_sample_changed_plan)
+    {
+        return 136;
+    }
+    std::vector<runtime_contract::AdaptivePaintSample>
+        representative_color_samples{};
+    for (int y = 0; y < 17; ++y)
+    {
+        for (int x = 0; x < 17; ++x)
+        {
+            const double color = x <= 8 ? 0.451 : 0.549;
+            representative_color_samples.push_back(
+                {(40.5 + static_cast<double>(x)) * 0.01,
+                 (40.5 + static_cast<double>(y)) * 0.01,
+                 runtime_contract::ReplayRegion::Front,
+                 0,
+                 color,
+                 color,
+                 color,
+                 true,
+                 true,
+                 1});
+        }
+    }
+    const std::size_t representative_color_center =
+        static_cast<std::size_t>(8 * 17 + 8);
+    const auto representative_color =
+        runtime_contract::build_adaptive_paint_plan(
+            {{representative_color_center,
+              runtime_contract::ReplayPass::Paint,
+              runtime_contract::ReplayRegion::Front,
+              {0, 0.0, representative_color_center}}},
+            representative_color_samples,
+            0.01,
+            10.0);
+    if (representative_color.entries.size() != 1 ||
+        representative_color.entries[0].radius_multiplier != 8.0 ||
+        !representative_color.entries[0].has_color_override ||
+        std::abs(representative_color.entries[0].r - 0.5) >
+            0.000001 ||
+        std::abs(representative_color.entries[0].g - 0.5) >
+            0.000001 ||
+        std::abs(representative_color.entries[0].b - 0.5) >
+            0.000001 ||
+        representative_color.representative_paint_entries != 1 ||
+        std::abs(
+            representative_color.representative_error_max -
+            0.049) > 0.000001)
+    {
+        return 137;
+    }
+    auto compression_payload_boundary_samples =
+        compression_hole_samples;
+    compression_payload_boundary_samples.push_back(
+        {0.515,
+         0.505,
+         runtime_contract::ReplayRegion::Front,
+         0,
+         0.50,
+         0.50,
+         0.50,
+         true,
+         true,
+         2});
+    const auto compression_payload_boundary =
+        runtime_contract::build_adaptive_paint_plan(
+            {{compression_hole_center,
+              runtime_contract::ReplayPass::Paint,
+              runtime_contract::ReplayRegion::Front,
+              {0, 0.0, compression_hole_center}}},
+            compression_payload_boundary_samples,
+            0.01,
+            5.0);
+    if (compression_payload_boundary.entries.size() != 1 ||
+        compression_payload_boundary.entries[0]
+                .radius_multiplier != 1.0 ||
+        compression_payload_boundary.expanded_paint_entries != 0)
+    {
+        return 138;
+    }
+    std::vector<runtime_contract::AdaptivePaintSample>
+        compression_outer_ring_samples{};
+    for (int y = -8; y <= 8; ++y)
+    {
+        for (int x = -8; x <= 8; ++x)
+        {
+            compression_outer_ring_samples.push_back(
+                {0.505 + static_cast<double>(x) * 0.01,
+                 0.505 + static_cast<double>(y) * 0.01,
+                 runtime_contract::ReplayRegion::Front,
+                 0,
+                 0.50,
+                 0.50,
+                 0.50,
+                 true,
+                 true,
+                 x == 2 && y == 0 ? 2U : 1U});
+        }
+    }
+    const std::size_t compression_outer_ring_center =
+        static_cast<std::size_t>(8 * 17 + 8);
+    const auto compression_outer_ring =
+        runtime_contract::build_adaptive_paint_plan(
+            {{compression_outer_ring_center,
+              runtime_contract::ReplayPass::Paint,
+              runtime_contract::ReplayRegion::Front,
+              {0, 0.0, compression_outer_ring_center}}},
+            compression_outer_ring_samples,
+            0.01,
+            5.0,
+            0.002);
+    if (compression_outer_ring.entries.size() != 1 ||
+        compression_outer_ring.entries[0]
+                .radius_multiplier != 1.5)
+    {
+        return 139;
     }
     const std::vector<runtime_contract::AdaptivePaintSample>
         cross_region_compression_samples{

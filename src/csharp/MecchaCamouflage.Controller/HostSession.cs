@@ -1257,6 +1257,11 @@ public sealed class HostSession
                          "local_stroke_calls",
                          "local_stroke_success",
                          "local_stroke_failures",
+                         "local_dispatch_max_ms",
+                         "local_dispatch_last_slice_us",
+                         "local_dispatch_delay_ms",
+                         "local_dispatch_peak_delay_ms",
+                         "local_dispatch_throttle_events",
                          "native_queue_recorded_last_strokes",
                          "native_queue_component_last_strokes",
                          "native_queue_component_peak_strokes",
@@ -2080,7 +2085,10 @@ public sealed class HostSession
                 $"mapping_ms={Field(metadata, "image_paint_mapping_ms")} | mapping_workers={Field(metadata, "image_paint_mapping_workers")} | " +
                 $"mapping_parallel={Field(metadata, "image_paint_mapping_parallel")} | candidate_ms={Field(metadata, "image_paint_candidate_ms")} | " +
                 $"adaptive_ms={Field(metadata, "adaptive_plan_ms")} | adaptive_workers={Field(metadata, "adaptive_plan_worker_count")} | " +
-                $"adaptive_avx2={Field(metadata, "adaptive_plan_avx2_used")}");
+                $"adaptive_avx2={Field(metadata, "adaptive_plan_avx2_used")} | " +
+                $"compression_strategy={Field(metadata, "color_compression_strategy")} | " +
+                $"compression_grid={Field(metadata, "color_compression_coverage_grid_size")} | " +
+                $"compression_error_max={Field(metadata, "color_compression_representative_error_max")}");
         }
         catch (JsonException)
         {

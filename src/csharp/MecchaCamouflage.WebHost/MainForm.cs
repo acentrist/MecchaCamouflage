@@ -1524,6 +1524,8 @@ public sealed class MainForm : Form
 
     private object HandleUpdateSetting(JsonElement payload)
     {
+        if (!settingsEditing)
+            return new { success = false, message = "Open Edit before changing settings." };
         var key = payload.GetProperty("key").GetString() ?? "";
         var result = session.UpdateSetting(key, payload.GetProperty("value"));
         ApplyWindowSettings();
@@ -1532,6 +1534,8 @@ public sealed class MainForm : Form
 
     private object HandleUpdateSettings(JsonElement payload)
     {
+        if (!settingsEditing)
+            return new { success = false, message = "Open Edit before changing settings." };
         if (!TryReadSettingChanges(payload, out var changes, out var message))
             return new { success = false, message };
         var result = session.UpdateSettings(changes);
@@ -1566,6 +1570,8 @@ public sealed class MainForm : Form
 
     private object HandleResetSetting(JsonElement payload)
     {
+        if (!settingsEditing)
+            return new { success = false, message = "Open Edit before changing settings." };
         var key = payload.GetProperty("key").GetString() ?? "";
         var result = session.ResetSetting(key);
         ApplyWindowSettings();
@@ -1574,6 +1580,8 @@ public sealed class MainForm : Form
 
     private object HandleResetSection(JsonElement payload)
     {
+        if (!settingsEditing)
+            return new { success = false, message = "Open Edit before changing settings." };
         var section = payload.GetProperty("section").GetString() ?? "";
         var result = session.ResetSection(section);
         ApplyWindowSettings();
@@ -1582,6 +1590,8 @@ public sealed class MainForm : Form
 
     private object HandleResetAllSettings()
     {
+        if (!settingsEditing)
+            return new { success = false, message = "Open Edit before changing settings." };
         var result = session.ResetAllSettings();
         ApplyWindowSettings();
         return ApplyResult(result);

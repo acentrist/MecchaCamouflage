@@ -15004,6 +15004,10 @@ namespace
         int local_cpu_budget_yields{0};
         double local_dispatch_total_ms{0.0};
         double local_dispatch_max_ms{0.0};
+        std::uint64_t local_dispatch_last_slice_us{0};
+        int local_dispatch_delay_ms{runtime_contract::FastLocalCadenceMs};
+        int local_dispatch_peak_delay_ms{runtime_contract::FastLocalCadenceMs};
+        int local_dispatch_throttle_events{0};
         std::string local_visual_sync_failure{};
         bool local_sync_started{false};
         std::chrono::steady_clock::time_point started{};
@@ -15487,6 +15491,14 @@ namespace
                    std::to_string(runtime_contract::LocalDispatchCpuBudgetUs) +
                ",\"local_cpu_budget_yields\":" +
                    std::to_string(job->local_cpu_budget_yields) +
+               ",\"local_dispatch_last_slice_us\":" +
+                   std::to_string(job->local_dispatch_last_slice_us) +
+               ",\"local_dispatch_delay_ms\":" +
+                   std::to_string(job->local_dispatch_delay_ms) +
+               ",\"local_dispatch_peak_delay_ms\":" +
+                   std::to_string(job->local_dispatch_peak_delay_ms) +
+               ",\"local_dispatch_throttle_events\":" +
+                   std::to_string(job->local_dispatch_throttle_events) +
                ",\"local_dispatch_wakeup\":\"timer_queue\"" +
                ",\"local_direct_fast_wakeup_count\":" +
                    std::to_string(job->direct_fast_wakeup_count) +
@@ -17015,9 +17027,9 @@ namespace
         const bool research_uv_replay_atlas =
             research_artifacts && json_bool_field(request, "research_uv_replay_atlas", false);
         double tuning_brush_size_texels =
-            clamp_range(json_number_field(request, "brush_size_texels", 4.0), 1.0, 10.0);
+            clamp_range(json_number_field(request, "brush_size_texels", 5.0), 1.0, 10.0);
         const double tuning_color_compression_tolerance =
-            clamp_range(json_number_field(request, "color_compression_tolerance", 4.0), 0.0, 10.0);
+            clamp_range(json_number_field(request, "color_compression_tolerance", 5.0), 0.0, 10.0);
         const double tuning_metallic = clamp_range(json_number_field(request, "metallic", 0.0), 0.0, 1.0);
         const double tuning_roughness = clamp_range(json_number_field(request, "roughness", 1.0), 0.0, 1.0);
         const double tuning_emissive = clamp_range(json_number_field(request, "emissive", 0.0), 0.0, 1.0);
@@ -20857,7 +20869,8 @@ namespace
                                             appearance_paint_sample_valid(sample),
                                         appearance_feedback_payload_ready
                                             ? sample.appearance_material_key
-                                            : 1});
+                                            : 1,
+                                        sample.appearance_replay_sample});
         }
 
         // Every optimisation evaluation is rendered from the same exported
@@ -20895,7 +20908,8 @@ namespace
                                            preview_paint_enabled,
                                            !sample.unsafe &&
                                                appearance_paint_sample_valid(sample),
-                                           sample.appearance_material_key});
+                                           sample.appearance_material_key,
+                                           sample.appearance_replay_sample});
             }
             const auto preview_plan = runtime_contract::build_adaptive_paint_plan(
                 appearance_preview_replay_plan.entries,
@@ -20928,9 +20942,24 @@ namespace
                 }
                 else
                 {
-                    channel = sdk_make_channel(sample.appearance_albedo_r,
-                                               sample.appearance_albedo_g,
-                                               sample.appearance_albedo_b,
+                    const double preview_r =
+                        adaptive_entry.has_color_override
+                            ? runtime_contract::appearance_srgb_to_linear(
+                                  adaptive_entry.r)
+                            : sample.appearance_albedo_r;
+                    const double preview_g =
+                        adaptive_entry.has_color_override
+                            ? runtime_contract::appearance_srgb_to_linear(
+                                  adaptive_entry.g)
+                            : sample.appearance_albedo_g;
+                    const double preview_b =
+                        adaptive_entry.has_color_override
+                            ? runtime_contract::appearance_srgb_to_linear(
+                                  adaptive_entry.b)
+                            : sample.appearance_albedo_b;
+                    channel = sdk_make_channel(preview_r,
+                                               preview_g,
+                                               preview_b,
                                                sample.appearance_metallic,
                                                sample.appearance_roughness,
                                                sample.appearance_emissive,
@@ -23090,6 +23119,25 @@ namespace
                     std::to_string(adaptive_replay_plan.expanded_paint_entries);
         metadata += ",\"color_compression_skipped_strokes\":" +
                     std::to_string(adaptive_replay_plan.compressed_paint_entries);
+        metadata +=
+            ",\"color_compression_strategy\":"
+            "\"coverage_guarded_phase_v2\"";
+        metadata += ",\"color_compression_coverage_grid_size\":" +
+                    std::to_string(adaptive_replay_plan.coverage_grid_size);
+        metadata += ",\"color_compression_representative_strokes\":" +
+                    std::to_string(
+                        adaptive_replay_plan.representative_paint_entries);
+        metadata += ",\"color_compression_representative_error_mean\":" +
+                    std::to_string(
+                        adaptive_replay_plan.representative_paint_entries > 0
+                            ? adaptive_replay_plan.representative_error_sum /
+                                  static_cast<double>(
+                                      adaptive_replay_plan
+                                          .representative_paint_entries)
+                            : 0.0);
+        metadata += ",\"color_compression_representative_error_max\":" +
+                    std::to_string(
+                        adaptive_replay_plan.representative_error_max);
         metadata += ",\"adaptive_plan_worker_count\":" +
                     std::to_string(adaptive_replay_plan.adaptive_plan_worker_count);
         metadata += ",\"adaptive_plan_parallel\":" +
@@ -23189,6 +23237,18 @@ namespace
                         ++appearance_match_strokes_by_region[
                             appearance_region_index(sample.region)];
                     }
+                }
+                if (adaptive_entry.has_color_override)
+                {
+                    stroke_r =
+                        runtime_contract::appearance_srgb_to_linear(
+                            adaptive_entry.r);
+                    stroke_g =
+                        runtime_contract::appearance_srgb_to_linear(
+                            adaptive_entry.g);
+                    stroke_b =
+                        runtime_contract::appearance_srgb_to_linear(
+                            adaptive_entry.b);
                 }
                 const auto apply_mode = research_apply_mode >= 0
                                             ? static_cast<sdk::EPaintChannelApplyMode>(research_apply_mode)
@@ -23819,6 +23879,10 @@ namespace
                     min_remote_frames_after_local_paint,
                     adaptive_remote_interval,
                     max_adaptive_remote_frame_interval);
+            async_job->local_dispatch_delay_ms =
+                async_job->replication_pacing.cadence_ms;
+            async_job->local_dispatch_peak_delay_ms =
+                async_job->replication_pacing.cadence_ms;
             async_job->strokes = std::move(strokes);
             async_job->initial_stroke_count = static_cast<int>(async_job->strokes.size());
             async_job->metadata = metadata +
@@ -24092,6 +24156,8 @@ namespace
             }
         };
         clear_timer();
+        job->local_dispatch_delay_ms =
+            job->replication_pacing.cadence_ms;
 
         const auto write_progress = [&](const std::string& stage,
                                         const std::string& message,
@@ -24155,13 +24221,15 @@ namespace
         };
 
         const auto schedule_next = [&]() -> bool {
+            const int delay_ms =
+                runtime_contract::recurring_scheduler_delay_ms(
+                    job->local_dispatch_delay_ms);
             HANDLE timer = nullptr;
             if (CreateTimerQueueTimer(&timer,
                                       nullptr,
                                       paint_dispatch_timer_queue_proc,
                                       nullptr,
-                                      static_cast<DWORD>(
-                                          job->replication_pacing.cadence_ms),
+                                      static_cast<DWORD>(delay_ms),
                                       0,
                                       WT_EXECUTEONLYONCE | WT_EXECUTEINTIMERTHREAD))
             {
@@ -24172,8 +24240,7 @@ namespace
             ++job->direct_fast_wakeup_fallback_count;
             const auto timer_id = SetTimer(nullptr,
                                            0,
-                                           static_cast<UINT>(
-                                               job->replication_pacing.cadence_ms),
+                                           static_cast<UINT>(delay_ms),
                                            paint_dispatch_timer_proc);
             if (timer_id)
             {
@@ -24363,6 +24430,24 @@ namespace
         if (calls > 0)
         {
             ++job->local_batch_calls;
+            job->local_dispatch_last_slice_us =
+                static_cast<std::uint64_t>(std::max<std::int64_t>(
+                    0,
+                    std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::steady_clock::now() - slice_started)
+                        .count()));
+            job->local_dispatch_delay_ms =
+                runtime_contract::local_dispatch_adaptive_delay_ms(
+                    job->replication_pacing.cadence_ms,
+                    job->local_dispatch_last_slice_us);
+            job->local_dispatch_peak_delay_ms = std::max(
+                job->local_dispatch_peak_delay_ms,
+                job->local_dispatch_delay_ms);
+            if (job->local_dispatch_delay_ms >
+                job->replication_pacing.cadence_ms)
+            {
+                ++job->local_dispatch_throttle_events;
+            }
         }
         job->local_visual_sync_elapsed_ms = mesh_first_local_elapsed_ms(job);
         if (queued_paint_cancel_reason(job->queued) != PaintCancelReason::None)

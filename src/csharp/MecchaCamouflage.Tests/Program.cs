@@ -111,7 +111,7 @@ var tests = new List<(string Name, Action Run)>
     ("ui snapshot exposes a single brush", UiSnapshotExposesSingleBrush),
     ("web ui exposes one brush slider and compression tolerance", WebUiExposesSingleBrushSliderAndCompressionTolerance),
     ("web ui persists image designs through the tabbed editor", WebUiImagePaintEditorUsesSavedTransaction),
-    ("web ui keeps a running paint editable as a next-run draft", WebUiKeepsRunningPaintEditableAsNextRunDraft),
+    ("web ui requires explicit Edit while paint is running", WebUiRequiresExplicitEditWhilePaintRunning),
     ("web ui preserves image actions during paint snapshots", WebUiPreservesImageActionsDuringPaintSnapshots),
     ("web ui keeps mesh guides visible with imported images", WebUiKeepsMeshGuidesVisibleWithImportedImages),
     ("web ui rebuilds image guides when the language changes", WebUiRebuildsImageGuidesWhenLanguageChanges),
@@ -966,11 +966,15 @@ static void NativeImagePaintExposesDeterministicPlannerTelemetry()
            bridge.Contains("image_paint_mapping_parallel", StringComparison.Ordinal),
         "Image Paint must report its canonical mapping and game-thread candidate phases separately");
     Assert(contract.Contains("adaptive_plan_avx2_available", StringComparison.Ordinal) &&
-           contract.Contains("adaptive_plan_worker_count", StringComparison.Ordinal),
+           contract.Contains("adaptive_plan_worker_count", StringComparison.Ordinal) &&
+           contract.Contains("coverage_grid_size", StringComparison.Ordinal) &&
+           contract.Contains("representative_error_max", StringComparison.Ordinal),
         "the shared adaptive planner must expose its CPU-safe execution mode to Image Paint");
     Assert(bridgeJson.Contains("image_paint_mapping_ms", StringComparison.Ordinal) &&
            bridgeJson.Contains("image_paint_candidate_ms", StringComparison.Ordinal) &&
-           bridgeJson.Contains("adaptive_plan_worker_count", StringComparison.Ordinal),
+           bridgeJson.Contains("adaptive_plan_worker_count", StringComparison.Ordinal) &&
+           bridgeJson.Contains("color_compression_strategy", StringComparison.Ordinal) &&
+           bridgeJson.Contains("color_compression_representative_error_max", StringComparison.Ordinal),
         "the compact production bridge response must retain Image Paint planner telemetry");
 }
 
@@ -2014,10 +2018,10 @@ static void NativeAcceptsSingleBrushConfiguredRange()
         FindRepositoryRoot(),
         "src", "native", "bridge", "bridge.cpp"));
 
-    Assert(bridge.Contains("json_number_field(request, \"brush_size_texels\", 4.0)", StringComparison.Ordinal) &&
+    Assert(bridge.Contains("json_number_field(request, \"brush_size_texels\", 5.0)", StringComparison.Ordinal) &&
            bridge.Contains("1.0, 10.0", StringComparison.Ordinal),
         "native paint payload parsing must preserve the configured 1-10 single-brush range");
-    Assert(bridge.Contains("json_number_field(request, \"color_compression_tolerance\", 4.0)", StringComparison.Ordinal) &&
+    Assert(bridge.Contains("json_number_field(request, \"color_compression_tolerance\", 5.0)", StringComparison.Ordinal) &&
            bridge.Contains("0.0, 10.0", StringComparison.Ordinal),
         "native paint payload parsing must cap color compression at 10");
 }
@@ -2088,8 +2092,14 @@ static void NativeProductionLocalSyncUsesPerStrokePaint()
            contract.Contains("ConservativeReplicationCapacityDenominator = 5;", StringComparison.Ordinal) &&
            contract.Contains("ConservativeReplicationBurstCalls = 3;", StringComparison.Ordinal) &&
            contract.Contains("AssumedRemotePaintFps = 60;", StringComparison.Ordinal) &&
-           contract.Contains("paint_replication_pacing_plan(", StringComparison.Ordinal),
+           contract.Contains("paint_replication_pacing_plan(", StringComparison.Ordinal) &&
+           contract.Contains("local_dispatch_adaptive_delay_ms(", StringComparison.Ordinal),
         "native paint must retain a conservative bounded dispatch derived from game-owned network and receiver limits");
+    Assert(bridge.Contains("job->local_dispatch_last_slice_us", StringComparison.Ordinal) &&
+           bridge.Contains("runtime_contract::local_dispatch_adaptive_delay_ms(", StringComparison.Ordinal) &&
+           bridge.Contains("job->local_dispatch_delay_ms", StringComparison.Ordinal) &&
+           bridge.Contains("local_dispatch_throttle_events", StringComparison.Ordinal),
+        "an over-budget PaintAtUVWithBrush call must defer the next game-thread slice and expose the throttle decision");
     Assert(bridge.Contains("direct_paint_capture_queue_snapshot", StringComparison.Ordinal) &&
            bridge.Contains("GetQueuedStrokeCountForComponent", StringComparison.Ordinal) &&
            bridge.Contains("\"QueuedOutgoingBatches\"", StringComparison.Ordinal) &&
@@ -3131,24 +3141,46 @@ static void WebUiImagePaintEditorUsesSavedTransaction()
         "the compact editor keeps per-layer controls and native guide emission rejects unresolved atlas seams");
 }
 
-static void WebUiKeepsRunningPaintEditableAsNextRunDraft()
+static void WebUiRequiresExplicitEditWhilePaintRunning()
 {
     var repository = FindRepositoryRoot();
     var app = File.ReadAllText(Path.Combine(repository, "src", "csharp", "MecchaCamouflage.WebHost", "web", "app.js"));
     var mainForm = File.ReadAllText(Path.Combine(repository, "src", "csharp", "MecchaCamouflage.WebHost", "MainForm.cs"));
 
-    Assert(app.Contains("function canStartLiveDraftEdit()", StringComparison.Ordinal) &&
-           app.Contains("liveSnapshot?.runtime?.paintRunning", StringComparison.Ordinal) &&
-           app.Contains("function ensureLiveDraftEdit()", StringComparison.Ordinal),
-        "a running Paint or Preview must explicitly allow a local next-run draft to begin");
-    Assert(app.Contains("const editable = canStartLiveDraftEdit();", StringComparison.Ordinal) &&
-           app.Contains("const editable = canStartLiveDraftEdit() && !imageEditor.restoring;", StringComparison.Ordinal) &&
+    Assert(app.Contains("function canEditDraft()", StringComparison.Ordinal) &&
+           app.Contains("return Boolean(editing && draftSnapshot);", StringComparison.Ordinal) &&
+           !app.Contains("return Boolean(editing || liveSnapshot?.runtime?.paintRunning);", StringComparison.Ordinal) &&
+           !app.Contains("ensureLiveDraftEdit", StringComparison.Ordinal),
+        "Paint progress must not make settings editable before the user presses Edit");
+    Assert(app.Contains("const editable = canEditDraft();", StringComparison.Ordinal) &&
+           app.Contains("const editable = canEditDraft() && !imageEditor.restoring;", StringComparison.Ordinal) &&
            app.Contains("function canEditImage()", StringComparison.Ordinal) &&
-           app.Contains("ensureLiveDraftEdit() && imageEditor", StringComparison.Ordinal),
-        "both Paint settings and the Image canvas must remain operable while a job is running");
+           app.Contains("canEditDraft() && imageEditor", StringComparison.Ordinal),
+        "Paint settings and the Image canvas must share the explicit Edit gate");
     Assert(mainForm.Contains("if (settingsEditing && !IsStopHotkey(hotkeyId))", StringComparison.Ordinal) &&
            mainForm.Contains("private static bool IsStopHotkey", StringComparison.Ordinal),
-        "opening a next-run draft must never prevent stopping the currently running Paint");
+        "Edit mode must never prevent stopping the currently running Paint");
+    foreach (var handler in new[]
+             {
+                 "private object HandleUpdateSetting(JsonElement payload)",
+                 "private object HandleUpdateSettings(JsonElement payload)",
+                 "private object HandleResetSetting(JsonElement payload)",
+                 "private object HandleResetSection(JsonElement payload)",
+                 "private object HandleResetAllSettings()"
+             })
+    {
+        var handlerStart = mainForm.IndexOf(handler, StringComparison.Ordinal);
+        var handlerEnd = mainForm.IndexOf(
+            "\n    private ",
+            handlerStart + handler.Length,
+            StringComparison.Ordinal);
+        Assert(handlerStart >= 0 &&
+               handlerEnd > handlerStart &&
+               mainForm[handlerStart..handlerEnd].Contains(
+                   "if (!settingsEditing)",
+                   StringComparison.Ordinal),
+            $"{handler} must reject mutations unless Edit is active");
+    }
 }
 
 static void WebUiPreservesImageActionsDuringPaintSnapshots()
@@ -4189,14 +4221,16 @@ static void PaintDiagnosticsReportDirectStrokePbrValues()
         true,
         "mesh_direct_paint_done",
         "ok",
-        "{\"metadata\":{\"diagnostic_strokes_before_limit\":10,\"diagnostic_strokes_after_limit\":1,\"local_stroke_calls\":1,\"local_stroke_success\":1,\"first_stroke_target_channel\":7,\"first_stroke_metallic\":1,\"first_stroke_roughness\":0,\"first_stroke_emissive\":0}}");
+        "{\"metadata\":{\"diagnostic_strokes_before_limit\":10,\"diagnostic_strokes_after_limit\":1,\"local_stroke_calls\":1,\"local_stroke_success\":1,\"local_dispatch_max_ms\":16.42,\"local_dispatch_delay_ms\":53,\"local_dispatch_throttle_events\":1,\"first_stroke_target_channel\":7,\"first_stroke_metallic\":1,\"first_stroke_roughness\":0,\"first_stroke_emissive\":0}}");
     var summary = HostSession.PaintDiagnosticSummary(reply);
 
     Assert(summary is not null &&
            summary.Contains("diagnostic_strokes_after_limit=1", StringComparison.Ordinal) &&
            summary.Contains("local_stroke_calls=1", StringComparison.Ordinal) &&
+           summary.Contains("local_dispatch_delay_ms=53", StringComparison.Ordinal) &&
+           summary.Contains("local_dispatch_throttle_events=1", StringComparison.Ordinal) &&
            summary.Contains("first_stroke_roughness=0", StringComparison.Ordinal),
-        "a one-stroke diagnostic must report the submitted direct call and PBR inputs");
+        "a one-stroke diagnostic must report the submitted direct call, adaptive throttle, and PBR inputs");
 }
 
 static void HostSessionWarnsWhenCancelHasNoActivePaint()

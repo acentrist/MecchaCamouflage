@@ -116,6 +116,15 @@ record and replicate the stroke using its current multiplayer implementation.
 The material target remains AMRE: `R=Metallic`, `G=Roughness`, and
 `B=Emissive`.
 
+`PaintAtUVWithBrush` and UObject/render-target access remain on the game
+thread. Pure planning may use workers, but moving the reflected call itself is
+unsafe. The direct scheduler measures each submitted slice; when one
+non-preemptible call exceeds the 4 ms CPU budget, it increases the delay before
+the next slice so average paint occupancy returns to the budget. Keep
+`local_dispatch_last_slice_us`, `local_dispatch_delay_ms`,
+`local_dispatch_peak_delay_ms`, and `local_dispatch_throttle_events` in
+performance captures.
+
 `ImportChannelFromBytes` is strictly the Preview/Unpreview transport. It must
 not become a production paint fallback, and neither a packed RPC nor the old
 internal no-resend / receiver-queue routes may be reintroduced.
@@ -130,11 +139,15 @@ an Auto Detect result.
 Color compression is a planner-only optimization for the single Paint pass.
 At a nonzero tolerance it may widen and coalesce strokes only within one
 region, UV island, safe sample set, and final material payload; Fill is never
-compressed. Its supported range is `0` through `10` (default `4`); `0`
-disables widening, while higher values trade color boundaries for fewer direct
-strokes. New settings default to a 4-texel brush with Front `Skip` and Side /
-Back `Paint`. Disable compression when Auto Detect falls back to per-sample source PBR,
-because matching albedo alone is not proof that M/R/E is interchangeable.
+compressed. Its supported range is `0` through `10` (default `5`); `0`
+disables widening. Nonzero compression uses a brush-aligned coverage field:
+empty, skipped, unsafe, conflicting PBR, region, and UV-island cells stop
+expansion. A deterministic circle-covering phase reduces overlap on flat
+fields, and each emitted stroke uses the per-channel minimax colour of its
+coverage instead of whichever sample happened to be visited first. Fixed
+appearance-calibration samples do not participate in final replay
+compression. New settings default to a 5-texel brush with Front `Skip` and
+Side / Back `Paint`.
 
 The reflected `PaintAtUVWithBrush` schema is a fatal requirement. If it is
 unavailable, stop before painting; do not silently switch to texture import or
