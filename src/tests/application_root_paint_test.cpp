@@ -250,7 +250,7 @@ public:
         };
     }
 
-    auto begin_automatic_capture(
+    auto begin_projective_capture(
         const core::PaintSettings& settings,
         JobGeneration generation)
         -> std::expected<void, RuntimeExecutionError> override
@@ -264,7 +264,7 @@ public:
         return {};
     }
 
-    auto advance_automatic_capture(JobGeneration generation)
+    auto advance_projective_capture(JobGeneration generation)
         -> std::expected<
             std::optional<CapturedPaintJob>,
             RuntimeExecutionError> override
@@ -296,7 +296,7 @@ public:
             make_captured(automatic_settings)};
     }
 
-    auto cancel_automatic_capture(JobGeneration generation)
+    auto cancel_projective_capture(JobGeneration generation)
         -> std::expected<bool, RuntimeExecutionError> override
     {
         if (!automatic_active ||
@@ -483,36 +483,36 @@ auto main() -> int
     {
         automatic_callbacks.invoke(Frame);
     }
-    auto automatic_paint_calls_after_admission =
+    auto projective_paint_calls_after_admission =
         std::size_t{};
     for (const auto& operation : automatic_executor.operations)
     {
         if (std::holds_alternative<PaintAtUvWithBrush>(
                 operation))
         {
-            ++automatic_paint_calls_after_admission;
+            ++projective_paint_calls_after_admission;
         }
     }
     passed &= expect(
         automatic_runtime.automatic_begin_count == 1U &&
             automatic_runtime.automatic_advance_count == 0U &&
-            automatic_paint_calls_after_admission == 0U,
+            projective_paint_calls_after_admission == 0U,
         "projective Paint dispatched in "
         "its admission frame");
     automatic_callbacks.invoke(Frame);
-    auto automatic_paint_calls_after_first_advance =
+    auto projective_paint_calls_after_first_advance =
         std::size_t{};
     for (const auto& operation : automatic_executor.operations)
     {
         if (std::holds_alternative<PaintAtUvWithBrush>(
                 operation))
         {
-            ++automatic_paint_calls_after_first_advance;
+            ++projective_paint_calls_after_first_advance;
         }
     }
     passed &= expect(
         automatic_runtime.automatic_advance_count == 1U &&
-            automatic_paint_calls_after_first_advance == 0U,
+            projective_paint_calls_after_first_advance == 0U,
         "projective Paint completed without a later HUD-frame feedback step");
     for (auto attempt = 0; attempt < 1000; ++attempt)
     {
@@ -524,13 +524,13 @@ auto main() -> int
         }
         std::this_thread::sleep_for(1ms);
     }
-    auto automatic_paint_calls = std::size_t{};
+    auto projective_paint_calls = std::size_t{};
     for (const auto& operation : automatic_executor.operations)
     {
         if (std::holds_alternative<PaintAtUvWithBrush>(
                 operation))
         {
-            ++automatic_paint_calls;
+            ++projective_paint_calls;
         }
     }
     passed &= expect(
@@ -538,7 +538,7 @@ auto main() -> int
             automatic_root.snapshot()->job.command_id == 111U &&
             automatic_root.snapshot()->job.phase ==
                 JobPhase::Completed &&
-            automatic_paint_calls == 1U,
+            projective_paint_calls == 1U,
         "a restored projective Paint capture did not enter normal planning and "
         "bounded dispatch");
 

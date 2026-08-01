@@ -14,8 +14,8 @@ add_library(
         src/paint.cpp
         src/paint_appearance.cpp
         src/paint_appearance_capture.cpp
-        src/paint_appearance_fit.cpp
         src/paint_projective_appearance.cpp
+        src/paint_projective_pipeline.cpp
         src/paint_capture_geometry.cpp
         src/paint_capture_request.cpp
         src/paint_deformation.cpp

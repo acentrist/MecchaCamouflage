@@ -1,7 +1,7 @@
 #pragma once
 
-#include <meccha/core/paint_appearance_fit.hpp>
 #include <meccha/core/paint_capture_geometry.hpp>
+#include <meccha/core/paint_projective_pipeline.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -95,7 +95,9 @@ struct PaintAppearanceCaptureEvidence
     PaintAppearanceCapturedPass<AppearanceRgb>
         tone_curve_hdr{};
     PaintAppearanceCapturedPass<AppearanceRgb>
-        intrinsic_emission_hdr{};
+        intrinsic_emission_first_hdr{};
+    PaintAppearanceCapturedPass<AppearanceRgb>
+        intrinsic_emission_second_hdr{};
     PaintAppearanceCapturedPass<AppearanceRgb> normal{};
     PaintAppearanceCapturedPass<double> scene_depth{};
     PaintAppearanceCapturedPass<Rgb8> final_ldr{};
@@ -169,16 +171,16 @@ enum class PaintAppearanceCaptureError : std::uint8_t
         PaintAppearanceSourceSample,
         PaintAppearanceCaptureError>;
 
-[[nodiscard]] auto build_paint_appearance_observations(
+[[nodiscard]] auto build_paint_projective_observations(
     std::span<const PaintCaptureGeometrySample> geometry,
     const PaintAppearanceCaptureEvidence& evidence,
     std::stop_token cancellation = {})
     -> std::expected<
-        std::vector<PaintAppearanceObservation>,
+        std::vector<PaintProjectiveObservation>,
         PaintAppearanceCaptureError>;
 
 [[nodiscard]] auto build_paint_appearance_readback_references(
-    const PaintAppearanceModel& model,
+    const PaintProjectiveModel& model,
     std::uint32_t texture_dimension,
     std::span<const std::byte> preview_albedo_rgba,
     std::stop_token cancellation = {})

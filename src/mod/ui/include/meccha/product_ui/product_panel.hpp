@@ -31,6 +31,8 @@ struct ProductPanelLabels
     std::string preview{};
     std::string restore{};
     std::string cancel{};
+    std::string edit{};
+    std::string save{};
     std::string language{};
     std::string theme_color{};
     std::string hotkey_capture_prompt{};
@@ -94,6 +96,14 @@ struct HotkeyCaptureState
     auto operator==(const HotkeyCaptureState&) const -> bool = default;
 };
 
+struct ProductEditSession
+{
+    core::ApplicationConfig base{};
+    core::ApplicationConfig draft{};
+
+    auto operator==(const ProductEditSession&) const -> bool = default;
+};
+
 struct ProductPanelState
 {
     application::ProductUiSection selected{
@@ -103,6 +113,7 @@ struct ProductPanelState
         section_scroll{};
     HotkeyCaptureState hotkey_capture{};
     ImageEditorPanelState image_editor{};
+    std::optional<ProductEditSession> edit_session{};
 
     auto operator==(const ProductPanelState&) const -> bool = default;
 };

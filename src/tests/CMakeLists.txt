@@ -807,18 +807,18 @@ add_test(
 )
 
 add_executable(
-    meccha_paint_appearance_fit_tests
-    paint_appearance_fit_test.cpp
+    meccha_paint_projective_pipeline_tests
+    paint_projective_pipeline_test.cpp
 )
 target_link_libraries(
-    meccha_paint_appearance_fit_tests
+    meccha_paint_projective_pipeline_tests
     PRIVATE
         MecchaCamouflage::Core
         meccha_build_options
 )
 add_test(
-    NAME paint_appearance_fit
-    COMMAND meccha_paint_appearance_fit_tests
+    NAME paint_projective_pipeline
+    COMMAND meccha_paint_projective_pipeline_tests
 )
 
 add_executable(

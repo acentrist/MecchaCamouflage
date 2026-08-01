@@ -104,6 +104,7 @@ enum class PaintSceneCapturePassKind : std::uint8_t
     BaseColor,
     FinalColorHdr,
     IntrinsicEmissionHdr,
+    IntrinsicEmissionRepeatHdr,
     FinalToneCurveHdr,
     Normal,
     SceneDepth,

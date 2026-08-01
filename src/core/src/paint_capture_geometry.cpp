@@ -310,6 +310,14 @@ auto build_paint_capture_geometry(
             static_cast<std::uint32_t>(
                 sample.image_anchor.triangle_index),
             view_depth,
+            triangle.first,
+            triangle.second,
+            triangle.third,
+            sample.image_anchor.barycentric_a,
+            sample.image_anchor.barycentric_b,
+            sample.image_anchor.barycentric_c,
+            true,
+            false,
         });
     }
     if (output.empty())

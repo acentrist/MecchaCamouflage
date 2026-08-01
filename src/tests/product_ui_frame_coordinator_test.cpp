@@ -563,6 +563,22 @@ auto main(int argc, char** argv) -> int
     {
         return 1;
     }
+    runtime.input.pointer = ui::PointerFrame{
+        {
+            image_tab->layout->status_strip.x +
+                image_tab->layout->status_strip.width - 230.0,
+            image_tab->layout->status_strip.y +
+                image_tab->layout->status_strip.height * 0.5,
+        },
+        true,
+        false,
+        true,
+        0.0,
+    };
+    const auto began_edit = coordinator.tick(frame_identity);
+    passed &= expect(
+        began_edit && began_edit->commands_enqueued == 0U,
+        "explicit Edit unexpectedly emitted an application command");
 
     constexpr auto ProjectToolbarOffset = 46.0;
     constexpr auto ProjectToolbarHeight = 38.0;
@@ -731,6 +747,22 @@ auto main(int argc, char** argv) -> int
     {
         return 1;
     }
+    texture_frame_runtime.input.pointer = ui::PointerFrame{
+        {
+            ready_image_tab->layout->status_strip.x +
+                ready_image_tab->layout->status_strip.width - 230.0,
+            ready_image_tab->layout->status_strip.y +
+                ready_image_tab->layout->status_strip.height * 0.5,
+        },
+        true,
+        false,
+        true,
+        0.0,
+    };
+    const auto ready_edit = texture_frames.tick(frame_identity);
+    passed &= expect(
+        ready_edit && ready_edit->commands_enqueued == 0U,
+        "ready Image Paint Edit unexpectedly emitted a command");
     texture_frame_runtime.input.pointer = ui::PointerFrame{
         {
             ready_image_tab->layout->content.x + 10.0,

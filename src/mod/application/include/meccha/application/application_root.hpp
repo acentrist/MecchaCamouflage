@@ -109,7 +109,7 @@ private:
         RuntimeObjectHandle component{};
     };
 
-    struct ActiveAutomaticPaintCapture
+    struct ActiveProjectivePaintCapture
     {
         JobGeneration generation{};
         CommandId command_id{};
@@ -160,11 +160,11 @@ private:
         CommandId command_id,
         const core::PaintSettings& settings,
         CapturedPaintJob captured) -> void;
-    auto begin_automatic_paint_capture(
+    auto begin_projective_paint_capture(
         CommandId command_id,
         const core::PaintSettings& settings,
         bool preview) -> bool;
-    auto advance_automatic_paint_capture(
+    auto advance_projective_paint_capture(
         std::uint64_t now_ms) -> void;
     auto restore_paint_preview(
         RestorePaintPreview request) -> void;
@@ -209,8 +209,8 @@ private:
         active_image_paint_component_{};
     std::optional<ActivePaintPreviewBuild>
         active_paint_preview_build_{};
-    std::optional<ActiveAutomaticPaintCapture>
-        active_automatic_paint_capture_{};
+    std::optional<ActiveProjectivePaintCapture>
+        active_projective_paint_capture_{};
     std::optional<ApplicationCommand>
         deferred_paint_preview_command_{};
     JobGeneration paint_preview_generation_{};

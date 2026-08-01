@@ -856,7 +856,7 @@ auto main() -> int
                 PaintSceneCaptureProjection::Perspective) ==
                 0U &&
         projective_capture_plan &&
-            projective_capture_plan->passes.size() == 7U &&
+            projective_capture_plan->passes.size() == 8U &&
             projective_capture_plan->requires_preview_feedback &&
             projective_capture_plan->passes[1] ==
                 PaintSceneCapturePass{
@@ -871,11 +871,16 @@ auto main() -> int
                 PaintSceneCapturePassKind::IntrinsicEmissionHdr &&
             projective_capture_plan->passes[2].profile ==
                 PaintSceneCaptureProfile::IntrinsicEmission &&
-            projective_capture_plan->passes[4].source ==
-                PaintSceneCaptureSource::Normal &&
+            projective_capture_plan->passes[3].kind ==
+                PaintSceneCapturePassKind::
+                    IntrinsicEmissionRepeatHdr &&
+            projective_capture_plan->passes[3].profile ==
+                PaintSceneCaptureProfile::IntrinsicEmission &&
             projective_capture_plan->passes[5].source ==
-                PaintSceneCaptureSource::SceneDepth &&
+                PaintSceneCaptureSource::Normal &&
             projective_capture_plan->passes[6].source ==
+                PaintSceneCaptureSource::SceneDepth &&
+            projective_capture_plan->passes[7].source ==
                 PaintSceneCaptureSource::FinalColorLdr &&
             std::ranges::all_of(
                 projective_capture_plan->passes,

@@ -45,6 +45,11 @@ constexpr auto ImageActionIds = std::array{
     ui::WidgetId{204U},
 };
 constexpr auto EspToggleId = ui::WidgetId{301U};
+constexpr auto EditActionIds = std::array{
+    ui::WidgetId{701U},
+    ui::WidgetId{702U},
+    ui::WidgetId{703U},
+};
 constexpr auto FeatureActions = std::array{
     application::FeatureUiAction::Start,
     application::FeatureUiAction::Preview,
@@ -104,6 +109,8 @@ auto labels_valid(const ProductPanelLabels& labels) -> bool
            valid_label(labels.preview) &&
            valid_label(labels.restore) &&
            valid_label(labels.cancel) &&
+           valid_label(labels.edit) &&
+           valid_label(labels.save) &&
            valid_label(labels.language) &&
            valid_label(labels.theme_color) &&
            valid_label(labels.hotkey_capture_prompt) &&
@@ -410,6 +417,9 @@ auto state_valid(const ProductPanelState& state) -> bool
              *state.hotkey_capture.rejected) <= 24U);
     return section_valid && editor_identity_valid &&
            capture_index_valid && rejected_key_valid &&
+           (!state.edit_session ||
+            (core::validate(state.edit_session->base).empty() &&
+             core::validate(state.edit_session->draft).empty())) &&
            valid_project_name_state(
                state.image_editor.project_name,
                state.image_editor.project_id.empty()) &&
@@ -590,6 +600,137 @@ auto paint_feature_actions(
     return {};
 }
 
+auto edit_action_rects(const ui::PanelLayout& layout)
+    -> std::array<ui::CanvasRect, 3U>
+{
+    const auto gap = 5.0 * layout.effective_scale;
+    const auto width = std::min(
+        86.0 * layout.effective_scale,
+        (layout.status_strip.width - 4.0 * gap) / 3.0);
+    const auto height = std::max(
+        1.0,
+        layout.status_strip.height - 2.0 * gap);
+    const auto start =
+        layout.status_strip.x + layout.status_strip.width -
+        3.0 * width - 3.0 * gap;
+    return {
+        ui::CanvasRect{start, layout.status_strip.y + gap, width, height},
+        ui::CanvasRect{start + width + gap, layout.status_strip.y + gap, width, height},
+        ui::CanvasRect{start + 2.0 * (width + gap), layout.status_strip.y + gap, width, height},
+    };
+}
+
+auto compose_edit_actions(
+    ui::WidgetPainter& widgets,
+    const ui::PanelLayout& layout,
+    const application::ProductUiModel& model,
+    const ProductPanelLabels& labels,
+    ProductPanelState& state,
+    std::optional<application::ProductUiActionEnvelope>& action)
+    -> std::expected<void, ProductPanelError>
+{
+    if (state.selected == application::ProductUiSection::Diagnostics)
+    {
+        return {};
+    }
+    const auto rects = edit_action_rects(layout);
+    const auto active = state.edit_session.has_value();
+    const auto enabled = std::array{
+        !active && model.settings.can_apply,
+        active && model.settings.can_apply,
+        active,
+    };
+    const auto selected = std::array{active, false, false};
+    const auto text = std::array<std::string_view, 3U>{
+        labels.edit,
+        labels.save,
+        labels.cancel,
+    };
+    for (auto index = std::size_t{}; index < rects.size(); ++index)
+    {
+        const auto response = widgets.button(
+            EditActionIds[index],
+            rects[index],
+            layout.status_strip,
+            text[index],
+            enabled[index],
+            selected[index]);
+        if (!response)
+        {
+            return std::unexpected(
+                ProductPanelError{response.error()});
+        }
+        if (!response->activated)
+        {
+            continue;
+        }
+        if (index == 0U)
+        {
+            state.edit_session = ProductEditSession{
+                model.settings.config,
+                model.settings.config,
+            };
+        }
+        else if (index == 1U)
+        {
+            const auto draft = state.edit_session->draft;
+            if (draft != model.settings.config && !action)
+            {
+                action = application::ProductUiActionEnvelope{
+                    model.source_revision,
+                    application::UiApplySettings{draft},
+                };
+            }
+            state.edit_session.reset();
+            state.hotkey_capture = {};
+        }
+        else
+        {
+            state.edit_session.reset();
+            state.hotkey_capture = {};
+            state.image_editor.interaction = {};
+            state.image_editor.draft.reset();
+            state.image_editor.crop.reset();
+            state.image_editor.crop_dragging = false;
+        }
+    }
+    return {};
+}
+
+auto model_for_edit(
+    const application::ProductUiModel& model,
+    const ProductPanelState& state)
+    -> application::ProductUiModel
+{
+    auto result = model;
+    const auto active = state.edit_session.has_value();
+    if (active)
+    {
+        const auto& draft = state.edit_session->draft;
+        result.settings.config = draft;
+        result.paint.settings = draft.paint;
+        result.esp.enabled = draft.esp.enabled;
+        result.esp.settings = draft.esp;
+        if (!result.image_paint.document)
+        {
+            result.image_paint.settings = draft.image_paint;
+        }
+    }
+    result.settings.can_apply =
+        active && model.settings.can_apply;
+    result.esp.can_toggle =
+        active && model.esp.can_toggle;
+    if (!active)
+    {
+        result.image_paint.project.edit = false;
+        result.image_paint.project.load = false;
+        result.image_paint.project.save = false;
+        result.image_paint.project.rename = false;
+        result.image_paint.project.remove = false;
+    }
+    return result;
+}
+
 } // namespace
 
 auto build_product_panel_labels(
@@ -615,6 +756,8 @@ auto build_product_panel_labels(
         std::string{catalog.text(locale, "button.preview")},
         std::string{catalog.text(locale, "button.unpreview")},
         std::string{catalog.text(locale, "button.stop")},
+        std::string{catalog.text(locale, "button.edit")},
+        std::string{catalog.text(locale, "button.save")},
         std::string{catalog.text(locale, "language")},
         std::string{catalog.text(locale, "theme.color")},
         std::string{
@@ -801,6 +944,16 @@ auto compose_product_panel(
         return std::unexpected(ProductPanelError{
             ProductPanelValidationError::InvalidInput});
     }
+    if (previous.edit_session &&
+        previous.edit_session->base != model.settings.config)
+    {
+        previous.edit_session.reset();
+        previous.hotkey_capture = {};
+        previous.image_editor.interaction = {};
+        previous.image_editor.draft.reset();
+        previous.image_editor.crop.reset();
+        previous.image_editor.crop_dragging = false;
+    }
 
     auto canvas = ui::CanvasFrameBuilder{input.viewport};
     auto interaction = ui::InteractionFrame{
@@ -828,6 +981,7 @@ auto compose_product_panel(
         previous.interaction = *next_interaction;
         previous.hotkey_capture = {};
         previous.image_editor = {};
+        previous.edit_session.reset();
         return ProductPanelOutput{
             std::move(*frame),
             std::nullopt,
@@ -837,10 +991,11 @@ auto compose_product_panel(
         };
     }
 
+    const auto presented_model = model_for_edit(model, previous);
     const auto layout = ui::build_panel_layout({
         input.viewport,
         input.safe_area,
-        model.settings.config.ui.scale,
+        presented_model.settings.config.ui.scale,
     });
     if (!layout)
     {
@@ -857,7 +1012,7 @@ auto compose_product_panel(
         canvas,
         interaction,
         ui::default_widget_palette(
-            accent(model.settings.config.ui.theme_color)),
+            accent(presented_model.settings.config.ui.theme_color)),
         layout->effective_scale,
     };
 
@@ -900,7 +1055,7 @@ auto compose_product_panel(
             widgets,
             *layout,
             previous.selected,
-            model.paint.actions,
+            presented_model.paint.actions,
             labels,
             action);
         if (!result)
@@ -912,11 +1067,10 @@ auto compose_product_panel(
                 canvas,
                 widgets,
                 *layout,
-                model,
+                presented_model,
                 labels,
                 input,
-                previous,
-                action);
+                previous);
         if (!settings)
         {
             return std::unexpected(settings.error());
@@ -930,7 +1084,7 @@ auto compose_product_panel(
             widgets,
             *layout,
             previous.selected,
-            model.image_paint.actions,
+            presented_model.image_paint.actions,
             labels,
             action);
         if (!result)
@@ -942,7 +1096,7 @@ auto compose_product_panel(
                 canvas,
                 widgets,
                 *layout,
-                model,
+                presented_model,
                 labels,
                 input,
                 previous,
@@ -970,8 +1124,8 @@ auto compose_product_panel(
             },
             layout->content,
             "ESP",
-            model.esp.enabled,
-            model.esp.can_toggle);
+            presented_model.esp.enabled,
+            presented_model.esp.can_toggle);
         if (!toggle)
         {
             return std::unexpected(
@@ -979,21 +1133,18 @@ auto compose_product_panel(
         }
         if (toggle->changed)
         {
-            action = application::ProductUiActionEnvelope{
-                0U,
-                application::UiToggleEsp{},
-            };
+            previous.edit_session->draft.esp.enabled =
+                toggle->value;
         }
         const auto settings =
             detail::compose_esp_settings_section(
                 canvas,
                 widgets,
                 *layout,
-                model,
+                presented_model,
                 labels,
                 input,
-                previous,
-                action);
+                previous);
         if (!settings)
         {
             return std::unexpected(settings.error());
@@ -1008,7 +1159,7 @@ auto compose_product_panel(
             interaction,
             widgets,
             *layout,
-            model,
+            presented_model,
             labels,
             input,
             previous,
@@ -1056,6 +1207,21 @@ auto compose_product_panel(
         !status)
     {
         return std::unexpected(status.error());
+    }
+    const auto edit_actions = compose_edit_actions(
+        widgets,
+        *layout,
+        model,
+        labels,
+        previous,
+        action);
+    if (!edit_actions)
+    {
+        return std::unexpected(edit_actions.error());
+    }
+    if (action)
+    {
+        action->expected_snapshot_revision = model.source_revision;
     }
 
     const auto next_interaction =

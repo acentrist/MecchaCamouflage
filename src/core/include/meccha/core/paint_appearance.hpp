@@ -15,21 +15,9 @@ inline constexpr double AppearancePhysicalEmissionReadbackFloor =
 inline constexpr double
     AppearancePhysicalEmissionMaximumChromaticityDelta = 0.10;
 inline constexpr double AppearanceFallbackRoughness = 0.65;
-inline constexpr int AppearanceMaximumClusters = 8;
-inline constexpr int AppearanceSpsaIterations = 3;
-inline constexpr double AppearanceFitMedianDeltaEMaximum = 0.05;
-inline constexpr double AppearanceFitMinimumImprovement = 0.15;
-inline constexpr int AppearanceFitMinimumSamples = 256;
-inline constexpr int AppearanceClusterEmissiveMinimumSamples = 64;
-inline constexpr double AppearanceClusterEmissiveMinimumCoverage = 0.10;
-inline constexpr double AppearanceClusterCandidateMinimumImprovement =
-    0.0001;
-inline constexpr double AppearanceClusterIntrinsicCoreMinimumCoverage =
-    0.75;
-inline constexpr double AppearanceClusterCalibratedMinimumCoverage =
-    0.90;
-inline constexpr double AppearanceClusterNearNeutralMaximumLossIncrease =
-    0.01;
+inline constexpr double
+    AppearancePhysicalEmissionMinimumImprovement = 0.15;
+inline constexpr int AppearanceMinimumLocalResponseSamples = 64;
 
 struct AppearanceRgb
 {
@@ -421,60 +409,8 @@ struct AppearanceAlbedoChromaticityGain
     const AppearanceRgb& base_albedo,
     const AppearanceRgb& gain) -> AppearanceRgb;
 
-struct AppearanceMaterial
-{
-    double albedo_blend{};
-    double metallic{};
-    double roughness{AppearanceFallbackRoughness};
-    double emissive{};
-
-    auto operator==(const AppearanceMaterial&) const
-        -> bool = default;
-};
-
-struct AppearanceFallback
-{
-    AppearanceRgb albedo{};
-    AppearanceMaterial material{};
-};
-
-[[nodiscard]] auto appearance_make_fallback(
-    const AppearanceRgb& display_linear) -> AppearanceFallback;
-[[nodiscard]] auto appearance_make_safe_fallback(
-    const AppearanceRgb& base_linear,
-    const AppearanceRgb& display_linear,
-    bool base_available) -> AppearanceFallback;
-[[nodiscard]] auto appearance_make_safe_final_fallback(
-    const AppearanceRgb& base_linear,
-    const AppearanceRgb& display_linear,
-    bool base_available,
-    bool intrinsic_emission_roi) -> AppearanceFallback;
-[[nodiscard]] auto appearance_blend_albedo(
-    const AppearanceRgb& base_linear,
-    const AppearanceRgb& display_linear,
-    double blend) -> AppearanceRgb;
-[[nodiscard]] auto appearance_source_albedo_target(
-    const AppearanceRgb& base_linear,
-    const AppearanceRgb& display_linear,
-    const AppearanceRgb& emission_linear,
-    bool emission_roi,
-    bool include_shadows) -> AppearanceRgb;
-[[nodiscard]] auto appearance_parameterized_albedo(
-    const AppearanceRgb& base_linear,
-    const AppearanceRgb& target_linear,
-    double parameter,
-    bool emission_roi) -> AppearanceRgb;
-[[nodiscard]] auto appearance_initial_albedo_blend(
-    const AppearanceRgb& base_linear,
-    const AppearanceRgb& display_linear) -> double;
-[[nodiscard]] auto appearance_initial_emissive(
-    const AppearanceRgb& base_linear,
-    const AppearanceRgb& final_hdr) -> double;
 [[nodiscard]] auto appearance_quantize_unit(double value)
     -> std::uint8_t;
-[[nodiscard]] auto appearance_material_key(
-    const AppearanceMaterial& material,
-    bool fallback) -> std::uint64_t;
 
 enum class AppearanceReadbackTransform : std::uint8_t
 {
@@ -499,114 +435,4 @@ struct AppearanceReadbackCalibration
     double maximum_median_error = 0.04)
     -> AppearanceReadbackCalibration;
 
-struct AppearanceSpsaPair
-{
-    std::vector<double> plus{};
-    std::vector<double> minus{};
-    std::vector<double> direction{};
-};
-
-[[nodiscard]] auto appearance_parameter_bound(
-    std::size_t parameter_index) -> double;
-[[nodiscard]] auto appearance_spsa_hash(std::uint64_t value)
-    -> std::uint64_t;
-[[nodiscard]] auto appearance_spsa_pair(
-    const std::vector<double>& parameters,
-    int iteration,
-    std::uint64_t seed) -> AppearanceSpsaPair;
-[[nodiscard]] auto appearance_spsa_update(
-    const std::vector<double>& parameters,
-    const AppearanceSpsaPair& pair,
-    double loss_plus,
-    double loss_minus,
-    int iteration) -> std::vector<double>;
-[[nodiscard]] auto appearance_spsa_update_by_cluster(
-    const std::vector<double>& parameters,
-    const AppearanceSpsaPair& pair,
-    const std::vector<double>& loss_plus_by_cluster,
-    const std::vector<double>& loss_minus_by_cluster,
-    int iteration) -> std::vector<double>;
-
-struct AppearanceFitAcceptance
-{
-    int paired_samples{};
-    bool camera_stable{};
-    bool readback_calibrated{};
-    double fallback_loss{
-        std::numeric_limits<double>::infinity()};
-    double best_loss{
-        std::numeric_limits<double>::infinity()};
-    double median_delta_e{
-        std::numeric_limits<double>::infinity()};
-};
-
-[[nodiscard]] auto appearance_fit_accepted(
-    const AppearanceFitAcceptance& value) -> bool;
-
-struct AppearanceEmissionRoiAcceptance
-{
-    int emission_roi_samples{};
-    int emission_roi_nonzero_b_samples{};
-    int non_emission_samples{};
-    int non_emission_nonzero_b_samples{};
-    bool camera_stable{};
-    bool readback_calibrated{};
-    bool packed_b_verified{};
-    double emission_roi_loss_initial{
-        std::numeric_limits<double>::infinity()};
-    double emission_roi_loss_best{
-        std::numeric_limits<double>::infinity()};
-    double non_emission_loss_initial{
-        std::numeric_limits<double>::infinity()};
-    double non_emission_loss_best{
-        std::numeric_limits<double>::infinity()};
-};
-
-[[nodiscard]] auto appearance_emission_roi_accepted(
-    const AppearanceEmissionRoiAcceptance& value) -> bool;
-
-struct AppearanceCalibratedClusterEmissiveEvidence
-{
-    int paired_samples{};
-    int responsive_samples{};
-    double calibrated_emissive{};
-    double fallback_loss{
-        std::numeric_limits<double>::infinity()};
-    double calibrated_loss{
-        std::numeric_limits<double>::infinity()};
-    int intrinsic_core_samples{};
-};
-
-[[nodiscard]] auto
-appearance_calibrated_cluster_emissive_supported(
-    const AppearanceCalibratedClusterEmissiveEvidence& value)
-    -> bool;
-
-struct AppearanceNonEmissionCandidateAcceptance
-{
-    int paired_samples{};
-    int emissive_nonzero_samples{};
-    bool camera_stable{};
-    bool readback_calibrated{};
-    bool packed_b_verified{};
-    double fallback_loss{
-        std::numeric_limits<double>::infinity()};
-    double candidate_loss{
-        std::numeric_limits<double>::infinity()};
-    double candidate_median_delta_e{
-        std::numeric_limits<double>::infinity()};
-    int emission_roi_samples{};
-    double emission_roi_loss_initial{
-        std::numeric_limits<double>::infinity()};
-    double emission_roi_loss_candidate{
-        std::numeric_limits<double>::infinity()};
-    double reference_max_chromaticity_delta{
-        std::numeric_limits<double>::infinity()};
-    double candidate_max_chromaticity_delta{
-        std::numeric_limits<double>::infinity()};
-};
-
-[[nodiscard]] auto appearance_non_emission_candidate_accepted(
-    const AppearanceNonEmissionCandidateAcceptance& value)
-    -> bool;
 } // namespace meccha::core

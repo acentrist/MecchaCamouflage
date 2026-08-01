@@ -294,6 +294,10 @@ auto ProductUiFrameCoordinator::tick(
         {
             router_.release_all();
         }
+        else if (panel_state_.edit_session)
+        {
+            router_.release_all();
+        }
         else if (panel_state_.hotkey_capture.index)
         {
             router_.release_all();

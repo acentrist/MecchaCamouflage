@@ -313,7 +313,7 @@ public:
 class UnusedPaintRuntime final : public PaintGameRuntimePort
 {
 public:
-    auto begin_automatic_capture(
+    auto begin_projective_capture(
         const core::PaintSettings&,
         JobGeneration)
         -> std::expected<void, RuntimeExecutionError> override
@@ -324,7 +324,7 @@ public:
         });
     }
 
-    auto advance_automatic_capture(JobGeneration)
+    auto advance_projective_capture(JobGeneration)
         -> std::expected<
             std::optional<CapturedPaintJob>,
             RuntimeExecutionError> override
@@ -335,7 +335,7 @@ public:
         });
     }
 
-    auto cancel_automatic_capture(JobGeneration)
+    auto cancel_projective_capture(JobGeneration)
         -> std::expected<bool, RuntimeExecutionError> override
     {
         return std::unexpected(RuntimeExecutionError{

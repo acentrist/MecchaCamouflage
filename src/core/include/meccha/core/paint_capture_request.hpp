@@ -21,6 +21,8 @@ struct PaintCaptureRaster
     std::shared_ptr<
         const std::vector<ResolvedPaintAppearance>>
         projected_appearances{};
+    std::shared_ptr<const std::vector<bool>>
+        projected_available{};
 };
 
 struct PaintCaptureInput

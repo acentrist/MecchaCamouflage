@@ -233,6 +233,14 @@ auto build_paint_scene_capture_plan(
         true,
     });
     plan.passes.push_back(PaintSceneCapturePass{
+        PaintSceneCapturePassKind::IntrinsicEmissionRepeatHdr,
+        PaintSceneCaptureSource::FinalColorHdr,
+        PaintCaptureRenderTargetFormat::Rgba16Float,
+        PaintSceneCaptureProfile::IntrinsicEmission,
+        false,
+        true,
+    });
+    plan.passes.push_back(PaintSceneCapturePass{
         PaintSceneCapturePassKind::FinalToneCurveHdr,
         PaintSceneCaptureSource::FinalToneCurveHdr,
         PaintCaptureRenderTargetFormat::Rgba16Float,

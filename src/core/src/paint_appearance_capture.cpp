@@ -204,7 +204,7 @@ auto build_paint_appearance_source_queries(
         return std::unexpected(
             PaintAppearanceCaptureError::InvalidGeometry);
     }
-    if (geometry.size() > MaximumPaintAppearanceSamples)
+    if (geometry.size() > MaximumPaintProjectiveSamples)
     {
         return std::unexpected(
             PaintAppearanceCaptureError::ResourceLimit);
@@ -411,12 +411,12 @@ auto resolve_paint_appearance_source_hit(
                : PaintAppearanceSourceSample{};
 }
 
-auto build_paint_appearance_observations(
+auto build_paint_projective_observations(
     std::span<const PaintCaptureGeometrySample> geometry,
     const PaintAppearanceCaptureEvidence& evidence,
     std::stop_token cancellation)
     -> std::expected<
-        std::vector<PaintAppearanceObservation>,
+        std::vector<PaintProjectiveObservation>,
         PaintAppearanceCaptureError>
 {
     if (cancellation.stop_requested())
@@ -429,7 +429,7 @@ auto build_paint_appearance_observations(
         return std::unexpected(
             PaintAppearanceCaptureError::InvalidGeometry);
     }
-    if (geometry.size() > MaximumPaintAppearanceSamples)
+    if (geometry.size() > MaximumPaintProjectiveSamples)
     {
         return std::unexpected(
             PaintAppearanceCaptureError::ResourceLimit);
@@ -440,7 +440,10 @@ auto build_paint_appearance_observations(
         !valid_pass(evidence.final_hdr, *count) ||
         !valid_pass(evidence.tone_curve_hdr, *count) ||
         !valid_pass(
-            evidence.intrinsic_emission_hdr,
+            evidence.intrinsic_emission_first_hdr,
+            *count) ||
+        !valid_pass(
+            evidence.intrinsic_emission_second_hdr,
             *count) ||
         !valid_pass(evidence.normal, *count) ||
         !valid_pass(evidence.scene_depth, *count) ||
@@ -454,7 +457,8 @@ auto build_paint_appearance_observations(
     const auto pass_cameras = std::array{
         &evidence.final_hdr.camera,
         &evidence.tone_curve_hdr.camera,
-        &evidence.intrinsic_emission_hdr.camera,
+        &evidence.intrinsic_emission_first_hdr.camera,
+        &evidence.intrinsic_emission_second_hdr.camera,
         &evidence.normal.camera,
         &evidence.scene_depth.camera,
         &evidence.final_ldr.camera,
@@ -470,7 +474,7 @@ auto build_paint_appearance_observations(
         }
     }
 
-    auto output = std::vector<PaintAppearanceObservation>{};
+    auto output = std::vector<PaintProjectiveObservation>{};
     output.reserve(geometry.size());
     auto supported = std::size_t{};
     for (auto index = std::size_t{};
@@ -524,20 +528,26 @@ auto build_paint_appearance_observations(
               source.surface_key == expected_surface_key &&
               facing < -0.001));
         supported += safe ? 1U : 0U;
-        output.push_back(PaintAppearanceObservation{
+        output.push_back(PaintProjectiveObservation{
+            index,
             pixel,
+            sample.region,
+            sample.uv_island,
             sample.u,
             sample.v,
+            sample.triangle_index,
+            sample.first_vertex,
+            sample.second_vertex,
+            sample.third_vertex,
+            sample.barycentric_a,
+            sample.barycentric_b,
+            sample.barycentric_c,
+            sample.replay_relevant,
+            sample.calibration_sample,
             (*evidence.base_color.pixels)[pixel],
             (*evidence.final_hdr.pixels)[pixel],
-            (*evidence.tone_curve_hdr.pixels)[pixel],
-            true,
-            (*evidence.intrinsic_emission_hdr.pixels)[pixel],
-            true,
-            (*evidence.normal.pixels)[pixel],
-            true,
-            (*evidence.scene_depth.pixels)[pixel],
-            true,
+            (*evidence.intrinsic_emission_first_hdr.pixels)[pixel],
+            (*evidence.intrinsic_emission_second_hdr.pixels)[pixel],
             facing,
             safe,
             shared_face
@@ -554,7 +564,7 @@ auto build_paint_appearance_observations(
 }
 
 auto build_paint_appearance_readback_references(
-    const PaintAppearanceModel& model,
+    const PaintProjectiveModel& model,
     std::uint32_t texture_dimension,
     std::span<const std::byte> preview_albedo_rgba,
     std::stop_token cancellation)
@@ -574,7 +584,7 @@ auto build_paint_appearance_readback_references(
         });
     constexpr auto MaximumTextureDimension = 4096U;
     if (!capture_pixels || model.samples.empty() ||
-        model.samples.size() > MaximumPaintAppearanceSamples ||
+        model.samples.size() > MaximumPaintProjectiveSamples ||
         texture_dimension == 0U ||
         texture_dimension > MaximumTextureDimension)
     {
@@ -713,7 +723,7 @@ auto prepare_paint_appearance_feedback(
         !valid_pass(evidence.final_hdr, *count) ||
         readback_references.empty() ||
         readback_references.size() >
-            MaximumPaintAppearanceSamples)
+            MaximumPaintProjectiveSamples)
     {
         return std::unexpected(
             PaintAppearanceCaptureError::InvalidEvidence);
@@ -804,7 +814,7 @@ auto prepare_paint_appearance_target_e0(
             *count) ||
         readback_references.empty() ||
         readback_references.size() >
-            MaximumPaintAppearanceSamples ||
+            MaximumPaintProjectiveSamples ||
         !readback.ok ||
         !std::isfinite(readback.median_error) ||
         !std::isfinite(readback.runner_up_median))

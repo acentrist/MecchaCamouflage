@@ -108,20 +108,20 @@ public:
             void,
             application::RuntimeExecutionError> override;
 
-    auto begin_automatic_capture(
+    auto begin_projective_capture(
         const core::PaintSettings& settings,
         application::JobGeneration generation)
         -> std::expected<
             void,
             application::RuntimeExecutionError> override;
 
-    auto advance_automatic_capture(
+    auto advance_projective_capture(
         application::JobGeneration generation)
         -> std::expected<
             std::optional<application::CapturedPaintJob>,
             application::RuntimeExecutionError> override;
 
-    auto cancel_automatic_capture(
+    auto cancel_projective_capture(
         application::JobGeneration generation)
         -> std::expected<
             bool,

@@ -137,6 +137,7 @@ auto main() -> int
             !active->image_paint.actions.preview &&
             active->image_paint.actions.restore &&
             !active->image_paint.actions.cancel &&
+            active->settings.can_apply &&
             active->progress.completed == 4U &&
             active->progress.total == 10U &&
             active->progress.fraction == 0.4 &&

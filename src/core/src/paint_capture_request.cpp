@@ -91,6 +91,12 @@ auto build_paint_capture_request(
         return std::unexpected(
             PaintCaptureRequestError::InvalidRaster);
     }
+    if (raster.projected_available &&
+        raster.projected_available->size() != pixel_count)
+    {
+        return std::unexpected(
+            PaintCaptureRequestError::InvalidRaster);
+    }
     if (!std::ranges::all_of(
             *raster.projected_appearances,
             appearance_valid))
@@ -146,11 +152,13 @@ auto build_paint_capture_request(
                     static_cast<double>(raster.height - 1U)));
             pixel =
                 static_cast<std::size_t>(y) * raster.width + x;
-            ++safe_count;
         }
         const auto projected_available =
             sample.projected &&
-            raster.projected_appearances != nullptr;
+            raster.projected_appearances != nullptr &&
+            (!raster.projected_available ||
+             (*raster.projected_available)[pixel]);
+        safe_count += projected_available ? 1U : 0U;
         request.samples.push_back(CapturedPaintSample{
             sample.region,
             sample.uv_island,
@@ -166,7 +174,7 @@ auto build_paint_capture_request(
                 ? (*raster.projected_appearances)[pixel]
                 : ResolvedPaintAppearance{},
             projected_available,
-            sample.projected,
+            projected_available,
         });
     }
     if (safe_count == 0U)

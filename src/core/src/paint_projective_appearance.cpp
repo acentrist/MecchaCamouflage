@@ -305,6 +305,7 @@ auto appearance_physical_emission_evidence(
     output.source_chromaticity_delta =
         appearance_rgb_chromaticity_delta(first, second);
     output.source_supported =
+        input.source_distribution_separated &&
         output.source_first_above_noise_floor &&
         output.source_second_above_noise_floor &&
         std::isfinite(minimum_luminance) &&
@@ -450,7 +451,8 @@ auto appearance_validate_physical_emission_component(
                       input.baseline_loss
                 : -std::numeric_limits<double>::infinity();
         if (!std::isfinite(output.roi_improvement) ||
-            output.roi_improvement < AppearanceFitMinimumImprovement)
+                output.roi_improvement <
+                    AppearancePhysicalEmissionMinimumImprovement)
         {
             output.rejection = AppearancePhysicalEmissionComponentRejection::
                 RoiImprovementBelowThreshold;

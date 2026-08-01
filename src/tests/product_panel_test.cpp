@@ -214,10 +214,48 @@ auto main(int argc, char** argv) -> int
     }
     model.settings.config.ui.language = "en";
 
-    auto state = ProductPanelState{};
+    const auto locked = compose_product_panel(
+        model,
+        ProductPanelState{},
+        default_input(),
+        english);
+    if (!locked || !locked->layout)
+    {
+        return 1;
+    }
+    auto edit_input = default_input();
+    edit_input.pointer = ui::PointerFrame{
+        {
+            locked->layout->status_strip.x +
+                locked->layout->status_strip.width - 230.0,
+            locked->layout->status_strip.y +
+                locked->layout->status_strip.height * 0.5,
+        },
+        true,
+        false,
+        true,
+        0.0,
+    };
+    const auto began_edit = compose_product_panel(
+        model,
+        locked->state,
+        edit_input,
+        english);
+    passed &= expect(
+        began_edit && began_edit->state.edit_session &&
+            began_edit->state.edit_session->base ==
+                model.settings.config &&
+            began_edit->state.edit_session->draft ==
+                model.settings.config &&
+            !began_edit->action,
+        "settings/editor mutation did not require an explicit Edit session");
+    if (!began_edit)
+    {
+        return 1;
+    }
     const auto initial = compose_product_panel(
         model,
-        state,
+        began_edit->state,
         default_input(),
         english);
     passed &= expect(
@@ -1906,18 +1944,47 @@ auto main(int argc, char** argv) -> int
         paint_settings_input,
         english);
     const auto* paint_settings_action =
-        paint_settings && paint_settings->action
-            ? std::get_if<UiApplySettings>(
-                  &paint_settings->action->action)
+        paint_settings && paint_settings->state.edit_session
+            ? &paint_settings->state.edit_session->draft
             : nullptr;
     passed &= expect(
         paint_settings_action &&
-            paint_settings_action->settings.paint.brush_size_texels !=
+            paint_settings_action->paint.brush_size_texels !=
                 model.settings.config.paint.brush_size_texels &&
-            paint_settings_action->settings.image_paint ==
+            paint_settings_action->image_paint ==
                 model.settings.config.image_paint &&
-            core::validate(paint_settings_action->settings).empty(),
-        "Paint brush control did not emit a validated complete config");
+            core::validate(*paint_settings_action).empty() &&
+            !paint_settings->action,
+        "Paint brush control did not stage a validated complete draft");
+    auto save_edit_input = default_input();
+    save_edit_input.pointer = ui::PointerFrame{
+        {
+            initial->layout->status_strip.x +
+                initial->layout->status_strip.width - 139.0,
+            initial->layout->status_strip.y +
+                initial->layout->status_strip.height * 0.5,
+        },
+        true,
+        false,
+        true,
+        0.0,
+    };
+    const auto saved_edit = compose_product_panel(
+        model,
+        paint_settings ? paint_settings->state : initial->state,
+        save_edit_input,
+        english);
+    const auto* saved_settings =
+        saved_edit && saved_edit->action
+            ? std::get_if<UiApplySettings>(
+                  &saved_edit->action->action)
+            : nullptr;
+    passed &= expect(
+        saved_settings &&
+            saved_settings->settings == *paint_settings_action &&
+            saved_edit->action->expected_snapshot_revision == 42U &&
+            !saved_edit->state.edit_session,
+        "Save did not publish one revision-bound complete settings draft");
 
     const auto invoke_paint_control =
         [&](std::size_t row,
@@ -1967,12 +2034,11 @@ auto main(int argc, char** argv) -> int
             next_input,
             english);
         const auto* settings =
-            output && output->action
-                ? std::get_if<UiApplySettings>(
-                      &output->action->action)
+            output && output->state.edit_session
+                ? &output->state.edit_session->draft
                 : nullptr;
         return settings
-                   ? std::optional{settings->settings}
+                   ? std::optional{*settings}
                    : std::nullopt;
     };
     const auto changed_only =
@@ -2178,10 +2244,12 @@ auto main(int argc, char** argv) -> int
         esp_input,
         english);
     passed &= expect(
-        esp_toggle && esp_toggle->action &&
-            std::holds_alternative<UiToggleEsp>(
-                esp_toggle->action->action),
-        "ESP toggle did not emit its typed action");
+        esp_toggle && !esp_toggle->action &&
+            esp_toggle->state.edit_session &&
+            !esp_toggle->state.edit_session->draft.esp.enabled &&
+            esp_toggle->state.edit_session->draft.paint ==
+                model.settings.config.paint,
+        "ESP toggle did not stage its isolated settings draft");
 
     auto esp_settings_input = default_input();
     esp_settings_input.pointer = ui::PointerFrame{
@@ -2201,17 +2269,17 @@ auto main(int argc, char** argv) -> int
         esp_settings_input,
         english);
     const auto* esp_scope_action =
-        esp_scope && esp_scope->action
-            ? std::get_if<UiApplySettings>(
-                  &esp_scope->action->action)
+        esp_scope && esp_scope->state.edit_session
+            ? &esp_scope->state.edit_session->draft
             : nullptr;
     auto expected_esp_scope = model.settings.config;
     expected_esp_scope.esp.scope = core::EspScope::Hider;
     passed &= expect(
         esp_scope_action &&
-            esp_scope_action->settings == expected_esp_scope &&
-            core::validate(esp_scope_action->settings).empty(),
-        "ESP scope control did not emit a validated complete config");
+            *esp_scope_action == expected_esp_scope &&
+            core::validate(*esp_scope_action).empty() &&
+            !esp_scope->action,
+        "ESP scope control did not stage a validated complete draft");
 
     const auto invoke_esp_control =
         [&](std::size_t row,
@@ -2261,12 +2329,11 @@ auto main(int argc, char** argv) -> int
             next_input,
             english);
         const auto* settings =
-            output && output->action
-                ? std::get_if<UiApplySettings>(
-                      &output->action->action)
+            output && output->state.edit_session
+                ? &output->state.edit_session->draft
                 : nullptr;
         return settings
-                   ? std::optional{settings->settings}
+                   ? std::optional{*settings}
                    : std::nullopt;
     };
     const auto esp_changed_only =
@@ -2398,17 +2465,17 @@ auto main(int argc, char** argv) -> int
         settings_input,
         english);
     const auto* language_action =
-        language && language->action
-            ? std::get_if<UiApplySettings>(
-                  &language->action->action)
+        language && language->state.edit_session
+            ? &language->state.edit_session->draft
             : nullptr;
     passed &= expect(
         language_action &&
-            language_action->settings.ui.language == "id" &&
-            language_action->settings.paint ==
+            language_action->ui.language == "id" &&
+            language_action->paint ==
                 model.settings.config.paint &&
-            language_action->settings.active_image_project ==
-                model.settings.config.active_image_project,
+            language_action->active_image_project ==
+                model.settings.config.active_image_project &&
+            !language->action,
         "language control did not copy and change exactly one config field");
 
     settings_input.pointer.position.y += SettingsRowHeight;
@@ -2418,17 +2485,16 @@ auto main(int argc, char** argv) -> int
         settings_input,
         english);
     const auto* scale_action =
-        scale && scale->action
-            ? std::get_if<UiApplySettings>(
-                  &scale->action->action)
+        scale && scale->state.edit_session
+            ? &scale->state.edit_session->draft
             : nullptr;
     passed &= expect(
         scale_action &&
-            scale_action->settings.ui.scale >=
+            scale_action->ui.scale >=
                 ui::MinimumUiScale &&
-            scale_action->settings.ui.scale <=
+            scale_action->ui.scale <=
                 ui::MaximumUiScale &&
-            scale_action->settings.ui.scale !=
+            scale_action->ui.scale !=
                 model.settings.config.ui.scale,
         "scale control did not emit a bounded complete config");
 
@@ -2455,17 +2521,16 @@ auto main(int argc, char** argv) -> int
         settings_input,
         english);
     const auto* theme_action =
-        theme && theme->action
-            ? std::get_if<UiApplySettings>(
-                  &theme->action->action)
+        theme && theme->state.edit_session
+            ? &theme->state.edit_session->draft
             : nullptr;
     passed &= expect(
         theme_action &&
-            theme_action->settings.ui.theme_color.red <
+            theme_action->ui.theme_color.red <
                 model.settings.config.ui.theme_color.red &&
-            theme_action->settings.ui.theme_color.green ==
+            theme_action->ui.theme_color.green ==
                 model.settings.config.ui.theme_color.green &&
-            theme_action->settings.ui.theme_color.blue ==
+            theme_action->ui.theme_color.blue ==
                 model.settings.config.ui.theme_color.blue,
         "theme control did not isolate the selected RGB channel");
 
@@ -2511,19 +2576,19 @@ auto main(int argc, char** argv) -> int
         captured_hotkey_input,
         english);
     const auto* hotkey_action =
-        hotkey && hotkey->action
-            ? std::get_if<UiApplySettings>(
-                  &hotkey->action->action)
+        hotkey && hotkey->state.edit_session
+            ? &hotkey->state.edit_session->draft
             : nullptr;
     passed &= expect(
         hotkey_action &&
-            hotkey_action->settings.ui.hotkeys.toggle_ui ==
+            hotkey_action->ui.hotkeys.toggle_ui ==
                 core::FunctionKey::F12 &&
-            hotkey_action->settings.ui.hotkeys.paint_start ==
+            hotkey_action->ui.hotkeys.paint_start ==
                 core::FunctionKey::F1 &&
             !hotkey->state.hotkey_capture.index &&
             !hotkey->state.hotkey_capture.rejected &&
-            core::validate(hotkey_action->settings).empty(),
+            core::validate(*hotkey_action).empty() &&
+            !hotkey->action,
         "direct hotkey capture changed the wrong mapping");
 
     auto duplicate_input = default_input();

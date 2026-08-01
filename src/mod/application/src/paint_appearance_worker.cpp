@@ -3,8 +3,8 @@
 #include <cmath>
 #include <cstddef>
 #include <expected>
-#include <memory>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <span>
 #include <stop_token>
@@ -18,13 +18,12 @@ namespace meccha::application
 {
 namespace
 {
-auto core_failure(core::PaintAppearanceFitError error)
+auto projective_failure(core::PaintProjectiveError error)
     -> PaintAppearanceWorkResult
 {
     return std::unexpected(PaintAppearanceWorkFailure{
-        PaintAppearanceWorkFailureKind::Core,
+        PaintAppearanceWorkFailureKind::Projective,
         error,
-        std::nullopt,
     });
 }
 
@@ -32,13 +31,10 @@ auto invalid_request() -> PaintAppearanceWorkResult
 {
     return std::unexpected(PaintAppearanceWorkFailure{
         PaintAppearanceWorkFailureKind::InvalidRequest,
-        std::nullopt,
-        std::nullopt,
     });
 }
 
-auto capture_geometry_failure(
-    core::PaintCaptureGeometryError error)
+auto capture_geometry_failure(core::PaintCaptureGeometryError error)
     -> PaintAppearanceWorkResult
 {
     return std::unexpected(PaintAppearanceWorkFailure{
@@ -46,12 +42,10 @@ auto capture_geometry_failure(
         std::nullopt,
         std::nullopt,
         error,
-        std::nullopt,
     });
 }
 
-auto capture_evidence_failure(
-    core::PaintAppearanceCaptureError error)
+auto capture_evidence_failure(core::PaintAppearanceCaptureError error)
     -> PaintAppearanceWorkResult
 {
     return std::unexpected(PaintAppearanceWorkFailure{
@@ -72,55 +66,42 @@ PaintAppearanceWorker::~PaintAppearanceWorker()
 auto PaintAppearanceWorker::start(
     JobGeneration generation,
     PaintAppearanceWorkRequest request)
-    -> std::expected<
-        void,
-        PaintAppearanceWorkStartError>
+    -> std::expected<void, PaintAppearanceWorkStartError>
 {
     const auto lock = std::scoped_lock{mutex_};
     if (stopped_)
     {
-        return std::unexpected(
-            PaintAppearanceWorkStartError::Stopped);
+        return std::unexpected(PaintAppearanceWorkStartError::Stopped);
     }
     if (generation == 0U)
     {
         return std::unexpected(
-            PaintAppearanceWorkStartError::
-                InvalidGeneration);
+            PaintAppearanceWorkStartError::InvalidGeneration);
     }
     if (state_ != State::Idle || worker_.joinable())
     {
-        return std::unexpected(
-            PaintAppearanceWorkStartError::Busy);
+        return std::unexpected(PaintAppearanceWorkStartError::Busy);
     }
     active_generation_ = generation;
     state_ = State::Running;
     try
     {
         worker_ = std::jthread{
-            [this,
-             generation,
-             request = std::move(request)](
-                std::stop_token cancellation) mutable
-            {
-                run(
-                    generation,
-                    std::move(request),
-                    cancellation);
+            [this, generation, request = std::move(request)](
+                std::stop_token cancellation) mutable {
+                run(generation, std::move(request), cancellation);
             }};
     }
     catch (...)
     {
         active_generation_ = 0U;
         state_ = State::Idle;
-        return std::unexpected(
-            PaintAppearanceWorkStartError::ThreadStart);
+        return std::unexpected(PaintAppearanceWorkStartError::ThreadStart);
     }
     return {};
 }
 
-auto PaintAppearanceWorker::request_cancel(
-    JobGeneration generation)
+auto PaintAppearanceWorker::request_cancel(JobGeneration generation)
     -> PaintAppearanceWorkCancelResult
 {
     const auto lock = std::scoped_lock{mutex_};
@@ -128,16 +109,13 @@ auto PaintAppearanceWorker::request_cancel(
     {
         return PaintAppearanceWorkCancelResult::Idle;
     }
-    if (generation == 0U ||
-        generation != active_generation_)
+    if (generation == 0U || generation != active_generation_)
     {
-        return PaintAppearanceWorkCancelResult::
-            StaleGeneration;
+        return PaintAppearanceWorkCancelResult::StaleGeneration;
     }
     if (state_ == State::Completed)
     {
-        return PaintAppearanceWorkCancelResult::
-            AlreadyCompleted;
+        return PaintAppearanceWorkCancelResult::AlreadyCompleted;
     }
     static_cast<void>(worker_.request_stop());
     return PaintAppearanceWorkCancelResult::Requested;
@@ -147,8 +125,7 @@ auto PaintAppearanceWorker::poll()
     -> std::optional<PaintAppearanceWorkCompletion>
 {
     auto completed_thread = std::jthread{};
-    auto result =
-        std::optional<PaintAppearanceWorkCompletion>{};
+    auto result = std::optional<PaintAppearanceWorkCompletion>{};
     {
         const auto lock = std::scoped_lock{mutex_};
         if (state_ != State::Completed || !completion_)
@@ -199,128 +176,123 @@ auto PaintAppearanceWorker::run(
     PaintAppearanceWorkRequest request,
     std::stop_token cancellation) noexcept -> void
 {
-    auto completion =
-        std::optional<PaintAppearanceWorkCompletion>{};
+    auto completion = std::optional<PaintAppearanceWorkCompletion>{};
     try
     {
         auto result = std::visit(
-            [cancellation](auto&& work)
-                -> PaintAppearanceWorkResult
-            {
-                using Work =
-                    std::decay_t<decltype(work)>;
-                if constexpr (
-                    std::is_same_v<
-                        Work,
-                        PaintAppearancePrepareWork>)
+            [cancellation](auto&& work) -> PaintAppearanceWorkResult {
+                using Work = std::decay_t<decltype(work)>;
+                if constexpr (std::is_same_v<
+                                  Work,
+                                  PaintAppearanceGeometryPrepareWork>)
                 {
-                    auto model =
-                        core::prepare_paint_appearance_model(
-                            work.width,
-                            work.height,
-                            work.observations,
-                            work.include_scene_lighting,
-                            work.target_e0_noise,
-                            cancellation);
-                    if (!model)
+                    auto replay = core::build_paint_capture_geometry(
+                        work.sampling_profile,
+                        work.image_profile,
+                        work.current_world_transforms,
+                        work.replay_brush_size_texels,
+                        work.view,
+                        work.viewport,
+                        cancellation);
+                    if (!replay)
                     {
-                        return core_failure(model.error());
+                        return capture_geometry_failure(replay.error());
                     }
-                    auto owned_model =
-                        std::make_shared<
-                            const core::PaintAppearanceModel>(
-                            std::move(*model));
-                    auto parameters =
-                        core::paint_appearance_parameters(
-                            *owned_model);
-                    if (parameters.empty())
+                    for (auto& sample : *replay)
                     {
-                        return invalid_request();
+                        sample.replay_relevant = true;
+                        sample.calibration_sample =
+                            std::abs(work.replay_brush_size_texels -
+                                     core::AppearanceCalibrationStepTexels) <=
+                            0.000001;
                     }
-                    return PaintAppearanceWorkValue{
-                        PaintAppearancePrepared{
-                            std::move(owned_model),
-                            std::move(parameters),
-                        }};
-                }
-                else if constexpr (
-                    std::is_same_v<
-                        Work,
-                        PaintAppearanceGeometryPrepareWork>)
-                {
-                    auto geometry =
-                        core::build_paint_capture_geometry(
+                    const auto replay_count = replay->size();
+                    if (std::abs(work.replay_brush_size_texels -
+                                 core::AppearanceCalibrationStepTexels) >
+                        0.000001)
+                    {
+                        auto calibration = core::build_paint_capture_geometry(
                             work.sampling_profile,
                             work.image_profile,
                             work.current_world_transforms,
-                            work.brush_size_texels,
+                            core::AppearanceCalibrationStepTexels,
                             work.view,
                             work.viewport,
                             cancellation);
-                    if (!geometry)
-                    {
-                        return capture_geometry_failure(
-                            geometry.error());
+                        if (!calibration)
+                        {
+                            return capture_geometry_failure(
+                                calibration.error());
+                        }
+                        if (calibration->size() >
+                            core::MaximumPaintProjectiveSamples -
+                                replay->size())
+                        {
+                            return projective_failure(
+                                core::PaintProjectiveError::ResourceLimit);
+                        }
+                        for (auto& sample : *calibration)
+                        {
+                            sample.replay_relevant = false;
+                            sample.calibration_sample = true;
+                        }
+                        replay->insert(
+                            replay->end(),
+                            std::make_move_iterator(calibration->begin()),
+                            std::make_move_iterator(calibration->end()));
                     }
                     if (!std::isfinite(work.viewport.width) ||
                         !std::isfinite(work.viewport.height) ||
-                        work.viewport.width !=
-                            std::floor(work.viewport.width) ||
+                        work.viewport.width != std::floor(work.viewport.width) ||
                         work.viewport.height !=
                             std::floor(work.viewport.height) ||
                         work.viewport.width >
                             static_cast<double>(
-                                std::numeric_limits<std::uint32_t>::
-                                    max()) ||
+                                std::numeric_limits<std::uint32_t>::max()) ||
                         work.viewport.height >
                             static_cast<double>(
-                                std::numeric_limits<std::uint32_t>::
-                                    max()))
+                                std::numeric_limits<std::uint32_t>::max()))
                     {
                         return capture_evidence_failure(
-                            core::PaintAppearanceCaptureError::
-                                InvalidEvidence);
+                            core::PaintAppearanceCaptureError::InvalidEvidence);
                     }
                     auto source_queries =
                         core::build_paint_appearance_source_queries(
-                            *geometry,
+                            *replay,
                             work.sampling_profile,
-                            static_cast<std::uint32_t>(
-                                work.viewport.width),
-                            static_cast<std::uint32_t>(
-                                work.viewport.height),
+                            static_cast<std::uint32_t>(work.viewport.width),
+                            static_cast<std::uint32_t>(work.viewport.height),
                             cancellation);
                     if (!source_queries)
                     {
                         return capture_evidence_failure(
                             source_queries.error());
                     }
-                    auto owned_geometry =
-                        std::make_shared<const std::vector<
-                            core::PaintCaptureGeometrySample>>(
-                            std::move(*geometry));
-                    auto owned_source_queries =
-                        std::make_shared<
-                            const std::vector<
-                                core::PaintAppearanceSourceQuery>>(
-                            std::move(*source_queries));
+                    const auto calibration_count =
+                        replay->size() - replay_count +
+                        (replay_count == replay->size() ? replay_count : 0U);
                     return PaintAppearanceWorkValue{
                         PaintAppearanceGeometryPrepared{
-                            std::move(owned_geometry),
-                            std::move(owned_source_queries),
+                            std::make_shared<const std::vector<
+                                core::PaintCaptureGeometrySample>>(
+                                std::move(*replay)),
+                            std::make_shared<const std::vector<
+                                core::PaintAppearanceSourceQuery>>(
+                                std::move(*source_queries)),
+                            replay_count,
+                            calibration_count,
                         }};
                 }
-                else if constexpr (
-                    std::is_same_v<
-                        Work,
-                        PaintAppearanceCapturePrepareWork>)
+                else if constexpr (std::is_same_v<
+                                       Work,
+                                       PaintAppearanceCapturePrepareWork>)
                 {
                     if (!work.geometry)
                     {
                         return invalid_request();
                     }
                     auto observations =
-                        core::build_paint_appearance_observations(
+                        core::build_paint_projective_observations(
                             *work.geometry,
                             work.evidence,
                             cancellation);
@@ -329,314 +301,201 @@ auto PaintAppearanceWorker::run(
                         return capture_evidence_failure(
                             observations.error());
                     }
-                    auto model =
-                        core::prepare_paint_appearance_model(
-                            work.evidence.base_color.camera.width,
-                            work.evidence.base_color.camera.height,
-                            *observations,
-                            work.include_scene_lighting,
-                            work.target_e0_noise,
-                            cancellation);
+                    auto model = core::prepare_paint_projective_model(
+                        work.evidence.base_color.camera.width,
+                        work.evidence.base_color.camera.height,
+                        *observations,
+                        cancellation);
                     if (!model)
                     {
-                        return core_failure(model.error());
+                        return projective_failure(model.error());
                     }
                     auto owned_model =
-                        std::make_shared<
-                            const core::PaintAppearanceModel>(
+                        std::make_shared<const core::PaintProjectiveModel>(
                             std::move(*model));
-                    auto parameters =
-                        core::paint_appearance_parameters(
-                            *owned_model);
-                    if (parameters.empty())
+                    auto baseline = core::build_paint_projective_baseline(
+                        *owned_model,
+                        work.settings,
+                        cancellation);
+                    if (!baseline)
                     {
-                        return invalid_request();
+                        return projective_failure(baseline.error());
                     }
                     return PaintAppearanceWorkValue{
                         PaintAppearancePrepared{
                             std::move(owned_model),
-                            std::move(parameters),
+                            std::make_shared<const core::PaintProjectiveRaster>(
+                                std::move(*baseline)),
                         }};
                 }
-                else if constexpr (
-                    std::is_same_v<
-                        Work,
-                        PaintAppearanceCandidateWork>)
+                else if constexpr (std::is_same_v<
+                                       Work,
+                                       PaintAppearanceCandidateWork>)
                 {
-                    if (!work.model ||
-                        !work.base_colors ||
-                        !work.scene_colors ||
+                    if (!work.model || !work.raster ||
                         !work.original.albedo_rgba ||
                         !work.original.packed_pbr_rgba)
                     {
                         return invalid_request();
                     }
-                    auto appearances =
-                        core::resolve_paint_appearance_raster(
-                            *work.model,
-                            *work.base_colors,
-                            *work.scene_colors,
-                            work.parameters,
-                            work.feedback_albedo_by_sample
-                                ? std::span<const core::
-                                      PaintAppearanceFeedbackAlbedo>{
-                                      *work.feedback_albedo_by_sample}
-                                : std::span<const core::
-                                      PaintAppearanceFeedbackAlbedo>{},
-                            work.safe_fallback,
-                            cancellation);
-                    if (!appearances)
-                    {
-                        return core_failure(
-                            appearances.error());
-                    }
-                    auto plan =
-                        core::build_paint_appearance_trial_plan(
-                            *work.model,
-                            *appearances,
-                            work.brush_size_texels,
-                            work.texture_dimension,
-                            cancellation);
+                    auto plan = core::build_paint_projective_trial_plan(
+                        *work.model,
+                        work.raster->appearances,
+                        work.original.dimension,
+                        cancellation);
                     if (!plan)
                     {
-                        return core_failure(plan.error());
+                        return projective_failure(plan.error());
                     }
-                    auto composed =
-                        core::compose_paint_preview(
-                            work.original.dimension,
-                            std::span<const std::byte>{
-                                *work.original.albedo_rgba},
-                            std::span<const std::byte>{
-                                *work.original
-                                     .packed_pbr_rgba},
-                            *plan,
-                            cancellation);
+                    auto composed = core::compose_paint_preview(
+                        work.original.dimension,
+                        *work.original.albedo_rgba,
+                        *work.original.packed_pbr_rgba,
+                        *plan,
+                        cancellation);
                     if (!composed)
                     {
-                        return std::unexpected(
-                            PaintAppearanceWorkFailure{
-                                PaintAppearanceWorkFailureKind::
-                                    Composer,
-                                std::nullopt,
-                                composed.error(),
-                            });
+                        return std::unexpected(PaintAppearanceWorkFailure{
+                            PaintAppearanceWorkFailureKind::Composer,
+                            std::nullopt,
+                            composed.error(),
+                        });
                     }
-                    auto readback_references =
+                    auto references =
                         core::build_paint_appearance_readback_references(
                             *work.model,
                             composed->dimension,
                             composed->albedo_rgba,
                             cancellation);
-                    if (!readback_references)
+                    if (!references)
                     {
-                        return capture_evidence_failure(
-                            readback_references.error());
+                        return capture_evidence_failure(references.error());
                     }
-                    auto owned_appearances =
-                        std::make_shared<
-                            const std::vector<
-                                core::ResolvedPaintAppearance>>(
-                            std::move(*appearances));
-                    auto preview =
-                        std::make_shared<
-                            const PaintTextureImage>(
-                            PaintTextureImage{
-                                composed->dimension,
-                                std::make_shared<
-                                    const std::vector<std::byte>>(
-                                    std::move(
-                                        composed
-                                            ->albedo_rgba)),
-                                std::make_shared<
-                                    const std::vector<std::byte>>(
-                                    std::move(
-                                        composed
-                                            ->packed_pbr_rgba)),
-                            });
-                    auto owned_readback_references =
-                        std::make_shared<const std::vector<
-                            core::PaintAppearanceReadbackReference>>(
-                            std::move(*readback_references));
                     return PaintAppearanceWorkValue{
                         PaintAppearanceCandidate{
-                            std::move(owned_appearances),
-                            std::move(preview),
-                            std::move(
-                                owned_readback_references),
-                            std::move(work.parameters),
+                            std::make_shared<const PaintTextureImage>(
+                                PaintTextureImage{
+                                    composed->dimension,
+                                    std::make_shared<const std::vector<
+                                        std::byte>>(
+                                        std::move(composed->albedo_rgba)),
+                                    std::make_shared<const std::vector<
+                                        std::byte>>(
+                                        std::move(composed->packed_pbr_rgba)),
+                                }),
+                            std::make_shared<const std::vector<
+                                core::PaintAppearanceReadbackReference>>(
+                                std::move(*references)),
                         }};
                 }
-                else if constexpr (
-                    std::is_same_v<
-                        Work,
-                        PaintAppearanceTargetE0PrepareWork>)
+                else if constexpr (std::is_same_v<
+                                       Work,
+                                       PaintAppearanceBaselineCalibrateWork>)
                 {
-                    if (!work.readback_references)
+                    if (!work.model || !work.readback_references)
                     {
                         return invalid_request();
                     }
-                    auto feedback =
-                        core::prepare_paint_appearance_feedback(
-                            work.source_camera,
-                            *work.readback_references,
-                            work.feedback_evidence,
-                            cancellation);
+                    auto feedback = core::prepare_paint_appearance_feedback(
+                        work.source_camera,
+                        *work.readback_references,
+                        work.feedback_evidence,
+                        cancellation);
                     if (!feedback)
                     {
-                        return capture_evidence_failure(
-                            feedback.error());
+                        return capture_evidence_failure(feedback.error());
                     }
-                    auto target_e0 =
-                        core::prepare_paint_appearance_target_e0(
-                            work.source_camera,
-                            *work.readback_references,
-                            work.target_e0_evidence,
-                            feedback->readback,
-                            cancellation);
+                    auto target_e0 = core::prepare_paint_appearance_target_e0(
+                        work.source_camera,
+                        *work.readback_references,
+                        work.target_e0_evidence,
+                        feedback->readback,
+                        cancellation);
                     if (!target_e0)
                     {
-                        return capture_evidence_failure(
-                            target_e0.error());
+                        return capture_evidence_failure(target_e0.error());
+                    }
+                    auto evaluated = core::evaluate_paint_projective_feedback(
+                        *work.model,
+                        *feedback->target_hdr,
+                        feedback->camera_stable,
+                        feedback->readback.ok,
+                        feedback->readback.transform,
+                        cancellation);
+                    if (!evaluated)
+                    {
+                        return projective_failure(evaluated.error());
+                    }
+                    auto calibration =
+                        core::calibrate_paint_projective_baseline(
+                            *work.model,
+                            *evaluated,
+                            target_e0->noise,
+                            work.settings,
+                            work.packed_b_verified,
+                            cancellation);
+                    if (!calibration)
+                    {
+                        return projective_failure(calibration.error());
                     }
                     return PaintAppearanceWorkValue{
-                        PaintAppearanceTargetE0Prepared{
-                            std::move(*feedback),
+                        PaintAppearanceBaselineCalibrated{
+                            std::move(*evaluated),
                             std::move(*target_e0),
+                            std::make_shared<const core::
+                                PaintProjectiveCalibration>(
+                                std::move(*calibration)),
                         }};
                 }
-                else if constexpr (
-                    std::is_same_v<
-                        Work,
-                        PaintAppearanceResolveWork>)
+                else if constexpr (std::is_same_v<
+                                       Work,
+                                       PaintAppearanceFinalizeWork>)
                 {
-                    if (!work.model || !work.base_colors ||
-                        !work.scene_colors)
+                    if (!work.model || !work.calibration ||
+                        !work.endpoint_final_hdr.pixels ||
+                        !core::paint_appearance_camera_matches(
+                            work.source_camera,
+                            work.endpoint_final_hdr.camera))
                     {
                         return invalid_request();
                     }
-                    auto appearances =
-                        core::resolve_paint_appearance_raster(
-                            *work.model,
-                            *work.base_colors,
-                            *work.scene_colors,
-                            work.parameters,
-                            work.feedback_albedo_by_sample
-                                ? std::span<const core::
-                                      PaintAppearanceFeedbackAlbedo>{
-                                      *work.feedback_albedo_by_sample}
-                                : std::span<const core::
-                                      PaintAppearanceFeedbackAlbedo>{},
-                            work.safe_fallback,
-                            cancellation);
-                    if (!appearances)
+                    auto endpoint = core::evaluate_paint_projective_feedback(
+                        *work.model,
+                        *work.endpoint_final_hdr.pixels,
+                        true,
+                        work.baseline.readback_calibrated,
+                        work.baseline.readback_transform,
+                        cancellation);
+                    if (!endpoint)
                     {
-                        return core_failure(
-                            appearances.error());
+                        return projective_failure(endpoint.error());
+                    }
+                    auto resolved = core::finalize_paint_projective_raster(
+                        *work.model,
+                        *work.calibration,
+                        work.baseline,
+                        *endpoint,
+                        work.target_e0_noise,
+                        work.settings,
+                        work.packed_b_verified,
+                        cancellation);
+                    if (!resolved)
+                    {
+                        return projective_failure(resolved.error());
                     }
                     return PaintAppearanceWorkValue{
                         PaintAppearanceResolved{
                             std::make_shared<const std::vector<
                                 core::ResolvedPaintAppearance>>(
-                                std::move(*appearances)),
-                            std::move(work.parameters),
+                                std::move(resolved->raster.appearances)),
+                            std::make_shared<const std::vector<bool>>(
+                                std::move(resolved->raster.available)),
+                            resolved->local_albedo_acceptances,
+                            resolved->physical_emission_components,
+                            resolved->physical_emission_samples,
                         }};
                 }
-                else if constexpr (
-                    std::is_same_v<
-                        Work,
-                        PaintAppearanceEvaluateWork>)
-                {
-                    if (!work.model || !work.target_hdr)
-                    {
-                        return invalid_request();
-                    }
-                    auto evaluation =
-                        core::evaluate_paint_appearance_response(
-                            *work.model,
-                            *work.target_hdr,
-                            work.camera_stable,
-                            work.readback_calibrated,
-                            work.transform,
-                            cancellation);
-                    if (!evaluation)
-                    {
-                        return core_failure(
-                            evaluation.error());
-                    }
-                    return PaintAppearanceWorkValue{
-                        PaintAppearanceEvaluated{
-                            std::move(*evaluation),
-                        }};
-                }
-                else if constexpr (
-                    std::is_same_v<
-                        Work,
-                        PaintAppearanceEmissiveCalibrateWork>)
-                {
-                    if (!work.model)
-                    {
-                        return invalid_request();
-                    }
-                    auto calibration =
-                        core::calibrate_paint_appearance_emissive_endpoint(
-                            *work.model,
-                            work.source_parameters,
-                            work.fallback,
-                            work.endpoint);
-                    if (!calibration)
-                    {
-                        return core_failure(calibration.error());
-                    }
-                    return PaintAppearanceWorkValue{
-                        PaintAppearanceEmissiveCalibrated{
-                            std::move(*calibration),
-                        }};
-                }
-                else if constexpr (
-                    std::is_same_v<
-                        Work,
-                        PaintAppearanceEmissiveGateWork>)
-                {
-                    if (!work.model)
-                    {
-                        return invalid_request();
-                    }
-                    auto calibration =
-                        core::gate_paint_appearance_emissive_calibration(
-                            *work.model,
-                            work.calibration,
-                            work.fallback,
-                            work.calibrated);
-                    if (!calibration)
-                    {
-                        return core_failure(calibration.error());
-                    }
-                    return PaintAppearanceWorkValue{
-                        PaintAppearanceEmissiveGated{
-                            std::move(*calibration),
-                        }};
-                }
-                else
-                {
-                    if (!work.model)
-                    {
-                        return invalid_request();
-                    }
-                    auto calibration =
-                        core::calibrate_paint_appearance_albedo_endpoint(
-                            *work.model,
-                            work.baseline_parameters,
-                            work.baseline,
-                            work.endpoint);
-                    if (!calibration)
-                    {
-                        return core_failure(calibration.error());
-                    }
-                    return PaintAppearanceWorkValue{
-                        PaintAppearanceAlbedoCalibrated{
-                            std::move(*calibration),
-                        }};
-                }
+                return invalid_request();
             },
             std::move(request));
         completion = PaintAppearanceWorkCompletion{
@@ -649,17 +508,13 @@ auto PaintAppearanceWorker::run(
         completion = PaintAppearanceWorkCompletion{
             generation,
             std::unexpected(PaintAppearanceWorkFailure{
-                PaintAppearanceWorkFailureKind::
-                    WorkerException,
-                std::nullopt,
-                std::nullopt,
+                PaintAppearanceWorkFailureKind::WorkerException,
             }),
         };
     }
 
     const auto lock = std::scoped_lock{mutex_};
-    if (state_ == State::Running &&
-        active_generation_ == generation)
+    if (state_ == State::Running && active_generation_ == generation)
     {
         completion_ = std::move(completion);
         state_ = State::Completed;

@@ -160,8 +160,7 @@ auto add_clipped_text(
 
 auto publish_settings(
     core::ApplicationConfig config,
-    const application::ProductUiModel& model,
-    std::optional<application::ProductUiActionEnvelope>& action)
+    ProductPanelState& state)
     -> std::expected<void, ProductPanelError>
 {
     if (!core::validate(config).empty())
@@ -169,15 +168,12 @@ auto publish_settings(
         return std::unexpected(ProductPanelError{
             ProductPanelValidationError::InvalidModel});
     }
-    if (!action)
+    if (!state.edit_session)
     {
-        action = application::ProductUiActionEnvelope{
-            model.source_revision,
-            application::UiApplySettings{
-                std::move(config),
-            },
-        };
+        return std::unexpected(ProductPanelError{
+            ProductPanelValidationError::InvalidState});
     }
+    state.edit_session->draft = std::move(config);
     return {};
 }
 
@@ -291,8 +287,7 @@ auto compose_settings_section(
             set_hotkey(config.ui.hotkeys, index, candidate);
             if (const auto published = publish_settings(
                     std::move(config),
-                    model,
-                    action);
+                    state);
                 !published)
             {
                 return published;
@@ -324,8 +319,7 @@ auto compose_settings_section(
             next_locale(config.ui.language);
         if (const auto published = publish_settings(
                 std::move(config),
-                model,
-                action);
+                state);
             !published)
         {
             return published;
@@ -361,8 +355,7 @@ auto compose_settings_section(
         config.ui.scale = scale->value;
         if (const auto published = publish_settings(
                 std::move(config),
-                model,
-                action);
+                state);
             !published)
         {
             return published;
@@ -400,8 +393,7 @@ auto compose_settings_section(
         };
         if (const auto published = publish_settings(
                 std::move(config),
-                model,
-                action);
+                state);
             !published)
         {
             return published;

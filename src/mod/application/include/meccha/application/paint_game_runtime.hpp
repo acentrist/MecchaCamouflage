@@ -49,20 +49,20 @@ public:
     // begin owns any preview snapshot until advance publishes a completed job
     // after exact restoration, or cancel reports true after exact restoration.
     // Pending advance results and false cancellation results retain ownership.
-    virtual auto begin_automatic_capture(
+    virtual auto begin_projective_capture(
         const core::PaintSettings& settings,
         JobGeneration generation)
         -> std::expected<
             void,
             RuntimeExecutionError> = 0;
 
-    virtual auto advance_automatic_capture(
+    virtual auto advance_projective_capture(
         JobGeneration generation)
         -> std::expected<
             std::optional<CapturedPaintJob>,
             RuntimeExecutionError> = 0;
 
-    virtual auto cancel_automatic_capture(
+    virtual auto cancel_projective_capture(
         JobGeneration generation)
         -> std::expected<
             bool,

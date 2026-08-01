@@ -80,8 +80,7 @@ auto add_clipped_text(
 
 auto publish_settings(
     core::ApplicationConfig config,
-    const application::ProductUiModel& model,
-    std::optional<application::ProductUiActionEnvelope>& action)
+    ProductPanelState& state)
     -> std::expected<void, ProductPanelError>
 {
     if (!core::validate(config).empty())
@@ -89,15 +88,12 @@ auto publish_settings(
         return std::unexpected(ProductPanelError{
             ProductPanelValidationError::InvalidModel});
     }
-    if (!action)
+    if (!state.edit_session)
     {
-        action = application::ProductUiActionEnvelope{
-            model.source_revision,
-            application::UiApplySettings{
-                std::move(config),
-            },
-        };
+        return std::unexpected(ProductPanelError{
+            ProductPanelValidationError::InvalidState});
     }
+    state.edit_session->draft = std::move(config);
     return {};
 }
 
@@ -146,8 +142,7 @@ auto compose_paint_settings_section(
     const application::ProductUiModel& model,
     const ProductPanelLabels& labels,
     const ProductPanelInput& input,
-    ProductPanelState& state,
-    std::optional<application::ProductUiActionEnvelope>& action)
+    ProductPanelState& state)
     -> std::expected<void, ProductPanelError>
 {
     const auto action_height =
@@ -246,8 +241,7 @@ auto compose_paint_settings_section(
             assign(config.paint, response->value);
             return publish_settings(
                 std::move(config),
-                model,
-                action);
+                state);
         }
         return {};
     };
@@ -281,8 +275,7 @@ auto compose_paint_settings_section(
             assign(config.paint, next_mode(current));
             return publish_settings(
                 std::move(config),
-                model,
-                action);
+                state);
         }
         return {};
     };
@@ -410,8 +403,7 @@ auto compose_paint_settings_section(
         };
         if (const auto published = publish_settings(
                 std::move(config),
-                model,
-                action);
+                state);
             !published)
         {
             return published;

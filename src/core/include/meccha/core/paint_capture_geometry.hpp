@@ -25,6 +25,14 @@ struct PaintCaptureGeometrySample
     double fallback_view_horizontal{};
     std::uint32_t triangle_index{};
     double view_depth{};
+    std::uint32_t first_vertex{};
+    std::uint32_t second_vertex{};
+    std::uint32_t third_vertex{};
+    double barycentric_a{};
+    double barycentric_b{};
+    double barycentric_c{};
+    bool replay_relevant{true};
+    bool calibration_sample{};
 
     auto operator==(const PaintCaptureGeometrySample&) const
         -> bool = default;

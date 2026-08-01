@@ -568,7 +568,7 @@ auto ApplicationRoot::process_commands(
         {
             process_command(std::move(command), now_ms);
         }
-        advance_automatic_paint_capture(now_ms);
+        advance_projective_paint_capture(now_ms);
         advance_paint(now_ms);
         advance_image_paint(now_ms);
         advance_paint_preview(now_ms);
@@ -606,9 +606,9 @@ auto ApplicationRoot::process_command(
             }
             else if constexpr (std::is_same_v<Request, CancelPaint>)
             {
-                if (active_automatic_paint_capture_)
+                if (active_projective_paint_capture_)
                 {
-                    active_automatic_paint_capture_->
+                    active_projective_paint_capture_->
                         cancel_requested = true;
                     return;
                 }
@@ -900,7 +900,7 @@ auto ApplicationRoot::begin_paint(
     StartPaint request,
     std::uint64_t) -> void
 {
-    if (active_automatic_paint_capture_)
+    if (active_projective_paint_capture_)
     {
         record_command_error(request.id);
         return;
@@ -929,7 +929,7 @@ auto ApplicationRoot::begin_paint(
         }
     }
 
-    static_cast<void>(begin_automatic_paint_capture(
+    static_cast<void>(begin_projective_paint_capture(
         request.id,
         request.settings,
         false));
@@ -967,7 +967,7 @@ auto ApplicationRoot::begin_image_paint(
     StartImagePaint request,
     std::uint64_t now_ms) -> void
 {
-    if (active_automatic_paint_capture_)
+    if (active_projective_paint_capture_)
     {
         record_command_error(request.id);
         return;
@@ -1052,7 +1052,7 @@ auto ApplicationRoot::begin_image_paint(
 auto ApplicationRoot::begin_paint_preview(
     PreviewPaint request) -> void
 {
-    if (active_automatic_paint_capture_)
+    if (active_projective_paint_capture_)
     {
         record_command_error(request.id);
         return;
@@ -1082,7 +1082,7 @@ auto ApplicationRoot::begin_paint_preview(
         }
     }
 
-    static_cast<void>(begin_automatic_paint_capture(
+    static_cast<void>(begin_projective_paint_capture(
         request.id,
         request.settings,
         true));
@@ -1154,12 +1154,12 @@ auto ApplicationRoot::accept_captured_paint_preview(
         std::memory_order_release);
 }
 
-auto ApplicationRoot::begin_automatic_paint_capture(
+auto ApplicationRoot::begin_projective_paint_capture(
     CommandId command_id,
     const core::PaintSettings& settings,
     bool preview) -> bool
 {
-    if (active_automatic_paint_capture_ ||
+    if (active_projective_paint_capture_ ||
         paint_capture_generation_ ==
             std::numeric_limits<JobGeneration>::max())
     {
@@ -1168,7 +1168,7 @@ auto ApplicationRoot::begin_automatic_paint_capture(
     }
     const auto generation = ++paint_capture_generation_;
     const auto begun =
-        paint_runtime_->begin_automatic_capture(
+        paint_runtime_->begin_projective_capture(
             settings,
             generation);
     if (!begun)
@@ -1176,8 +1176,8 @@ auto ApplicationRoot::begin_automatic_paint_capture(
         record_runtime_error(begun.error(), command_id);
         return false;
     }
-    active_automatic_paint_capture_ =
-        ActiveAutomaticPaintCapture{
+    active_projective_paint_capture_ =
+        ActiveProjectivePaintCapture{
             generation,
             command_id,
             settings,
@@ -1189,20 +1189,20 @@ auto ApplicationRoot::begin_automatic_paint_capture(
     return true;
 }
 
-auto ApplicationRoot::advance_automatic_paint_capture(
+auto ApplicationRoot::advance_projective_paint_capture(
     std::uint64_t now_ms) -> void
 {
-    if (!active_automatic_paint_capture_ ||
-        active_automatic_paint_capture_->
+    if (!active_projective_paint_capture_ ||
+        active_projective_paint_capture_->
                 admitted_hud_epoch >= hud_frame_epoch_)
     {
         return;
     }
-    auto& active = *active_automatic_paint_capture_;
+    auto& active = *active_projective_paint_capture_;
     if (active.cancel_requested)
     {
         const auto cancelled =
-            paint_runtime_->cancel_automatic_capture(
+            paint_runtime_->cancel_projective_capture(
                 active.generation);
         if (!cancelled)
         {
@@ -1219,12 +1219,12 @@ auto ApplicationRoot::advance_automatic_paint_capture(
         {
             return;
         }
-        active_automatic_paint_capture_.reset();
+        active_projective_paint_capture_.reset();
         return;
     }
 
     auto advanced =
-        paint_runtime_->advance_automatic_capture(
+        paint_runtime_->advance_projective_capture(
             active.generation);
     if (!advanced)
     {
@@ -1247,7 +1247,7 @@ auto ApplicationRoot::advance_automatic_paint_capture(
     const auto command_id = active.command_id;
     const auto settings = active.settings;
     const auto preview = active.preview;
-    active_automatic_paint_capture_.reset();
+    active_projective_paint_capture_.reset();
     if (preview)
     {
         accept_captured_paint_preview(
@@ -1266,11 +1266,11 @@ auto ApplicationRoot::advance_automatic_paint_capture(
 auto ApplicationRoot::restore_paint_preview(
     RestorePaintPreview request) -> void
 {
-    if (active_automatic_paint_capture_)
+    if (active_projective_paint_capture_)
     {
-        if (active_automatic_paint_capture_->preview)
+        if (active_projective_paint_capture_->preview)
         {
-            active_automatic_paint_capture_->
+            active_projective_paint_capture_->
                 cancel_requested = true;
         }
         else
@@ -1532,12 +1532,12 @@ auto ApplicationRoot::advance_shutdown(
 {
     advance_image_editor();
 
-    if (active_automatic_paint_capture_)
+    if (active_projective_paint_capture_)
     {
-        auto& active = *active_automatic_paint_capture_;
+        auto& active = *active_projective_paint_capture_;
         active.cancel_requested = true;
         const auto cancelled =
-            paint_runtime_->cancel_automatic_capture(
+            paint_runtime_->cancel_projective_capture(
                 active.generation);
         if (!cancelled)
         {
@@ -1554,7 +1554,7 @@ auto ApplicationRoot::advance_shutdown(
         {
             return;
         }
-        active_automatic_paint_capture_.reset();
+        active_projective_paint_capture_.reset();
     }
 
     const auto job = jobs_.snapshot();

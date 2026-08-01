@@ -92,6 +92,11 @@ auto main() -> int
         captured(
             camera,
             std::vector<AppearanceRgb>{
+                {}, {0.4, 0.3, 0.2}, {}, {},
+            }),
+        captured(
+            camera,
+            std::vector<AppearanceRgb>{
                 {}, {0.5, 0.5, 1.0}, {}, {},
             }),
         captured(
@@ -110,7 +115,7 @@ auto main() -> int
             }),
     };
     const auto observations =
-        build_paint_appearance_observations(
+        build_paint_projective_observations(
             std::vector<PaintCaptureGeometrySample>{
                 PaintCaptureGeometrySample{
                     Region::Front,
@@ -135,7 +140,7 @@ auto main() -> int
             3U,
             PaintAppearanceSourceSample{});
     const auto shared_face_observations =
-        build_paint_appearance_observations(
+        build_paint_projective_observations(
             std::vector<PaintCaptureGeometrySample>{
                 PaintCaptureGeometrySample{
                     Region::Front,
@@ -364,11 +369,10 @@ auto main() -> int
                     Rgb8{64U, 96U, 128U} &&
                 observation.final_hdr ==
                     AppearanceRgb{1.0, 0.5, 0.25} &&
-                observation.tone_curve_available &&
-                observation.intrinsic_emission_available &&
-                observation.normal_available &&
-                observation.depth_available &&
-                observation.scene_depth == 10.0 &&
+                observation.intrinsic_emission_first_hdr ==
+                    AppearanceRgb{0.4, 0.3, 0.2} &&
+                observation.intrinsic_emission_second_hdr ==
+                    AppearanceRgb{0.4, 0.3, 0.2} &&
                 observation.facing == -1.0 &&
                 observation.safe &&
                 observation.source_surface_key == 77U,
@@ -378,7 +382,7 @@ auto main() -> int
     auto moved_camera = evidence;
     moved_camera.final_hdr.camera.location.x += 1.01;
     passed &= expect(
-        build_paint_appearance_observations(
+        build_paint_projective_observations(
             std::vector<PaintCaptureGeometrySample>{
                 PaintCaptureGeometrySample{
                     Region::Front,
@@ -418,12 +422,12 @@ auto main() -> int
     {
         return 1;
     }
-    auto feedback_model = PaintAppearanceModel{};
+    auto feedback_model = PaintProjectiveModel{};
     feedback_model.width = 4U;
     feedback_model.height = 4U;
     for (auto pixel = std::size_t{}; pixel < 16U; ++pixel)
     {
-        auto sample = PaintAppearanceModelSample{};
+        auto sample = PaintProjectiveSample{};
         sample.raster_pixel = pixel;
         sample.u = static_cast<double>(pixel % 4U) / 3.0;
         sample.v = static_cast<double>(pixel / 4U) / 3.0;

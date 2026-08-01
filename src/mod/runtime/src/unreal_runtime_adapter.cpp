@@ -3882,47 +3882,36 @@ struct PreparedPaintCaptureSeed
     PaintBrushPlaneVisuals brush_plane{};
 };
 
-enum class AutomaticPaintCaptureStage : std::uint8_t
+enum class ProjectivePaintCaptureStage : std::uint8_t
 {
     GeometryPending,
     SourceQuery,
     SourceCapture,
-    PreliminaryModelPending,
+    ModelPending,
     SnapshotPending,
     CandidatePending,
     PreviewApplyPending,
     PreviewSettle,
     FeedbackCapture,
     RestorePending,
-    TargetE0Pending,
-    FinalModelPending,
-    EvaluationPending,
-    EmissiveCalibrationPending,
-    EmissiveGatePending,
-    AlbedoCalibrationPending,
+    BaselineCalibrationPending,
     FinalResolvePending,
     FinalResolved,
     Failed,
 };
 
-enum class AutomaticPaintCandidatePurpose : std::uint8_t
+enum class ProjectivePaintCandidatePhase : std::uint8_t
 {
-    TargetE0,
-    FitBaseline,
-    EmissiveEndpoint,
-    CalibratedEmissive,
-    AlbedoEndpoint,
-    NonEmissionCandidate,
-    RefinementBaseline,
-    FitTrial,
+    Baseline,
+    Endpoint,
 };
 
-struct AutomaticPaintCaptureSession
+struct ProjectivePaintCaptureSession
 {
     application::JobGeneration generation{};
     PreparedPaintCaptureSeed seed{};
-    AutomaticPaintCaptureStage stage{
-        AutomaticPaintCaptureStage::GeometryPending};
+    ProjectivePaintCaptureStage stage{
+        ProjectivePaintCaptureStage::GeometryPending};
     std::size_t next_source_pass{};
     core::PaintAppearanceCaptureEvidence evidence{};
     std::shared_ptr<const std::vector<
@@ -3934,11 +3923,12 @@ struct AutomaticPaintCaptureSession
     std::vector<core::PaintAppearanceSourceSample>
         source_samples{};
     std::size_t next_source_query{};
-    std::shared_ptr<const core::PaintAppearanceModel> model{};
-    std::vector<double> source_parameters{};
-    std::vector<double> parameters{};
-    AutomaticPaintCandidatePurpose candidate_purpose{
-        AutomaticPaintCandidatePurpose::TargetE0};
+    std::shared_ptr<const core::PaintProjectiveModel> model{};
+    std::shared_ptr<const core::PaintProjectiveRaster> baseline{};
+    std::shared_ptr<const core::PaintProjectiveCalibration>
+        calibration{};
+    ProjectivePaintCandidatePhase candidate_phase{
+        ProjectivePaintCandidatePhase::Baseline};
     std::optional<application::PaintPreviewSnapshot>
         preview_snapshot{};
     std::shared_ptr<const application::PaintTextureImage>
@@ -3954,34 +3944,14 @@ struct AutomaticPaintCaptureSession
     bool preview_mutated{};
     bool current_packed_b_verified{};
     bool all_packed_b_verified{true};
-    std::optional<core::PaintAppearanceFeedback> feedback{};
     std::optional<core::PaintAppearanceTargetE0> target_e0{};
-    std::optional<core::PaintAppearanceEvaluation>
-        fallback_evaluation{};
-    std::optional<core::PaintAppearanceEvaluation>
-        emissive_endpoint_evaluation{};
-    std::optional<core::PaintAppearanceEvaluation>
-        calibrated_emissive_evaluation{};
-    std::optional<core::PaintAppearanceEvaluation>
-        albedo_endpoint_evaluation{};
-    std::optional<core::PaintAppearanceEvaluation>
-        non_emission_evaluation{};
-    std::optional<core::PaintAppearanceEmissiveCalibration>
-        emissive_calibration{};
-    std::optional<core::PaintAppearanceAlbedoCalibration>
-        albedo_calibration{};
-    std::shared_ptr<const std::vector<
-        core::PaintAppearanceFeedbackAlbedo>>
-        calibrated_feedback_albedo{};
-    std::shared_ptr<const std::vector<
-        core::PaintAppearanceFeedbackAlbedo>>
-        current_feedback_albedo{};
-    bool feedback_albedo_authoritative{};
-    std::optional<core::PaintAppearanceFitSession> fit{};
-    std::optional<core::PaintAppearanceFitResult> fit_result{};
+    std::optional<core::PaintProjectiveFeedback>
+        baseline_feedback{};
     std::shared_ptr<const std::vector<
         core::ResolvedPaintAppearance>>
         resolved_appearances{};
+    std::shared_ptr<const std::vector<bool>>
+        resolved_available{};
 };
 } // namespace
 
@@ -4074,7 +4044,7 @@ public:
             if (id != HudCallbackId || !hook_ids_ ||
                 !hud_contracts_ || detaching_ ||
                 !canvas_textures_.empty() ||
-                input_mutation_ || automatic_paint_capture_)
+                input_mutation_ || projective_paint_capture_)
             {
                 return std::unexpected(
                     application::CallbackPortError::
@@ -5272,8 +5242,8 @@ public:
         return *fingerprint;
     }
 
-    auto capture_automatic_source_pass(
-        AutomaticPaintCaptureSession& session,
+    auto capture_projective_source_pass(
+        ProjectivePaintCaptureSession& session,
         const PaintSceneCapturePass& pass)
         -> std::expected<
             void,
@@ -5377,7 +5347,13 @@ public:
             };
             return {};
         case PaintSceneCapturePassKind::IntrinsicEmissionHdr:
-            session.evidence.intrinsic_emission_hdr = {
+            session.evidence.intrinsic_emission_first_hdr = {
+                *fingerprint,
+                std::move(pixels),
+            };
+            return {};
+        case PaintSceneCapturePassKind::IntrinsicEmissionRepeatHdr:
+            session.evidence.intrinsic_emission_second_hdr = {
                 *fingerprint,
                 std::move(pixels),
             };
@@ -5404,8 +5380,8 @@ public:
             application::ContractFailureKind::InvalidValue);
     }
 
-    auto capture_automatic_feedback_pass(
-        AutomaticPaintCaptureSession& session,
+    auto capture_projective_feedback_pass(
+        ProjectivePaintCaptureSession& session,
         const PaintSceneCapturePass& pass)
         -> std::expected<
             void,
@@ -5472,6 +5448,8 @@ public:
                 std::move(pixels),
             };
             return {};
+        case PaintSceneCapturePassKind::IntrinsicEmissionRepeatHdr:
+            break;
         case PaintSceneCapturePassKind::FinalToneCurveHdr:
         case PaintSceneCapturePassKind::Normal:
         case PaintSceneCapturePassKind::SceneDepth:
@@ -5483,33 +5461,22 @@ public:
             application::ContractFailureKind::InvalidValue);
     }
 
-    auto start_automatic_paint_candidate(
-        AutomaticPaintCaptureSession& session,
-        AutomaticPaintCandidatePurpose purpose,
-        std::vector<double> parameters,
-        std::shared_ptr<const std::vector<
-            core::PaintAppearanceFeedbackAlbedo>>
-            feedback_albedo = {})
+    auto start_projective_paint_candidate(
+        ProjectivePaintCaptureSession& session,
+        ProjectivePaintCandidatePhase phase,
+        std::shared_ptr<const core::PaintProjectiveRaster> raster)
         -> std::expected<
             void,
             application::RuntimeExecutionError>
     {
-        if (!session.model || !session.preview_snapshot ||
-            !session.evidence.base_color.pixels ||
-            !session.evidence.final_ldr.pixels ||
-            parameters.empty() || session.preview_mutated ||
-            (feedback_albedo &&
-             feedback_albedo->size() !=
-                 session.model->samples.size()))
+        if (!session.model || !session.preview_snapshot || !raster ||
+            raster->appearances.empty() || session.preview_mutated)
         {
             return runtime_failure(
                 application::RuntimeContractId::PaintCapture,
                 application::ContractFailureKind::InvalidValue);
         }
-        session.candidate_purpose = purpose;
-        session.parameters = std::move(parameters);
-        session.current_feedback_albedo =
-            std::move(feedback_albedo);
+        session.candidate_phase = phase;
         session.candidate_preview.reset();
         session.readback_references.reset();
         session.feedback_evidence = {};
@@ -5521,16 +5488,8 @@ public:
             session.generation,
             application::PaintAppearanceCandidateWork{
                 session.model,
-                session.evidence.base_color.pixels,
-                session.evidence.final_ldr.pixels,
-                session.parameters,
-                session.seed.settings.brush_size_texels,
-                session.preview_snapshot->original.dimension,
+                std::move(raster),
                 session.preview_snapshot->original,
-                session.current_feedback_albedo,
-                purpose == AutomaticPaintCandidatePurpose::TargetE0 ||
-                    purpose ==
-                        AutomaticPaintCandidatePurpose::FitBaseline,
             });
         if (!started)
         {
@@ -5538,60 +5497,7 @@ public:
                 application::RuntimeContractId::PaintCapture,
                 application::ContractFailureKind::ExecutionFailure);
         }
-        session.stage = AutomaticPaintCaptureStage::CandidatePending;
-        return {};
-    }
-
-    auto start_automatic_paint_resolution(
-        AutomaticPaintCaptureSession& session,
-        std::vector<double> parameters,
-        core::PaintAppearanceEvaluation evaluation,
-        bool accepted,
-        int iterations,
-        std::shared_ptr<const std::vector<
-            core::PaintAppearanceFeedbackAlbedo>>
-            feedback_albedo = {})
-        -> std::expected<
-            void,
-            application::RuntimeExecutionError>
-    {
-        if (!session.model ||
-            !session.evidence.base_color.pixels ||
-            !session.evidence.final_ldr.pixels ||
-            parameters.empty() || session.preview_mutated ||
-            (feedback_albedo &&
-             feedback_albedo->size() !=
-                 session.model->samples.size()))
-        {
-            return runtime_failure(
-                application::RuntimeContractId::PaintCapture,
-                application::ContractFailureKind::InvalidValue);
-        }
-        session.fit_result = core::PaintAppearanceFitResult{
-            std::move(parameters),
-            std::move(evaluation),
-            accepted,
-            iterations,
-        };
-        const auto started = paint_appearance_worker_.start(
-            session.generation,
-            application::PaintAppearanceResolveWork{
-                session.model,
-                session.evidence.base_color.pixels,
-                session.evidence.final_ldr.pixels,
-                session.fit_result->parameters,
-                std::move(feedback_albedo),
-                !accepted,
-            });
-        if (!started)
-        {
-            session.fit_result.reset();
-            return runtime_failure(
-                application::RuntimeContractId::PaintCapture,
-                application::ContractFailureKind::ExecutionFailure);
-        }
-        session.stage =
-            AutomaticPaintCaptureStage::FinalResolvePending;
+        session.stage = ProjectivePaintCaptureStage::CandidatePending;
         return {};
     }
 
@@ -5927,1570 +5833,7 @@ public:
         }
     }
 
-    auto begin_automatic_paint_capture(
-        const core::PaintSettings& settings,
-        application::JobGeneration generation)
-        -> std::expected<
-            void,
-            application::RuntimeExecutionError>
-    {
-        if (!IsInGameThreadRaw())
-        {
-            return std::unexpected(
-                application::RuntimeExecutionError{
-                    application::RuntimeExecutionErrorCode::
-                        WrongThread,
-                    std::nullopt,
-                });
-        }
-        if (!settings.auto_material || generation == 0U ||
-            automatic_paint_capture_)
-        {
-            return runtime_failure(
-                application::RuntimeContractId::PaintCapture,
-                application::ContractFailureKind::
-                    InvalidValue);
-        }
-        try
-        {
-            auto seed = prepare_paint_capture_seed(settings, true);
-            if (!seed)
-            {
-                return std::unexpected(seed.error());
-            }
-            automatic_paint_capture_.emplace(
-                AutomaticPaintCaptureSession{
-                    generation,
-                    std::move(*seed),
-                });
-            const auto& admitted =
-                automatic_paint_capture_->seed;
-            const auto started = paint_appearance_worker_.start(
-                generation,
-                application::PaintAppearanceGeometryPrepareWork{
-                    admitted.profile->sampling,
-                    admitted.profile->image,
-                    admitted.bone_transforms,
-                    settings.brush_size_texels,
-                    admitted.view,
-                    admitted.capture_viewport,
-                });
-            if (!started)
-            {
-                automatic_paint_capture_.reset();
-                return runtime_failure(
-                    application::RuntimeContractId::PaintCapture,
-                    application::ContractFailureKind::
-                        ExecutionFailure);
-            }
-            return {};
-        }
-        catch (...)
-        {
-            automatic_paint_capture_.reset();
-            return runtime_failure(
-                application::RuntimeContractId::PaintCapture,
-                application::ContractFailureKind::
-                    ExecutionFailure);
-        }
-    }
-
-    auto advance_automatic_paint_capture(
-        application::JobGeneration generation)
-        -> std::expected<
-            std::optional<application::CapturedPaintJob>,
-            application::RuntimeExecutionError>
-    {
-        if (!IsInGameThreadRaw())
-        {
-            return std::unexpected(
-                application::RuntimeExecutionError{
-                    application::RuntimeExecutionErrorCode::
-                        WrongThread,
-                    std::nullopt,
-                });
-        }
-        if (!automatic_paint_capture_ || generation == 0U ||
-            automatic_paint_capture_->generation != generation)
-        {
-            return runtime_failure(
-                application::RuntimeContractId::PaintCapture,
-                application::ContractFailureKind::StaleObject);
-        }
-        try
-        {
-            auto& session = *automatic_paint_capture_;
-            const auto component_handle =
-                application::RuntimeObjectHandle{
-                    session.seed.bound.component_identity,
-                    session.seed.bound.component_generation,
-                };
-            switch (session.stage)
-            {
-            case AutomaticPaintCaptureStage::GeometryPending:
-            {
-                auto completion = paint_appearance_worker_.poll();
-                if (!completion)
-                {
-                    return std::optional<
-                        application::CapturedPaintJob>{};
-                }
-                const auto* prepared =
-                    completion->generation == generation &&
-                            completion->result
-                        ? std::get_if<
-                              application::
-                                  PaintAppearanceGeometryPrepared>(
-                              &*completion->result)
-                        : nullptr;
-                if (prepared == nullptr ||
-                    !prepared->geometry ||
-                    prepared->geometry->empty() ||
-                    !prepared->source_queries ||
-                    prepared->source_queries->empty())
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::
-                            PaintCapture,
-                        application::ContractFailureKind::
-                            InvalidValue);
-                }
-                session.geometry = prepared->geometry;
-                session.source_queries =
-                    prepared->source_queries;
-                session.source_samples.assign(
-                    session.geometry->size(),
-                    core::PaintAppearanceSourceSample{});
-                session.stage =
-                    AutomaticPaintCaptureStage::SourceQuery;
-                return std::optional<
-                    application::CapturedPaintJob>{};
-            }
-            case AutomaticPaintCaptureStage::SourceQuery:
-            {
-                if (!session.geometry ||
-                    !session.source_queries ||
-                    session.source_queries->empty() ||
-                    session.source_samples.size() !=
-                        session.geometry->size() ||
-                    session.next_source_query >
-                        session.source_queries->size() ||
-                    !object_is_live(
-                        session.seed.component,
-                        session.seed.paint.runtime_paintable_class) ||
-                    !object_is_live(
-                        session.seed.mesh,
-                        session.seed.paint.mesh_component_class) ||
-                    !object_is_live(
-                        session.seed.active.controller,
-                        session.seed.paint.player_controller_class))
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::
-                            PaintCapture,
-                        application::ContractFailureKind::
-                            StaleObject);
-                }
-                const auto fingerprint =
-                    current_paint_capture_fingerprint(
-                        session.seed);
-                if (!fingerprint)
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return std::unexpected(fingerprint.error());
-                }
-                if (!core::paint_appearance_camera_matches(
-                        session.seed.camera_fingerprint,
-                        *fingerprint))
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::
-                            PaintCapture,
-                        application::ContractFailureKind::
-                            InvalidValue);
-                }
-                const auto end = std::min(
-                    session.source_queries->size(),
-                    session.next_source_query +
-                        PaintAppearanceSourceQueriesPerFrame);
-                for (; session.next_source_query < end;
-                     ++session.next_source_query)
-                {
-                    const auto& query =
-                        (*session.source_queries)[
-                            session.next_source_query];
-                    if (query.geometry_index >=
-                        session.source_samples.size())
-                    {
-                        session.stage =
-                            AutomaticPaintCaptureStage::Failed;
-                        return runtime_failure(
-                            application::RuntimeContractId::
-                                PaintCapture,
-                            application::ContractFailureKind::
-                                InvalidValue);
-                    }
-                    const auto screen = RuntimeVector2d{
-                        query.screen.x *
-                            fingerprint->viewport_width /
-                            static_cast<double>(
-                                fingerprint->width),
-                        query.screen.y *
-                            fingerprint->viewport_height /
-                            static_cast<double>(
-                                fingerprint->height),
-                    };
-                    auto parameters = encode_paint_hit_test(
-                        session.seed.mesh,
-                        session.seed.active.controller,
-                        screen);
-                    if (!parameters ||
-                        screen.x >= fingerprint->viewport_width ||
-                        screen.y >= fingerprint->viewport_height)
-                    {
-                        session.stage =
-                            AutomaticPaintCaptureStage::Failed;
-                        return runtime_failure(
-                            application::RuntimeContractId::
-                                PaintCapture,
-                            application::ContractFailureKind::
-                                InvalidValue);
-                    }
-                    session.seed.component->ProcessEvent(
-                        session.seed.paint
-                            .hit_test_at_screen_position,
-                        &*parameters);
-                    const auto& result =
-                        parameters->return_value;
-                    if (!result.success)
-                    {
-                        continue;
-                    }
-                    const auto normal_length_squared =
-                        result.hit_normal.x *
-                            result.hit_normal.x +
-                        result.hit_normal.y *
-                            result.hit_normal.y +
-                        result.hit_normal.z *
-                            result.hit_normal.z;
-                    if (!std::isfinite(result.hit_uv.x) ||
-                        !std::isfinite(result.hit_uv.y) ||
-                        !std::isfinite(result.hit_normal.x) ||
-                        !std::isfinite(result.hit_normal.y) ||
-                        !std::isfinite(result.hit_normal.z) ||
-                        !std::isfinite(normal_length_squared) ||
-                        normal_length_squared <= 1.0e-12)
-                    {
-                        session.stage =
-                            AutomaticPaintCaptureStage::Failed;
-                        return runtime_failure(
-                            application::RuntimeContractId::
-                                PaintCapture,
-                            application::ContractFailureKind::
-                                InvalidValue);
-                    }
-                    const auto resolved =
-                        core::resolve_paint_appearance_source_hit(
-                            query,
-                            core::PaintAppearanceSourceHit{
-                                true,
-                                result.hit_uv.x,
-                                result.hit_uv.y,
-                                core::Vector3d{
-                                    result.hit_world_position.x,
-                                    result.hit_world_position.y,
-                                    result.hit_world_position.z,
-                                },
-                            });
-                    if (!resolved)
-                    {
-                        session.stage =
-                            AutomaticPaintCaptureStage::Failed;
-                        return runtime_failure(
-                            application::RuntimeContractId::
-                                PaintCapture,
-                            application::ContractFailureKind::
-                                InvalidValue);
-                    }
-                    session.source_samples[
-                        query.geometry_index] = *resolved;
-                }
-                if (session.next_source_query ==
-                    session.source_queries->size())
-                {
-                    session.evidence.source_samples =
-                        std::make_shared<const std::vector<
-                            core::PaintAppearanceSourceSample>>(
-                            std::move(session.source_samples));
-                    session.stage =
-                        AutomaticPaintCaptureStage::SourceCapture;
-                }
-                return std::optional<
-                    application::CapturedPaintJob>{};
-            }
-            case AutomaticPaintCaptureStage::SourceCapture:
-            {
-                if (session.next_source_pass >=
-                    session.seed.pass_plan.passes.size())
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::
-                            PaintCapture,
-                        application::ContractFailureKind::
-                            InvalidValue);
-                }
-                const auto captured =
-                    capture_automatic_source_pass(
-                        session,
-                        session.seed.pass_plan.passes[
-                            session.next_source_pass]);
-                if (!captured)
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return std::unexpected(captured.error());
-                }
-                ++session.next_source_pass;
-                if (session.next_source_pass ==
-                    session.seed.pass_plan.passes.size())
-                {
-                    const auto started =
-                        paint_appearance_worker_.start(
-                            generation,
-                            application::
-                                PaintAppearanceCapturePrepareWork{
-                                session.geometry,
-                                session.evidence,
-                                session.seed.settings
-                                    .include_scene_lighting,
-                                std::nullopt,
-                            });
-                    if (!started)
-                    {
-                        session.stage =
-                            AutomaticPaintCaptureStage::Failed;
-                        return runtime_failure(
-                            application::RuntimeContractId::
-                                PaintCapture,
-                            application::ContractFailureKind::
-                                ExecutionFailure);
-                    }
-                    session.stage =
-                        AutomaticPaintCaptureStage::
-                            PreliminaryModelPending;
-                }
-                return std::optional<
-                    application::CapturedPaintJob>{};
-            }
-            case AutomaticPaintCaptureStage::
-                PreliminaryModelPending:
-            {
-                auto completion = paint_appearance_worker_.poll();
-                if (!completion)
-                {
-                    return std::optional<
-                        application::CapturedPaintJob>{};
-                }
-                const auto* prepared =
-                    completion->generation == generation &&
-                            completion->result
-                        ? std::get_if<
-                              application::PaintAppearancePrepared>(
-                              &*completion->result)
-                        : nullptr;
-                if (prepared == nullptr || !prepared->model ||
-                    prepared->parameters.empty())
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::
-                            PaintCapture,
-                        application::ContractFailureKind::
-                            InvalidValue);
-                }
-                session.model = prepared->model;
-                session.parameters = prepared->parameters;
-                session.stage =
-                    AutomaticPaintCaptureStage::SnapshotPending;
-                return std::optional<
-                    application::CapturedPaintJob>{};
-            }
-            case AutomaticPaintCaptureStage::SnapshotPending:
-            {
-                if (!session.model ||
-                    session.parameters.empty() ||
-                    !session.evidence.base_color.pixels ||
-                    !session.evidence.final_ldr.pixels)
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::
-                            PaintCapture,
-                        application::ContractFailureKind::
-                            InvalidValue);
-                }
-                auto snapshot = capture_preview(component_handle);
-                if (!snapshot ||
-                    snapshot->component != component_handle)
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return snapshot
-                               ? runtime_failure(
-                                     application::RuntimeContractId::
-                                         PaintCapture,
-                                     application::ContractFailureKind::
-                                         InvalidValue)
-                               : std::unexpected(snapshot.error());
-                }
-                session.preview_snapshot =
-                    std::move(*snapshot);
-                auto fallback_parameters =
-                    core::paint_appearance_fallback_parameters(
-                        *session.model);
-                const auto started =
-                    start_automatic_paint_candidate(
-                        session,
-                        AutomaticPaintCandidatePurpose::TargetE0,
-                        std::move(fallback_parameters));
-                if (!started)
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return std::unexpected(started.error());
-                }
-                return std::optional<
-                    application::CapturedPaintJob>{};
-            }
-            case AutomaticPaintCaptureStage::CandidatePending:
-            {
-                auto completion = paint_appearance_worker_.poll();
-                if (!completion)
-                {
-                    return std::optional<
-                        application::CapturedPaintJob>{};
-                }
-                const auto* candidate =
-                    completion->generation == generation &&
-                            completion->result
-                        ? std::get_if<
-                              application::PaintAppearanceCandidate>(
-                              &*completion->result)
-                        : nullptr;
-                if (candidate == nullptr ||
-                    !candidate->preview ||
-                    !candidate->readback_references ||
-                    candidate->readback_references->empty() ||
-                    candidate->parameters.empty())
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::
-                            PaintCapture,
-                        application::ContractFailureKind::
-                            InvalidValue);
-                }
-                session.candidate_preview = candidate->preview;
-                session.readback_references =
-                    candidate->readback_references;
-                session.parameters = candidate->parameters;
-                session.stage = AutomaticPaintCaptureStage::
-                    PreviewApplyPending;
-                return std::optional<
-                    application::CapturedPaintJob>{};
-            }
-            case AutomaticPaintCaptureStage::PreviewApplyPending:
-            {
-                if (!session.preview_snapshot ||
-                    !session.candidate_preview)
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::
-                            PaintCapture,
-                        application::ContractFailureKind::
-                            InvalidValue);
-                }
-                // Either channel import can mutate before reporting an
-                // error, so restoration ownership starts before the call.
-                session.preview_mutated = true;
-                const auto applied = apply_preview(
-                    component_handle,
-                    *session.candidate_preview);
-                if (!applied)
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::RestorePending;
-                    return std::unexpected(applied.error());
-                }
-                // apply_preview re-exports and byte-compares the complete
-                // game-owned packed AMRE channel before returning success.
-                session.current_packed_b_verified = true;
-                session.preview_applied_ms = steady_milliseconds();
-                session.stage =
-                    AutomaticPaintCaptureStage::PreviewSettle;
-                return std::optional<
-                    application::CapturedPaintJob>{};
-            }
-            case AutomaticPaintCaptureStage::PreviewSettle:
-            {
-                constexpr auto PreviewSettleMilliseconds =
-                    std::uint64_t{48U};
-                const auto now_ms = steady_milliseconds();
-                if (now_ms < session.preview_applied_ms ||
-                    now_ms - session.preview_applied_ms <
-                        PreviewSettleMilliseconds)
-                {
-                    return std::optional<
-                        application::CapturedPaintJob>{};
-                }
-                session.stage =
-                    AutomaticPaintCaptureStage::FeedbackCapture;
-                return std::optional<
-                    application::CapturedPaintJob>{};
-            }
-            case AutomaticPaintCaptureStage::FeedbackCapture:
-            {
-                const auto& feedback_plan =
-                    paint_appearance_feedback_capture_plan();
-                const auto pass_count =
-                    session.candidate_purpose ==
-                            AutomaticPaintCandidatePurpose::TargetE0
-                        ? feedback_plan.size()
-                        : std::size_t{1U};
-                if (session.next_feedback_pass >=
-                    pass_count)
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::RestorePending;
-                    return runtime_failure(
-                        application::RuntimeContractId::
-                            PaintCapture,
-                        application::ContractFailureKind::
-                            InvalidValue);
-                }
-                const auto captured =
-                    capture_automatic_feedback_pass(
-                        session,
-                        feedback_plan[
-                            session.next_feedback_pass]);
-                if (!captured)
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::RestorePending;
-                    return std::unexpected(captured.error());
-                }
-                ++session.next_feedback_pass;
-                if (session.next_feedback_pass ==
-                    pass_count)
-                {
-                    session.stage = AutomaticPaintCaptureStage::
-                        RestorePending;
-                }
-                return std::optional<
-                    application::CapturedPaintJob>{};
-            }
-            case AutomaticPaintCaptureStage::RestorePending:
-            {
-                if (!session.preview_mutated ||
-                    !session.preview_snapshot ||
-                    !session.readback_references)
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::
-                            PaintCapture,
-                        application::ContractFailureKind::
-                            InvalidValue);
-                }
-                const auto restored =
-                    restore_preview(*session.preview_snapshot);
-                if (!restored)
-                {
-                    return std::unexpected(restored.error());
-                }
-                session.preview_mutated = false;
-                session.candidate_preview.reset();
-                if (session.candidate_purpose ==
-                    AutomaticPaintCandidatePurpose::TargetE0)
-                {
-                    if (!session.current_packed_b_verified)
-                    {
-                        session.stage =
-                            AutomaticPaintCaptureStage::Failed;
-                        return runtime_failure(
-                            application::RuntimeContractId::
-                                PaintCapture,
-                            application::ContractFailureKind::
-                                InvalidValue);
-                    }
-                    session.all_packed_b_verified =
-                        session.all_packed_b_verified &&
-                        session.current_packed_b_verified;
-                    const auto started =
-                        paint_appearance_worker_.start(
-                            generation,
-                            application::
-                                PaintAppearanceTargetE0PrepareWork{
-                                session.seed.camera_fingerprint,
-                                session.readback_references,
-                                session.feedback_evidence,
-                                core::PaintAppearanceTargetE0Evidence{
-                                    session.feedback_evidence.base_color,
-                                    session.target_intrinsic_e0,
-                                },
-                            });
-                    if (!started)
-                    {
-                        session.stage =
-                            AutomaticPaintCaptureStage::Failed;
-                        return runtime_failure(
-                            application::RuntimeContractId::
-                                PaintCapture,
-                            application::ContractFailureKind::
-                                ExecutionFailure);
-                    }
-                    session.stage =
-                        AutomaticPaintCaptureStage::TargetE0Pending;
-                    return std::optional<
-                        application::CapturedPaintJob>{};
-                }
-                if (!session.model || !session.feedback ||
-                    !session.feedback_evidence.final_hdr.pixels ||
-                    !core::paint_appearance_camera_matches(
-                        session.seed.camera_fingerprint,
-                        session.feedback_evidence.final_hdr.camera))
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::
-                            PaintCapture,
-                        application::ContractFailureKind::
-                            InvalidValue);
-                }
-                const auto started =
-                    paint_appearance_worker_.start(
-                        generation,
-                        application::PaintAppearanceEvaluateWork{
-                            session.model,
-                            session.feedback_evidence.final_hdr.pixels,
-                            true,
-                            session.feedback->readback.ok,
-                            session.feedback->readback.transform,
-                        });
-                if (!started)
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::
-                            PaintCapture,
-                        application::ContractFailureKind::
-                            ExecutionFailure);
-                }
-                session.stage =
-                    AutomaticPaintCaptureStage::EvaluationPending;
-                return std::optional<
-                    application::CapturedPaintJob>{};
-            }
-            case AutomaticPaintCaptureStage::TargetE0Pending:
-            {
-                auto completion = paint_appearance_worker_.poll();
-                if (!completion)
-                {
-                    return std::optional<
-                        application::CapturedPaintJob>{};
-                }
-                const auto* prepared =
-                    completion->generation == generation &&
-                            completion->result
-                        ? std::get_if<application::
-                              PaintAppearanceTargetE0Prepared>(
-                              &*completion->result)
-                        : nullptr;
-                if (prepared == nullptr ||
-                    !prepared->feedback.target_hdr ||
-                    !prepared->feedback.camera_stable ||
-                    !prepared->feedback.readback.ok ||
-                    !prepared->target_e0.camera_stable ||
-                    !prepared->target_e0.noise.ok ||
-                    prepared->target_e0.paired_samples <
-                        static_cast<std::size_t>(core::
-                            AppearanceFitMinimumSamples))
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::
-                            PaintCapture,
-                        application::ContractFailureKind::
-                            InvalidValue);
-                }
-                session.feedback = prepared->feedback;
-                session.target_e0 = prepared->target_e0;
-                const auto started =
-                    paint_appearance_worker_.start(
-                        generation,
-                        application::
-                            PaintAppearanceCapturePrepareWork{
-                            session.geometry,
-                            session.evidence,
-                            session.seed.settings
-                                .include_scene_lighting,
-                            session.target_e0->noise,
-                        });
-                if (!started)
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::
-                            PaintCapture,
-                        application::ContractFailureKind::
-                            ExecutionFailure);
-                }
-                session.stage =
-                    AutomaticPaintCaptureStage::FinalModelPending;
-                return std::optional<
-                    application::CapturedPaintJob>{};
-            }
-            case AutomaticPaintCaptureStage::FinalModelPending:
-            {
-                auto completion = paint_appearance_worker_.poll();
-                if (!completion)
-                {
-                    return std::optional<
-                        application::CapturedPaintJob>{};
-                }
-                const auto* prepared =
-                    completion->generation == generation &&
-                            completion->result
-                        ? std::get_if<
-                              application::PaintAppearancePrepared>(
-                              &*completion->result)
-                        : nullptr;
-                if (prepared == nullptr || !prepared->model ||
-                    prepared->parameters.empty())
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::
-                            PaintCapture,
-                        application::ContractFailureKind::
-                            InvalidValue);
-                }
-                session.model = prepared->model;
-                session.source_parameters = prepared->parameters;
-                auto fallback_parameters =
-                    core::paint_appearance_fallback_parameters(
-                        *session.model);
-                const auto started =
-                    start_automatic_paint_candidate(
-                        session,
-                        AutomaticPaintCandidatePurpose::FitBaseline,
-                        std::move(fallback_parameters));
-                if (!started)
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return std::unexpected(started.error());
-                }
-                return std::optional<
-                    application::CapturedPaintJob>{};
-            }
-            case AutomaticPaintCaptureStage::EvaluationPending:
-            {
-                auto completion = paint_appearance_worker_.poll();
-                if (!completion)
-                {
-                    return std::optional<
-                        application::CapturedPaintJob>{};
-                }
-                const auto* evaluated =
-                    completion->generation == generation &&
-                            completion->result
-                        ? std::get_if<application::
-                              PaintAppearanceEvaluated>(
-                              &*completion->result)
-                        : nullptr;
-                if (evaluated == nullptr || !session.model ||
-                    !session.current_packed_b_verified)
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::
-                            PaintCapture,
-                        application::ContractFailureKind::
-                            InvalidValue);
-                }
-                session.all_packed_b_verified =
-                    session.all_packed_b_verified &&
-                    session.current_packed_b_verified;
-                if (session.candidate_purpose ==
-                    AutomaticPaintCandidatePurpose::FitBaseline)
-                {
-                    session.fallback_evaluation =
-                        evaluated->evaluation;
-                    auto endpoint =
-                        core::paint_appearance_emissive_endpoint_parameters(
-                            *session.model);
-                    if (!endpoint)
-                    {
-                        session.stage =
-                            AutomaticPaintCaptureStage::Failed;
-                        return runtime_failure(
-                            application::RuntimeContractId::
-                                PaintCapture,
-                            application::ContractFailureKind::
-                            InvalidValue);
-                    }
-                    const auto started =
-                        start_automatic_paint_candidate(
-                            session,
-                            AutomaticPaintCandidatePurpose::
-                                EmissiveEndpoint,
-                            std::move(*endpoint));
-                    if (!started)
-                    {
-                        session.stage =
-                            AutomaticPaintCaptureStage::Failed;
-                        return std::unexpected(started.error());
-                    }
-                    return std::optional<
-                        application::CapturedPaintJob>{};
-                }
-                if (session.candidate_purpose ==
-                    AutomaticPaintCandidatePurpose::EmissiveEndpoint)
-                {
-                    if (!session.fallback_evaluation ||
-                        session.source_parameters.empty())
-                    {
-                        session.stage =
-                            AutomaticPaintCaptureStage::Failed;
-                        return runtime_failure(
-                            application::RuntimeContractId::
-                                PaintCapture,
-                            application::ContractFailureKind::
-                                InvalidValue);
-                    }
-                    session.emissive_endpoint_evaluation =
-                        evaluated->evaluation;
-                    const auto started =
-                        paint_appearance_worker_.start(
-                            generation,
-                            application::
-                                PaintAppearanceEmissiveCalibrateWork{
-                                session.model,
-                                session.source_parameters,
-                                *session.fallback_evaluation,
-                                *session.emissive_endpoint_evaluation,
-                            });
-                    if (!started)
-                    {
-                        session.stage =
-                            AutomaticPaintCaptureStage::Failed;
-                        return runtime_failure(
-                            application::RuntimeContractId::
-                                PaintCapture,
-                            application::ContractFailureKind::
-                                ExecutionFailure);
-                    }
-                    session.stage = AutomaticPaintCaptureStage::
-                        EmissiveCalibrationPending;
-                    return std::optional<
-                        application::CapturedPaintJob>{};
-                }
-                if (session.candidate_purpose ==
-                    AutomaticPaintCandidatePurpose::
-                        CalibratedEmissive)
-                {
-                    if (!session.fallback_evaluation ||
-                        !session.emissive_calibration)
-                    {
-                        session.stage =
-                            AutomaticPaintCaptureStage::Failed;
-                        return runtime_failure(
-                            application::RuntimeContractId::
-                                PaintCapture,
-                            application::ContractFailureKind::
-                                InvalidValue);
-                    }
-                    session.calibrated_emissive_evaluation =
-                        evaluated->evaluation;
-                    const auto started =
-                        paint_appearance_worker_.start(
-                            generation,
-                            application::PaintAppearanceEmissiveGateWork{
-                                session.model,
-                                *session.emissive_calibration,
-                                *session.fallback_evaluation,
-                                *session.calibrated_emissive_evaluation,
-                            });
-                    if (!started)
-                    {
-                        session.stage =
-                            AutomaticPaintCaptureStage::Failed;
-                        return runtime_failure(
-                            application::RuntimeContractId::
-                                PaintCapture,
-                            application::ContractFailureKind::
-                                ExecutionFailure);
-                    }
-                    session.stage =
-                        AutomaticPaintCaptureStage::EmissiveGatePending;
-                    return std::optional<
-                        application::CapturedPaintJob>{};
-                }
-                if (session.candidate_purpose ==
-                    AutomaticPaintCandidatePurpose::AlbedoEndpoint)
-                {
-                    if (!session.emissive_calibration ||
-                        !session.calibrated_emissive_evaluation)
-                    {
-                        session.stage =
-                            AutomaticPaintCaptureStage::Failed;
-                        return runtime_failure(
-                            application::RuntimeContractId::
-                                PaintCapture,
-                            application::ContractFailureKind::
-                                InvalidValue);
-                    }
-                    session.albedo_endpoint_evaluation =
-                        evaluated->evaluation;
-                    const auto started =
-                        paint_appearance_worker_.start(
-                            generation,
-                            application::
-                                PaintAppearanceAlbedoCalibrateWork{
-                                session.model,
-                                session.emissive_calibration->parameters,
-                                *session.calibrated_emissive_evaluation,
-                                *session.albedo_endpoint_evaluation,
-                            });
-                    if (!started)
-                    {
-                        session.stage =
-                            AutomaticPaintCaptureStage::Failed;
-                        return runtime_failure(
-                            application::RuntimeContractId::
-                                PaintCapture,
-                            application::ContractFailureKind::
-                                ExecutionFailure);
-                    }
-                    session.stage = AutomaticPaintCaptureStage::
-                        AlbedoCalibrationPending;
-                    return std::optional<
-                        application::CapturedPaintJob>{};
-                }
-                if (session.candidate_purpose ==
-                        AutomaticPaintCandidatePurpose::
-                            NonEmissionCandidate ||
-                    session.candidate_purpose ==
-                        AutomaticPaintCandidatePurpose::
-                            RefinementBaseline)
-                {
-                    if (!session.fallback_evaluation ||
-                        !session.albedo_endpoint_evaluation ||
-                        !session.albedo_calibration)
-                    {
-                        session.stage =
-                            AutomaticPaintCaptureStage::Failed;
-                        return runtime_failure(
-                            application::RuntimeContractId::
-                                PaintCapture,
-                            application::ContractFailureKind::
-                                InvalidValue);
-                    }
-                    session.non_emission_evaluation =
-                        evaluated->evaluation;
-                    if (session.candidate_purpose ==
-                        AutomaticPaintCandidatePurpose::
-                            NonEmissionCandidate)
-                    {
-                        const auto accepted =
-                            core::paint_appearance_non_emission_candidate_accepted(
-                                *session.model,
-                                session.parameters,
-                                session.all_packed_b_verified,
-                                *session.fallback_evaluation,
-                                *session.albedo_endpoint_evaluation,
-                                *session.non_emission_evaluation);
-                        const auto authoritative =
-                            core::paint_appearance_feedback_albedo_authoritative(
-                                *session.model,
-                                *session.albedo_calibration,
-                                *session.fallback_evaluation,
-                                *session.albedo_endpoint_evaluation,
-                                *session.non_emission_evaluation);
-                        if (accepted)
-                        {
-                            session.feedback_albedo_authoritative =
-                                authoritative;
-                            auto started =
-                                start_automatic_paint_resolution(
-                                    session,
-                                    session.parameters,
-                                    *session.non_emission_evaluation,
-                                    true,
-                                    0,
-                                    authoritative
-                                        ? session.calibrated_feedback_albedo
-                                        : nullptr);
-                            if (!started)
-                            {
-                                session.stage =
-                                    AutomaticPaintCaptureStage::Failed;
-                                return std::unexpected(started.error());
-                            }
-                            return std::optional<
-                                application::CapturedPaintJob>{};
-                        }
-                        session.feedback_albedo_authoritative =
-                            authoritative;
-                        if (!authoritative &&
-                            session.current_feedback_albedo)
-                        {
-                            const auto started =
-                                start_automatic_paint_candidate(
-                                    session,
-                                    AutomaticPaintCandidatePurpose::
-                                        RefinementBaseline,
-                                    session.parameters);
-                            if (!started)
-                            {
-                                session.stage =
-                                    AutomaticPaintCaptureStage::Failed;
-                                return std::unexpected(started.error());
-                            }
-                            return std::optional<
-                                application::CapturedPaintJob>{};
-                        }
-                    }
-                    auto fit = core::begin_paint_appearance_fit(
-                        *session.model,
-                        core::paint_appearance_fallback_parameters(
-                            *session.model),
-                        *session.fallback_evaluation,
-                        session.parameters,
-                        *session.non_emission_evaluation,
-                        true);
-                    if (!fit)
-                    {
-                        session.stage =
-                            AutomaticPaintCaptureStage::Failed;
-                        return runtime_failure(
-                            application::RuntimeContractId::
-                                PaintCapture,
-                            application::ContractFailureKind::
-                                InvalidValue);
-                    }
-                    session.fit = std::move(*fit);
-                }
-                else if (
-                    session.candidate_purpose ==
-                        AutomaticPaintCandidatePurpose::FitTrial &&
-                    session.fit)
-                {
-                    const auto observed =
-                        core::observe_paint_appearance_trial(
-                            *session.fit,
-                            evaluated->evaluation);
-                    if (!observed)
-                    {
-                        session.stage =
-                            AutomaticPaintCaptureStage::Failed;
-                        return runtime_failure(
-                            application::RuntimeContractId::
-                                PaintCapture,
-                            application::ContractFailureKind::
-                                InvalidValue);
-                    }
-                }
-                else
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::
-                            PaintCapture,
-                        application::ContractFailureKind::
-                            InvalidValue);
-                }
-
-                auto trial = core::next_paint_appearance_trial(
-                    *session.fit);
-                if (!trial)
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::
-                            PaintCapture,
-                        application::ContractFailureKind::
-                            InvalidValue);
-                }
-                if (*trial)
-                {
-                    const auto started =
-                        start_automatic_paint_candidate(
-                            session,
-                            AutomaticPaintCandidatePurpose::FitTrial,
-                            std::move((*trial)->parameters),
-                            session.feedback_albedo_authoritative
-                                ? session.calibrated_feedback_albedo
-                                : nullptr);
-                    if (!started)
-                    {
-                        session.stage =
-                            AutomaticPaintCaptureStage::Failed;
-                        return std::unexpected(started.error());
-                    }
-                    return std::optional<
-                        application::CapturedPaintJob>{};
-                }
-
-                if (!session.fallback_evaluation ||
-                    !session.albedo_endpoint_evaluation ||
-                    !session.emissive_calibration)
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::
-                            PaintCapture,
-                        application::ContractFailureKind::
-                            InvalidValue);
-                }
-                const auto& candidate_parameters =
-                    session.fit->best_parameters;
-                const auto& candidate_evaluation =
-                    session.fit->best_evaluation;
-                const auto accepted =
-                    session.model->emission_roi_samples > 0U
-                        ? core::paint_appearance_emission_candidate_accepted(
-                              *session.model,
-                              *session.emissive_calibration,
-                              candidate_parameters,
-                              session.all_packed_b_verified,
-                              *session.fallback_evaluation,
-                              candidate_evaluation)
-                        : core::paint_appearance_non_emission_candidate_accepted(
-                              *session.model,
-                              candidate_parameters,
-                              session.all_packed_b_verified,
-                              *session.fallback_evaluation,
-                              *session.albedo_endpoint_evaluation,
-                              candidate_evaluation);
-                auto final_parameters = accepted
-                    ? candidate_parameters
-                    : session.fit->fallback_parameters;
-                auto final_evaluation = accepted
-                    ? candidate_evaluation
-                    : session.fit->fallback_evaluation;
-                auto started = start_automatic_paint_resolution(
-                    session,
-                    std::move(final_parameters),
-                    std::move(final_evaluation),
-                    accepted,
-                    session.fit->iteration,
-                    accepted &&
-                            session.feedback_albedo_authoritative
-                        ? session.calibrated_feedback_albedo
-                        : nullptr);
-                if (!started)
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::
-                            PaintCapture,
-                        application::ContractFailureKind::
-                            InvalidValue);
-                }
-                return std::optional<
-                    application::CapturedPaintJob>{};
-            }
-            case AutomaticPaintCaptureStage::EmissiveCalibrationPending:
-            {
-                auto completion = paint_appearance_worker_.poll();
-                if (!completion)
-                {
-                    return std::optional<
-                        application::CapturedPaintJob>{};
-                }
-                const auto* calibrated =
-                    completion->generation == generation &&
-                            completion->result
-                        ? std::get_if<application::
-                              PaintAppearanceEmissiveCalibrated>(
-                              &*completion->result)
-                        : nullptr;
-                if (calibrated == nullptr ||
-                    calibrated->calibration.parameters.empty())
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::PaintCapture,
-                        application::ContractFailureKind::InvalidValue);
-                }
-                session.emissive_calibration =
-                    calibrated->calibration;
-                const auto started = start_automatic_paint_candidate(
-                    session,
-                    AutomaticPaintCandidatePurpose::
-                        CalibratedEmissive,
-                    session.emissive_calibration->parameters);
-                if (!started)
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return std::unexpected(started.error());
-                }
-                return std::optional<
-                    application::CapturedPaintJob>{};
-            }
-            case AutomaticPaintCaptureStage::EmissiveGatePending:
-            {
-                auto completion = paint_appearance_worker_.poll();
-                if (!completion)
-                {
-                    return std::optional<
-                        application::CapturedPaintJob>{};
-                }
-                const auto* gated =
-                    completion->generation == generation &&
-                            completion->result
-                        ? std::get_if<application::
-                              PaintAppearanceEmissiveGated>(
-                              &*completion->result)
-                        : nullptr;
-                if (gated == nullptr ||
-                    gated->calibration.parameters.empty())
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::PaintCapture,
-                        application::ContractFailureKind::InvalidValue);
-                }
-                session.emissive_calibration = gated->calibration;
-                auto endpoint =
-                    core::paint_appearance_albedo_endpoint_parameters(
-                        *session.model,
-                        session.emissive_calibration->parameters);
-                if (!endpoint)
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::PaintCapture,
-                        application::ContractFailureKind::InvalidValue);
-                }
-                const auto started = start_automatic_paint_candidate(
-                    session,
-                    AutomaticPaintCandidatePurpose::AlbedoEndpoint,
-                    std::move(*endpoint));
-                if (!started)
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return std::unexpected(started.error());
-                }
-                return std::optional<
-                    application::CapturedPaintJob>{};
-            }
-            case AutomaticPaintCaptureStage::AlbedoCalibrationPending:
-            {
-                auto completion = paint_appearance_worker_.poll();
-                if (!completion)
-                {
-                    return std::optional<
-                        application::CapturedPaintJob>{};
-                }
-                const auto* calibrated =
-                    completion->generation == generation &&
-                            completion->result
-                        ? std::get_if<application::
-                              PaintAppearanceAlbedoCalibrated>(
-                              &*completion->result)
-                        : nullptr;
-                if (calibrated == nullptr ||
-                    calibrated->calibration.parameters.empty())
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::PaintCapture,
-                        application::ContractFailureKind::InvalidValue);
-                }
-                session.albedo_calibration =
-                    calibrated->calibration;
-                session.calibrated_feedback_albedo.reset();
-                if (session.albedo_calibration->calibrated_samples > 0)
-                {
-                    session.calibrated_feedback_albedo =
-                        std::make_shared<const std::vector<
-                            core::PaintAppearanceFeedbackAlbedo>>(
-                            session.albedo_calibration
-                                ->feedback_albedo_by_sample);
-                }
-                auto candidate =
-                    core::paint_appearance_non_emission_parameters(
-                        *session.model,
-                        session.albedo_calibration->parameters);
-                if (!candidate)
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::PaintCapture,
-                        application::ContractFailureKind::InvalidValue);
-                }
-                const auto started = start_automatic_paint_candidate(
-                    session,
-                    AutomaticPaintCandidatePurpose::
-                        NonEmissionCandidate,
-                    std::move(*candidate),
-                    session.calibrated_feedback_albedo);
-                if (!started)
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return std::unexpected(started.error());
-                }
-                return std::optional<
-                    application::CapturedPaintJob>{};
-            }
-            case AutomaticPaintCaptureStage::FinalResolvePending:
-            {
-                auto completion = paint_appearance_worker_.poll();
-                if (!completion)
-                {
-                    return std::optional<
-                        application::CapturedPaintJob>{};
-                }
-                const auto* resolved =
-                    completion->generation == generation &&
-                            completion->result
-                        ? std::get_if<application::
-                              PaintAppearanceResolved>(
-                              &*completion->result)
-                        : nullptr;
-                if (resolved == nullptr ||
-                    !resolved->appearances ||
-                    !session.fit_result ||
-                    resolved->parameters !=
-                        session.fit_result->parameters ||
-                    resolved->appearances->size() !=
-                        static_cast<std::size_t>(
-                            session.seed.camera.width) *
-                            session.seed.camera.height)
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::
-                            PaintCapture,
-                        application::ContractFailureKind::
-                            InvalidValue);
-                }
-                session.resolved_appearances =
-                    resolved->appearances;
-                session.stage =
-                    AutomaticPaintCaptureStage::FinalResolved;
-                return std::optional<
-                    application::CapturedPaintJob>{};
-            }
-            case AutomaticPaintCaptureStage::FinalResolved:
-            {
-                if (session.preview_mutated ||
-                    !session.fit_result ||
-                    !session.resolved_appearances ||
-                    !session.seed.profile ||
-                    !session.evidence.base_color.pixels ||
-                    !session.evidence.final_ldr.pixels ||
-                    !object_is_live(
-                        session.seed.world,
-                        session.seed.image.world_class) ||
-                    !object_is_live(
-                        session.seed.component,
-                        session.seed.paint.runtime_paintable_class) ||
-                    session.seed.component->GetWorld() !=
-                        session.seed.world)
-                {
-                    session.stage =
-                        AutomaticPaintCaptureStage::Failed;
-                    return runtime_failure(
-                        application::RuntimeContractId::PaintCapture,
-                        application::ContractFailureKind::InvalidValue);
-                }
-                auto completed = application::CapturedPaintJob{
-                    application::RuntimeObjectHandle{
-                        session.seed.bound.component_identity,
-                        session.seed.bound.component_generation,
-                    },
-                    application::PaintPlanningRequest{
-                        core::PaintCaptureInput{
-                            session.seed.profile->sampling,
-                            session.seed.profile->image,
-                            session.seed.bone_transforms,
-                            session.seed.settings,
-                            session.seed.view,
-                            session.seed.capture_viewport,
-                            core::PaintCaptureRaster{
-                                session.seed.camera.width,
-                                session.seed.camera.height,
-                                session.resolved_appearances,
-                            },
-                        },
-                    },
-                    core::replication_pacing_plan({}),
-                };
-                automatic_paint_capture_.reset();
-                return std::optional<application::CapturedPaintJob>{
-                    std::move(completed)};
-            }
-            case AutomaticPaintCaptureStage::Failed:
-                return runtime_failure(
-                    application::RuntimeContractId::PaintCapture,
-                    application::ContractFailureKind::InvalidValue);
-            }
-        }
-        catch (...)
-        {
-            automatic_paint_capture_->stage =
-                automatic_paint_capture_->preview_mutated
-                    ? AutomaticPaintCaptureStage::RestorePending
-                    : AutomaticPaintCaptureStage::Failed;
-            return runtime_failure(
-                application::RuntimeContractId::PaintCapture,
-                application::ContractFailureKind::
-                    ExecutionFailure);
-        }
-        return runtime_failure(
-            application::RuntimeContractId::PaintCapture,
-            application::ContractFailureKind::InvalidValue);
-    }
-
-    auto cancel_automatic_paint_capture(
-        application::JobGeneration generation)
-        -> std::expected<
-            bool,
-            application::RuntimeExecutionError>
-    {
-        if (!IsInGameThreadRaw())
-        {
-            return std::unexpected(
-                application::RuntimeExecutionError{
-                    application::RuntimeExecutionErrorCode::
-                        WrongThread,
-                    std::nullopt,
-                });
-        }
-        if (!automatic_paint_capture_ || generation == 0U ||
-            automatic_paint_capture_->generation != generation)
-        {
-            return runtime_failure(
-                application::RuntimeContractId::PaintCapture,
-                application::ContractFailureKind::StaleObject);
-        }
-        try
-        {
-            const auto stage = automatic_paint_capture_->stage;
-            if (stage ==
-                    AutomaticPaintCaptureStage::GeometryPending ||
-                stage ==
-                    AutomaticPaintCaptureStage::
-                        PreliminaryModelPending ||
-                stage ==
-                    AutomaticPaintCaptureStage::CandidatePending ||
-                stage ==
-                    AutomaticPaintCaptureStage::TargetE0Pending ||
-                stage ==
-                    AutomaticPaintCaptureStage::FinalModelPending ||
-                stage ==
-                    AutomaticPaintCaptureStage::EvaluationPending ||
-                stage ==
-                    AutomaticPaintCaptureStage::
-                        EmissiveCalibrationPending ||
-                stage ==
-                    AutomaticPaintCaptureStage::EmissiveGatePending ||
-                stage ==
-                    AutomaticPaintCaptureStage::
-                        AlbedoCalibrationPending ||
-                stage ==
-                    AutomaticPaintCaptureStage::FinalResolvePending)
-            {
-                const auto requested =
-                    paint_appearance_worker_.request_cancel(
-                        generation);
-                if (requested ==
-                        application::
-                            PaintAppearanceWorkCancelResult::
-                                StaleGeneration ||
-                    requested ==
-                        application::
-                            PaintAppearanceWorkCancelResult::Idle)
-                {
-                    return runtime_failure(
-                        application::RuntimeContractId::
-                            PaintCapture,
-                        application::ContractFailureKind::
-                            ExecutionFailure);
-                }
-                if (!paint_appearance_worker_.poll())
-                {
-                    return false;
-                }
-            }
-            if (automatic_paint_capture_->preview_mutated)
-            {
-                if (!automatic_paint_capture_->preview_snapshot)
-                {
-                    return runtime_failure(
-                        application::RuntimeContractId::
-                            PaintCapture,
-                        application::ContractFailureKind::
-                            InvalidValue);
-                }
-                const auto restored = restore_preview(
-                    *automatic_paint_capture_->preview_snapshot);
-                if (!restored)
-                {
-                    return std::unexpected(restored.error());
-                }
-                automatic_paint_capture_->preview_mutated =
-                    false;
-            }
-            automatic_paint_capture_.reset();
-            return true;
-        }
-        catch (...)
-        {
-            return runtime_failure(
-                application::RuntimeContractId::PaintCapture,
-                application::ContractFailureKind::
-                    ExecutionFailure);
-        }
-    }
+#include "unreal_projective_paint.inl"
 
     auto capture_image_paint(core::BodyProfile body)
         -> std::expected<
@@ -9312,7 +7655,7 @@ private:
         esp_avatar_directory_.reset();
         queue_tracker_.reset();
         input_mutation_.reset();
-        automatic_paint_capture_.reset();
+        projective_paint_capture_.reset();
         callback_context_ = nullptr;
         callback_ = nullptr;
         active_frame_sequence_ = 0U;
@@ -9422,7 +7765,7 @@ private:
         }
     }
 
-    auto restore_automatic_paint_noexcept() noexcept -> void
+    auto restore_projective_paint_noexcept() noexcept -> void
     {
         if (!IsInGameThreadRaw())
         {
@@ -9435,18 +7778,18 @@ private:
             auto generation = application::JobGeneration{};
             {
                 const auto lock = std::scoped_lock{mutex_};
-                if (!automatic_paint_capture_ ||
-                    !automatic_paint_capture_->preview_mutated)
+                if (!projective_paint_capture_ ||
+                    !projective_paint_capture_->preview_mutated)
                 {
                     return;
                 }
-                if (!automatic_paint_capture_->preview_snapshot)
+                if (!projective_paint_capture_->preview_snapshot)
                 {
                     return;
                 }
                 generation =
-                    automatic_paint_capture_->generation;
-                snapshot = automatic_paint_capture_->
+                    projective_paint_capture_->generation;
+                snapshot = projective_paint_capture_->
                     preview_snapshot;
             }
             try
@@ -9456,11 +7799,11 @@ private:
                     continue;
                 }
                 const auto lock = std::scoped_lock{mutex_};
-                if (automatic_paint_capture_ &&
-                    automatic_paint_capture_->generation ==
+                if (projective_paint_capture_ &&
+                    projective_paint_capture_->generation ==
                         generation)
                 {
-                    automatic_paint_capture_->preview_mutated =
+                    projective_paint_capture_->preview_mutated =
                         false;
                 }
                 return;
@@ -9500,7 +7843,7 @@ private:
         idle_.wait(lock, [this] { return in_flight_ == 0U; });
         lock.unlock();
         paint_appearance_worker_.shutdown();
-        restore_automatic_paint_noexcept();
+        restore_projective_paint_noexcept();
         restore_input_noexcept();
         for (auto attempt = 0U; attempt < 3U; ++attempt)
         {
@@ -9543,8 +7886,8 @@ private:
         fallback_glyph_texture_{};
     application::PaintAppearanceWorker
         paint_appearance_worker_{};
-    std::optional<AutomaticPaintCaptureSession>
-        automatic_paint_capture_{};
+    std::optional<ProjectivePaintCaptureSession>
+        projective_paint_capture_{};
     product_ui::ProductUiPointerCapture pointer_capture_{};
     HWND input_window_{};
     void* callback_context_{};
@@ -9670,35 +8013,35 @@ auto UnrealRuntimeAdapter::restore(
     return impl_->restore_preview(snapshot);
 }
 
-auto UnrealRuntimeAdapter::begin_automatic_capture(
+auto UnrealRuntimeAdapter::begin_projective_capture(
     const core::PaintSettings& settings,
     application::JobGeneration generation)
     -> std::expected<
         void,
         application::RuntimeExecutionError>
 {
-    return impl_->begin_automatic_paint_capture(
+    return impl_->begin_projective_paint_capture(
         settings,
         generation);
 }
 
-auto UnrealRuntimeAdapter::advance_automatic_capture(
+auto UnrealRuntimeAdapter::advance_projective_capture(
     application::JobGeneration generation)
     -> std::expected<
         std::optional<application::CapturedPaintJob>,
         application::RuntimeExecutionError>
 {
-    return impl_->advance_automatic_paint_capture(
+    return impl_->advance_projective_paint_capture(
         generation);
 }
 
-auto UnrealRuntimeAdapter::cancel_automatic_capture(
+auto UnrealRuntimeAdapter::cancel_projective_capture(
     application::JobGeneration generation)
     -> std::expected<
         bool,
         application::RuntimeExecutionError>
 {
-    return impl_->cancel_automatic_paint_capture(
+    return impl_->cancel_projective_paint_capture(
         generation);
 }
 
