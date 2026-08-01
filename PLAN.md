@@ -488,6 +488,12 @@ Implement a project-owned immediate-mode UCanvas UI with Paint, Image Paint, ESP
 - Toggle with a configurable key, defaulting to `F9`.
 - Preserve the eight existing action hotkeys, defaulting to `F1`–`F8`.
 - Register supported keys once through UE4SS and dispatch according to the current validated mapping.
+- Require an explicit panel Edit session before any target, application
+  setting, or Image Paint editor mutation. Edit owns one complete local
+  `ApplicationConfig` draft; Save publishes at most one revision-bound typed
+  settings command and Cancel publishes nothing. An active Paint job retains
+  its captured immutable settings while Edit prepares a later job, and action
+  hotkeys remain suppressed until the session closes.
 - Show the mouse cursor and suspend look/movement input while the panel is open; restore the exact previous state when it closes.
 - Scale against viewport size and DPI.
 - Keep ESP active while the control panel is closed.
@@ -1537,7 +1543,9 @@ packaged UMG; no fallback implementation starts without explicit plan approval.
 
 1. Implement Paint, Image Paint, ESP, Settings, and Diagnostics sections using
    the retained Canvas widget foundation.
-2. Bind controls only to typed commands and immutable snapshots.
+2. Bind controls only to typed commands and immutable snapshots. Gate every
+   target/settings/editor mutation behind the explicit complete-config Edit/
+   Save/Cancel session without mutating an already-captured active job.
 3. Implement the complete Image Paint editor interaction, selection, drag,
    resize, crop, order, import, body-guide overlay, project management, and
    preview controls.

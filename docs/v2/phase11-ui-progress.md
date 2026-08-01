@@ -266,20 +266,25 @@ Paint/Fill/Skip routing, Paint metallic/roughness/emissive floors, Fill color
 and independent metallic/roughness/emissive, and color-compression tolerance.
 Source bounds, Auto Material, and scene-lighting controls are retired.
 
-Controls read the exact immutable Paint presentation. An explicit Edit action
-must open a local complete `ApplicationConfig` draft before any settings or
-target/editor mutation is enabled, including while Paint runs. Each
-interaction changes only its owned draft field; Apply validates the full
-result and emits at most one revision-bound `UiApplySettings` action. The
-section has retained bounded scrolling, clipped
+Controls read the exact immutable Paint presentation. The status strip's
+explicit Edit action opens one panel-owned complete `ApplicationConfig` draft
+before any settings or target/editor mutation is enabled, including while
+Paint runs. Each interaction changes only its owned draft field. Save validates
+the complete result and emits at most one revision-bound `UiApplySettings`;
+Cancel drops the draft and any panel-local Image Paint gesture without a
+command. Closing or losing the matching presentation also drops edit
+ownership, and configured hotkeys are suppressed while the session is open.
+The active Paint job retains its captured immutable settings while the draft
+can prepare the next job. The section has retained bounded scrolling, clipped
 control exclusion, localized labels and region-mode values, and finite
 validation ranges shared with the core contract. Core validation now also
 rejects unknown Front/Side/Back enum values instead of treating an invalid
 persisted routing value as valid.
 
-Portable tests exercise all three sampling/size values, all three region
-controls, both toggles, all six material values, Fill color, compression,
-field isolation, full-config validity, and the pre-existing action row.
+Portable tests exercise explicit Edit/Save/Cancel ownership, active-job draft
+editing and job immutability, hotkey suppression, all three region controls,
+all six Paint/Fill material values, Fill color, compression, field isolation,
+full-config validity, and the pre-existing action row.
 
 ## Complete portable ESP section
 
@@ -308,7 +313,8 @@ compression tolerance, independent Image and Fill material values, and Fill
 color. Labels and option values reuse the shipped localization catalogs.
 
 Unlike application settings, these controls copy the exact immutable current
-document settings and emit a `ReplaceImageProjectSettingsMutation`. The action
+document settings and emit a `ReplaceImageProjectSettingsMutation` only while
+the same explicit panel Edit session owns the current presentation. The action
 is bound to the rendered application snapshot revision, while the application
 router/session continue to own current project identity and revision checks.
 An absent document, unavailable edit ownership, an invalid value, or divergent

@@ -478,13 +478,13 @@ Evidence:
       v1.7.2 projective-environment pipeline, prove bounded multi-frame capture
       cost, and record live brush-plane/readback orientation/color/cleanup
       evidence before closing Phase 8.
-      - [ ] Route every normal Paint and Paint Preview through one
+      - [x] Route every normal Paint and Paint Preview through one
         generation-tagged environment-capture session; delete the synchronous
         manual/optional-Auto split and retain restoration ownership through
         cancellation, failure cleanup, and shutdown.
-      - [ ] Delete the cluster model, deterministic SPSA session, and global
+      - [x] Delete the cluster model, deterministic SPSA session, and global
         safe-fallback selection from the production appearance graph.
-      - [ ] Port the v1.7.2 bounded HDR, closed-loop Albedo, physical Emissive,
+      - [x] Port the v1.7.2 bounded HDR, closed-loop Albedo, physical Emissive,
         correction-field, and component-validation contracts without runtime
         types.
       - [x] Define immutable BaseColor, FinalColor HDR, tone-curve HDR,
@@ -517,7 +517,7 @@ Evidence:
         three target-visible feedback passes per frame, restore and verify the
         original channels before worker analysis, and retain restoration
         ownership through failure, cancellation, and game-thread teardown.
-      - [ ] Generate a fixed four-texel correction lattice independent of the
+      - [x] Generate a fixed four-texel correction lattice independent of the
         replay brush and final region filters; anchor Front/Back and propagate
         Side with deterministic harmonic or one-boundary extension, rejecting
         unanchored Side components.
@@ -530,12 +530,12 @@ Evidence:
         the retained one-centimetre same-surface tolerance and its returned UV
         lies inside the same packaged topology triangle. Camera drift, invalid
         hit vectors, and unqueried/occluded samples remain fail-closed.
-      - [ ] Retain the best validated Albedo-only feedback locally without a
+      - [x] Retain the best validated Albedo-only feedback locally without a
         global appearance fallback. Admit automatic Emissive only when both
         repeatable source separation and the calibrated target E=1 response
         agree; preserve source chromaticity in bounded Albedo and keep manual
         Emissive as a floor.
-      - [ ] Re-export and byte-compare the complete game-owned packed AMRE
+      - [x] Re-export and byte-compare the complete game-owned packed AMRE
         channel for every candidate and final verification. Publish the
         immutable captured job only after exact restoration and component-
         level validation; no failure may publish a mutated preview.
@@ -544,17 +544,17 @@ Evidence:
     raw/image-reference pair remains the game 3.3.0 identity introduced on the
     v1.7.1 line: 1,668 vertices, 8,352 indices, and profile hash
     `cd469e35ad0cbd1e483bd82b2406849429d24037807bd7a294534fb79633f55b`.
-- [ ] Update immutable planning for Paint/Fill/Skip, projective appearance,
+- [x] Update immutable planning for Paint/Fill/Skip, projective appearance,
   PBR floors, coverage-preserving compression, and Fill-first ordering.
   - [x] Preserve Back, Side, then Front dispatch within both Fill/Paint replay
     passes and adaptive-compression output, with scanline/radius ordering only
     inside each region.
   - [x] Share direct projected material evidence across Front and Back while
     retaining topology-visible, camera-facing admission for Side samples.
-  - [ ] Replace proximity coalescing with brush-aligned coverage, hard
+  - [x] Replace proximity coalescing with brush-aligned coverage, hard
     hole/unsafe/island/region/material boundaries, deterministic circle
     covering, and per-channel minimax representative colors.
-  - [ ] Pace non-preemptible local stroke slices from measured duration and
+  - [x] Pace non-preemptible local stroke slices from measured duration and
     enforce the finite adaptive-delay cap.
 - [x] Run Paint deformation, projection, sample materialization, and planning
   on one owned cancellable worker from an immutable capture seed, with
@@ -824,16 +824,19 @@ Evidence:
     the same thread-safe monotonic command-ID owner used by hotkeys.
   - [x] Convert portable Paint/Image button and ESP toggle activations into one
     revision-bound product action per immutable Canvas frame.
-  - [x] Copy the exact immutable complete config for every Settings edit,
-    mutate only the selected field, validate it, and emit one revision-bound
-    `UiApplySettings` action without reconstructing omitted state.
-  - [x] Route every portable Paint settings edit through that same exact
-    full-config validation and revision-bound action boundary.
+  - [x] Require one explicit panel Edit session before every target, settings,
+    or Image Paint editor mutation. Copy the exact immutable complete config
+    into one local draft, mutate only that draft, publish at most one
+    revision-bound `UiApplySettings` on Save, and publish nothing on Cancel.
+  - [x] Route every portable Paint settings edit through that complete-draft
+    validation and revision-bound Save boundary, including while the active
+    Paint job retains its captured immutable settings.
   - [x] Route every portable ESP setting except the dedicated master toggle
     through exact full-config validation and revision-bound application.
   - [x] Route every portable Image Paint setting through a project-owned
     `ReplaceImageProjectSettingsMutation` copied from the exact immutable
-    document rather than changing application defaults or runtime objects.
+    document and gated by the same explicit Edit ownership, rather than
+    changing application defaults or runtime objects.
   - [x] Route current-project Save, Rename, and confirmed Delete through their
     existing snapshot-bound typed product actions without exposing project
     identity or persistence objects to the Canvas layer.
@@ -903,7 +906,8 @@ Evidence:
     tab departure, or panel close.
   - [x] Consume bounded registered-key event batches through the frame
     coordinator, hand the next press to Settings capture when armed, suppress
-    repeats through the shared router, and release held state on input loss.
+    action hotkeys while the explicit Edit session is open, suppress repeats
+    through the shared router, and release held state on input loss.
   - [x] Implement a bounded thread-safe callback-to-HUD-frame input queue that
     validates F1–F24 and single-line UTF-8 text events, converts each
     edge-only function-key callback into one ordered Pressed/Released pair,
@@ -958,14 +962,14 @@ Evidence:
     enabled/disabled typed actions, revision binding, panel-close input
     release, and invalid label/state refusal.
   - [x] Prove every Paint setting control changes only its owned field in a
-    complete validated config, including strict rejection of invalid region
-    enum values.
+    complete validated Edit draft, including Save/Cancel behavior, active-job
+    immutability, and strict rejection of invalid region enum values.
   - [x] Prove every ESP scope/primitive/color control changes only its owned
     field, preserves the master enable state, and rejects invalid scope enums.
   - [x] Prove all 16 Image Paint settings controls change only their owned
     field, emit one snapshot-revision-bound project mutation, remain disabled
-    without edit ownership, retain compact scrolling, and reject divergent
-    document/presentation state.
+    without the explicit panel Edit ownership, retain compact scrolling, and
+    reject divergent document/presentation state.
   - [x] Prove Image Paint atlas binding, local move/release/cancel behavior,
     gesture-time scroll exclusion, asset-guarded mutation, stale-asset refusal,
     edit-availability refusal, revision acknowledgement, and duplicate-action

@@ -195,11 +195,12 @@ worker, access a filesystem, or inspect a UObject.
 The focused core library includes no UE4SS, Unreal, Win32, graphics, launcher,
 JSON, or UI header. Its test passes under MSVC `/W4 /WX` and clang-cl `/WX`.
 
-The existing adaptive-compression and optional automatic-appearance cases are
-superseded by the v1.7.2 Paint decision. Phase 6 core closure is reopened for
-brush-aligned coverage, hard topology/material boundaries, deterministic
-circle covering/minimax representative colors, fixed-lattice correction,
-physical Emissive, and projective-appearance-only planning. Fill-first
+The v1.7.2 replacement is now the only portable Paint path. Brush-aligned
+coverage, hard topology/material boundaries, deterministic circle covering
+with per-channel minimax representative colors, fixed-lattice correction,
+physical Emissive, and projective-appearance-only planning are implemented.
+The retired optional automatic-appearance, proximity-coalescing, cluster,
+SPSA, and global-fallback cases are not v2 acceptance evidence. Fill-first
 ordering, Skip/unsafe exclusion, independent Fill PBR, profile rejection,
 resource limits, and cancellation remain retained evidence.
 `application_runtime_test` proves that control work

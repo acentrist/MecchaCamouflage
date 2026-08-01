@@ -1,20 +1,23 @@
 # Phase 8 Paint Progress
 
-Phase 8 is open. Immutable planning, packaged deformation, projection, sample
-materialization, owned workers, preview restoration, dispatch, queue drain,
-and exact reflected `PaintAtUVWithBrush` contracts are implemented. The
-v1.7.1 Auto Material/cluster/SPSA transaction previously implemented here is
-superseded and is not acceptance evidence for the current phase.
+Phase 8 is open. The portable v1.7.2 projective Paint pipeline, immutable
+planning, packaged deformation, projection, sample materialization, owned
+workers, preview restoration, dispatch, queue drain, and exact reflected
+`PaintAtUVWithBrush` contracts are implemented. The production runtime source
+also uses the bounded projective state machine. The superseded v1.7.1 Auto
+Material/cluster/SPSA transaction has been deleted from the v2 graph and is not
+acceptance evidence for this phase.
 
-The current v1.7.2 contract requires every normal Paint to project a hidden
-environment capture through a fixed four-texel correction lattice. Front and
-Back anchor one correction field; Side uses deterministic harmonic or
-one-boundary propagation. Albedo keeps its best validated local feedback
-state. Physical Emissive requires repeatable source separation plus calibrated
+Every normal Paint now projects a hidden environment capture through a fixed
+four-texel correction lattice. Front and Back anchor one correction field;
+Side uses deterministic harmonic or one-boundary propagation and rejects
+unanchored components. Albedo retains its best validated local feedback state.
+Physical Emissive requires repeatable source separation plus a calibrated
 target E=1 response and carries source chromaticity in bounded Albedo. The
-replacement core/runtime/UI path, coverage compression, and measured adaptive
-dispatch pacing remain to be implemented and revalidated before existing live
-capture and multiplayer blockers can be evaluated.
+replacement core/application/runtime/UI path, coverage-preserving compression,
+and measured adaptive dispatch pacing pass the native Windows automated gates.
+Private UE4SS-backed production compilation and live capture/multiplayer
+evidence remain before Phase 8 can close.
 
 The source-capture boundary is also project-owned. One immutable evidence
 value carries BaseColor, FinalColor HDR, tone-curve HDR, intrinsic-emission
@@ -45,10 +48,10 @@ The regenerated pair still produces 39,214 default four-texel samples and
 passes exact raw/image topology pairing, index bounds, deformation, guide, and
 production-resource validation.
 
-Replay still partitions each Fill and Paint pass as Back, Side, then Front.
-The v1.7.2 compression replacement must preserve that partition while using a
-brush-aligned coverage field, hard topology/material boundaries,
-deterministic circle covering, and minimax representative colors. Normal Paint
+Replay partitions each Fill and Paint pass as Back, Side, then Front. The
+v1.7.2 compressor preserves that partition while using a brush-aligned coverage
+field, hard hole/unsafe/island/region/material boundaries, deterministic
+circle covering, and per-channel minimax representative colors. Normal Paint
 has one environment-capture source path; Image Paint remains direct imported
 image sampling. No dynamic runtime-topology fallback is introduced; mismatched
 live assets and packaged profiles continue to fail closed.
@@ -57,25 +60,30 @@ Appearance preparation is split into two cancellable worker stages. The first
 owns deformation and projection and returns immutable geometry plus a sorted,
 deduplicated set of only the raster pixels the runtime needs to query. The
 second consumes immutable multi-pass evidence and that geometry to build the
-appearance model. This avoids a game-thread full-raster object query and
-keeps all deformation, observation, clustering, and fitting work outside the
-HUD callback.
+projective model. This avoids a game-thread full-raster object query and keeps
+all deformation, observation construction, correction calibration, and final
+component validation outside the HUD callback.
 
-Scene-capture subject visibility is explicit rather than inferred. Every
-source-evidence pass is `BackgroundOnly` and must hide the target mesh; the
-bounded feedback plan contains target-visible FinalColor HDR, BaseColor E0,
-and intrinsic-emission E0 passes while continuing to hide the brush-plane
-visuals. The candidate worker samples the composed preview albedo bytes at
-the exact model UVs, drops ambiguous duplicate raster references, and returns
-immutable readback references. Target feedback must match the source camera
-and both feedback-pass cameras, then calibrates identity versus red/blue
-swapped linear readback before evaluation can report a calibrated response.
-The production session now snapshots exact albedo and packed-PBR bytes,
-composes a zero-emission candidate on the worker, begins restoration ownership
-before the first import can mutate, verifies both imported channels, waits at
-least 48 milliseconds across later HUD frames, and captures at most one of the
-three target-visible feedback passes per frame. It then verifies exact
-restoration before target-E0 analysis or final model preparation can start.
+Scene-capture subject visibility is explicit rather than inferred. All eight
+source-evidence passes are `BackgroundOnly` and hide the target mesh, including
+two separate intrinsic-emission HDR passes required for source repeatability.
+The bounded feedback plan contains target-visible FinalColor HDR, BaseColor
+E0, and intrinsic-emission E0 passes while continuing to hide the brush-plane
+visuals. The candidate worker samples the composed preview albedo bytes at the
+exact model UVs, drops ambiguous duplicate raster references, and returns
+immutable readback references. Target feedback must match the source and
+feedback cameras and calibrates identity versus red/blue-swapped linear
+readback before evaluation can report a calibrated response.
+
+The production source state machine snapshots exact albedo and packed-AMRE
+bytes, composes the baseline zero-emission candidate on a worker, begins
+restoration ownership before the first import can mutate, and byte-verifies
+both imported channels. It waits across later HUD frames and captures at most
+one of the three target-visible feedback passes per frame, restores and
+byte-verifies the original channels, calibrates the fixed correction field,
+then applies and verifies one E=1 endpoint candidate. One later FinalColor HDR
+capture supplies the endpoint response; the original is restored again before
+component validation and immutable resolved-appearance publication.
 
 ## Immutable capture-to-plan contract
 
@@ -197,29 +205,28 @@ capture before readback. Audio is not hidden. Manual unlit capture uses
 BaseColor; manual lit capture also uses FinalColor HDR. Deterministic
 linear-to-sRGB conversion occurs after the game-thread readback.
 
-This remains contract/build evidence, not a live capture claim. Existing code
-admits the exact profile, current bone transforms, and calibrated camera;
+This remains contract/build evidence, not a live capture claim. The current
+code admits the exact profile, current bone transforms, and calibrated camera;
 prepares deformation/projection on a worker; captures at most one pass per
 later HUD callback; retains real viewport identity; applies the reviewed 33
 intrinsic-emission show flags; and restores exact preview channels before
-publication. Those foundations are retained. The old model/endpoint/SPSA
-resolution above them must be replaced by the fixed four-texel correction
-field, local Albedo feedback, dual-evidence physical Emissive, and final
-component validation. Exact projected-pixel visibility plus live brush-plane
-hiding, readback orientation, color semantics, cleanup, and frame-budget
-behavior remain unverified.
+publication. The fixed four-texel correction field, local Albedo feedback,
+dual-evidence physical Emissive, endpoint response, and final component
+validation have replaced the old model/endpoint/SPSA resolver. Exact
+projected-pixel visibility plus live brush-plane hiding, readback orientation,
+color semantics, cleanup, and measured in-game frame-budget behavior remain
+unverified.
 
-The application boundary remains generation-tagged while the production
-appearance stages are replaced. `ApplicationRoot` must route every normal
-Paint and Paint Preview command through that session; the synchronous manual
-capture and optional Auto Material branch are deletion targets.
+The application boundary is generation-tagged. `ApplicationRoot` routes every
+normal Paint and Paint Preview command through the projective session; there is
+no synchronous manual capture or optional Auto Material branch.
 Admission does not advance the session in the same HUD callback. Each later
 HUD callback performs at most one runtime advance; only a completed result
 whose runtime contract promises exact restoration can enter the existing
 planning or preview pipeline. Explicit cancellation, a failed advance, and
 shutdown keep ownership and repeatedly request cleanup until the runtime
 reports restoration complete. Fake-runtime coverage proves that no stroke or
-partial plan is published during those paths and that Auto restoration
+partial plan is published during those paths and that projective restoration
 precedes generic transient restoration at shutdown.
 
 `PaintJobCoordinator` is the sole planning-to-dispatch transition. It compares
@@ -413,62 +420,59 @@ bounds, wrong-component and repeat guards, apply recovery, retained recovery
 failure, shutdown restoration, malformed capture, and invalid-handle expiry.
 `paint_deformation`, `paint_capture_geometry`, and `paint_capture_request`
 cover exact hierarchy reconstruction, weighted skinning, current-view
-projection, finite/bounded raster materialization, resolved-appearance
-presence, and cancellation. `application_root_paint` covers the end-to-end
-real-Paint
-and preview commands,
+projection, finite/bounded raster materialization, topology/calibration
+classification, resolved-appearance presence, and cancellation.
+`paint_projective_pipeline` covers projective model preparation, fixed
+four-texel trials independent of replay brush and final filters, Front/Back
+anchors, deterministic Side propagation and unanchored rejection, local
+Albedo retention, dual-evidence physical Emissive, packed-AMRE verification,
+component-level validation, invalid inputs, and cancellation.
+`application_root_paint` covers the end-to-end real-Paint and preview commands,
 capture, workers, game-thread preview apply/restore, restore-before-real-Paint,
 dispatch, execution, observation, completion, command backpressure, and
-frame-owned UI/ESP path. Its former optional Auto Material assertions are
-superseded; replacement tests must prove every normal Paint uses the deferred
+frame-owned UI/ESP path. It proves every normal Paint uses the deferred
 projective session, cannot progress in its admission frame, publishes only
 after a later restored completion, retains restoration ownership after a stage
 failure or explicit cancellation, and restores before shutdown quiescing. It
-also holds fake runtime queues nonempty during shutdown and
-proves the active Paint generation reaches `Cancelled` before quiescing.
+also holds fake runtime queues nonempty during shutdown and proves the active
+Paint generation reaches `Cancelled` before quiescing.
 `paint_preview_composer` adds Fill/Paint overwrite
 ordering, packed-PBR quantization, edge clipping, original immutability,
 invalid plan/buffer rejection, cancellation, and resource-limit evidence.
-`paint_appearance_capture` covers exact pass-value preservation,
-deduplicated projected-pixel queries, shared Front/Back material evidence,
-Side topology/facing visibility, and camera movement and viewport-resize
-rejection plus calibrated target-E0 noise from 256 paired samples.
-`paint_appearance_worker` additionally proves owned
-profile/transform/evidence lifetimes, immutable candidate raster ownership,
-combined feedback/target-E0 preparation, and typed failures. The public
-Windows graph passes all 94 registered tests in normal and deep-validation
-configurations. The production
-adapter, exact sender, queue observer, preview channel adapter, capture codecs,
-and struct-array reflection bridge also compile with `/WX` in the pinned
-Windows MSVC `Game__Shipping__Win64` graph. All 112 exact Windows tests pass,
-including the updated profile, replay, Image Paint, and appearance contracts.
-The exact Windows
-reflection-contract, application-root-Paint, appearance-capture, and
-appearance-worker tests pass, and post-build verification confirms the
-immutable UE4SS stage remains unchanged. This is build evidence, not a live
-Paint pass.
+`paint_appearance_capture` covers exact eight-pass source-value preservation,
+two independent intrinsic-emission captures, deduplicated projected-pixel
+queries, shared Front/Back material evidence, Side topology/facing visibility,
+camera movement and viewport-resize rejection, and calibrated target-E0 noise
+from 256 paired samples. `paint_appearance_worker` additionally proves owned
+profile/transform/evidence lifetimes, immutable baseline/endpoint raster
+ownership, baseline calibration, final component validation, and typed
+failures. `core_contract` covers the brush-aligned compressor's hard
+boundaries, deterministic covering/minimax choices, and sample/replay bounds;
+the application scheduler tests cover measured dispatch cost and the finite
+adaptive-delay cap.
+
+The public hosted Windows graph contains 94 secret-free tests. The synchronized
+native Windows graph passes all 112 tests under normal MSVC Release, MSVC ASan,
+and clang-cl UBSan. MSVC `/analyze` passes the three-target production closure
+(`meccha_product_ui`, `meccha_runtime_contracts`, and
+`meccha_launcher_core`). The latest projective runtime source graph and exact
+reflection/capture contracts pass, but this environment does not provide the
+private UE4SS inputs needed to compile the UE4SS-backed mod target. This is
+portable build/source-contract evidence, not a live Paint pass.
 
 ## Remaining gate
 
-- Replace and finish production source-appearance capture on the game thread.
-  The exact
-  initialization, SceneCapture actor/component/property/function, bounded
-  render-target/readback, target-mesh hiding, manual pass, and local cleanup
-  paths now compile. Exact current-World brush-plane visual discovery/hiding
-  also compiles from current cooked-package evidence. The immutable seven-pass
-  evidence, camera-stability gate, bounded projected-pixel query, observation
-  builder, cancellable preparation worker, typed target-visible feedback
-  passes, preview-byte readback references, and response calibration are
-  complete. The production generation-tagged source session and one-pass-per-
-  HUD-frame scheduler now compile and drain cancellation without publishing.
-  The exact target-E0 preview apply/capture/restore transaction now compiles,
-  calibrates its feedback on the worker, and cannot advance to final model
-  preparation before verified restoration. Fixed-lattice correction,
-  physical-Emissive component validation, coverage compression, adaptive
-  pacing, and final resolved-appearance publication must replace the retired
-  SPSA path. A measured bounded frame budget and live brush-plane/orientation/
-  color/cleanup evidence then remain.
+- Compile the new projective runtime state machine against the pinned private
+  UE4SS `Game__Shipping__Win64` inputs. The source graph already contains the
+  exact initialization, eight background passes, bounded projected-pixel
+  queries, baseline/endpoint preview transactions, repeated exact restoration,
+  fixed-lattice calibration, component validation, and immutable publication,
+  but the current secret-free checkout cannot produce that private target.
+- Measure the bounded in-game frame cost and record brush-plane hiding,
+  projected-pixel visibility, readback orientation/color semantics, cleanup,
+  cancellation, travel, and teardown evidence.
 - Live-prove the connected production capture, sender, queue observer, and
   preview adapter without weakening their fail-closed contracts.
-- Complete fake-runtime failures and the deferred single-/two-client live
-  matrix before Phase 8 can close.
+- Complete the deferred single-/two-client live matrix before Phase 8 can
+  close. Portable unit, contract, fake-runtime, failure, and sanitizer evidence
+  is complete.
