@@ -21,8 +21,6 @@ public sealed class HostSession
     [
         "paint.brushSizeTexels",
         "paint.colorCompressionTolerance",
-        "paint.autoMaterial",
-        "paint.includeShadows",
         "paint.metallic",
         "paint.roughness",
         "paint.emissive",
@@ -668,7 +666,6 @@ public sealed class HostSession
                 break;
             case "paint.material":
             case "material":
-                next.Paint.AutoMaterial = defaults.Paint.AutoMaterial;
                 next.Paint.Metallic = defaults.Paint.Metallic;
                 next.Paint.Roughness = defaults.Paint.Roughness;
                 next.Paint.Emissive = defaults.Paint.Emissive;
@@ -1260,6 +1257,11 @@ public sealed class HostSession
                          "local_stroke_calls",
                          "local_stroke_success",
                          "local_stroke_failures",
+                         "local_dispatch_max_ms",
+                         "local_dispatch_last_slice_us",
+                         "local_dispatch_delay_ms",
+                         "local_dispatch_peak_delay_ms",
+                         "local_dispatch_throttle_events",
                          "native_queue_recorded_last_strokes",
                          "native_queue_component_last_strokes",
                          "native_queue_component_peak_strokes",
@@ -1268,10 +1270,26 @@ public sealed class HostSession
                          "first_stroke_metallic",
                          "first_stroke_roughness",
                          "first_stroke_emissive",
+                         "environment_projection_schema",
+                         "environment_projection_ok",
+                         "environment_projection_failure",
+                         "environment_projection_inputs",
+                         "environment_projection_assignments",
+                         "environment_projection_missing",
+                         "environment_projection_sampling_failures",
+                         "environment_emission_capture_ok",
+                         "environment_emission_capture_failure",
+                         "environment_emission_evidence_available",
+                         "environment_emission_evidence_failures",
+                         "environment_emission_noise_threshold",
+                         "environment_emission_rescued_samples",
+                         "environment_emission_unchanged_samples",
                          "appearance_match_status",
                          "appearance_match_reason",
-                         "include_shadows",
-                         "appearance_shadow_policy",
+                         "environment_lighting_policy",
+                         "environment_emission_capture_ok",
+                         "environment_emission_capture_failure",
+                         "environment_emission_rescued_samples",
                          "appearance_fallback_color_mode",
                          "appearance_emission_isolation_probe_ok",
                          "appearance_production_connected",
@@ -1285,7 +1303,7 @@ public sealed class HostSession
                          "appearance_manual_paired_samples",
                          "appearance_manual_base_color_samples",
                          "appearance_manual_final_ldr_samples",
-                         "appearance_manual_source_paint_color_space",
+                         "paint_source_color_space",
                          "appearance_manual_color_feedback_requested",
                          "appearance_manual_color_feedback_applied",
                          "appearance_manual_feedback_kept_clusters",
@@ -1373,7 +1391,53 @@ public sealed class HostSession
                          "appearance_source_emission_noise_median",
                          "appearance_source_emission_noise_mad",
                          "appearance_source_emission_noise_floor",
+                         "appearance_source_emission_signal_separated",
+                         "appearance_source_emission_baseline_samples",
                          "appearance_effective_emission_noise_floor",
+                         "appearance_calibration_step_texels",
+                         "appearance_replay_sample_count",
+                         "appearance_calibration_sample_count",
+                         "appearance_feedback_lattice_samples",
+                         "appearance_feedback_lattice_samples_front",
+                         "appearance_feedback_lattice_samples_side",
+                         "appearance_feedback_lattice_samples_back",
+                         "appearance_correction_field_ok",
+                         "appearance_correction_field_failure",
+                         "appearance_correction_front_anchor_vertices",
+                         "appearance_correction_back_anchor_vertices",
+                         "appearance_correction_side_components",
+                         "appearance_correction_one_boundary_side_components",
+                         "appearance_correction_unanchored_side_components",
+                         "appearance_correction_side_applied_samples",
+                         "appearance_correction_field_hash",
+                         "appearance_physical_manual_emissive_floor",
+                         "appearance_physical_inferred_emissive_max",
+                         "appearance_physical_source_candidate_samples",
+                         "appearance_physical_source_paired_samples",
+                         "appearance_physical_source_rejected_samples",
+                         "appearance_physical_probe_run",
+                         "appearance_physical_probe_supported_samples",
+                         "appearance_physical_candidate_samples",
+                         "appearance_physical_accepted_samples",
+                         "appearance_physical_rejected_samples",
+                         "appearance_physical_color_carrier_candidate_samples",
+                         "appearance_physical_color_carrier_final_samples",
+                         "appearance_physical_candidate_components",
+                         "appearance_physical_accepted_components",
+                         "appearance_physical_rejected_components",
+                         "appearance_physical_final_verification_run",
+                         "appearance_physical_final_verification_accepted",
+                         "appearance_physical_rejection_reason",
+                         "appearance_emission_response_field_hash",
+                         "environment_closed_loop_iterations",
+                         "appearance_albedo_only_iterations",
+                         "appearance_albedo_only_loss_initial",
+                         "appearance_albedo_only_loss_best",
+                         "appearance_albedo_only_improvement",
+                         "environment_closed_loop_corrected_samples",
+                         "environment_closed_loop_emissive_samples",
+                         "environment_closed_loop_mean_albedo_adjustment",
+                         "environment_closed_loop_emissive_max",
                          "appearance_emission_surface_filter_applied",
                          "appearance_emission_surface_filter_regions",
                          "appearance_emission_core_samples",
@@ -1408,11 +1472,17 @@ public sealed class HostSession
                          "appearance_preview_packed_b_failures",
                          "appearance_preview_expected_emissive_nonzero_pixels",
                          "appearance_preview_actual_emissive_nonzero_pixels",
+                         "appearance_preview_initial_emissive_nonzero_pixels",
+                         "appearance_preview_painted_emissive_nonzero_pixels",
                          "preview_packed_pbr_import_verified",
                          "preview_packed_pbr_bytes_mismatch",
                          "preview_emissive_bytes_mismatch",
                          "preview_expected_emissive_nonzero_pixels",
                          "preview_actual_emissive_nonzero_pixels",
+                         "preview_initial_emissive_nonzero_pixels",
+                         "preview_painted_emissive_nonzero_pixels",
+                         "appearance_final_nonzero_emissive_pixels",
+                         "appearance_final_painted_nonzero_emissive_pixels",
                          "preview_expected_packed_pbr_hash",
                          "preview_actual_packed_pbr_hash",
                          "appearance_paint_emissive_supported",
@@ -1492,9 +1562,6 @@ public sealed class HostSession
                          "appearance_match_stroke_samples_front",
                          "appearance_match_stroke_samples_side",
                          "appearance_match_stroke_samples_back",
-                         "appearance_fallback_stroke_samples_front",
-                         "appearance_fallback_stroke_samples_side",
-                         "appearance_fallback_stroke_samples_back",
                          "appearance_emissive_stroke_samples_front",
                          "appearance_emissive_stroke_samples_side",
                          "appearance_emissive_stroke_samples_back",
@@ -1560,8 +1627,7 @@ public sealed class HostSession
             foreach (var name in new[]
                      {
                          "appearance_match_reason",
-                         "include_shadows",
-                         "appearance_shadow_policy",
+                         "environment_lighting_policy",
                          "appearance_fallback_color_mode",
                          "appearance_paint_emissive_supported",
                          "appearance_paint_emissive_reason",
@@ -1580,7 +1646,7 @@ public sealed class HostSession
                          "appearance_manual_paired_samples",
                          "appearance_manual_base_color_samples",
                          "appearance_manual_final_ldr_samples",
-                         "appearance_manual_source_paint_color_space",
+                         "paint_source_color_space",
                          "appearance_source_component_resolution",
                          "appearance_source_component_count",
                          "appearance_source_material_count",
@@ -1655,7 +1721,53 @@ public sealed class HostSession
                          "appearance_source_emission_noise_median",
                          "appearance_source_emission_noise_mad",
                          "appearance_source_emission_noise_floor",
+                         "appearance_source_emission_signal_separated",
+                         "appearance_source_emission_baseline_samples",
                          "appearance_effective_emission_noise_floor",
+                         "appearance_calibration_step_texels",
+                         "appearance_replay_sample_count",
+                         "appearance_calibration_sample_count",
+                         "appearance_feedback_lattice_samples",
+                         "appearance_feedback_lattice_samples_front",
+                         "appearance_feedback_lattice_samples_side",
+                         "appearance_feedback_lattice_samples_back",
+                         "appearance_correction_field_ok",
+                         "appearance_correction_field_failure",
+                         "appearance_correction_front_anchor_vertices",
+                         "appearance_correction_back_anchor_vertices",
+                         "appearance_correction_side_components",
+                         "appearance_correction_one_boundary_side_components",
+                         "appearance_correction_unanchored_side_components",
+                         "appearance_correction_side_applied_samples",
+                         "appearance_correction_field_hash",
+                         "appearance_physical_manual_emissive_floor",
+                         "appearance_physical_inferred_emissive_max",
+                         "appearance_physical_source_candidate_samples",
+                         "appearance_physical_source_paired_samples",
+                         "appearance_physical_source_rejected_samples",
+                         "appearance_physical_probe_run",
+                         "appearance_physical_probe_supported_samples",
+                         "appearance_physical_candidate_samples",
+                         "appearance_physical_accepted_samples",
+                         "appearance_physical_rejected_samples",
+                         "appearance_physical_color_carrier_candidate_samples",
+                         "appearance_physical_color_carrier_final_samples",
+                         "appearance_physical_candidate_components",
+                         "appearance_physical_accepted_components",
+                         "appearance_physical_rejected_components",
+                         "appearance_physical_final_verification_run",
+                         "appearance_physical_final_verification_accepted",
+                         "appearance_physical_rejection_reason",
+                         "appearance_emission_response_field_hash",
+                         "environment_closed_loop_iterations",
+                         "appearance_albedo_only_iterations",
+                         "appearance_albedo_only_loss_initial",
+                         "appearance_albedo_only_loss_best",
+                         "appearance_albedo_only_improvement",
+                         "environment_closed_loop_corrected_samples",
+                         "environment_closed_loop_emissive_samples",
+                         "environment_closed_loop_mean_albedo_adjustment",
+                         "environment_closed_loop_emissive_max",
                          "appearance_emission_surface_filter_applied",
                          "appearance_emission_surface_filter_regions",
                          "appearance_emission_core_samples",
@@ -1690,11 +1802,17 @@ public sealed class HostSession
                          "appearance_preview_packed_b_failures",
                          "appearance_preview_expected_emissive_nonzero_pixels",
                          "appearance_preview_actual_emissive_nonzero_pixels",
+                         "appearance_preview_initial_emissive_nonzero_pixels",
+                         "appearance_preview_painted_emissive_nonzero_pixels",
                          "preview_packed_pbr_import_verified",
                          "preview_packed_pbr_bytes_mismatch",
                          "preview_emissive_bytes_mismatch",
                          "preview_expected_emissive_nonzero_pixels",
                          "preview_actual_emissive_nonzero_pixels",
+                         "preview_initial_emissive_nonzero_pixels",
+                         "preview_painted_emissive_nonzero_pixels",
+                         "appearance_final_nonzero_emissive_pixels",
+                         "appearance_final_painted_nonzero_emissive_pixels",
                          "preview_expected_packed_pbr_hash",
                          "preview_actual_packed_pbr_hash",
                          "appearance_preview_count",
@@ -1766,14 +1884,10 @@ public sealed class HostSession
                          "appearance_kmeans_elapsed_ms",
                          "appearance_evaluation_elapsed_ms",
                          "appearance_match_stroke_samples",
-                         "appearance_fallback_stroke_samples",
                          "appearance_emissive_stroke_samples",
                          "appearance_match_stroke_samples_front",
                          "appearance_match_stroke_samples_side",
                          "appearance_match_stroke_samples_back",
-                         "appearance_fallback_stroke_samples_front",
-                         "appearance_fallback_stroke_samples_side",
-                         "appearance_fallback_stroke_samples_back",
                          "appearance_emissive_stroke_samples_front",
                          "appearance_emissive_stroke_samples_side",
                          "appearance_emissive_stroke_samples_back",
@@ -1804,7 +1918,7 @@ public sealed class HostSession
             var manualColorFeedback =
                 metadata.TryGetProperty("appearance_manual_color_feedback_requested", out var manualRequested) &&
                 manualRequested.ValueKind == JsonValueKind.True;
-            var label = manualColorFeedback ? "Manual Material" : "Auto Material";
+            var label = manualColorFeedback ? "Manual Material" : "Appearance Calibration";
             return label + ": " + string.Join(" | ", values);
         }
         catch
@@ -1971,7 +2085,10 @@ public sealed class HostSession
                 $"mapping_ms={Field(metadata, "image_paint_mapping_ms")} | mapping_workers={Field(metadata, "image_paint_mapping_workers")} | " +
                 $"mapping_parallel={Field(metadata, "image_paint_mapping_parallel")} | candidate_ms={Field(metadata, "image_paint_candidate_ms")} | " +
                 $"adaptive_ms={Field(metadata, "adaptive_plan_ms")} | adaptive_workers={Field(metadata, "adaptive_plan_worker_count")} | " +
-                $"adaptive_avx2={Field(metadata, "adaptive_plan_avx2_used")}");
+                $"adaptive_avx2={Field(metadata, "adaptive_plan_avx2_used")} | " +
+                $"compression_strategy={Field(metadata, "color_compression_strategy")} | " +
+                $"compression_grid={Field(metadata, "color_compression_coverage_grid_size")} | " +
+                $"compression_error_max={Field(metadata, "color_compression_representative_error_max")}");
         }
         catch (JsonException)
         {
@@ -2120,7 +2237,6 @@ public sealed class HostSession
         return new SettingsSnapshot(
             new PaintSnapshot(
                 paint.BrushSizeTexels,
-                paint.AutoMaterial,
                 paint.Metallic,
                 paint.Roughness,
                 paint.Emissive,
@@ -2132,8 +2248,7 @@ public sealed class HostSession
                 paint.FillRoughness,
                 paint.FillEmissive,
                 paint.UsesFill,
-                paint.ColorCompressionTolerance,
-                paint.IncludeShadows),
+                paint.ColorCompressionTolerance),
             new AppSnapshot(
                 settings.GameProcessName,
                 settings.AlwaysOnTop,
@@ -2182,8 +2297,7 @@ public sealed class HostSession
         var sections = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
         {
             ["paint.brush"] = map["paint.brushSizeTexels"] || map["paint.colorCompressionTolerance"],
-            ["paint.material"] = map["paint.autoMaterial"] || map["paint.includeShadows"] ||
-                                 map["paint.metallic"] || map["paint.roughness"] || map["paint.emissive"],
+            ["paint.material"] = map["paint.metallic"] || map["paint.roughness"] || map["paint.emissive"],
             ["regions"] = map["paint.frontRegionMode"] || map["paint.sideRegionMode"] || map["paint.backRegionMode"],
             ["fill.material"] = map["paint.fillColor"] || map["paint.fillMetallic"] || map["paint.fillRoughness"] || map["paint.fillEmissive"],
             ["image"] = settings.Image.Enabled != defaults.Image.Enabled || settings.Image.Revision != defaults.Image.Revision,
@@ -2200,8 +2314,6 @@ public sealed class HostSession
     private static bool SettingEquals(AppSettings left, AppSettings right, string key) => key switch
     {
         "paint.brushSizeTexels" => Nearly(left.Paint.BrushSizeTexels, right.Paint.BrushSizeTexels),
-        "paint.autoMaterial" => left.Paint.AutoMaterial == right.Paint.AutoMaterial,
-        "paint.includeShadows" => left.Paint.IncludeShadows == right.Paint.IncludeShadows,
         "paint.metallic" => Nearly(left.Paint.Metallic, right.Paint.Metallic),
         "paint.roughness" => Nearly(left.Paint.Roughness, right.Paint.Roughness),
         "paint.emissive" => Nearly(left.Paint.Emissive, right.Paint.Emissive),
@@ -2242,8 +2354,6 @@ public sealed class HostSession
         switch (key)
         {
             case "paint.brushSizeTexels": settings.Paint.BrushSizeTexels = defaults.Paint.BrushSizeTexels; break;
-            case "paint.autoMaterial": settings.Paint.AutoMaterial = defaults.Paint.AutoMaterial; break;
-            case "paint.includeShadows": settings.Paint.IncludeShadows = defaults.Paint.IncludeShadows; break;
             case "paint.metallic": settings.Paint.Metallic = defaults.Paint.Metallic; break;
             case "paint.roughness": settings.Paint.Roughness = defaults.Paint.Roughness; break;
             case "paint.emissive": settings.Paint.Emissive = defaults.Paint.Emissive; break;
@@ -2285,8 +2395,6 @@ public sealed class HostSession
         switch (key)
         {
             case "paint.brushSizeTexels": settings.Paint.BrushSizeTexels = value.GetDouble(); break;
-            case "paint.autoMaterial": settings.Paint.AutoMaterial = value.GetBoolean(); break;
-            case "paint.includeShadows": settings.Paint.IncludeShadows = value.GetBoolean(); break;
             case "paint.metallic": settings.Paint.Metallic = value.GetDouble(); break;
             case "paint.roughness": settings.Paint.Roughness = value.GetDouble(); break;
             case "paint.emissive": settings.Paint.Emissive = value.GetDouble(); break;

@@ -91,6 +91,8 @@ namespace runtime_contract
     constexpr int NativeRecordedPaintQueueTargetStrokes = 2;
     constexpr int FastLocalCadenceMs = 1;
     constexpr std::uint64_t LocalDispatchCpuBudgetUs = 4'000;
+    constexpr std::uint64_t LocalDispatchNominalFrameUs = 16'667;
+    constexpr int LocalDispatchMaxAdaptiveDelayMs = 250;
     constexpr int FallbackMaxOutgoingNetworkBatchesPerSecond = 20;
     constexpr int FallbackMaxOutgoingStrokesPerBatch = 20;
     constexpr int ConservativeReplicationCapacityNumerator = 4;
@@ -371,6 +373,45 @@ namespace runtime_contract
         return max_value(1, requested_delay_ms);
     }
 
+    // PaintAtUVWithBrush is a game-thread-only, non-preemptible call.  A
+    // post-call slice check cannot enforce the CPU budget when one call alone
+    // exceeds it, so convert the overrun into idle time before the next slice.
+    // This keeps average paint occupancy within the existing 4 ms per nominal
+    // 60 Hz frame budget without slowing calls that already fit the network
+    // cadence.
+    constexpr int local_dispatch_adaptive_delay_ms(
+        int requested_delay_ms,
+        std::uint64_t observed_dispatch_us)
+    {
+        const int base_delay = recurring_scheduler_delay_ms(requested_delay_ms);
+        if (observed_dispatch_us == 0 ||
+            LocalDispatchCpuBudgetUs >= LocalDispatchNominalFrameUs)
+        {
+            return base_delay;
+        }
+        constexpr std::uint64_t idle_ratio_numerator =
+            LocalDispatchNominalFrameUs - LocalDispatchCpuBudgetUs;
+        constexpr std::uint64_t delay_denominator =
+            LocalDispatchCpuBudgetUs * 1'000;
+        constexpr std::uint64_t capped_observation_us =
+            (static_cast<std::uint64_t>(
+                 LocalDispatchMaxAdaptiveDelayMs) *
+                 delay_denominator +
+             idle_ratio_numerator - 1) /
+            idle_ratio_numerator;
+        if (observed_dispatch_us >= capped_observation_us)
+        {
+            return max_value(
+                base_delay,
+                LocalDispatchMaxAdaptiveDelayMs);
+        }
+        const auto adaptive_delay_ms = static_cast<int>(
+            (observed_dispatch_us * idle_ratio_numerator +
+             delay_denominator - 1) /
+            delay_denominator);
+        return max_value(base_delay, adaptive_delay_ms);
+    }
+
     struct SpatialScanlineKey
     {
         int row;
@@ -634,6 +675,38 @@ namespace runtime_contract
         return result;
     }
 
+    struct EnvironmentProjectedCaptureInput
+    {
+        double screen_x{0.5};
+        double screen_y{0.5};
+    };
+
+    struct EnvironmentProjectedCaptureResult
+    {
+        bool ok{false};
+        double capture_u{0.5};
+        double capture_v{0.5};
+    };
+
+    inline EnvironmentProjectedCaptureResult
+    environment_projected_capture_coordinate(
+        const EnvironmentProjectedCaptureInput& input)
+    {
+        EnvironmentProjectedCaptureResult out{};
+        if (!std::isfinite(input.screen_x) ||
+            !std::isfinite(input.screen_y) ||
+            input.screen_x < 0.0 ||
+            input.screen_x > 1.0 ||
+            input.screen_y < 0.0 ||
+            input.screen_y > 1.0)
+        {
+            return out;
+        }
+        out.ok = true;
+        out.capture_u = input.screen_x;
+        out.capture_v = input.screen_y;
+        return out;
+    }
     enum class ReplayPass
     {
         Fill,
@@ -875,21 +948,6 @@ namespace runtime_contract
         return runtime_triangle_uv_valid
                    ? AppearancePaintUvRoute::RuntimeTriangle
                    : AppearancePaintUvRoute::Invalid;
-    }
-
-    constexpr bool appearance_should_resolve_screen_hit_uv(
-        bool auto_material,
-        bool any_paint_region,
-        bool image_paint,
-        bool research_screen_hit_requested)
-    {
-        // The validated runtime-triangle cache is the production paint-UV
-        // source. HitTestAtScreenPosition is retained as an explicit research
-        // cross-check, not a per-sample production prerequisite.
-        return auto_material &&
-               any_paint_region &&
-               !image_paint &&
-               research_screen_hit_requested;
     }
 
     inline bool appearance_normalized_screen_position_valid(
@@ -1333,6 +1391,227 @@ namespace runtime_contract
                 isolated_hdr.b -
                     appearance_srgb_to_linear(base_srgb.b)),
         };
+    }
+
+    constexpr double AppearanceEmissionRescuePeakSrgb = 1.0;
+
+    struct AppearanceEmissionColorRescue
+    {
+        AppearanceRgb albedo_srgb{};
+        bool applied{false};
+        double residual_luminance{0.0};
+    };
+
+    inline AppearanceEmissionColorRescue
+    appearance_rescue_emission_color(
+        const AppearanceRgb& base_srgb,
+        const AppearanceRgb& isolated_hdr,
+        double residual_threshold)
+    {
+        AppearanceEmissionColorRescue out{};
+        out.albedo_srgb = appearance_clamp_albedo(base_srgb);
+        if (!appearance_rgb_finite(base_srgb) ||
+            !appearance_rgb_finite(isolated_hdr) ||
+            !std::isfinite(residual_threshold))
+        {
+            return out;
+        }
+
+        const auto residual =
+            appearance_intrinsic_emission_residual(
+                isolated_hdr,
+                base_srgb);
+        out.residual_luminance =
+            appearance_luminance(residual);
+        const auto threshold =
+            std::max(0.0, residual_threshold);
+        if (!std::isfinite(out.residual_luminance) ||
+            out.residual_luminance <= threshold)
+        {
+            return out;
+        }
+
+        // Emission is used only as a colour source. A channel-wise HDR
+        // compression prevents raw emitter ratios from turning warm lights
+        // unnaturally yellow, then a fixed sRGB peak deliberately discards
+        // source intensity so the result remains ordinary bounded Albedo.
+        const AppearanceRgb compressed_linear{
+            residual.r / (1.0 + residual.r),
+            residual.g / (1.0 + residual.g),
+            residual.b / (1.0 + residual.b)};
+        const auto peak =
+            std::max({compressed_linear.r,
+                      compressed_linear.g,
+                      compressed_linear.b});
+        if (!std::isfinite(peak) || peak <= 0.000001)
+        {
+            return out;
+        }
+        const auto target_linear_peak =
+            appearance_srgb_to_linear(
+                AppearanceEmissionRescuePeakSrgb);
+        const auto scale = target_linear_peak / peak;
+        const AppearanceRgb rescued_srgb{
+            appearance_linear_to_srgb(
+                std::clamp(
+                    compressed_linear.r * scale,
+                    0.0,
+                    1.0)),
+            appearance_linear_to_srgb(
+                std::clamp(
+                    compressed_linear.g * scale,
+                    0.0,
+                    1.0)),
+            appearance_linear_to_srgb(
+                std::clamp(
+                    compressed_linear.b * scale,
+                    0.0,
+                    1.0))};
+        auto confidence = std::clamp(
+            (out.residual_luminance - threshold) /
+                std::max(0.01, threshold),
+            0.0,
+            1.0);
+        confidence =
+            confidence * confidence *
+            (3.0 - 2.0 * confidence);
+        out.albedo_srgb = appearance_clamp_albedo(
+            {out.albedo_srgb.r +
+                 (rescued_srgb.r - out.albedo_srgb.r) *
+                     confidence,
+             out.albedo_srgb.g +
+                 (rescued_srgb.g - out.albedo_srgb.g) *
+                     confidence,
+             out.albedo_srgb.b +
+                 (rescued_srgb.b - out.albedo_srgb.b) *
+                     confidence});
+        out.applied = confidence > 0.0;
+        return out;
+    }
+
+    struct AppearanceClosedLoopCorrectionInput
+    {
+        AppearanceRgb albedo_linear{};
+        double emissive{0.0};
+        AppearanceRgb source_hdr{};
+        AppearanceRgb rendered_hdr{};
+        bool intrinsic_emission_roi{false};
+    };
+
+    struct AppearanceClosedLoopCorrection
+    {
+        bool supported{false};
+        AppearanceRgb albedo_linear{};
+        double emissive{0.0};
+        double display_error{0.0};
+    };
+
+    inline AppearanceClosedLoopCorrection
+    appearance_albedo_closed_loop_correction(
+        const AppearanceClosedLoopCorrectionInput& input)
+    {
+        AppearanceClosedLoopCorrection out{};
+        out.albedo_linear =
+            appearance_clamp_albedo(input.albedo_linear);
+        // The Albedo feedback pass must never create, remove, or otherwise
+        // optimise Emissive.  Emissive has a separate measured-response gate;
+        // coupling it to the broad colour-loss improvement is what allowed
+        // false white points to ride along with a valid Albedo correction.
+        out.emissive = std::clamp(input.emissive, 0.0, 1.0);
+        if (!appearance_rgb_finite(input.albedo_linear) ||
+            !appearance_rgb_finite(input.source_hdr) ||
+            !appearance_rgb_finite(input.rendered_hdr) ||
+            !std::isfinite(input.emissive) ||
+            input.source_hdr.r < 0.0 ||
+            input.source_hdr.g < 0.0 ||
+            input.source_hdr.b < 0.0 ||
+            input.rendered_hdr.r < 0.0 ||
+            input.rendered_hdr.g < 0.0 ||
+            input.rendered_hdr.b < 0.0)
+        {
+            return out;
+        }
+
+        const auto source_display =
+            appearance_reinhard_display(input.source_hdr);
+        const auto rendered_display =
+            appearance_reinhard_display(input.rendered_hdr);
+        const std::array<double, 3> albedo{
+            out.albedo_linear.r,
+            out.albedo_linear.g,
+            out.albedo_linear.b};
+        const std::array<double, 3> source{
+            source_display.r,
+            source_display.g,
+            source_display.b};
+        const std::array<double, 3> rendered{
+            rendered_display.r,
+            rendered_display.g,
+            rendered_display.b};
+        std::array<double, 3> corrected = albedo;
+        constexpr double response_floor = 1.0 / 255.0;
+        constexpr double maximum_ratio_per_pass = 2.0;
+        constexpr double albedo_step = 0.75;
+        double display_error = 0.0;
+        for (std::size_t channel = 0;
+             channel < corrected.size();
+             ++channel)
+        {
+            display_error +=
+                std::abs(source[channel] - rendered[channel]);
+            const auto ratio = std::clamp(
+                (source[channel] + response_floor) /
+                    (rendered[channel] + response_floor),
+                1.0 / maximum_ratio_per_pass,
+                maximum_ratio_per_pass);
+            corrected[channel] = std::clamp(
+                std::max(albedo[channel], response_floor) *
+                    std::pow(ratio, albedo_step),
+                0.0,
+                1.0);
+        }
+        out.albedo_linear =
+            {corrected[0], corrected[1], corrected[2]};
+        out.display_error = display_error / 3.0;
+
+        out.supported = true;
+        return out;
+    }
+
+    inline AppearanceClosedLoopCorrection
+    appearance_closed_loop_correction(
+        const AppearanceClosedLoopCorrectionInput& input)
+    {
+        auto out =
+            appearance_albedo_closed_loop_correction(input);
+        out.emissive = input.intrinsic_emission_roi
+                           ? std::clamp(input.emissive, 0.0, 1.0)
+                           : 0.0;
+        if (!out.supported)
+        {
+            return out;
+        }
+        if (input.intrinsic_emission_roi)
+        {
+            const auto source_luminance =
+                std::max(0.0, appearance_luminance(input.source_hdr));
+            const auto rendered_luminance =
+                std::max(0.0, appearance_luminance(input.rendered_hdr));
+            const auto log_luminance_error =
+                std::log1p(source_luminance) -
+                std::log1p(rendered_luminance);
+            constexpr double emissive_step = 0.50;
+            constexpr double maximum_emissive_delta_per_pass = 0.35;
+            const auto emissive_delta = std::clamp(
+                log_luminance_error * emissive_step,
+                -maximum_emissive_delta_per_pass,
+                maximum_emissive_delta_per_pass);
+            out.emissive = std::clamp(
+                out.emissive + emissive_delta,
+                0.0,
+                1.0);
+        }
+        return out;
     }
 
     inline AppearanceRgb appearance_emission_chromaticity_albedo(
@@ -2035,6 +2314,784 @@ namespace runtime_contract
                 (endpoint_parameter - baseline_parameter) * projected,
             minimum_parameter,
             maximum_parameter);
+        return out;
+    }
+
+    constexpr double AppearancePhysicalEmissionReadbackFloor =
+        1.0 / 255.0;
+    constexpr double AppearancePhysicalEmissionMaximumChromaticityDelta =
+        0.10;
+
+    struct AppearancePhysicalEmissionEvidenceInput
+    {
+        AppearanceRgb source_residual_first{};
+        AppearanceRgb source_residual_second{};
+        double source_noise_floor_first{
+            std::numeric_limits<double>::infinity()};
+        double source_noise_floor_second{
+            std::numeric_limits<double>::infinity()};
+        AppearanceRgb source_hdr{};
+        AppearanceRgb baseline_hdr{};
+        AppearanceRgb endpoint_hdr{};
+        double manual_emissive_floor{0.0};
+        // Retained for diagnostics only.  A globally inseparable histogram
+        // must not disable a locally repeatable source residual.
+        bool source_distribution_separated{false};
+        bool camera_stable{false};
+        bool readback_calibrated{false};
+        bool packed_b_verified{false};
+    };
+
+    struct AppearancePhysicalEmissionEvidence
+    {
+        bool source_supported{false};
+        bool source_noise_floor_calibrated{false};
+        bool source_first_above_noise_floor{false};
+        bool source_second_above_noise_floor{false};
+        bool target_response_supported{false};
+        bool accepted{false};
+        double inferred_emissive{0.0};
+        double composed_emissive{0.0};
+        double source_repeatability_error{
+            std::numeric_limits<double>::infinity()};
+        double source_chromaticity_delta{
+            std::numeric_limits<double>::infinity()};
+        double response_energy{0.0};
+        double baseline_loss{
+            std::numeric_limits<double>::infinity()};
+        double candidate_loss{
+            std::numeric_limits<double>::infinity()};
+    };
+
+    inline double appearance_compose_physical_emissive(
+        double manual_emissive_floor,
+        double inferred_emissive)
+    {
+        if (!std::isfinite(manual_emissive_floor) ||
+            !std::isfinite(inferred_emissive))
+        {
+            return 0.0;
+        }
+        return std::max(
+            std::clamp(manual_emissive_floor, 0.0, 1.0),
+            std::clamp(inferred_emissive, 0.0, 1.0));
+    }
+
+    struct AppearancePhysicalEmissionMaterialInput
+    {
+        AppearanceRgb albedo{};
+        AppearanceRgb source_residual_first{};
+        AppearanceRgb source_residual_second{};
+        double manual_emissive_floor{0.0};
+        double inferred_emissive{0.0};
+        bool dual_evidence_accepted{false};
+    };
+
+    struct AppearancePhysicalEmissionMaterial
+    {
+        AppearanceRgb albedo{};
+        double emissive{0.0};
+        bool chromaticity_carrier_applied{false};
+    };
+
+    inline AppearancePhysicalEmissionMaterial
+    appearance_compose_physical_emission_material(
+        const AppearancePhysicalEmissionMaterialInput& input)
+    {
+        AppearancePhysicalEmissionMaterial out{};
+        out.albedo = appearance_clamp_albedo(input.albedo);
+        out.emissive = appearance_compose_physical_emissive(
+            input.manual_emissive_floor,
+            input.inferred_emissive);
+        if (!input.dual_evidence_accepted ||
+            !appearance_rgb_finite(input.source_residual_first) ||
+            !appearance_rgb_finite(input.source_residual_second))
+        {
+            return out;
+        }
+
+        const AppearanceRgb mean_positive_residual{
+            std::max(
+                0.0,
+                (input.source_residual_first.r +
+                 input.source_residual_second.r) *
+                    0.5),
+            std::max(
+                0.0,
+                (input.source_residual_first.g +
+                 input.source_residual_second.g) *
+                    0.5),
+            std::max(
+                0.0,
+                (input.source_residual_first.b +
+                 input.source_residual_second.b) *
+                    0.5)};
+        const auto peak = std::max(
+            {mean_positive_residual.r,
+             mean_positive_residual.g,
+             mean_positive_residual.b});
+        if (!std::isfinite(peak) || peak <= 0.000001)
+        {
+            return out;
+        }
+
+        // The game exposes Emissive as one scalar, so a physically validated
+        // emitter needs its source chromaticity carried by bounded Albedo.
+        // This is deliberately composed only after both source evidence and
+        // target response have passed; callers retain the independent best
+        // Albedo state and restore it if final component validation rejects E.
+        out.albedo = appearance_emission_chromaticity_albedo(
+            mean_positive_residual,
+            out.albedo);
+        out.chromaticity_carrier_applied = true;
+        return out;
+    }
+
+    inline AppearancePhysicalEmissionEvidence
+    appearance_physical_emission_evidence(
+        const AppearancePhysicalEmissionEvidenceInput& input)
+    {
+        AppearancePhysicalEmissionEvidence out{};
+        const auto manual_floor =
+            std::clamp(input.manual_emissive_floor, 0.0, 1.0);
+        out.inferred_emissive = manual_floor;
+        out.composed_emissive = manual_floor;
+        if (!appearance_rgb_finite(input.source_residual_first) ||
+            !appearance_rgb_finite(input.source_residual_second) ||
+            !appearance_rgb_finite(input.source_hdr) ||
+            !appearance_rgb_finite(input.baseline_hdr) ||
+            !appearance_rgb_finite(input.endpoint_hdr) ||
+            !std::isfinite(input.manual_emissive_floor))
+        {
+            return out;
+        }
+
+        const auto positive = [](const AppearanceRgb& value) {
+            return AppearanceRgb{
+                std::max(0.0, value.r),
+                std::max(0.0, value.g),
+                std::max(0.0, value.b)};
+        };
+        const auto first = positive(input.source_residual_first);
+        const auto second = positive(input.source_residual_second);
+        const AppearanceRgb repeatability_delta{
+            std::abs(first.r - second.r),
+            std::abs(first.g - second.g),
+            std::abs(first.b - second.b)};
+        const auto first_luminance = appearance_luminance(first);
+        const auto second_luminance = appearance_luminance(second);
+        const auto minimum_luminance =
+            std::min(first_luminance, second_luminance);
+        out.source_noise_floor_calibrated =
+            std::isfinite(input.source_noise_floor_first) &&
+            input.source_noise_floor_first >= 0.0 &&
+            std::isfinite(input.source_noise_floor_second) &&
+            input.source_noise_floor_second >= 0.0;
+        const auto first_noise_floor =
+            std::max(
+                AppearancePhysicalEmissionReadbackFloor,
+                input.source_noise_floor_first);
+        const auto second_noise_floor =
+            std::max(
+                AppearancePhysicalEmissionReadbackFloor,
+                input.source_noise_floor_second);
+        out.source_first_above_noise_floor =
+            out.source_noise_floor_calibrated &&
+            first_luminance > first_noise_floor;
+        out.source_second_above_noise_floor =
+            out.source_noise_floor_calibrated &&
+            second_luminance > second_noise_floor;
+        out.source_repeatability_error =
+            appearance_luminance(repeatability_delta);
+        out.source_chromaticity_delta =
+            appearance_rgb_chromaticity_delta(first, second);
+        out.source_supported =
+            out.source_first_above_noise_floor &&
+            out.source_second_above_noise_floor &&
+            std::isfinite(minimum_luminance) &&
+            minimum_luminance >
+                out.source_repeatability_error +
+                    AppearancePhysicalEmissionReadbackFloor &&
+            std::isfinite(out.source_chromaticity_delta) &&
+            out.source_chromaticity_delta <=
+                AppearancePhysicalEmissionMaximumChromaticityDelta;
+
+        if (manual_floor >= 1.0 ||
+            !input.camera_stable ||
+            !input.readback_calibrated ||
+            !input.packed_b_verified)
+        {
+            return out;
+        }
+        const auto calibrated =
+            appearance_calibrate_bounded_response(
+                input.source_hdr,
+                input.baseline_hdr,
+                input.endpoint_hdr,
+                manual_floor,
+                1.0,
+                manual_floor,
+                1.0);
+        out.response_energy = calibrated.response_energy;
+        if (!calibrated.supported ||
+            appearance_luminance(input.endpoint_hdr) <=
+                appearance_luminance(input.baseline_hdr) + 0.0001)
+        {
+            return out;
+        }
+
+        const auto log_channel = [](double channel) {
+            return std::log1p(std::max(0.0, channel));
+        };
+        const auto interpolation =
+            (calibrated.parameter - manual_floor) /
+            std::max(0.000001, 1.0 - manual_floor);
+        const std::array<double, 3> source{
+            log_channel(input.source_hdr.r),
+            log_channel(input.source_hdr.g),
+            log_channel(input.source_hdr.b)};
+        const std::array<double, 3> baseline{
+            log_channel(input.baseline_hdr.r),
+            log_channel(input.baseline_hdr.g),
+            log_channel(input.baseline_hdr.b)};
+        const std::array<double, 3> endpoint{
+            log_channel(input.endpoint_hdr.r),
+            log_channel(input.endpoint_hdr.g),
+            log_channel(input.endpoint_hdr.b)};
+        out.baseline_loss = 0.0;
+        out.candidate_loss = 0.0;
+        for (std::size_t channel = 0; channel < source.size(); ++channel)
+        {
+            const auto predicted =
+                baseline[channel] +
+                (endpoint[channel] - baseline[channel]) *
+                    interpolation;
+            out.baseline_loss +=
+                appearance_huber_loss(
+                    source[channel] - baseline[channel]);
+            out.candidate_loss +=
+                appearance_huber_loss(
+                    source[channel] - predicted);
+        }
+        out.baseline_loss /= 3.0;
+        out.candidate_loss /= 3.0;
+        const auto manual_quantized =
+            std::llround(manual_floor * 255.0);
+        const auto inferred_quantized =
+            std::llround(calibrated.parameter * 255.0);
+        out.target_response_supported =
+            inferred_quantized > manual_quantized &&
+            std::isfinite(out.baseline_loss) &&
+            std::isfinite(out.candidate_loss) &&
+            out.candidate_loss + 0.000001 < out.baseline_loss;
+        out.inferred_emissive = calibrated.parameter;
+        out.accepted =
+            out.source_supported &&
+            out.target_response_supported;
+        if (out.accepted)
+        {
+            out.composed_emissive =
+                appearance_compose_physical_emissive(
+                    manual_floor,
+                    out.inferred_emissive);
+        }
+        return out;
+    }
+
+    enum class AppearancePhysicalEmissionComponentRejection
+    {
+        None,
+        DualEvidenceUnavailable,
+        CameraUnstable,
+        ReadbackUncalibrated,
+        PackedBNotVerified,
+        QuantizedEmissiveZero,
+        NonEmissionLossRegressed,
+        RoiImprovementBelowThreshold,
+    };
+
+    struct AppearancePhysicalEmissionComponentValidationInput
+    {
+        int paired_samples{0};
+        double baseline_loss{
+            std::numeric_limits<double>::infinity()};
+        double candidate_loss{
+            std::numeric_limits<double>::infinity()};
+        int non_emission_paired_samples{0};
+        double baseline_non_emission_loss{
+            std::numeric_limits<double>::infinity()};
+        double candidate_non_emission_loss{
+            std::numeric_limits<double>::infinity()};
+        bool dual_evidence_prevalidated{false};
+        bool camera_stable{false};
+        bool readback_calibrated{false};
+        bool packed_b_verified{false};
+        int painted_emissive_nonzero_pixels{0};
+    };
+
+    struct AppearancePhysicalEmissionComponentValidation
+    {
+        bool accepted{false};
+        AppearancePhysicalEmissionComponentRejection rejection{
+            AppearancePhysicalEmissionComponentRejection::
+                DualEvidenceUnavailable};
+        double roi_improvement{
+            -std::numeric_limits<double>::infinity()};
+        double non_emission_loss_delta{
+            std::numeric_limits<double>::infinity()};
+    };
+
+    inline AppearancePhysicalEmissionComponentValidation
+    appearance_validate_physical_emission_component(
+        const AppearancePhysicalEmissionComponentValidationInput& input)
+    {
+        AppearancePhysicalEmissionComponentValidation out{};
+        if (!input.dual_evidence_prevalidated)
+        {
+            return out;
+        }
+        if (!input.camera_stable)
+        {
+            out.rejection =
+                AppearancePhysicalEmissionComponentRejection::
+                    CameraUnstable;
+            return out;
+        }
+        if (!input.readback_calibrated)
+        {
+            out.rejection =
+                AppearancePhysicalEmissionComponentRejection::
+                    ReadbackUncalibrated;
+            return out;
+        }
+        if (!input.packed_b_verified)
+        {
+            out.rejection =
+                AppearancePhysicalEmissionComponentRejection::
+                    PackedBNotVerified;
+            return out;
+        }
+        if (input.painted_emissive_nonzero_pixels <= 0)
+        {
+            out.rejection =
+                AppearancePhysicalEmissionComponentRejection::
+                    QuantizedEmissiveZero;
+            return out;
+        }
+
+        out.non_emission_loss_delta =
+            input.non_emission_paired_samples > 0 &&
+                    std::isfinite(input.baseline_non_emission_loss) &&
+                    std::isfinite(input.candidate_non_emission_loss)
+                ? input.candidate_non_emission_loss -
+                      input.baseline_non_emission_loss
+                : 0.0;
+        if (input.non_emission_paired_samples > 0 &&
+            (!std::isfinite(out.non_emission_loss_delta) ||
+             out.non_emission_loss_delta > 0.01))
+        {
+            out.rejection =
+                AppearancePhysicalEmissionComponentRejection::
+                    NonEmissionLossRegressed;
+            return out;
+        }
+
+        // A one-sample component is valid.  When the fixed calibration
+        // lattice does not land inside an even smaller emitter, the source
+        // residual and E=1 response remain the two physical proofs; the final
+        // capture still has to preserve the surrounding non-emissive field.
+        if (input.paired_samples > 0)
+        {
+            out.roi_improvement =
+                std::isfinite(input.baseline_loss) &&
+                        std::isfinite(input.candidate_loss) &&
+                        input.baseline_loss > 0.0
+                    ? (input.baseline_loss - input.candidate_loss) /
+                          input.baseline_loss
+                    : -std::numeric_limits<double>::infinity();
+            if (!std::isfinite(out.roi_improvement) ||
+                out.roi_improvement <
+                    AppearanceFitMinimumImprovement)
+            {
+                out.rejection =
+                    AppearancePhysicalEmissionComponentRejection::
+                        RoiImprovementBelowThreshold;
+                return out;
+            }
+        }
+
+        out.accepted = true;
+        out.rejection =
+            AppearancePhysicalEmissionComponentRejection::None;
+        return out;
+    }
+
+    enum class AppearanceCorrectionBoundary
+    {
+        Front,
+        Back,
+    };
+
+    enum class AppearanceCorrectionFieldFailure
+    {
+        None,
+        InvalidInput,
+        SideUnanchored,
+    };
+
+    struct AppearanceCorrectionFieldEdge
+    {
+        int first{-1};
+        int second{-1};
+    };
+
+    struct AppearanceCorrectionFieldAnchor
+    {
+        int vertex{-1};
+        AppearanceRgb value{};
+        double weight{0.0};
+        AppearanceCorrectionBoundary boundary{
+            AppearanceCorrectionBoundary::Front};
+    };
+
+    struct AppearanceCorrectionFieldInput
+    {
+        int vertex_count{0};
+        std::vector<AppearanceCorrectionFieldEdge> edges{};
+        std::vector<bool> side_vertices{};
+        std::vector<AppearanceCorrectionFieldAnchor> anchors{};
+    };
+
+    struct AppearanceCorrectionFieldResult
+    {
+        bool ok{false};
+        AppearanceCorrectionFieldFailure failure{
+            AppearanceCorrectionFieldFailure::None};
+        std::vector<AppearanceRgb> values{};
+        std::vector<bool> resolved{};
+        int front_anchor_vertices{0};
+        int back_anchor_vertices{0};
+        int side_components{0};
+        int one_boundary_side_components{0};
+        int unanchored_side_components{0};
+        int iterations{0};
+        std::uint64_t hash{1469598103934665603ULL};
+    };
+
+    inline AppearanceCorrectionFieldResult
+    appearance_solve_correction_field(
+        const AppearanceCorrectionFieldInput& input)
+    {
+        AppearanceCorrectionFieldResult out{};
+        if (input.vertex_count <= 0 ||
+            input.side_vertices.size() !=
+                static_cast<std::size_t>(input.vertex_count))
+        {
+            out.failure =
+                AppearanceCorrectionFieldFailure::InvalidInput;
+            return out;
+        }
+
+        std::vector<std::vector<int>> adjacency(
+            static_cast<std::size_t>(input.vertex_count));
+        for (const auto& edge : input.edges)
+        {
+            if (edge.first < 0 || edge.second < 0 ||
+                edge.first >= input.vertex_count ||
+                edge.second >= input.vertex_count ||
+                edge.first == edge.second)
+            {
+                out.failure =
+                    AppearanceCorrectionFieldFailure::InvalidInput;
+                return out;
+            }
+            adjacency[static_cast<std::size_t>(edge.first)]
+                .push_back(edge.second);
+            adjacency[static_cast<std::size_t>(edge.second)]
+                .push_back(edge.first);
+        }
+        for (auto& neighbours : adjacency)
+        {
+            std::sort(neighbours.begin(), neighbours.end());
+            neighbours.erase(
+                std::unique(neighbours.begin(), neighbours.end()),
+                neighbours.end());
+        }
+
+        struct WeightedValue
+        {
+            double value{0.0};
+            double weight{0.0};
+        };
+        std::vector<std::array<std::vector<WeightedValue>, 3>>
+            contributions(
+                static_cast<std::size_t>(input.vertex_count));
+        std::vector<bool> front_anchor(
+            static_cast<std::size_t>(input.vertex_count),
+            false);
+        std::vector<bool> back_anchor(
+            static_cast<std::size_t>(input.vertex_count),
+            false);
+        for (const auto& anchor : input.anchors)
+        {
+            if (anchor.vertex < 0 ||
+                anchor.vertex >= input.vertex_count ||
+                !appearance_rgb_finite(anchor.value) ||
+                !std::isfinite(anchor.weight) ||
+                anchor.weight <= 0.0)
+            {
+                continue;
+            }
+            auto& target =
+                contributions[
+                    static_cast<std::size_t>(anchor.vertex)];
+            target[0].push_back({anchor.value.r, anchor.weight});
+            target[1].push_back({anchor.value.g, anchor.weight});
+            target[2].push_back({anchor.value.b, anchor.weight});
+            if (anchor.boundary ==
+                AppearanceCorrectionBoundary::Front)
+            {
+                front_anchor[
+                    static_cast<std::size_t>(anchor.vertex)] = true;
+            }
+            else
+            {
+                back_anchor[
+                    static_cast<std::size_t>(anchor.vertex)] = true;
+            }
+        }
+
+        out.values.assign(
+            static_cast<std::size_t>(input.vertex_count),
+            {});
+        out.resolved.assign(
+            static_cast<std::size_t>(input.vertex_count),
+            false);
+        std::vector<bool> anchored(
+            static_cast<std::size_t>(input.vertex_count),
+            false);
+        const auto weighted_median =
+            [](std::vector<WeightedValue> values) {
+                std::sort(
+                    values.begin(),
+                    values.end(),
+                    [](const auto& left, const auto& right) {
+                        if (left.value != right.value)
+                        {
+                            return left.value < right.value;
+                        }
+                        return left.weight < right.weight;
+                    });
+                double total = 0.0;
+                for (const auto& value : values)
+                {
+                    total += value.weight;
+                }
+                const auto middle = total * 0.5;
+                double cumulative = 0.0;
+                for (const auto& value : values)
+                {
+                    cumulative += value.weight;
+                    if (cumulative >= middle)
+                    {
+                        return value.value;
+                    }
+                }
+                return values.empty() ? 0.0 : values.back().value;
+            };
+        for (int vertex = 0; vertex < input.vertex_count; ++vertex)
+        {
+            const auto index = static_cast<std::size_t>(vertex);
+            if (contributions[index][0].empty())
+            {
+                continue;
+            }
+            out.values[index] = {
+                weighted_median(contributions[index][0]),
+                weighted_median(contributions[index][1]),
+                weighted_median(contributions[index][2])};
+            anchored[index] = true;
+            out.resolved[index] = true;
+            out.front_anchor_vertices += front_anchor[index] ? 1 : 0;
+            out.back_anchor_vertices += back_anchor[index] ? 1 : 0;
+        }
+
+        std::vector<int> component_by_vertex(
+            static_cast<std::size_t>(input.vertex_count),
+            -1);
+        std::vector<std::vector<int>> components{};
+        std::vector<int> stack{};
+        for (int first = 0; first < input.vertex_count; ++first)
+        {
+            if (component_by_vertex[
+                    static_cast<std::size_t>(first)] >= 0)
+            {
+                continue;
+            }
+            const auto component_index =
+                static_cast<int>(components.size());
+            components.push_back({});
+            stack.clear();
+            stack.push_back(first);
+            component_by_vertex[
+                static_cast<std::size_t>(first)] = component_index;
+            while (!stack.empty())
+            {
+                const auto vertex = stack.back();
+                stack.pop_back();
+                components.back().push_back(vertex);
+                for (const auto neighbour :
+                     adjacency[static_cast<std::size_t>(vertex)])
+                {
+                    if (component_by_vertex[
+                            static_cast<std::size_t>(neighbour)] >= 0)
+                    {
+                        continue;
+                    }
+                    component_by_vertex[
+                        static_cast<std::size_t>(neighbour)] =
+                        component_index;
+                    stack.push_back(neighbour);
+                }
+            }
+        }
+
+        for (const auto& component : components)
+        {
+            bool has_side = false;
+            bool has_front = false;
+            bool has_back = false;
+            int anchor_count = 0;
+            AppearanceRgb anchor_mean{};
+            for (const auto vertex : component)
+            {
+                const auto index = static_cast<std::size_t>(vertex);
+                has_side = has_side || input.side_vertices[index];
+                has_front = has_front || front_anchor[index];
+                has_back = has_back || back_anchor[index];
+                if (anchored[index])
+                {
+                    anchor_mean.r += out.values[index].r;
+                    anchor_mean.g += out.values[index].g;
+                    anchor_mean.b += out.values[index].b;
+                    ++anchor_count;
+                }
+            }
+            if (has_side)
+            {
+                ++out.side_components;
+            }
+            if (has_side && anchor_count == 0)
+            {
+                ++out.unanchored_side_components;
+                continue;
+            }
+            if (has_side && (has_front != has_back))
+            {
+                ++out.one_boundary_side_components;
+            }
+            if (anchor_count == 0)
+            {
+                continue;
+            }
+            anchor_mean.r /= static_cast<double>(anchor_count);
+            anchor_mean.g /= static_cast<double>(anchor_count);
+            anchor_mean.b /= static_cast<double>(anchor_count);
+            for (const auto vertex : component)
+            {
+                const auto index = static_cast<std::size_t>(vertex);
+                if (!anchored[index])
+                {
+                    out.values[index] = anchor_mean;
+                    out.resolved[index] = true;
+                }
+            }
+        }
+
+        constexpr int maximum_iterations = 512;
+        constexpr double convergence_epsilon = 0.0000001;
+        auto next = out.values;
+        for (int iteration = 0; iteration < maximum_iterations; ++iteration)
+        {
+            double maximum_delta = 0.0;
+            for (int vertex = 0; vertex < input.vertex_count; ++vertex)
+            {
+                const auto index = static_cast<std::size_t>(vertex);
+                if (anchored[index] || !out.resolved[index] ||
+                    adjacency[index].empty())
+                {
+                    next[index] = out.values[index];
+                    continue;
+                }
+                AppearanceRgb average{};
+                int neighbours = 0;
+                for (const auto neighbour : adjacency[index])
+                {
+                    const auto neighbour_index =
+                        static_cast<std::size_t>(neighbour);
+                    if (!out.resolved[neighbour_index])
+                    {
+                        continue;
+                    }
+                    average.r += out.values[neighbour_index].r;
+                    average.g += out.values[neighbour_index].g;
+                    average.b += out.values[neighbour_index].b;
+                    ++neighbours;
+                }
+                if (neighbours <= 0)
+                {
+                    continue;
+                }
+                average.r /= static_cast<double>(neighbours);
+                average.g /= static_cast<double>(neighbours);
+                average.b /= static_cast<double>(neighbours);
+                maximum_delta = std::max(
+                    maximum_delta,
+                    std::max({
+                        std::abs(
+                            average.r - out.values[index].r),
+                        std::abs(
+                            average.g - out.values[index].g),
+                        std::abs(
+                            average.b - out.values[index].b)}));
+                next[index] = average;
+            }
+            out.values.swap(next);
+            out.iterations = iteration + 1;
+            if (maximum_delta <= convergence_epsilon)
+            {
+                break;
+            }
+        }
+
+        const auto hash_mix = [&out](std::uint64_t value) {
+            out.hash ^= value;
+            out.hash *= 1099511628211ULL;
+        };
+        hash_mix(static_cast<std::uint64_t>(input.vertex_count));
+        for (std::size_t index = 0; index < out.values.size(); ++index)
+        {
+            hash_mix(out.resolved[index] ? 1ULL : 0ULL);
+            if (!out.resolved[index])
+            {
+                continue;
+            }
+            const std::array<double, 3> channels{
+                out.values[index].r,
+                out.values[index].g,
+                out.values[index].b};
+            for (const auto channel : channels)
+            {
+                const auto quantized = static_cast<std::uint64_t>(
+                    static_cast<std::int64_t>(
+                        std::llround(channel * 1000000.0)));
+                hash_mix(quantized);
+            }
+        }
+        out.ok = out.unanchored_side_components == 0;
+        out.failure = out.ok
+                          ? AppearanceCorrectionFieldFailure::None
+                          : AppearanceCorrectionFieldFailure::SideUnanchored;
         return out;
     }
 
@@ -3101,12 +4158,17 @@ namespace runtime_contract
         bool paint_eligible;
         bool safe;
         std::uint64_t material_key;
+        bool replay_relevant{true};
     };
 
     struct AdaptiveReplayEntry
     {
         ReplayEntry replay;
         double radius_multiplier{1.0};
+        bool has_color_override{false};
+        double r{0.0};
+        double g{0.0};
+        double b{0.0};
     };
 
     struct AdaptivePaintPlan
@@ -3118,6 +4180,10 @@ namespace runtime_contract
         bool adaptive_plan_parallel{false};
         bool adaptive_plan_avx2_available{false};
         bool adaptive_plan_avx2_used{false};
+        int coverage_grid_size{0};
+        std::size_t representative_paint_entries{0};
+        double representative_error_sum{0.0};
+        double representative_error_max{0.0};
     };
 
     inline bool adaptive_plan_avx2_available()
@@ -3179,13 +4245,34 @@ namespace runtime_contract
             }
             return plan;
         }
+        const bool has_paint_entry = std::any_of(
+            replay_entries.begin(),
+            replay_entries.end(),
+            [](const ReplayEntry& entry) {
+                return entry.pass == ReplayPass::Paint;
+            });
+        const auto relevant_sample_count =
+            static_cast<std::size_t>(std::count_if(
+                samples.begin(),
+                samples.end(),
+                [](const AdaptivePaintSample& sample) {
+                    return sample.replay_relevant;
+                }));
+        if (!has_paint_entry || relevant_sample_count == 0)
+        {
+            for (const auto& entry : replay_entries)
+            {
+                plan.entries.push_back({entry, 1.0});
+            }
+            return plan;
+        }
 
         int grid_size = 128;
-        if (samples.size() > 200000)
+        if (relevant_sample_count > 200000)
         {
             grid_size = 256;
         }
-        if (samples.size() > 500000)
+        if (relevant_sample_count > 500000)
         {
             grid_size = 512;
         }
@@ -3198,16 +4285,125 @@ namespace runtime_contract
         for (std::size_t index = 0; index < samples.size(); ++index)
         {
             const auto& sample = samples[index];
+            if (!sample.replay_relevant)
+            {
+                continue;
+            }
             grid[static_cast<std::size_t>(cell_coordinate(sample.v) * grid_size +
                                           cell_coordinate(sample.u))]
                 .push_back(index);
+        }
+
+        // Samples are generated on the same global lattice as the selected
+        // brush. Empty or conflicting lattice cells are hard expansion
+        // boundaries; this prevents an isolated sample or a UV hole from
+        // authorising an otherwise unbounded 8x stroke.
+        constexpr int max_coverage_grid_size = 2048;
+        const double inverse_coverage_step = 1.0 / base_radius_uv;
+        const bool coverage_grid_available =
+            std::isfinite(inverse_coverage_step) &&
+            inverse_coverage_step >= 1.0 &&
+            inverse_coverage_step <=
+                static_cast<double>(max_coverage_grid_size);
+        const int coverage_grid_size = coverage_grid_available
+                                           ? std::max(
+                                                 1,
+                                                 static_cast<int>(
+                                                     std::ceil(
+                                                         inverse_coverage_step -
+                                                         0.000000001)))
+                                           : 0;
+        plan.coverage_grid_size = coverage_grid_size;
+        struct CoverageCellSummary
+        {
+            bool payload_uniform{true};
+            bool paint_eligible{false};
+            bool safe{false};
+            ReplayRegion region{ReplayRegion::Front};
+            int uv_island{-1};
+            std::uint64_t material_key{0};
+            double min_r{0.0};
+            double min_g{0.0};
+            double min_b{0.0};
+            double max_r{0.0};
+            double max_g{0.0};
+            double max_b{0.0};
+        };
+        std::vector<std::int32_t> coverage_cell_indices(
+            static_cast<std::size_t>(coverage_grid_size) *
+                static_cast<std::size_t>(coverage_grid_size),
+            -1);
+        std::vector<CoverageCellSummary> coverage_cell_summaries{};
+        coverage_cell_summaries.reserve(
+            std::min(
+                samples.size(),
+                coverage_cell_indices.size()));
+        const auto coverage_cell_coordinate = [&](double value) {
+            return std::clamp(
+                static_cast<int>(
+                    std::floor(
+                        std::clamp(value, 0.0, 1.0) /
+                        base_radius_uv)),
+                0,
+                std::max(0, coverage_grid_size - 1));
+        };
+        if (coverage_grid_available)
+        {
+            for (const auto& sample : samples)
+            {
+                if (!sample.replay_relevant)
+                {
+                    continue;
+                }
+                auto& summary_index =
+                    coverage_cell_indices[static_cast<std::size_t>(
+                    coverage_cell_coordinate(sample.v) *
+                        coverage_grid_size +
+                    coverage_cell_coordinate(sample.u))];
+                if (summary_index < 0)
+                {
+                    summary_index = static_cast<std::int32_t>(
+                        coverage_cell_summaries.size());
+                    coverage_cell_summaries.push_back(
+                        {sample.paint_eligible && sample.safe,
+                         sample.paint_eligible,
+                         sample.safe,
+                         sample.region,
+                         sample.uv_island,
+                         sample.material_key,
+                         sample.r,
+                         sample.g,
+                         sample.b,
+                         sample.r,
+                         sample.g,
+                         sample.b});
+                    continue;
+                }
+                auto& summary = coverage_cell_summaries[
+                    static_cast<std::size_t>(summary_index)];
+                summary.payload_uniform =
+                    summary.payload_uniform &&
+                    sample.paint_eligible && sample.safe &&
+                    summary.paint_eligible == sample.paint_eligible &&
+                    summary.safe == sample.safe &&
+                    summary.region == sample.region &&
+                    summary.uv_island == sample.uv_island &&
+                    summary.material_key == sample.material_key;
+                summary.min_r = std::min(summary.min_r, sample.r);
+                summary.min_g = std::min(summary.min_g, sample.g);
+                summary.min_b = std::min(summary.min_b, sample.b);
+                summary.max_r = std::max(summary.max_r, sample.r);
+                summary.max_g = std::max(summary.max_g, sample.g);
+                summary.max_b = std::max(summary.max_b, sample.b);
+            }
         }
 
         const double threshold = std::clamp(tolerance_percent, 0.0, 10.0) / 100.0;
         const double threshold_squared = threshold * threshold;
         const auto same_payload = [](const AdaptivePaintSample& center,
                                      const AdaptivePaintSample& other) {
-            return center.paint_eligible && center.safe && other.paint_eligible && other.safe &&
+            return center.replay_relevant && other.replay_relevant &&
+                   center.paint_eligible && center.safe && other.paint_eligible && other.safe &&
                    center.region == other.region && center.uv_island == other.uv_island &&
                    center.material_key == other.material_key;
         };
@@ -3252,6 +4448,10 @@ namespace runtime_contract
                     for (const auto other_index : grid[static_cast<std::size_t>(cell_v * grid_size + cell_u)])
                     {
                         const auto& other = samples[other_index];
+                        if (!other.replay_relevant)
+                        {
+                            continue;
+                        }
                         const double du = other.u - center.u;
                         const double dv = other.v - center.v;
                         if (du * du + dv * dv <= radius_squared)
@@ -3262,6 +4462,108 @@ namespace runtime_contract
                 }
             }
         };
+        const auto coverage_distances =
+            [&](const AdaptivePaintSample& center,
+                double radius_uv) {
+                double nearest_blocker =
+                    std::numeric_limits<double>::infinity();
+                double nearest_support =
+                    std::numeric_limits<double>::infinity();
+                if (!coverage_grid_available)
+                {
+                    return std::make_pair(0.0, nearest_support);
+                }
+                const double safe_radius = std::max(0.0, radius_uv);
+                const double radius_squared = safe_radius * safe_radius;
+                const int center_cell_u =
+                    coverage_cell_coordinate(center.u);
+                const int center_cell_v =
+                    coverage_cell_coordinate(center.v);
+                const int min_u =
+                    coverage_cell_coordinate(center.u - safe_radius);
+                const int max_u =
+                    coverage_cell_coordinate(center.u + safe_radius);
+                const int min_v =
+                    coverage_cell_coordinate(center.v - safe_radius);
+                const int max_v =
+                    coverage_cell_coordinate(center.v + safe_radius);
+                for (int cell_v = min_v; cell_v <= max_v; ++cell_v)
+                {
+                    const double cell_center_v = std::min(
+                        1.0,
+                        (static_cast<double>(cell_v) + 0.5) *
+                            base_radius_uv);
+                    for (int cell_u = min_u; cell_u <= max_u; ++cell_u)
+                    {
+                        const double cell_center_u = std::min(
+                            1.0,
+                            (static_cast<double>(cell_u) + 0.5) *
+                                base_radius_uv);
+                        const double du = cell_center_u - center.u;
+                        const double dv = cell_center_v - center.v;
+                        const double distance_squared =
+                            du * du + dv * dv;
+                        if (distance_squared > radius_squared)
+                        {
+                            continue;
+                        }
+                        const auto summary_index =
+                            coverage_cell_indices[static_cast<std::size_t>(
+                                cell_v * coverage_grid_size + cell_u)];
+                        bool compatible = summary_index >= 0;
+                        if (compatible)
+                        {
+                            const auto& summary =
+                                coverage_cell_summaries[
+                                    static_cast<std::size_t>(
+                                        summary_index)];
+                            const double color_error_squared = std::max(
+                                std::max(
+                                    (center.r - summary.min_r) *
+                                        (center.r - summary.min_r),
+                                    (center.r - summary.max_r) *
+                                        (center.r - summary.max_r)),
+                                std::max(
+                                    std::max(
+                                        (center.g - summary.min_g) *
+                                            (center.g - summary.min_g),
+                                        (center.g - summary.max_g) *
+                                            (center.g - summary.max_g)),
+                                    std::max(
+                                        (center.b - summary.min_b) *
+                                            (center.b - summary.min_b),
+                                        (center.b - summary.max_b) *
+                                            (center.b - summary.max_b))));
+                            compatible =
+                                summary.payload_uniform &&
+                                summary.paint_eligible &&
+                                summary.safe &&
+                                summary.region == center.region &&
+                                summary.uv_island == center.uv_island &&
+                                summary.material_key ==
+                                    center.material_key &&
+                                color_error_squared <=
+                                    threshold_squared;
+                        }
+                        if (!compatible)
+                        {
+                            nearest_blocker = std::min(
+                                nearest_blocker,
+                                distance_squared);
+                        }
+                        else if (cell_u != center_cell_u ||
+                                 cell_v != center_cell_v)
+                        {
+                            nearest_support = std::min(
+                                nearest_support,
+                                distance_squared);
+                        }
+                    }
+                }
+                return std::make_pair(
+                    nearest_blocker,
+                    nearest_support);
+            };
 
         std::vector<bool> covered(samples.size(), false);
         std::vector<AdaptiveReplayEntry> paint_entries{};
@@ -3269,6 +4571,53 @@ namespace runtime_contract
         constexpr std::array<double, 6> multipliers{8.0, 6.0, 4.0, 3.0, 2.0, 1.5};
         const std::size_t num_replay_entries = replay_entries.size();
         std::vector<double> candidate_multipliers(num_replay_entries, 1.0);
+        const double validation_epsilon = std::max(
+            0.000000000001,
+            base_radius_uv * 0.000001);
+        const auto largest_safe_multiplier = [&](const ReplayEntry& entry) {
+            if (entry.pass != ReplayPass::Paint ||
+                entry.sample_index >= samples.size())
+            {
+                return 1.0;
+            }
+            const auto& center = samples[entry.sample_index];
+            if (!center.replay_relevant ||
+                !center.paint_eligible ||
+                !center.safe)
+            {
+                return 1.0;
+            }
+
+            const double max_validation_radius =
+                multipliers.front() * base_radius_uv +
+                validation_epsilon;
+            const auto distances = coverage_distances(
+                center,
+                max_validation_radius);
+            const double nearest_blocker = distances.first;
+            const double nearest_support = distances.second;
+
+            for (const auto candidate_multiplier : multipliers)
+            {
+                const double validation_radius =
+                    candidate_multiplier * base_radius_uv +
+                    validation_epsilon;
+                const double validation_radius_squared =
+                    validation_radius * validation_radius;
+                const double coverage_radius = std::max(
+                    0.0,
+                    candidate_multiplier * base_radius_uv -
+                        std::max(0.0, edge_margin_uv));
+                if (nearest_blocker <= validation_radius_squared ||
+                    nearest_support >
+                        coverage_radius * coverage_radius)
+                {
+                    continue;
+                }
+                return candidate_multiplier;
+            }
+            return 1.0;
+        };
 
         const unsigned int hw_threads = std::max(1u, std::thread::hardware_concurrency());
         if (num_replay_entries > 128 && hw_threads > 1)
@@ -3295,30 +4644,8 @@ namespace runtime_contract
                             continue;
                         }
 
-                        const auto& center = samples[entry.sample_index];
-                        double multiplier = 1.0;
-                        if (center.paint_eligible && center.safe)
-                        {
-                            for (const auto candidate_multiplier : multipliers)
-                            {
-                                const double check_radius = std::max(
-                                    0.0, candidate_multiplier * base_radius_uv - std::max(0.0, edge_margin_uv));
-                                bool valid = true;
-                                visit_nearby(center, check_radius, [&](std::size_t, const AdaptivePaintSample& other) {
-                                    if (!same_payload(center, other) ||
-                                        color_distance_squared(center, other) > threshold_squared)
-                                    {
-                                        valid = false;
-                                    }
-                                });
-                                if (valid)
-                                {
-                                    multiplier = candidate_multiplier;
-                                    break;
-                                }
-                            }
-                        }
-                        candidate_multipliers[i] = multiplier;
+                        candidate_multipliers[i] =
+                            largest_safe_multiplier(entry);
                     }
                 }));
             }
@@ -3338,66 +4665,11 @@ namespace runtime_contract
                     continue;
                 }
 
-                const auto& center = samples[entry.sample_index];
-                double multiplier = 1.0;
-                if (center.paint_eligible && center.safe)
-                {
-                    for (const auto candidate_multiplier : multipliers)
-                    {
-                        const double check_radius = std::max(
-                            0.0, candidate_multiplier * base_radius_uv - std::max(0.0, edge_margin_uv));
-                        bool valid = true;
-                        visit_nearby(center, check_radius, [&](std::size_t, const AdaptivePaintSample& other) {
-                            if (!same_payload(center, other) ||
-                                color_distance_squared(center, other) > threshold_squared)
-                            {
-                                valid = false;
-                            }
-                        });
-                        if (valid)
-                        {
-                            multiplier = candidate_multiplier;
-                            break;
-                        }
-                    }
-                }
-                candidate_multipliers[i] = multiplier;
+                candidate_multipliers[i] =
+                    largest_safe_multiplier(entry);
             }
         }
 
-        for (std::size_t i = 0; i < num_replay_entries; ++i)
-        {
-            const auto& entry = replay_entries[i];
-            if (entry.pass != ReplayPass::Paint || entry.sample_index >= samples.size())
-            {
-                plan.entries.push_back({entry, 1.0});
-                continue;
-            }
-            if (covered[entry.sample_index])
-            {
-                ++plan.compressed_paint_entries;
-                continue;
-            }
-
-            const double multiplier = candidate_multipliers[i];
-            const auto& center = samples[entry.sample_index];
-            paint_entries.push_back({entry, multiplier});
-            if (multiplier > 1.0)
-            {
-                ++plan.expanded_paint_entries;
-            }
-            covered[entry.sample_index] = true;
-            const double coverage_radius = std::max(
-                0.0, multiplier * base_radius_uv - std::max(0.0, edge_margin_uv));
-            visit_nearby(center, coverage_radius, [&](std::size_t other_index,
-                                                       const AdaptivePaintSample& other) {
-                if (same_payload(center, other) &&
-                    color_distance_squared(center, other) <= threshold_squared)
-                {
-                    covered[other_index] = true;
-                }
-            });
-        }
         const auto region_order = [](ReplayRegion region) {
             switch (region)
             {
@@ -3410,6 +4682,193 @@ namespace runtime_contract
             }
             return 3;
         };
+        std::array<std::vector<std::size_t>, 3>
+            paint_indices_by_region{};
+        for (std::size_t i = 0; i < num_replay_entries; ++i)
+        {
+            const auto& entry = replay_entries[i];
+            if (entry.pass != ReplayPass::Paint || entry.sample_index >= samples.size())
+            {
+                plan.entries.push_back({entry, 1.0});
+                continue;
+            }
+            const int region_index = region_order(entry.region);
+            if (region_index >= 0 && region_index < 3)
+            {
+                paint_indices_by_region[
+                    static_cast<std::size_t>(region_index)]
+                    .push_back(i);
+            }
+        }
+        const auto coverage_radius_for = [&](std::size_t replay_index) {
+            return std::max(
+                0.0,
+                candidate_multipliers[replay_index] * base_radius_uv -
+                    std::max(0.0, edge_margin_uv));
+        };
+        const auto emit_candidate = [&](std::size_t replay_index) {
+            const auto& entry = replay_entries[replay_index];
+            const double multiplier =
+                candidate_multipliers[replay_index];
+            const auto& center = samples[entry.sample_index];
+            const double coverage_radius =
+                coverage_radius_for(replay_index);
+            double min_r = center.r;
+            double min_g = center.g;
+            double min_b = center.b;
+            double max_r = center.r;
+            double max_g = center.g;
+            double max_b = center.b;
+            visit_nearby(center, coverage_radius, [&](std::size_t,
+                                                       const AdaptivePaintSample& other) {
+                if (!same_payload(center, other) ||
+                    color_distance_squared(center, other) > threshold_squared)
+                {
+                    return;
+                }
+                min_r = std::min(min_r, other.r);
+                min_g = std::min(min_g, other.g);
+                min_b = std::min(min_b, other.b);
+                max_r = std::max(max_r, other.r);
+                max_g = std::max(max_g, other.g);
+                max_b = std::max(max_b, other.b);
+            });
+            const double representative_r =
+                (min_r + max_r) * 0.5;
+            const double representative_g =
+                (min_g + max_g) * 0.5;
+            const double representative_b =
+                (min_b + max_b) * 0.5;
+            const double representative_error = std::max(
+                std::max(
+                    std::abs(representative_r - min_r),
+                    std::abs(representative_r - max_r)),
+                std::max(
+                    std::max(
+                        std::abs(representative_g - min_g),
+                        std::abs(representative_g - max_g)),
+                    std::max(
+                        std::abs(representative_b - min_b),
+                        std::abs(representative_b - max_b))));
+            ++plan.representative_paint_entries;
+            plan.representative_error_sum +=
+                representative_error;
+            plan.representative_error_max = std::max(
+                plan.representative_error_max,
+                representative_error);
+            paint_entries.push_back(
+                {entry,
+                 multiplier,
+                 true,
+                 representative_r,
+                 representative_g,
+                 representative_b});
+            if (multiplier > 1.0)
+            {
+                ++plan.expanded_paint_entries;
+            }
+            covered[entry.sample_index] = true;
+            visit_nearby(center, coverage_radius, [&](std::size_t other_index,
+                                                       const AdaptivePaintSample& other) {
+                if (same_payload(center, other) &&
+                    color_distance_squared(center, other) <= threshold_squared)
+                {
+                    covered[other_index] = true;
+                }
+            });
+        };
+        // A circle covers a square lattice without gaps when the lattice
+        // stride is at most radius * sqrt(2). Prefer one symmetric phase of
+        // that lattice before considering the remaining centers. Flat fields
+        // therefore approach the geometric stroke minimum without the high
+        // planning cost of a dynamic set-cover heap.
+        const auto preferred_coverage_phase =
+            [&](std::size_t replay_index) {
+                if (!coverage_grid_available)
+                {
+                    return true;
+                }
+                const double radius_in_cells =
+                    coverage_radius_for(replay_index) /
+                    base_radius_uv;
+                const int stride = std::max(
+                    1,
+                    static_cast<int>(
+                        std::floor(
+                            radius_in_cells *
+                            1.4142135623730951)));
+                if (stride <= 1)
+                {
+                    return true;
+                }
+                const int phase =
+                    ((coverage_grid_size - 1) % stride) / 2;
+                const auto& sample = samples[
+                    replay_entries[replay_index].sample_index];
+                return coverage_cell_coordinate(sample.u) % stride ==
+                           phase &&
+                       coverage_cell_coordinate(sample.v) % stride ==
+                           phase;
+            };
+        std::vector<std::uint8_t> preferred_phase_by_entry(
+            num_replay_entries,
+            0U);
+        for (const auto& region_indices : paint_indices_by_region)
+        {
+            for (const auto replay_index : region_indices)
+            {
+                preferred_phase_by_entry[replay_index] =
+                    preferred_coverage_phase(replay_index) ? 1U : 0U;
+            }
+        }
+        for (auto& region_indices : paint_indices_by_region)
+        {
+            std::stable_sort(
+                region_indices.begin(),
+                region_indices.end(),
+                [&](std::size_t left_index,
+                    std::size_t right_index) {
+                    if (candidate_multipliers[left_index] !=
+                        candidate_multipliers[right_index])
+                    {
+                        return candidate_multipliers[left_index] >
+                               candidate_multipliers[right_index];
+                    }
+                    const bool left_preferred =
+                        preferred_phase_by_entry[left_index] != 0U;
+                    const bool right_preferred =
+                        preferred_phase_by_entry[right_index] != 0U;
+                    if (left_preferred != right_preferred)
+                    {
+                        return left_preferred;
+                    }
+                    const auto& left = replay_entries[left_index];
+                    const auto& right = replay_entries[right_index];
+                    if (spatial_scanline_less(
+                            left.spatial_key,
+                            right.spatial_key))
+                    {
+                        return true;
+                    }
+                    if (spatial_scanline_less(
+                            right.spatial_key,
+                            left.spatial_key))
+                    {
+                        return false;
+                    }
+                    return left.sample_index < right.sample_index;
+                });
+            for (const auto replay_index : region_indices)
+            {
+                const auto& entry = replay_entries[replay_index];
+                if (covered[entry.sample_index])
+                {
+                    ++plan.compressed_paint_entries;
+                    continue;
+                }
+                emit_candidate(replay_index);
+            }
+        }
         std::stable_sort(paint_entries.begin(), paint_entries.end(), [&](const auto& left, const auto& right) {
             const int left_region = region_order(left.replay.region);
             const int right_region = region_order(right.replay.region);

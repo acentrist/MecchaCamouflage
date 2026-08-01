@@ -438,11 +438,9 @@ function statusClass(value) {
 
 function renderSettings(snapshot) {
   const paint = snapshot.settings.paint;
-  const editable = canStartLiveDraftEdit();
+  const editable = canEditDraft();
   setNumberPair("brush-size", "brush-size-number", paint.brushSizeTexels);
   setNumberPair("color-compression-tolerance", "color-compression-tolerance-number", paint.colorCompressionTolerance);
-  setChecked("auto-material", paint.autoMaterial);
-  setChecked("include-shadows", paint.includeShadows);
   setNumberPair("metallic", "metallic-number", paint.metallic);
   setNumberPair("roughness", "roughness-number", paint.roughness);
   setNumberPair("emissive", "emissive-number", paint.emissive);
@@ -495,8 +493,7 @@ function renderSettings(snapshot) {
     button.disabled = !editable;
   }
 
-  const materialLocked = paint.autoMaterial || !editable;
-  setDisabled(["metallic", "metallic-number", "roughness", "roughness-number", "emissive", "emissive-number"], materialLocked);
+  setDisabled(["metallic", "metallic-number", "roughness", "roughness-number", "emissive", "emissive-number"], !editable);
 
   const fillLocked = !editable || !usesFill(paint);
   byId("paint-fill-section").classList.toggle("disabled", !usesFill(paint));
@@ -587,7 +584,7 @@ function renderRegionButtons(selector, key, current, editable) {
       button.className = mode === current ? "active" : "";
       button.disabled = !editable;
       button.addEventListener("click", () => {
-        if (!ensureLiveDraftEdit()) {
+        if (!canEditDraft()) {
           return;
         }
         setDraftSetting(key, mode);
@@ -610,7 +607,7 @@ function renderEspScopeButtons(current, editable) {
       button.className = scope === current ? "active" : "";
       button.disabled = !editable;
       button.addEventListener("click", () => {
-        if (!ensureLiveDraftEdit()) return;
+        if (!canEditDraft()) return;
         setDraftSetting("esp.scope", scope);
         renderSettings(draftSnapshot);
       });
@@ -668,21 +665,10 @@ function usesImageFill(editor) {
     .some(property => editor[property] === "fill");
 }
 
-// A running job owns an immutable payload. Its controls remain usable only as
-// the draft for the next job; they never mutate the job already in flight.
-function canStartLiveDraftEdit() {
-  return Boolean(editing || liveSnapshot?.runtime?.paintRunning);
-}
-
-function ensureLiveDraftEdit() {
-  if (editing) {
-    return true;
-  }
-  if (!canStartLiveDraftEdit()) {
-    return false;
-  }
-  beginEdit();
-  return editing;
+// A running job owns an immutable payload. Starting a draft for the next job
+// still requires the user to press Edit explicitly.
+function canEditDraft() {
+  return Boolean(editing && draftSnapshot);
 }
 
 function beginEdit() {
@@ -874,7 +860,7 @@ function clearEspPreview() {
 }
 
 function canEditControl(control = null) {
-  if (ensureLiveDraftEdit() && control?.getAttribute("aria-disabled") !== "true" && !control?.disabled) {
+  if (canEditDraft() && control?.getAttribute("aria-disabled") !== "true" && !control?.disabled) {
     return true;
   }
   const snapshot = currentSnapshot();
@@ -913,8 +899,6 @@ function diffSnapshots(before, after) {
     "app.language",
     "paint.brushSizeTexels",
     "paint.colorCompressionTolerance",
-    "paint.autoMaterial",
-    "paint.includeShadows",
     "paint.metallic",
     "paint.roughness",
     "paint.emissive",
@@ -1092,7 +1076,7 @@ function clamp(value, min, max) {
 }
 
 function beginHotkeyRecord(key, inputId) {
-  if (!ensureLiveDraftEdit()) {
+  if (!canEditDraft()) {
     return;
   }
   recordingHotkey = { key, inputId };
@@ -1359,7 +1343,7 @@ function bindImageColorPair(pickerId, inputId, property) {
 }
 
 function canEditImage() {
-  return Boolean(ensureLiveDraftEdit() && imageEditor && !imageEditor.restoring);
+  return Boolean(canEditDraft() && imageEditor && !imageEditor.restoring);
 }
 
 function setImageBodyType(value) {
@@ -2215,7 +2199,7 @@ function renderImageEditor() {
   setNumberPair("image-metallic", "image-metallic-number", imageEditor.metallic);
   setNumberPair("image-roughness", "image-roughness-number", imageEditor.roughness);
   setNumberPair("image-emissive", "image-emissive-number", imageEditor.emissive);
-  const editable = canStartLiveDraftEdit() && !imageEditor.restoring;
+  const editable = canEditDraft() && !imageEditor.restoring;
   for (const control of document.querySelectorAll(".image-edit-control")) control.disabled = !editable;
   renderImageRegionButtons(imageEditor, editable);
   renderImageFill(imageEditor, editable);
@@ -2232,7 +2216,7 @@ function renderImageLayerList() {
     const label = compactImageLayerLabel(layer, index);
     const name = document.createElement("button");
     name.type = "button";
-    name.disabled = !canStartLiveDraftEdit() || imageEditor.restoring;
+    name.disabled = !canEditDraft() || imageEditor.restoring;
     name.className = `image-layer-item${index === imageEditor.selected ? " active" : ""}`;
     name.textContent = label;
     name.title = layer.fileName || label;
@@ -2250,7 +2234,7 @@ function renderImageLayerList() {
       button.className = `image-layer-action${active ? " active" : ""}${danger ? " image-layer-remove" : ""}`;
       button.textContent = label;
       button.title = title;
-      button.disabled = !canStartLiveDraftEdit() || imageEditor.restoring;
+      button.disabled = !canEditDraft() || imageEditor.restoring;
       button.addEventListener("click", event => {
         event.stopPropagation();
         if (!canEditImage()) return;
@@ -2616,8 +2600,6 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeRangeScales();
   bindRangePair("brush-size", "brush-size-number", "paint.brushSizeTexels");
   bindRangePair("color-compression-tolerance", "color-compression-tolerance-number", "paint.colorCompressionTolerance");
-  bindCheckbox("auto-material", "paint.autoMaterial");
-  bindCheckbox("include-shadows", "paint.includeShadows");
   bindRangePair("metallic", "metallic-number", "paint.metallic");
   bindRangePair("roughness", "roughness-number", "paint.roughness");
   bindRangePair("emissive", "emissive-number", "paint.emissive");

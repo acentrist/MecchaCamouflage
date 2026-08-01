@@ -99,6 +99,46 @@ int main()
     {
         return 124;
     }
+    const auto compact_correction_metadata =
+        compact_mesh_response_metadata(
+            "\"appearance_calibration_step_texels\":4.0,"
+            "\"appearance_correction_field_ok\":true,"
+            "\"appearance_correction_field_hash\":\"123\","
+            "\"appearance_physical_source_candidate_samples\":7,"
+            "\"appearance_physical_accepted_samples\":1,"
+            "\"appearance_physical_color_carrier_candidate_samples\":1,"
+            "\"appearance_physical_color_carrier_final_samples\":1,"
+            "\"appearance_physical_accepted_components\":1,"
+            "\"appearance_albedo_only_improvement\":0.25,"
+            "\"appearance_final_painted_nonzero_emissive_pixels\":9,"
+            "\"appearance_physical_rejection_reason\":\"accepted\"");
+    if (compact_correction_metadata.find(
+            "\"appearance_calibration_step_texels\":4.0") ==
+            std::string::npos ||
+        compact_correction_metadata.find(
+            "\"appearance_correction_field_ok\":true") ==
+            std::string::npos ||
+        compact_correction_metadata.find(
+            "\"appearance_physical_accepted_samples\":1") ==
+            std::string::npos ||
+        compact_correction_metadata.find(
+            "\"appearance_physical_color_carrier_candidate_samples\":1") ==
+            std::string::npos ||
+        compact_correction_metadata.find(
+            "\"appearance_physical_color_carrier_final_samples\":1") ==
+            std::string::npos ||
+        compact_correction_metadata.find(
+            "\"appearance_physical_accepted_components\":1") ==
+            std::string::npos ||
+        compact_correction_metadata.find(
+            "\"appearance_albedo_only_improvement\":0.25") ==
+            std::string::npos ||
+        compact_correction_metadata.find(
+            "\"appearance_final_painted_nonzero_emissive_pixels\":9") ==
+            std::string::npos)
+    {
+        return 129;
+    }
 
     struct DuplicateUvTriangle
     {
@@ -595,6 +635,18 @@ int main()
         return 10;
     }
 
+    if (runtime_contract::local_dispatch_adaptive_delay_ms(21, 0) != 21 ||
+        runtime_contract::local_dispatch_adaptive_delay_ms(21, 4'000) != 21 ||
+        runtime_contract::local_dispatch_adaptive_delay_ms(21, 16'423) != 53 ||
+        runtime_contract::local_dispatch_adaptive_delay_ms(1, 100'000) != 250 ||
+        runtime_contract::local_dispatch_adaptive_delay_ms(
+            1,
+            std::numeric_limits<std::uint64_t>::max()) != 250 ||
+        runtime_contract::local_dispatch_adaptive_delay_ms(300, 100'000) != 300)
+    {
+        return 142;
+    }
+
     const auto conservative_replication =
         runtime_contract::paint_replication_pacing_plan(
             20,
@@ -818,6 +870,7 @@ int main()
     if (no_compression.entries.size() != adaptive_entries.size() ||
         no_compression.compressed_paint_entries != 0 ||
         no_compression.entries[0].radius_multiplier != 1.0 ||
+        no_compression.entries[0].has_color_override ||
         no_compression.entries[1].replay.sample_index != 1)
     {
         return 24;
@@ -826,12 +879,387 @@ int main()
         adaptive_entries, adaptive_samples, 0.01, 1.0);
     if (compressed.entries.size() != 3 ||
         compressed.compressed_paint_entries != 1 ||
+        compressed.expanded_paint_entries != 0 ||
         compressed.entries[0].replay.sample_index != 0 ||
-        compressed.entries[0].radius_multiplier != 8.0 ||
+        compressed.entries[0].radius_multiplier != 1.0 ||
         compressed.entries[1].replay.sample_index != 2 ||
         compressed.entries[2].replay.sample_index != 3)
     {
         return 25;
+    }
+    const std::vector<runtime_contract::AdaptivePaintSample>
+        order_invariant_compression_samples{
+            {0.100, 0.100, runtime_contract::ReplayRegion::Front, 0,
+             0.50, 0.50, 0.50, true, true, 1},
+            {0.139, 0.100, runtime_contract::ReplayRegion::Front, 0,
+             0.50, 0.50, 0.50, true, true, 1},
+            {0.151, 0.100, runtime_contract::ReplayRegion::Front, 0,
+             1.00, 0.00, 0.00, false, true, 1},
+        };
+    const runtime_contract::ReplayEntry order_invariant_first{
+        0, runtime_contract::ReplayPass::Paint,
+        runtime_contract::ReplayRegion::Front, {0, 0.0, 0}};
+    const runtime_contract::ReplayEntry order_invariant_second{
+        1, runtime_contract::ReplayPass::Paint,
+        runtime_contract::ReplayRegion::Front, {0, 1.0, 1}};
+    const auto order_invariant_forward =
+        runtime_contract::build_adaptive_paint_plan(
+            {order_invariant_first, order_invariant_second},
+            order_invariant_compression_samples,
+            0.01,
+            5.0);
+    const auto order_invariant_reverse =
+        runtime_contract::build_adaptive_paint_plan(
+            {order_invariant_second, order_invariant_first},
+            order_invariant_compression_samples,
+            0.01,
+            5.0);
+    if (order_invariant_forward.entries.size() != 2 ||
+        order_invariant_reverse.entries.size() != 2 ||
+        order_invariant_forward.entries[0].replay.sample_index != 0 ||
+        order_invariant_reverse.entries[0].replay.sample_index != 0 ||
+        order_invariant_forward.entries[1].replay.sample_index != 1 ||
+        order_invariant_reverse.entries[1].replay.sample_index != 1 ||
+        order_invariant_forward.entries[0].radius_multiplier != 1.0 ||
+        order_invariant_reverse.entries[0].radius_multiplier != 1.0)
+    {
+        return 132;
+    }
+    const std::vector<runtime_contract::AdaptivePaintSample>
+        isolated_compression_samples{
+            {0.500, 0.500, runtime_contract::ReplayRegion::Front, 0,
+             0.50, 0.50, 0.50, true, true, 1},
+        };
+    const auto isolated_compression =
+        runtime_contract::build_adaptive_paint_plan(
+            {{0,
+              runtime_contract::ReplayPass::Paint,
+              runtime_contract::ReplayRegion::Front,
+              {0, 0.0, 0}}},
+            isolated_compression_samples,
+            0.01,
+            5.0);
+    if (isolated_compression.entries.size() != 1 ||
+        isolated_compression.entries[0].radius_multiplier != 1.0 ||
+        isolated_compression.expanded_paint_entries != 0)
+    {
+        return 133;
+    }
+    std::vector<runtime_contract::AdaptivePaintSample>
+        compression_hole_samples{};
+    for (int y = -8; y <= 8; ++y)
+    {
+        for (int x = -8; x <= 8; ++x)
+        {
+            if (x == 1 && y == 0)
+            {
+                continue;
+            }
+            compression_hole_samples.push_back(
+                {0.505 + static_cast<double>(x) * 0.01,
+                 0.505 + static_cast<double>(y) * 0.01,
+                 runtime_contract::ReplayRegion::Front,
+                 0,
+                 0.50,
+                 0.50,
+                 0.50,
+                 true,
+                 true,
+                 1});
+        }
+    }
+    const std::size_t compression_hole_center =
+        static_cast<std::size_t>(8 * 17 + 8);
+    const auto compression_hole =
+        runtime_contract::build_adaptive_paint_plan(
+            {{compression_hole_center,
+              runtime_contract::ReplayPass::Paint,
+              runtime_contract::ReplayRegion::Front,
+              {0, 0.0, compression_hole_center}}},
+            compression_hole_samples,
+            0.01,
+            5.0);
+    if (compression_hole.entries.size() != 1 ||
+        compression_hole.entries[0].radius_multiplier != 1.0 ||
+        compression_hole.expanded_paint_entries != 0)
+    {
+        return 134;
+    }
+    std::vector<runtime_contract::AdaptivePaintSample>
+        flat_compression_samples{};
+    std::vector<runtime_contract::ReplayEntry>
+        flat_compression_entries{};
+    for (int y = 0; y < 33; ++y)
+    {
+        for (int x = 0; x < 33; ++x)
+        {
+            const auto sample_index = flat_compression_samples.size();
+            flat_compression_samples.push_back(
+                {(20.5 + static_cast<double>(x)) * 0.01,
+                 (20.5 + static_cast<double>(y)) * 0.01,
+                 runtime_contract::ReplayRegion::Front,
+                 0,
+                 0.50,
+                 0.50,
+                 0.50,
+                 true,
+                 true,
+                 1});
+            flat_compression_entries.push_back(
+                {sample_index,
+                 runtime_contract::ReplayPass::Paint,
+                 runtime_contract::ReplayRegion::Front,
+                 {y, static_cast<double>(x), sample_index}});
+        }
+    }
+    const auto flat_compression =
+        runtime_contract::build_adaptive_paint_plan(
+            flat_compression_entries,
+            flat_compression_samples,
+            0.01,
+            5.0);
+    if (flat_compression.entries.size() >=
+            flat_compression_entries.size() / 4 ||
+        flat_compression.compressed_paint_entries <=
+            flat_compression_entries.size() * 3 / 4 ||
+        flat_compression.expanded_paint_entries == 0)
+    {
+        return 135;
+    }
+    std::vector<runtime_contract::AdaptivePaintSample>
+        large_flat_compression_samples{};
+    std::vector<runtime_contract::ReplayEntry>
+        large_flat_compression_entries{};
+    constexpr int large_flat_side = 64;
+    constexpr double large_flat_step =
+        1.0 / static_cast<double>(large_flat_side);
+    for (int y = 0; y < large_flat_side; ++y)
+    {
+        for (int x = 0; x < large_flat_side; ++x)
+        {
+            const auto sample_index =
+                large_flat_compression_samples.size();
+            large_flat_compression_samples.push_back(
+                {(static_cast<double>(x) + 0.5) * large_flat_step,
+                 (static_cast<double>(y) + 0.5) * large_flat_step,
+                 runtime_contract::ReplayRegion::Front,
+                 0,
+                 0.50,
+                 0.50,
+                 0.50,
+                 true,
+                 true,
+                 1});
+            large_flat_compression_entries.push_back(
+                {sample_index,
+                 runtime_contract::ReplayPass::Paint,
+                 runtime_contract::ReplayRegion::Front,
+                 {y, static_cast<double>(x), sample_index}});
+        }
+    }
+    const auto large_flat_compression =
+        runtime_contract::build_adaptive_paint_plan(
+            large_flat_compression_entries,
+            large_flat_compression_samples,
+            large_flat_step,
+            5.0);
+    if (large_flat_compression.entries.size() > 50 ||
+        large_flat_compression.compressed_paint_entries < 4046)
+    {
+        return 140;
+    }
+    auto reversed_large_flat_entries =
+        large_flat_compression_entries;
+    std::reverse(
+        reversed_large_flat_entries.begin(),
+        reversed_large_flat_entries.end());
+    const auto reversed_large_flat_compression =
+        runtime_contract::build_adaptive_paint_plan(
+            reversed_large_flat_entries,
+            large_flat_compression_samples,
+            large_flat_step,
+            5.0);
+    bool large_flat_order_changed_plan =
+        reversed_large_flat_compression.entries.size() !=
+        large_flat_compression.entries.size();
+    for (std::size_t index = 0;
+         !large_flat_order_changed_plan &&
+         index < large_flat_compression.entries.size();
+         ++index)
+    {
+        const auto& forward =
+            large_flat_compression.entries[index];
+        const auto& reverse =
+            reversed_large_flat_compression.entries[index];
+        large_flat_order_changed_plan =
+            forward.replay.sample_index !=
+                reverse.replay.sample_index ||
+            forward.radius_multiplier !=
+                reverse.radius_multiplier ||
+            forward.has_color_override !=
+                reverse.has_color_override ||
+            std::abs(forward.r - reverse.r) > 0.000001 ||
+            std::abs(forward.g - reverse.g) > 0.000001 ||
+            std::abs(forward.b - reverse.b) > 0.000001;
+    }
+    if (large_flat_order_changed_plan)
+    {
+        return 141;
+    }
+    auto flat_compression_with_irrelevant_samples =
+        flat_compression_samples;
+    flat_compression_with_irrelevant_samples.push_back(
+        {0.365,
+         0.365,
+         runtime_contract::ReplayRegion::Side,
+         7,
+         1.00,
+         0.00,
+         0.00,
+         false,
+         true,
+         999,
+         false});
+    const auto flat_compression_with_irrelevant =
+        runtime_contract::build_adaptive_paint_plan(
+            flat_compression_entries,
+            flat_compression_with_irrelevant_samples,
+            0.01,
+            5.0);
+    bool irrelevant_sample_changed_plan =
+        flat_compression_with_irrelevant.entries.size() !=
+        flat_compression.entries.size();
+    for (std::size_t index = 0;
+         !irrelevant_sample_changed_plan &&
+         index < flat_compression.entries.size();
+         ++index)
+    {
+        irrelevant_sample_changed_plan =
+            flat_compression_with_irrelevant.entries[index]
+                    .replay.sample_index !=
+                flat_compression.entries[index]
+                    .replay.sample_index ||
+            flat_compression_with_irrelevant.entries[index]
+                    .radius_multiplier !=
+                flat_compression.entries[index]
+                    .radius_multiplier;
+    }
+    if (irrelevant_sample_changed_plan)
+    {
+        return 136;
+    }
+    std::vector<runtime_contract::AdaptivePaintSample>
+        representative_color_samples{};
+    for (int y = 0; y < 17; ++y)
+    {
+        for (int x = 0; x < 17; ++x)
+        {
+            const double color = x <= 8 ? 0.451 : 0.549;
+            representative_color_samples.push_back(
+                {(40.5 + static_cast<double>(x)) * 0.01,
+                 (40.5 + static_cast<double>(y)) * 0.01,
+                 runtime_contract::ReplayRegion::Front,
+                 0,
+                 color,
+                 color,
+                 color,
+                 true,
+                 true,
+                 1});
+        }
+    }
+    const std::size_t representative_color_center =
+        static_cast<std::size_t>(8 * 17 + 8);
+    const auto representative_color =
+        runtime_contract::build_adaptive_paint_plan(
+            {{representative_color_center,
+              runtime_contract::ReplayPass::Paint,
+              runtime_contract::ReplayRegion::Front,
+              {0, 0.0, representative_color_center}}},
+            representative_color_samples,
+            0.01,
+            10.0);
+    if (representative_color.entries.size() != 1 ||
+        representative_color.entries[0].radius_multiplier != 8.0 ||
+        !representative_color.entries[0].has_color_override ||
+        std::abs(representative_color.entries[0].r - 0.5) >
+            0.000001 ||
+        std::abs(representative_color.entries[0].g - 0.5) >
+            0.000001 ||
+        std::abs(representative_color.entries[0].b - 0.5) >
+            0.000001 ||
+        representative_color.representative_paint_entries != 1 ||
+        std::abs(
+            representative_color.representative_error_max -
+            0.049) > 0.000001)
+    {
+        return 137;
+    }
+    auto compression_payload_boundary_samples =
+        compression_hole_samples;
+    compression_payload_boundary_samples.push_back(
+        {0.515,
+         0.505,
+         runtime_contract::ReplayRegion::Front,
+         0,
+         0.50,
+         0.50,
+         0.50,
+         true,
+         true,
+         2});
+    const auto compression_payload_boundary =
+        runtime_contract::build_adaptive_paint_plan(
+            {{compression_hole_center,
+              runtime_contract::ReplayPass::Paint,
+              runtime_contract::ReplayRegion::Front,
+              {0, 0.0, compression_hole_center}}},
+            compression_payload_boundary_samples,
+            0.01,
+            5.0);
+    if (compression_payload_boundary.entries.size() != 1 ||
+        compression_payload_boundary.entries[0]
+                .radius_multiplier != 1.0 ||
+        compression_payload_boundary.expanded_paint_entries != 0)
+    {
+        return 138;
+    }
+    std::vector<runtime_contract::AdaptivePaintSample>
+        compression_outer_ring_samples{};
+    for (int y = -8; y <= 8; ++y)
+    {
+        for (int x = -8; x <= 8; ++x)
+        {
+            compression_outer_ring_samples.push_back(
+                {0.505 + static_cast<double>(x) * 0.01,
+                 0.505 + static_cast<double>(y) * 0.01,
+                 runtime_contract::ReplayRegion::Front,
+                 0,
+                 0.50,
+                 0.50,
+                 0.50,
+                 true,
+                 true,
+                 x == 2 && y == 0 ? 2U : 1U});
+        }
+    }
+    const std::size_t compression_outer_ring_center =
+        static_cast<std::size_t>(8 * 17 + 8);
+    const auto compression_outer_ring =
+        runtime_contract::build_adaptive_paint_plan(
+            {{compression_outer_ring_center,
+              runtime_contract::ReplayPass::Paint,
+              runtime_contract::ReplayRegion::Front,
+              {0, 0.0, compression_outer_ring_center}}},
+            compression_outer_ring_samples,
+            0.01,
+            5.0,
+            0.002);
+    if (compression_outer_ring.entries.size() != 1 ||
+        compression_outer_ring.entries[0]
+                .radius_multiplier != 1.5)
+    {
+        return 139;
     }
     const std::vector<runtime_contract::AdaptivePaintSample>
         cross_region_compression_samples{
@@ -934,25 +1362,7 @@ int main()
     {
         return 81;
     }
-    if (runtime_contract::
-            appearance_should_resolve_screen_hit_uv(
-                true,
-                true,
-                false,
-                false) ||
-        !runtime_contract::
-            appearance_should_resolve_screen_hit_uv(
-                true,
-                true,
-                false,
-                true) ||
-        runtime_contract::
-            appearance_should_resolve_screen_hit_uv(
-                true,
-                true,
-                true,
-                true) ||
-        !runtime_contract::
+    if (!runtime_contract::
             appearance_normalized_screen_position_valid(
                 0.5,
                 0.5) ||
@@ -2183,6 +2593,32 @@ int main()
         runtime_contract::appearance_emission_chromaticity_albedo(
             {2.0, 1.0, 0.5},
             {0.1, 0.2, 0.3});
+    const runtime_contract::AppearanceRgb dark_emitter_base{
+        0.02, 0.02, 0.02};
+    const runtime_contract::AppearanceRgb warm_emission{
+        12.0, 4.0, 0.5};
+    const runtime_contract::AppearanceRgb warm_isolated_hdr{
+        runtime_contract::appearance_srgb_to_linear(
+            dark_emitter_base.r) + warm_emission.r,
+        runtime_contract::appearance_srgb_to_linear(
+            dark_emitter_base.g) + warm_emission.g,
+        runtime_contract::appearance_srgb_to_linear(
+            dark_emitter_base.b) + warm_emission.b};
+    const auto rescued_emitter =
+        runtime_contract::appearance_rescue_emission_color(
+            dark_emitter_base,
+            warm_isolated_hdr,
+            0.01);
+    const auto unchanged_non_emitter =
+        runtime_contract::appearance_rescue_emission_color(
+            dark_emitter_base,
+            {runtime_contract::appearance_srgb_to_linear(
+                 dark_emitter_base.r) + 0.001,
+             runtime_contract::appearance_srgb_to_linear(
+                 dark_emitter_base.g) + 0.001,
+             runtime_contract::appearance_srgb_to_linear(
+                 dark_emitter_base.b) + 0.001},
+            0.01);
     if (std::abs(
             intrinsic_residual.r -
             residual_expected.r) >
@@ -2200,9 +2636,379 @@ int main()
         std::abs(emission_chromaticity.g - 0.5) >
             0.000001 ||
         std::abs(emission_chromaticity.b - 0.25) >
-            0.000001)
+            0.000001 ||
+        !rescued_emitter.applied ||
+        std::abs(
+            std::max({rescued_emitter.albedo_srgb.r,
+                      rescued_emitter.albedo_srgb.g,
+                      rescued_emitter.albedo_srgb.b}) -
+            runtime_contract::AppearanceEmissionRescuePeakSrgb) >
+            0.000001 ||
+        !(rescued_emitter.albedo_srgb.r >
+              rescued_emitter.albedo_srgb.g &&
+          rescued_emitter.albedo_srgb.g >
+              rescued_emitter.albedo_srgb.b) ||
+        unchanged_non_emitter.applied ||
+        runtime_contract::appearance_max_channel_delta(
+            unchanged_non_emitter.albedo_srgb,
+            dark_emitter_base) > 0.000001)
     {
         return 75;
+    }
+
+    const auto diffuse_feedback =
+        runtime_contract::appearance_closed_loop_correction(
+            {{0.25, 0.20, 0.10},
+             0.0,
+             {0.60, 0.40, 0.10},
+             {0.30, 0.20, 0.10},
+             false});
+    const auto stable_feedback =
+        runtime_contract::appearance_closed_loop_correction(
+            {{0.25, 0.20, 0.10},
+             0.0,
+             {0.30, 0.20, 0.10},
+             {0.30, 0.20, 0.10},
+             false});
+    const auto emitter_feedback =
+        runtime_contract::appearance_closed_loop_correction(
+            {{1.0, 0.60, 0.10},
+             0.0,
+             {4.0, 2.0, 0.20},
+             {0.80, 0.40, 0.10},
+             true});
+    const auto non_emitter_feedback =
+        runtime_contract::appearance_closed_loop_correction(
+            {{1.0, 0.60, 0.10},
+             0.0,
+             {4.0, 2.0, 0.20},
+             {0.80, 0.40, 0.10},
+             false});
+    if (!diffuse_feedback.supported ||
+        !(diffuse_feedback.albedo_linear.r > 0.25) ||
+        !(diffuse_feedback.albedo_linear.g > 0.20) ||
+        std::abs(diffuse_feedback.albedo_linear.b - 0.10) >
+            0.000001 ||
+        diffuse_feedback.emissive != 0.0 ||
+        !stable_feedback.supported ||
+        runtime_contract::appearance_max_channel_delta(
+            stable_feedback.albedo_linear,
+            {0.25, 0.20, 0.10}) > 0.000001 ||
+        stable_feedback.emissive != 0.0 ||
+        !emitter_feedback.supported ||
+        !(emitter_feedback.emissive > 0.0) ||
+        non_emitter_feedback.emissive != 0.0)
+    {
+        return 76;
+    }
+
+    const auto albedo_only_feedback =
+        runtime_contract::appearance_albedo_closed_loop_correction(
+            {{0.20, 0.15, 0.10},
+             0.25,
+             {0.80, 0.45, 0.20},
+             {0.30, 0.20, 0.10},
+             true});
+    if (!albedo_only_feedback.supported ||
+        !(albedo_only_feedback.albedo_linear.r > 0.20) ||
+        !(albedo_only_feedback.albedo_linear.g > 0.15) ||
+        std::abs(albedo_only_feedback.emissive - 0.25) >
+            0.000001)
+    {
+        return 126;
+    }
+
+    runtime_contract::AppearancePhysicalEmissionEvidenceInput
+        unstable_speckle{};
+    unstable_speckle.source_residual_first =
+        {0.020, 0.018, 0.019};
+    unstable_speckle.source_residual_second =
+        {0.001, 0.024, 0.002};
+    unstable_speckle.source_noise_floor_first = 0.010;
+    unstable_speckle.source_noise_floor_second = 0.010;
+    unstable_speckle.source_hdr = {0.90, 0.70, 0.55};
+    unstable_speckle.baseline_hdr = {0.30, 0.25, 0.20};
+    unstable_speckle.endpoint_hdr = {1.40, 1.10, 0.85};
+    unstable_speckle.manual_emissive_floor = 0.20;
+    unstable_speckle.source_distribution_separated = false;
+    unstable_speckle.camera_stable = true;
+    unstable_speckle.readback_calibrated = true;
+    unstable_speckle.packed_b_verified = true;
+    const auto rejected_speckle =
+        runtime_contract::appearance_physical_emission_evidence(
+            unstable_speckle);
+
+    auto stable_but_below_noise = unstable_speckle;
+    stable_but_below_noise.source_residual_first =
+        {0.020, 0.018, 0.019};
+    stable_but_below_noise.source_residual_second =
+        {0.019, 0.018, 0.020};
+    stable_but_below_noise.source_noise_floor_first = 0.050;
+    stable_but_below_noise.source_noise_floor_second = 0.080;
+    const auto rejected_below_noise =
+        runtime_contract::appearance_physical_emission_evidence(
+            stable_but_below_noise);
+
+    runtime_contract::AppearancePhysicalEmissionEvidenceInput
+        small_physical_emitter{};
+    small_physical_emitter.source_residual_first =
+        {0.80, 0.32, 0.08};
+    small_physical_emitter.source_residual_second =
+        {0.79, 0.33, 0.08};
+    small_physical_emitter.source_noise_floor_first = 0.050;
+    small_physical_emitter.source_noise_floor_second = 0.080;
+    small_physical_emitter.source_hdr = {1.20, 0.52, 0.18};
+    small_physical_emitter.baseline_hdr = {0.28, 0.18, 0.09};
+    small_physical_emitter.endpoint_hdr = {2.20, 0.92, 0.27};
+    small_physical_emitter.manual_emissive_floor = 0.10;
+    small_physical_emitter.source_distribution_separated = false;
+    small_physical_emitter.camera_stable = true;
+    small_physical_emitter.readback_calibrated = true;
+    small_physical_emitter.packed_b_verified = true;
+    const auto accepted_small_emitter =
+        runtime_contract::appearance_physical_emission_evidence(
+            small_physical_emitter);
+    const auto warm_emission_material =
+        runtime_contract::appearance_compose_physical_emission_material(
+            {{0.18, 0.16, 0.03},
+             small_physical_emitter.source_residual_first,
+             small_physical_emitter.source_residual_second,
+             small_physical_emitter.manual_emissive_floor,
+             accepted_small_emitter.inferred_emissive,
+             accepted_small_emitter.accepted});
+    const auto rejected_emission_material =
+        runtime_contract::appearance_compose_physical_emission_material(
+            {{0.18, 0.16, 0.03},
+             unstable_speckle.source_residual_first,
+             unstable_speckle.source_residual_second,
+             unstable_speckle.manual_emissive_floor,
+             rejected_speckle.inferred_emissive,
+             rejected_speckle.accepted});
+    if (rejected_speckle.accepted ||
+        rejected_speckle.source_supported ||
+        !rejected_speckle.target_response_supported ||
+        rejected_below_noise.accepted ||
+        rejected_below_noise.source_supported ||
+        !rejected_below_noise.target_response_supported ||
+        std::abs(rejected_speckle.composed_emissive - 0.20) >
+            0.000001 ||
+        !accepted_small_emitter.accepted ||
+        !accepted_small_emitter.source_supported ||
+        !accepted_small_emitter.target_response_supported ||
+        !(accepted_small_emitter.composed_emissive > 0.10) ||
+        !(accepted_small_emitter.candidate_loss <
+          accepted_small_emitter.baseline_loss) ||
+        !warm_emission_material.chromaticity_carrier_applied ||
+        !(warm_emission_material.albedo.r >
+          warm_emission_material.albedo.g * 2.0) ||
+        !(warm_emission_material.albedo.g >
+          warm_emission_material.albedo.b * 2.0) ||
+        std::abs(
+            warm_emission_material.emissive -
+            accepted_small_emitter.composed_emissive) >
+            0.000001 ||
+        rejected_emission_material.chromaticity_carrier_applied ||
+        std::abs(rejected_emission_material.albedo.r - 0.18) >
+            0.000001 ||
+        std::abs(rejected_emission_material.albedo.g - 0.16) >
+            0.000001 ||
+        std::abs(rejected_emission_material.albedo.b - 0.03) >
+            0.000001 ||
+        std::abs(
+            runtime_contract::appearance_compose_physical_emissive(
+                0.65,
+                0.25) -
+            0.65) >
+            0.000001)
+    {
+        return 127;
+    }
+
+    runtime_contract::AppearancePhysicalEmissionComponentValidationInput
+        one_sample_component{};
+    one_sample_component.paired_samples = 1;
+    one_sample_component.baseline_loss = 0.10;
+    one_sample_component.candidate_loss = 0.08;
+    one_sample_component.non_emission_paired_samples = 100;
+    one_sample_component.baseline_non_emission_loss = 0.050;
+    one_sample_component.candidate_non_emission_loss = 0.055;
+    one_sample_component.dual_evidence_prevalidated = true;
+    one_sample_component.camera_stable = true;
+    one_sample_component.readback_calibrated = true;
+    one_sample_component.packed_b_verified = true;
+    one_sample_component.painted_emissive_nonzero_pixels = 1;
+    const auto accepted_one_sample_component =
+        runtime_contract::
+            appearance_validate_physical_emission_component(
+                one_sample_component);
+    auto weak_component = one_sample_component;
+    weak_component.candidate_loss = 0.09;
+    const auto rejected_weak_component =
+        runtime_contract::
+            appearance_validate_physical_emission_component(
+                weak_component);
+    const auto misleading_aggregate_improvement =
+        (1.10 - 0.59) / 1.10;
+    if (!accepted_one_sample_component.accepted ||
+        accepted_one_sample_component.rejection !=
+            runtime_contract::
+                AppearancePhysicalEmissionComponentRejection::None ||
+        rejected_weak_component.accepted ||
+        misleading_aggregate_improvement <
+            runtime_contract::AppearanceFitMinimumImprovement ||
+        rejected_weak_component.rejection !=
+            runtime_contract::
+                AppearancePhysicalEmissionComponentRejection::
+                    RoiImprovementBelowThreshold)
+    {
+        return 130;
+    }
+
+    runtime_contract::AppearanceCorrectionFieldInput
+        two_boundary_field{};
+    two_boundary_field.vertex_count = 3;
+    two_boundary_field.edges = {{0, 1}, {1, 2}};
+    two_boundary_field.side_vertices = {false, true, false};
+    two_boundary_field.anchors = {
+        {0,
+         {0.0, 0.0, 0.0},
+         1.0,
+         runtime_contract::AppearanceCorrectionBoundary::Front},
+        {2,
+         {std::log(4.0), std::log(4.0), std::log(4.0)},
+         1.0,
+         runtime_contract::AppearanceCorrectionBoundary::Back}};
+    const auto interpolated_field =
+        runtime_contract::appearance_solve_correction_field(
+            two_boundary_field);
+    auto reversed_boundary_field = two_boundary_field;
+    std::reverse(
+        reversed_boundary_field.anchors.begin(),
+        reversed_boundary_field.anchors.end());
+    const auto reversed_field =
+        runtime_contract::appearance_solve_correction_field(
+            reversed_boundary_field);
+
+    auto one_boundary_field = two_boundary_field;
+    one_boundary_field.anchors.resize(1);
+    const auto extended_field =
+        runtime_contract::appearance_solve_correction_field(
+            one_boundary_field);
+    auto unanchored_field = one_boundary_field;
+    unanchored_field.anchors.clear();
+    const auto rejected_field =
+        runtime_contract::appearance_solve_correction_field(
+            unanchored_field);
+    if (!interpolated_field.ok ||
+        interpolated_field.values.size() != 3 ||
+        std::abs(
+            interpolated_field.values[1].r -
+            std::log(2.0)) >
+            0.0001 ||
+        interpolated_field.front_anchor_vertices != 1 ||
+        interpolated_field.back_anchor_vertices != 1 ||
+        interpolated_field.side_components != 1 ||
+        interpolated_field.one_boundary_side_components != 0 ||
+        interpolated_field.hash != reversed_field.hash ||
+        !extended_field.ok ||
+        extended_field.one_boundary_side_components != 1 ||
+        std::abs(extended_field.values[1].r) > 0.000001 ||
+        rejected_field.ok ||
+        rejected_field.unanchored_side_components != 1 ||
+        rejected_field.failure !=
+            runtime_contract::AppearanceCorrectionFieldFailure::
+                SideUnanchored)
+    {
+        return 128;
+    }
+
+    struct CorrectionReplayVariation
+    {
+        double brush_size{1.0};
+        bool front{false};
+        bool side{false};
+        bool back{false};
+    };
+    const std::array<CorrectionReplayVariation, 8>
+        correction_replay_variations{{
+            {1.0, true, false, false},
+            {1.0, false, true, false},
+            {1.0, false, false, true},
+            {1.0, true, true, true},
+            {4.0, true, false, false},
+            {4.0, false, true, false},
+            {4.0, false, false, true},
+            {4.0, true, true, true},
+        }};
+    for (const auto& variation : correction_replay_variations)
+    {
+        const auto field =
+            runtime_contract::appearance_solve_correction_field(
+                two_boundary_field);
+        const std::vector<runtime_contract::ReplayCandidate>
+            replay_candidates{
+                {0,
+                 runtime_contract::ReplayRegion::Front,
+                 variation.front
+                     ? runtime_contract::ReplayRegionMode::Paint
+                     : runtime_contract::ReplayRegionMode::Skip,
+                 0,
+                 0.1,
+                 0.1,
+                 true,
+                 1.0,
+                 1.0,
+                 0.0,
+                 0},
+                {1,
+                 runtime_contract::ReplayRegion::Side,
+                 variation.side
+                     ? runtime_contract::ReplayRegionMode::Paint
+                     : runtime_contract::ReplayRegionMode::Skip,
+                 0,
+                 0.5,
+                 0.5,
+                 true,
+                 0.5,
+                 0.5,
+                 0.0,
+                 1},
+                {2,
+                 runtime_contract::ReplayRegion::Back,
+                 variation.back
+                     ? runtime_contract::ReplayRegionMode::Paint
+                     : runtime_contract::ReplayRegionMode::Skip,
+                 0,
+                 0.9,
+                 0.9,
+                 true,
+                 0.0,
+                 0.0,
+                 0.0,
+                 2}};
+        const auto replay =
+            runtime_contract::build_single_brush_replay_plan(
+                replay_candidates,
+                1024,
+                variation.brush_size,
+                8.0);
+        const auto expected_paint_count =
+            static_cast<std::size_t>(
+                (variation.front ? 1 : 0) +
+                (variation.side ? 1 : 0) +
+                (variation.back ? 1 : 0));
+        if (!field.ok ||
+            field.hash != interpolated_field.hash ||
+            field.values.size() != interpolated_field.values.size() ||
+            std::abs(
+                field.values[1].r -
+                interpolated_field.values[1].r) >
+                0.000001 ||
+            replay.fill_count != 0 ||
+            replay.paint_count != expected_paint_count)
+        {
+            return 131;
+        }
     }
 
     if (runtime_contract::production_material_stroke_count(3) != 3 ||
@@ -2212,6 +3018,37 @@ int main()
     {
         return 23;
     }
+
+    const auto projected_environment =
+        runtime_contract::environment_projected_capture_coordinate(
+            {0.25, 0.75});
+    const auto same_projected_back =
+        runtime_contract::environment_projected_capture_coordinate(
+            {0.25, 0.75});
+    const auto projected_top_left =
+        runtime_contract::environment_projected_capture_coordinate(
+            {0.0, 0.0});
+    const auto projected_bottom_right =
+        runtime_contract::environment_projected_capture_coordinate(
+            {1.0, 1.0});
+    const auto projected_outside =
+        runtime_contract::environment_projected_capture_coordinate(
+            {-0.01, 0.50});
+    if (!projected_environment.ok ||
+        !same_projected_back.ok ||
+        !projected_top_left.ok ||
+        !projected_bottom_right.ok ||
+        projected_outside.ok ||
+        std::abs(projected_environment.capture_u - 0.25) > 0.000001 ||
+        std::abs(projected_environment.capture_v - 0.75) > 0.000001 ||
+        std::abs(projected_environment.capture_u -
+                 same_projected_back.capture_u) > 0.000001 ||
+        std::abs(projected_environment.capture_v -
+                 same_projected_back.capture_v) > 0.000001)
+    {
+        return 125;
+    }
+
     if (runtime_contract::esp_capture_status(
             false, false, 0, false) !=
             runtime_contract::EspCaptureStatus::Disabled ||
