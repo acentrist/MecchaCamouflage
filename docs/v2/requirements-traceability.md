@@ -46,7 +46,7 @@ inventory drift.
 
 | Domain | Frozen v2 contract |
 | --- | --- |
-| Paint | Brush `5.0` in `[1.0,10.0]`; side max UV `0.08` in `[0.001,0.50]`; front/back max UV `0.45` in `[0.001,2.00]`; modes Paint/Fill/Skip; Front=Skip, Side=Paint, Back=Paint; Auto Material off; scene lighting off; Paint M/R/E=`0/1/0`; Fill `#FFFFFF`, M/R/E=`1/0/0`; compression `5.0` in `[0.0,10.0]`. |
+| Paint | Brush `5.0` in `[1.0,10.0]`; modes Paint/Fill/Skip; Front=Skip, Side=Paint, Back=Paint; normal Paint source is always `environment_capture`; correction lattice is fixed at `4.0` texels; Paint M/R/E floors=`0/1/0`; Fill `#FFFFFF`, M/R/E=`1/0/0`; compression `5.0` in `[0.0,10.0]`. No Auto Material, scene-lighting, or source-UV tuning setting exists. |
 | Image Paint | Disabled until a valid project is active; body `round` from round/cube/fukuyoka; alpha `skip`; Front/Right/Back/Left base modes all Skip from Fill/Skip; placement `fit`; brush `5.0` in `[1.0,10.0]`; compression `0.0` in `[0.0,10.0]`; image M/R/E=`0/1/0`; Fill `#FFFFFF`, M/R/E=`1/0/0`; each new layer center=`0.5,0.5`, size=`1.0,1.0`, full normalized crop, wrap off, mirror off. |
 | Image resources | PNG/JPEG/WebP; `1..12 MiB` decoded source bytes per layer; at most `64 MiB` source bytes per project; exact 1024×512 RGBA canonical atlas; checked arithmetic and decoder pixel/dimension bounds are additionally required in Phase 9. |
 | ESP | Enabled; scope `all` from all/hider/hunter; boxes, skeletons, names, distance, and snaplines enabled; hider `#00FF88`; hunter `#FF0000`. |
@@ -79,13 +79,13 @@ inventory drift.
 | --- | --- | --- | --- | --- | --- |
 | PAINT-001 | Brush size is one value in `[1,10]`, default `5`. | `Models.PaintSettings`, `Settings.Clamp` | `core/paint` | T1 | C# model |
 | PAINT-002 | Region modes are Paint/Fill/Skip with defaults Front=Skip, Side=Paint, Back=Paint. | `Models`, passing `regions default to side and back paint` test | `core/paint` | T1, T4 | Stale release-checklist wording |
-| PAINT-003 | Side source maximum UV defaults `0.08`, range `[0.001,0.50]`. | `Models`, `Settings` | `core/paint` | T1 | C# model |
-| PAINT-004 | Front/back source maximum UV defaults `0.45`, range `[0.001,2.00]`. | `Models`, `Settings` | `core/paint` | T1 | C# model |
+| PAINT-003 | Normal Paint always projects a hidden environment capture; the source projection is not user-selectable. | v1.7.2 PR #256 payload/runtime contract | runtime adapter + appearance worker | T1, T2, T4 | Auto Material/manual capture split |
+| PAINT-004 | Appearance calibration uses a fixed four-texel lattice independent of replay brush size and final region filters. | v1.7.2 PR #256 native contract | capture geometry + appearance resolver | T1, T2, T4 | Source-UV tuning settings |
 | PAINT-005 | Manual Paint PBR defaults M=0/R=1/E=0 and validates each `[0,1]`. | `Models`, Bridge channel packing | `core/paint` | T1, T2, T4 | C#/Bridge packing |
 | PAINT-006 | Fill color defaults white; Fill PBR defaults M=1/R=0/E=0 and is independent of Paint PBR. | `Models`, payload tests | `core/paint` | T1, T2, T4 | C#/Bridge packing |
-| PAINT-007 | Auto Material defaults off and affects Paint only; Fill remains manual. | `Models`, runtime maintenance docs | `core/paint_plan` + runtime appearance resolver | T1, T2, T4 | Appearance bridge path |
-| PAINT-008 | Scene-lighting inclusion is an independent boolean, default off. | `Models.IncludeShadows`, payload tests | `core/paint` | T1, T2, T4 | Bridge capture flag |
-| PAINT-009 | Color compression tolerance defaults `5`, range `[0,10]`, and preserves appearance within the reviewed algorithm. | `Models`, `Native contracts` | `core/paint` | T1, T2 | Bridge adaptive plan |
+| PAINT-007 | Front/Back anchor one deterministic correction field; Side uses harmonic interpolation or one-boundary extension and fails closed when unanchored. | v1.7.2 PR #256 correction-field contract | `core/paint_appearance` | T1, T2, T4 | Cluster-local appearance fit |
+| PAINT-008 | Automatic Emissive requires repeatable source separation plus calibrated target response; validated source chromaticity is carried by bounded Albedo and manual Emissive is a floor. | v1.7.2 PR #256 physical-emission contract | `core/paint_appearance` + runtime capture | T1, T2, T4 | SPSA/cluster Emissive fit |
+| PAINT-009 | Color compression tolerance defaults `5`, range `[0,10]`, and uses brush-aligned coverage with holes, unsafe samples, UV islands, regions, and material changes as hard boundaries plus deterministic circle covering/minimax representative colors. | v1.7.2 PR #256 native contract | `core/paint` | T1, T2 | Legacy proximity coalescing |
 | PAINT-010 | Round, cube, and fukuyoka profile identity/dimensions are validated before planning. | profile JSON, Bridge profile catalog | profile repository/runtime adapter | T0, T1, T4 | Bridge profile parser |
 | PAINT-011 | Fill dispatch covers the base first; Paint overwrites only Paint regions; Skip receives no overwrite. | `Native contracts`, release checklist | `core/paint_plan` + dispatcher | T1, T2, T4 | Bridge replay routing |
 | PAINT-012 | Preview captures all changed channels and exact restore is guarded against wrong component/repeat use. | Bridge preview export/import | core preview compositor + `PaintPreviewBuildWorker` + `PaintPreviewController` + runtime adapter | T1, T2, T4 | Import/export bridge commands |
@@ -95,6 +95,7 @@ inventory drift.
 | PAINT-016 | Terminal completion is impossible while the game-owned queue is nonzero. | Bridge queue drain, release checklist | generation-tagged dispatcher/job arbiter | T1, T2, T4, T6 | Bridge completion heuristic |
 | PAINT-017 | A valid captured paint component survives controller-pawn/freecam changes and fails safely when invalidated. | Bridge captured-component tests | Runtime handle/job | T2, T4 | Bridge process context |
 | PAINT-018 | Host-painter and joining-client-painter both replicate completely without crash/disconnect. | multiplayer checklist | Game-owned dispatcher | T6 | No mock replacement |
+| PAINT-019 | Local non-preemptible stroke dispatch derives its bounded delay from measured game-thread slice duration. | v1.7.2 PR #256 dispatch contract | scheduler/runtime adapter | T1, T2, T4 | Fixed-delay local dispatch |
 
 ## Image Paint
 
@@ -146,7 +147,7 @@ inventory drift.
 | UI-004 | Image Start/Preview/Restore/Cancel default F5–F8. | `AppSettings`, `UI contracts` | Input/application | T1, T4 | Raw Win32 hotkeys |
 | UI-005 | Action hotkeys accept F1–F24, are unique, suppress repeat until key-up, and do not reserve system keys. | `UI contracts`, WebHost tests | Input/settings | T1, T4 | Win32 raw input |
 | UI-006 | Opening the panel captures cursor/look/movement/input mode and closing restores exact prior state. | v2 locked requirement | Input lease | T1, T2, T4 | External window focus |
-| UI-007 | Controls emit typed commands and preserve active-job next-run edits. | Web UI/Session tests | UI/application | T1, T2, T4 | JavaScript router |
+| UI-007 | Targets and every settings/editor mutation require an explicit Edit session, including while Paint runs; controls emit typed commands and an active job remains immutable. | v1.7.2 PR #256 WebHost guards | UI/application | T1, T2, T4 | Implicit live-draft mutation |
 | UI-008 | UI displays pass progress, total progress, queue pressure, elapsed, ETA, compatibility, and bounded diagnostics. | `UI contracts`, Web UI progress | Snapshots/Canvas UI | T1, T4 | Sidecar/WebView display |
 | UI-009 | UI uses a validated `[0.75,2.0]` scale multiplier defaulting to `1.0`, then scales to viewport/DPI and clips scrollable/editor content. | Web UI behavior; v2 Canvas gate | Canvas layout | T1, T4 | CSS layout |
 | UI-010 | Native Windows picker is used only for image/preset selection and does not remain open. | WebHost dialogs | Windows dialog adapter | T3, T4 | Web/WinForms dialog host |
@@ -227,8 +228,9 @@ contracts that the approved plan removes.
   alias; UI and persisted v2 data use `fukuyoka`.
 - “Preserve preset support” preserves v2 create/load/save/rename/delete
   behavior, not v1 container compatibility.
-- Auto Material applies only to Paint regions. Fill always uses explicit Fill
-  material values.
+- Projective environment appearance applies only to Paint regions. Fill always
+  uses explicit Fill material values; Image Paint remains imported-image
+  sampling.
 - The body guide is editor-only content. It must not alter the canonical atlas
   or painted output.
 - The v2 UI-scale setting is a multiplier applied after viewport/DPI

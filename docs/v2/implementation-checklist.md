@@ -474,18 +474,19 @@ Evidence:
       and hide exact current-World `Plane`, `Plane1`, and `Niagara` components
       from every capture pass, rejecting missing, duplicate, wrong-class,
       wrong-owner, or stale matches.
-    - [ ] Add Auto Material intrinsic-emission plus trial-preview
-      feedback/restoration, prove bounded multi-frame capture cost, and record
-      live brush-plane/readback orientation/color/cleanup evidence before
-      connecting the composition root.
-      - [x] Route Auto Material admission through a generation-tagged
-        multi-HUD-frame runtime session instead of the synchronous manual
-        capture port; publish no capture before runtime-confirmed restoration,
-        and retain ownership through cancellation, failure cleanup, and
-        shutdown.
-      - [x] Port the bounded HDR/emission/calibration/SPSA/acceptance
-        algorithms, surface-aware emission-halo rejection, and immutable
-        candidate/evaluation worker without runtime types.
+    - [ ] Replace the superseded v1.7.1 Auto Material transaction with the
+      v1.7.2 projective-environment pipeline, prove bounded multi-frame capture
+      cost, and record live brush-plane/readback orientation/color/cleanup
+      evidence before closing Phase 8.
+      - [ ] Route every normal Paint and Paint Preview through one
+        generation-tagged environment-capture session; delete the synchronous
+        manual/optional-Auto split and retain restoration ownership through
+        cancellation, failure cleanup, and shutdown.
+      - [ ] Delete the cluster model, deterministic SPSA session, and global
+        safe-fallback selection from the production appearance graph.
+      - [ ] Port the v1.7.2 bounded HDR, closed-loop Albedo, physical Emissive,
+        correction-field, and component-validation contracts without runtime
+        types.
       - [x] Define immutable BaseColor, FinalColor HDR, tone-curve HDR,
         intrinsic-emission HDR, normal, depth, and FinalColor LDR capture
         evidence with per-pass camera fingerprints, exact projected-raster
@@ -516,11 +517,10 @@ Evidence:
         three target-visible feedback passes per frame, restore and verify the
         original channels before worker analysis, and retain restoration
         ownership through failure, cancellation, and game-thread teardown.
-      - [x] Run the deterministic three-iteration, six-candidate cluster-local
-        SPSA session across later HUD frames, evaluate each candidate only
-        after verified exact restoration, enforce stable-camera/calibrated-
-        readback/minimum-pair response gates, and freeze the response-gated
-        Emissive values throughout refinement.
+      - [ ] Generate a fixed four-texel correction lattice independent of the
+        replay brush and final region filters; anchor Front/Back and propagate
+        Side with deterministic harmonic or one-boundary extension, rejecting
+        unanchored Side components.
       - [x] Freeze the exact `HitTestAtScreenPosition` 0x70 parameter and
         `FScreenSpacePaintResult` 0x48 result contracts; retain at most the
         nearest packaged sample per projected raster pixel, cap the evenly
@@ -530,34 +530,32 @@ Evidence:
         the retained one-centimetre same-surface tolerance and its returned UV
         lies inside the same packaged topology triangle. Camera drift, invalid
         hit vectors, and unqueried/occluded samples remain fail-closed.
-      - [x] Retain the production endpoint policy as an ordered worker/runtime
-        transaction: evaluate the safe baseline and exact E=1 response
-        endpoint, calibrate and response-gate Emissive per cluster, evaluate
-        the exact A=0 endpoint, calibrate bounded Albedo plus robust
-        per-channel chromaticity gains, and evaluate the non-emission candidate
-        before refinement. Admit RGB feedback only after its median/tail
-        chromaticity and fit epoch gates; otherwise replay the parameter
-        baseline without RGB feedback before SPSA.
-      - [x] Re-export and byte-compare the complete game-owned packed AMRE
-        channel for every candidate, aggregate that proof across the session,
-        apply the response-gated effective emission ROI recall/stability rules,
-        and resolve only the strictly accepted candidate or the exact safe
-        fallback on the worker. Publish the immutable captured job only after
-        verified exact restoration; cancellation, candidate failure, and
-        fallback selection cannot publish a mutated or partially verified
-        preview.
+      - [ ] Retain the best validated Albedo-only feedback locally without a
+        global appearance fallback. Admit automatic Emissive only when both
+        repeatable source separation and the calibrated target E=1 response
+        agree; preserve source chromaticity in bounded Albedo and keep manual
+        Emissive as a floor.
+      - [ ] Re-export and byte-compare the complete game-owned packed AMRE
+        channel for every candidate and final verification. Publish the
+        immutable captured job only after exact restoration and component-
+        level validation; no failure may publish a mutated preview.
 - [x] Validate round, cube, and fukuyoka profiles.
-  - [x] Advance the latest-v1 tracking checkpoint to v1.7.1 and refresh the
-    Round raw/image-reference pair to the game 3.3.0 identity: 1,668 vertices,
-    8,352 indices, and profile hash
+  - [x] Advance the latest-v1 tracking checkpoint to v1.7.2. The Round
+    raw/image-reference pair remains the game 3.3.0 identity introduced on the
+    v1.7.1 line: 1,668 vertices, 8,352 indices, and profile hash
     `cd469e35ad0cbd1e483bd82b2406849429d24037807bd7a294534fb79633f55b`.
-- [x] Implement immutable planning for Paint/Fill/Skip, lighting, Auto Material,
-  PBR, compression, and Fill-first ordering.
+- [ ] Update immutable planning for Paint/Fill/Skip, projective appearance,
+  PBR floors, coverage-preserving compression, and Fill-first ordering.
   - [x] Preserve Back, Side, then Front dispatch within both Fill/Paint replay
     passes and adaptive-compression output, with scanline/radius ordering only
     inside each region.
   - [x] Share direct projected material evidence across Front and Back while
     retaining topology-visible, camera-facing admission for Side samples.
+  - [ ] Replace proximity coalescing with brush-aligned coverage, hard
+    hole/unsafe/island/region/material boundaries, deterministic circle
+    covering, and per-channel minimax representative colors.
+  - [ ] Pace non-preemptible local stroke slices from measured duration and
+    enforce the finite adaptive-delay cap.
 - [x] Run Paint deformation, projection, sample materialization, and planning
   on one owned cancellable worker from an immutable capture seed, with
   generation-tagged results and an exception boundary.

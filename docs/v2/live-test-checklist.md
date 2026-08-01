@@ -52,8 +52,8 @@ representative round, cube, and fukuyoka avatars.
 
 | ID | Procedure and acceptance | Owner | Current result |
 | --- | --- | --- | --- |
-| LIVE-B01 | Run manual Paint for all profiles, regions, Fill/Skip routing, PBR, scene-lighting modes, progress, cancellation, drain, preview, exact restore, freecam, and travel. | Maintainer | `BLOCKED_EXTERNAL_VALIDATION` |
-| LIVE-B02 | Run Auto Material source capture, E0, both endpoints, bounded trial frames, accepted/fallback resolution, cancellation, and teardown. Record readback orientation/color and prove every trial restores exact bytes before publication. | Maintainer + agent-operated host | `BLOCKED_EXTERNAL_VALIDATION` |
+| LIVE-B01 | Run projective Paint for all profiles, regions, Fill/Skip routing, manual PBR floors, progress, cancellation, drain, preview, exact restore, adaptive pacing, freecam, and travel. | Maintainer | `BLOCKED_EXTERNAL_VALIDATION` |
+| LIVE-B02 | Run fixed four-texel environment capture, Front/Back correction anchors, Side propagation, Albedo feedback, dual-evidence physical Emissive, final component validation, cancellation, and teardown. Record readback orientation/color and prove every target-visible mutation restores exact bytes before publication. | Maintainer + agent-operated host | `BLOCKED_EXTERNAL_VALIDATION` |
 | LIVE-B03 | Import PNG/JPEG/WebP, manipulate at least two layers, crop/resize/reorder/wrap/mirror, switch all guides, refresh textures, save/load/rename/delete, restart recovery, preview/restore, and Paint. | Maintainer | `BLOCKED_EXTERNAL_VALIDATION` |
 | LIVE-B04 | Exercise ESP all/hider/hunter scopes, every primitive, colors, spectator exclusion, role/avatar changes, skeletons, distant snaplines, travel, freecam, and HUD replacement. | Maintainer | `BLOCKED_EXTERNAL_VALIDATION` |
 | LIVE-B05 | Walk every UI section in all 16 languages at representative 100%, 150%, and 200% DPI plus common 16:9, ultrawide, and constrained resolutions. Text, focus, scrolling, clipping, status, and diagnostics must remain usable. | Maintainer | `BLOCKED_EXTERNAL_VALIDATION` |
@@ -109,4 +109,3 @@ access, approved dependency audit, and release maintainer authorization.
 - Do not start Phase 14 deletion or move `main` while any release-critical row
   is not `PASS`.
 - Never add a forbidden fallback to make a live gate appear successful.
-

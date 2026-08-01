@@ -161,20 +161,19 @@ The v1 research-only functions `MulticastSyncChannelData`,
 The manual Paint capture seed uses GAME-RENDER-001/002/010/011/012, the exact
 SceneCapture property set above, a pinned UE4SS `UWorld::SpawnActor` call with
 an exact class/result/world check, and the calibrated GAME-ESP-011 view. This
-is compile/contract evidence only. Phase 8 must still validate the minimal
-Auto Material subset, live brush-plane hiding and readback semantics/cleanup,
-and the capture frame budget. Debug/research capture, arbitrary actor spawning,
-and texture probing are deleted when they are not needed for product
-Paint/Image Paint.
+is compile/contract evidence only. Phase 8 must still validate the v1.7.2
+projective-environment subset, live brush-plane hiding and readback
+semantics/cleanup, and the capture frame budget. Debug/research capture,
+arbitrary actor spawning, and texture probing are deleted when they are not
+needed for product Paint/Image Paint.
 
-Auto Material may not use the synchronous manual-capture port. Its application
-boundary is a generation-tagged session admitted on one HUD frame and advanced
-at most once on each later HUD frame. A pending advance retains runtime
-ownership. A completed advance may publish a `CapturedPaintJob` only after the
-runtime has restored and exactly verified its changed preview channels.
-Cancellation, capture-stage failure, and shutdown likewise retain the session
-until the runtime reports restoration complete; no partial job may enter the
-planner or dispatcher.
+Every normal Paint uses a generation-tagged environment-capture session
+admitted on one HUD frame and advanced at most once on each later HUD frame. A
+pending advance retains runtime ownership. A completed advance may publish a
+`CapturedPaintJob` only after the runtime has restored and exactly verified its
+changed preview channels. Cancellation, capture-stage failure, and shutdown
+likewise retain the session until restoration completes; no partial job may
+enter the planner or dispatcher.
 
 ## HUD and UCanvas contracts
 

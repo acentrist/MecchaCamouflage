@@ -23,7 +23,7 @@ sampling profiles containing only exact identity, ordered UV vertices, ordered
 triangle indices, and UV-island identity. Decoder validation proves that every
 triangle agrees with the serialized LOD index buffer. Image Paint runtime
 capture and the application worker no longer accept runtime-produced triangle
-samples. At the current latest-v1 tracking checkpoint, v1.7.1, the Round pair
+samples. At the current latest-v1 tracking checkpoint, v1.7.2, the Round pair
 uses the game 3.3.0 identity with 1,668 vertices, 8,352 indices, and profile hash
 `cd469e35ad0cbd1e483bd82b2406849429d24037807bd7a294534fb79633f55b`.
 
@@ -385,7 +385,7 @@ not own reflection, UObjects, or dispatch.
   combined as one Fill-first adaptive plan. Fill keeps the project's Fill
   color/material and fixed radius; image strokes keep the image material,
   brush size, and optional color compression.
-- Output uses no scene-lighting or Auto Material path and is directly
+- Output uses no projective-environment appearance path and is directly
   compatible with the shared bounded Paint dispatcher.
 
 `image_profile_mapping_test` covers immutable geometry validation, all three

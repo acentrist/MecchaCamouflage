@@ -99,9 +99,12 @@ retained frame state: `Disabled` while closed, `Navigation` while open, and
 navigation/text events without losing F1--F24 hotkeys. Only the first accepted
 Commit/Cancel is admitted in one text frame.
 
-Auto Material follows the same publication rule at a larger scale: no captured
-job is published until every preview trial has been byte-restored and verified.
-Only a strictly accepted candidate or the exact safe fallback can publish.
+Projective Paint follows the same publication rule at a larger scale: no
+captured job is published until every target-visible feedback mutation has
+been byte-restored and verified. The best validated Albedo-only state is
+retained locally; physical Emissive is added only after dual source/target
+evidence and final component validation. There is no selectable Auto Material,
+cluster/SPSA branch, or global appearance fallback.
 
 ## Feature ownership
 
@@ -199,4 +202,3 @@ The following remain architecture violations, not fallback options:
 - Packaging: [`phase12-packaging-progress.md`](phase12-packaging-progress.md)
 - Open external gates: [`live-test-checklist.md`](live-test-checklist.md)
 - Release risks: [`risk-register.md`](risk-register.md)
-

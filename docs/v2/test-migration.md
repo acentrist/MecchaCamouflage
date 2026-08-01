@@ -54,9 +54,9 @@ range from silently changing meaning.
 | 044-044 | RETIRE | diagnostic stroke-limit option | RETIRE-011 |
 | 045-047 | CHARACTERIZE | brush range, game radius defaults, and spatial replay order | PAINT-001/011/014 |
 | 048-052 | REWRITE | captured component, game sender, and preview lifetime/order | PAINT-012/013/017 |
-| 053-053 | CHARACTERIZE | Auto Material feedback with manual Fill route | PAINT-006/007 |
+| 053-053 | REWRITE | Projective environment feedback with independent manual Fill route | PAINT-003/006/007/008 |
 | 054-054 | RETIRE | intrinsic emission probe | RETIRE-011 |
-| 055-055 | CHARACTERIZE | capture hides only the live brush visual | PAINT-007 |
+| 055-055 | CHARACTERIZE | capture hides only the live brush visual | PAINT-003 |
 | 056-056 | REWRITE | typed Paint route includes independent Fill material | PAINT-006/013 |
 | 057-057 | RETIRE | legacy Fill PBR migration | RETIRE-009 |
 | 058-059 | PORT | locale completeness and RRGGBB parsing | I18N-002, PAINT-006, ESP-004 |

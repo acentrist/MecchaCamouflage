@@ -195,12 +195,14 @@ worker, access a filesystem, or inspect a UObject.
 The focused core library includes no UE4SS, Unreal, Win32, graphics, launcher,
 JSON, or UI header. Its test passes under MSVC `/W4 /WX` and clang-cl `/WX`.
 
-The adaptive-compression cases cover disabled exact preservation,
-same-material coalescing, material isolation, deterministic expansion, and
-non-finite input rejection. Paint planning additionally covers Fill-first
-ordering, Skip/unsafe exclusion, independent Fill PBR, manual and resolved
-automatic appearance, scene-color selection, profile rejection, resource
-limits, and cancellation. `application_runtime_test` proves that control work
+The existing adaptive-compression and optional automatic-appearance cases are
+superseded by the v1.7.2 Paint decision. Phase 6 core closure is reopened for
+brush-aligned coverage, hard topology/material boundaries, deterministic
+circle covering/minimax representative colors, fixed-lattice correction,
+physical Emissive, and projective-appearance-only planning. Fill-first
+ordering, Skip/unsafe exclusion, independent Fill PBR, profile rejection,
+resource limits, and cancellation remain retained evidence.
+`application_runtime_test` proves that control work
 preempts already-queued Paint work. `paint_preview_build_worker_test` covers
 copied inputs, bounded concurrency, generation-checked cancellation,
 planner/composer errors, immutable publication, worker reuse, exception

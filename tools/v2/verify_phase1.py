@@ -20,7 +20,7 @@ LOCALES = ROOT / "src/csharp/MecchaCamouflage.Core/Localization/Strings.json"
 
 EXPECTED_REQUIREMENTS = {
     "RUNTIME": 12,
-    "PAINT": 18,
+    "PAINT": 19,
     "IMAGE": 20,
     "ESP": 10,
     "UI": 12,

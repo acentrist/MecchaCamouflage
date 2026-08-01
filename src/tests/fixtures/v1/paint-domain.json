@@ -14,13 +14,11 @@
   "settings": {
     "defaults": {
       "brush_size_texels": 5.0,
-      "side_source_max_uv": 0.08,
-      "front_back_source_max_uv": 0.45,
       "front_mode": "skip",
       "side_mode": "paint",
       "back_mode": "paint",
-      "auto_material": false,
-      "include_scene_lighting": false,
+      "paint_source": "environment_capture",
+      "appearance_calibration_step_texels": 4.0,
       "paint_material": {
         "metallic": 0.0,
         "roughness": 1.0,
@@ -36,8 +34,6 @@
     },
     "ranges": {
       "brush_size_texels": [1.0, 10.0],
-      "side_source_max_uv": [0.001, 0.5],
-      "front_back_source_max_uv": [0.001, 2.0],
       "material_component": [0.0, 1.0],
       "color_compression_tolerance_percent": [0.0, 10.0]
     },

@@ -260,16 +260,18 @@ input, and divergent-model refusal.
 
 ## Complete portable Paint settings section
 
-The Paint section retains its four job/preview actions and adds every current
-configuration field below them: brush size, side and front/back source bounds,
-independent Front/Side/Back Paint/Fill/Skip routing, Auto Material, scene
-lighting, Paint metallic/roughness/emissive, Fill color and independent
-metallic/roughness/emissive, and color-compression tolerance.
+The Paint section retains its four job/preview actions and exposes the v1.7.2
+configuration fields below them: brush size, independent Front/Side/Back
+Paint/Fill/Skip routing, Paint metallic/roughness/emissive floors, Fill color
+and independent metallic/roughness/emissive, and color-compression tolerance.
+Source bounds, Auto Material, and scene-lighting controls are retired.
 
-Controls read the exact immutable Paint presentation and start edits from the
-exact complete `ApplicationConfig`. Each interaction changes only its owned
-field, validates the full result, and emits at most one revision-bound
-`UiApplySettings` action. The section has retained bounded scrolling, clipped
+Controls read the exact immutable Paint presentation. An explicit Edit action
+must open a local complete `ApplicationConfig` draft before any settings or
+target/editor mutation is enabled, including while Paint runs. Each
+interaction changes only its owned draft field; Apply validates the full
+result and emits at most one revision-bound `UiApplySettings` action. The
+section has retained bounded scrolling, clipped
 control exclusion, localized labels and region-mode values, and finite
 validation ranges shared with the core contract. Core validation now also
 rejects unknown Front/Side/Back enum values instead of treating an invalid

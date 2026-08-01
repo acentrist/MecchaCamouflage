@@ -511,8 +511,30 @@ Paint must preserve:
 
 - Round, cube, and fukuyoka profile validation.
 - Paint, Fill, and Skip region routing.
-- Brush size, color compression, scene-lighting inclusion, and Auto Material.
+- Brush size and color compression.
 - Metallic, roughness, emissive, and independent Fill material.
+- Normal Paint always projects the hidden environment capture onto the mesh.
+  It has no Auto Material or scene-lighting mode switch. Image Paint remains a
+  separate imported-image source and does not enter the environment-capture
+  calibration path.
+- Environment projection uses a fixed four-texel calibration lattice that is
+  independent of the selected replay brush size and final region filters.
+- Front and Back anchor one deterministic correction field. Side vertices use
+  harmonic interpolation when both boundaries are present and a one-sided
+  extension when only one boundary is reachable; an unanchored Side component
+  fails closed.
+- Albedo feedback retains the best validated albedo-only result locally. It
+  never reverts the complete Paint job to a global appearance fallback.
+- Automatic Emissive requires repeatable source separation and a calibrated
+  target E=1 response. Accepted source residual chromaticity is carried by
+  bounded Albedo while Emissive remains a scalar with the manual value as its
+  floor.
+- Compression operates on a brush-aligned coverage field. Holes, unsafe
+  samples, UV islands, regions, and material changes are hard boundaries;
+  deterministic circle covering and per-channel minimax representatives bound
+  the replay error.
+- Non-preemptible `PaintAtUVWithBrush` dispatch is paced from the measured
+  game-thread slice duration, with a documented finite delay cap.
 - Preview snapshot and exact unpreview restoration.
 - Fill-first followed by Paint overwrite.
 - Bounded planning and per-frame dispatch.
@@ -1344,9 +1366,12 @@ packaged UMG; no fallback implementation starts without explicit plan approval.
 1. Implement typed game-thread capture for the active paint component, mesh
    identity/profile, source colors/material values, and preview channels.
 2. Validate round, cube, and fukuyoka profiles before planning.
-3. Build immutable worker inputs and port Paint/Fill/Skip routing,
-   scene-lighting inclusion, Auto Material, manual PBR, independent Fill PBR,
-   compression, and fill-first/paint-overwrite ordering.
+3. Build immutable worker inputs and port Paint/Fill/Skip routing, always-on
+   hidden-environment projection, fixed four-texel correction calibration,
+   dual-evidence physical Emissive, manual PBR floors, independent Fill PBR,
+   coverage-preserving compression, and fill-first/paint-overwrite ordering.
+   Delete the retired Auto Material, scene-lighting, SPSA, and cluster-fit
+   settings and execution branches rather than retaining a compatibility mode.
 4. Implement preview capture, apply, ownership, repeated-restore guard, exact
    restore, invalidation, and shutdown restoration.
 5. Implement bounded per-frame dispatch through game-owned
@@ -1366,9 +1391,10 @@ packaged UMG; no fallback implementation starts without explicit plan approval.
 
 **Manual/external verification**
 
-- Preview Paint and Fill, exact restore, repeated restore warning, manual PBR,
-  Auto Material, scene lighting, all region combinations, cancellation during
-  planning/dispatch, progress/backpressure, travel/freecam behavior.
+- Preview Paint and Fill, exact restore, repeated restore warning, projected
+  environment appearance, manual PBR/Emissive floors, all region combinations,
+  cancellation during capture/planning/dispatch, progress/backpressure,
+  adaptive local pacing, and travel/freecam behavior.
 - Multi-client host-painter and joining-client-painter runs with visible remote
   completion and both queues drained.
 
@@ -1830,7 +1856,9 @@ Run the maintained release checklist on Windows 10 and 11 with:
 - Twenty-five repeated managed launch/prepare cycles with one active runtime
   directory only after each successful transaction.
 - Lobby, active match, map travel, freecam, spectator mode, role changes, and shutdown.
-- Paint preview, restore, repeated restore guard, Fill/Paint/Skip combinations, Auto Material, scene lighting, cancellation, progress, and backpressure.
+- Paint preview, restore, repeated restore guard, Fill/Paint/Skip combinations,
+  environment projection/correction, dual-evidence Emissive, cancellation,
+  adaptive pacing, progress, and backpressure.
 - Image Paint PNG/JPEG/WebP, multiple layers, crop, resize, reorder, wrap,
   mirror, all three body types and guide overlays, Fill/Skip faces, save/load,
   preview, restore, and cancellation.
