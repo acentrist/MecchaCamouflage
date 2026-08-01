@@ -413,11 +413,10 @@ auto Win32OwnedFileStore::install(
     {
         previous = (**current_receipt).next;
     }
-    const auto next = OwnershipRecord{
-        expected.product_version,
-        expected.manifest_sha256,
-        expected.file,
-    };
+    auto next = OwnershipRecord{};
+    next.product_version = expected.product_version;
+    next.manifest_sha256 = expected.manifest_sha256;
+    next.file = expected.file;
     auto installing = detail::write_owned_file_receipt(
         ownership_record_,
         Receipt{
@@ -541,11 +540,10 @@ auto Win32OwnedFileStore::prepare_external_install(
     {
         return std::unexpected(state.error());
     }
-    const auto next = OwnershipRecord{
-        expected.product_version,
-        expected.manifest_sha256,
-        expected.file,
-    };
+    auto next = OwnershipRecord{};
+    next.product_version = expected.product_version;
+    next.manifest_sha256 = expected.manifest_sha256;
+    next.file = expected.file;
     const auto desired = measurement(next);
     if (*state == ArtifactState::ExactOwned)
     {

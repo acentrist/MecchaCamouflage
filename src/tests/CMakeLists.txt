@@ -1275,6 +1275,7 @@ if(WIN32)
     add_executable(
         meccha_elevated_transport_win32_tests
         elevated_transport_win32_test.cpp
+        win32_test.rc
     )
     target_link_libraries(
         meccha_elevated_transport_win32_tests
@@ -1286,10 +1287,16 @@ if(WIN32)
         NAME elevated_transport_win32
         COMMAND meccha_elevated_transport_win32_tests
     )
+    target_link_options(
+        meccha_elevated_transport_win32_tests
+        PRIVATE
+            /MANIFEST:NO
+    )
 
     add_executable(
         meccha_elevated_child_win32_tests
         elevated_child_win32_test.cpp
+        win32_test.rc
     )
     target_link_libraries(
         meccha_elevated_child_win32_tests
@@ -1300,6 +1307,11 @@ if(WIN32)
     add_test(
         NAME elevated_child_win32
         COMMAND meccha_elevated_child_win32_tests
+    )
+    target_link_options(
+        meccha_elevated_child_win32_tests
+        PRIVATE
+            /MANIFEST:NO
     )
 
     add_executable(
@@ -1468,6 +1480,24 @@ add_test(
         "${Python3_EXECUTABLE}"
         "${PROJECT_SOURCE_DIR}/tools/v2/test_verify_fallback_glyph_atlas.py"
 )
+
+# MSVC ships its AddressSanitizer runtime DLL beside the selected compiler.
+# Make CTest resolve that exact compiler-bound runtime without relying on an
+# interactive developer-shell PATH.
+if(MECCHA_ENABLE_MSVC_ADDRESS_SANITIZER)
+    get_filename_component(
+        _meccha_sanitizer_runtime_directory
+        "${CMAKE_CXX_COMPILER}"
+        DIRECTORY
+    )
+    get_property(_meccha_registered_tests DIRECTORY PROPERTY TESTS)
+    set_tests_properties(
+        ${_meccha_registered_tests}
+        PROPERTIES
+            ENVIRONMENT_MODIFICATION
+                "PATH=path_list_prepend:${_meccha_sanitizer_runtime_directory}"
+    )
+endif()
 
 # The trusted full-build preset must build every project contract without
 # selecting UE4SS's unrelated research tools or bundled mods.

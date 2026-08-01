@@ -17,7 +17,7 @@ env:
 jobs:
   policy-contracts:
     name: Policy Contracts
-    runs-on: ubuntu-24.04
+    runs-on: windows-2022
     outputs:
       run_heavy: ${{ steps.change-policy.outputs.run_heavy }}
       classification: ${{ steps.change-policy.outputs.classification }}
@@ -37,87 +37,23 @@ jobs:
           V2_EVENT_ACTION: ${{ github.event.action }}
           V2_BEFORE_COMMIT: ${{ github.event.before }}
         run: >
-          python3 tools/v2/ci_change_policy.py
-          --event-name "$V2_EVENT_NAME"
-          --event-action "$V2_EVENT_ACTION"
-          --before "$V2_BEFORE_COMMIT"
-          --after "$V2_SOURCE_COMMIT"
-          --repository "$GITHUB_REPOSITORY"
-          --api-url "$GITHUB_API_URL"
-          --github-output "$GITHUB_OUTPUT"
+          py -3 tools/v2/ci_change_policy.py
+          --event-name "$env:V2_EVENT_NAME"
+          --event-action "$env:V2_EVENT_ACTION"
+          --before "$env:V2_BEFORE_COMMIT"
+          --after "$env:V2_SOURCE_COMMIT"
+          --repository "$env:GITHUB_REPOSITORY"
+          --api-url "$env:GITHUB_API_URL"
+          --github-output "$env:GITHUB_OUTPUT"
 
       - name: Verify frozen-v1 and traceability contracts
-        run: python3 tools/v2/verify_phase1.py
+        run: py -3 tools/v2/verify_phase1.py
 
       - name: Verify CI trust and execution policy
-        run: python3 tools/v2/verify_ci_policy.py
+        run: py -3 tools/v2/verify_ci_policy.py
 
-  linux-static-analysis:
-    needs: policy-contracts
-    if: needs.policy-contracts.outputs.run_heavy == 'true'
-    runs-on: ubuntu-24.04
-
-    steps:
-      - name: Checkout without restricted dependencies
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ env.V2_SOURCE_COMMIT }}
-          submodules: false
-
-      - name: Checkout the public UE4SS root only
-        run: git submodule update --init third_party/RE-UE4SS
-
-      - name: Configure secret-free GCC analysis
-        run: >
-          cmake -S . -B .build/v2/ci-linux-analyzer -G Ninja
-          -DCMAKE_BUILD_TYPE=Debug
-          -DMECCHA_WITH_UE4SS=OFF
-          -DMECCHA_BUILD_TESTS=OFF
-          -DMECCHA_WARNINGS_AS_ERRORS=ON
-          -DMECCHA_ENABLE_GCC_ANALYZER=ON
-
-      - name: Analyze portable production targets
-        run: >
-          cmake --build .build/v2/ci-linux-analyzer
-          --target meccha_product_ui meccha_runtime_contracts
-          meccha_launcher_core --parallel 2
-
-  linux-sanitizers:
-    needs: policy-contracts
-    if: needs.policy-contracts.outputs.run_heavy == 'true'
-    runs-on: ubuntu-24.04
-
-    steps:
-      - name: Checkout without restricted dependencies
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ env.V2_SOURCE_COMMIT }}
-          submodules: false
-
-      - name: Checkout the public UE4SS root only
-        run: git submodule update --init third_party/RE-UE4SS
-
-      - name: Configure sanitized secret-free graph
-        run: >
-          cmake -S . -B .build/v2/ci-linux-sanitized -G Ninja
-          -DCMAKE_BUILD_TYPE=Debug
-          -DMECCHA_WITH_UE4SS=OFF
-          -DMECCHA_BUILD_TESTS=ON
-          -DMECCHA_WARNINGS_AS_ERRORS=ON
-          -DMECCHA_ENABLE_SANITIZERS=ON
-
-      - name: Build sanitized secret-free graph
-        run: cmake --build .build/v2/ci-linux-sanitized
-
-      - name: Test sanitized secret-free graph
-        env:
-          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
-          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
-        run: >
-          ctest --test-dir .build/v2/ci-linux-sanitized
-          --output-on-failure
-
-  windows:
+  windows-msvc:
+    name: Windows MSVC Tests
     needs: policy-contracts
     if: needs.policy-contracts.outputs.run_heavy == 'true'
     runs-on: windows-2022
@@ -130,10 +66,7 @@ jobs:
           submodules: false
 
       - name: Checkout the public UE4SS root only
-        shell: powershell
-        run: |
-          git submodule update --init third_party/RE-UE4SS
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        run: git submodule update --init third_party/RE-UE4SS
 
       - name: Set up MSVC
         uses: ilammy/msvc-dev-cmd@v1
@@ -141,63 +74,189 @@ jobs:
           arch: x64
 
       - name: Configure secret-free graph
-        shell: powershell
         run: >
-          cmake -S . -B .build/v2/ci-windows
+          cmake -S . -B .build/v2/ci-windows-msvc
           -G "Visual Studio 17 2022" -A x64
           -DMECCHA_WITH_UE4SS=OFF
           -DMECCHA_BUILD_TESTS=ON
           -DMECCHA_WARNINGS_AS_ERRORS=ON
 
       - name: Build secret-free graph
-        shell: powershell
-        run: cmake --build .build/v2/ci-windows --config Release
+        run: cmake --build .build/v2/ci-windows-msvc --config Release
 
       - name: Test secret-free graph
-        shell: powershell
         run: >
-          ctest --test-dir .build/v2/ci-windows
+          ctest --test-dir .build/v2/ci-windows-msvc
           -C Release --output-on-failure
+
+  windows-msvc-asan:
+    name: Windows MSVC ASan
+    needs: policy-contracts
+    if: github.event_name == 'workflow_dispatch' && needs.policy-contracts.outputs.run_heavy == 'true'
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout without restricted dependencies
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.V2_SOURCE_COMMIT }}
+          submodules: false
+
+      - name: Checkout the public UE4SS root only
+        run: git submodule update --init third_party/RE-UE4SS
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure AddressSanitizer graph
+        run: >
+          cmake -S . -B .build/v2/ci-windows-msvc-asan
+          -G "Visual Studio 17 2022" -A x64
+          -DMECCHA_WITH_UE4SS=OFF
+          -DMECCHA_BUILD_TESTS=ON
+          -DMECCHA_WARNINGS_AS_ERRORS=ON
+          -DMECCHA_ENABLE_MSVC_ADDRESS_SANITIZER=ON
+
+      - name: Build AddressSanitizer graph
+        run: cmake --build .build/v2/ci-windows-msvc-asan --config Release
+
+      - name: Test AddressSanitizer graph
+        env:
+          ASAN_OPTIONS: halt_on_error=1
+        run: >
+          ctest --test-dir .build/v2/ci-windows-msvc-asan
+          -C Release --output-on-failure
+
+  windows-clang-ubsan:
+    name: Windows clang-cl UBSan
+    needs: policy-contracts
+    if: github.event_name == 'workflow_dispatch' && needs.policy-contracts.outputs.run_heavy == 'true'
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout without restricted dependencies
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.V2_SOURCE_COMMIT }}
+          submodules: false
+
+      - name: Checkout the public UE4SS root only
+        run: git submodule update --init third_party/RE-UE4SS
+
+      - name: Set up the MSVC SDK environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Report clang-cl version
+        run: clang-cl --version
+
+      - name: Configure UndefinedBehaviorSanitizer graph
+        run: >
+          cmake -S . -B .build/v2/ci-windows-clang-ubsan -G Ninja
+          -DCMAKE_C_COMPILER=clang-cl
+          -DCMAKE_CXX_COMPILER=clang-cl
+          -DCMAKE_BUILD_TYPE=Release
+          -DMECCHA_WITH_UE4SS=OFF
+          -DMECCHA_BUILD_TESTS=ON
+          -DMECCHA_WARNINGS_AS_ERRORS=ON
+          -DMECCHA_ENABLE_CLANG_CL_UBSAN=ON
+
+      - name: Build UndefinedBehaviorSanitizer graph
+        run: cmake --build .build/v2/ci-windows-clang-ubsan --parallel 2
+
+      - name: Test UndefinedBehaviorSanitizer graph
+        env:
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: >
+          ctest --test-dir .build/v2/ci-windows-clang-ubsan
+          --output-on-failure
+
+  windows-msvc-analysis:
+    name: Windows MSVC Code Analysis
+    needs: policy-contracts
+    if: github.event_name == 'workflow_dispatch' && needs.policy-contracts.outputs.run_heavy == 'true'
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout without restricted dependencies
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.V2_SOURCE_COMMIT }}
+          submodules: false
+
+      - name: Checkout the public UE4SS root only
+        run: git submodule update --init third_party/RE-UE4SS
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure native code analysis
+        run: >
+          cmake -S . -B .build/v2/ci-windows-msvc-analysis
+          -G "Visual Studio 17 2022" -A x64
+          -DMECCHA_WITH_UE4SS=OFF
+          -DMECCHA_BUILD_TESTS=OFF
+          -DMECCHA_WARNINGS_AS_ERRORS=ON
+          -DMECCHA_ENABLE_MSVC_CODE_ANALYSIS=ON
+
+      - name: Analyze production target closure
+        run: >
+          cmake --build .build/v2/ci-windows-msvc-analysis
+          --config Release
+          --target meccha_product_ui meccha_runtime_contracts
+          meccha_launcher_core --parallel 2
 
   public-ci:
     name: Public CI Gate
     if: always()
     needs:
       - policy-contracts
-      - linux-static-analysis
-      - linux-sanitizers
-      - windows
-    runs-on: ubuntu-24.04
+      - windows-msvc
+      - windows-msvc-asan
+      - windows-clang-ubsan
+      - windows-msvc-analysis
+    runs-on: windows-2022
 
     steps:
       - name: Require the selected public CI depth
         env:
           POLICY_RESULT: ${{ needs.policy-contracts.result }}
           RUN_HEAVY: ${{ needs.policy-contracts.outputs.run_heavy }}
-          ANALYZER_RESULT: ${{ needs.linux-static-analysis.result }}
-          SANITIZER_RESULT: ${{ needs.linux-sanitizers.result }}
-          WINDOWS_RESULT: ${{ needs.windows.result }}
+          WINDOWS_RESULT: ${{ needs.windows-msvc.result }}
+          ASAN_RESULT: ${{ needs.windows-msvc-asan.result }}
+          UBSAN_RESULT: ${{ needs.windows-clang-ubsan.result }}
+          ANALYSIS_RESULT: ${{ needs.windows-msvc-analysis.result }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [[ "$POLICY_RESULT" != "success" ]]; then
-            echo "Policy contracts did not succeed: $POLICY_RESULT"
-            exit 1
-          fi
+          if ($env:POLICY_RESULT -ne "success") {
+            throw "Policy contracts did not succeed: $env:POLICY_RESULT"
+          }
 
-          if [[ "$RUN_HEAVY" == "true" ]]; then
-            if [[ "$ANALYZER_RESULT" != "success" ||
-                  "$SANITIZER_RESULT" != "success" ||
-                  "$WINDOWS_RESULT" != "success" ]]; then
-              echo "Heavy CI did not succeed: analyzer=$ANALYZER_RESULT sanitizer=$SANITIZER_RESULT windows=$WINDOWS_RESULT"
-              exit 1
-            fi
-          elif [[ "$RUN_HEAVY" == "false" ]]; then
-            if [[ "$ANALYZER_RESULT" != "skipped" ||
-                  "$SANITIZER_RESULT" != "skipped" ||
-                  "$WINDOWS_RESULT" != "skipped" ]]; then
-              echo "Lightweight CI unexpectedly ran a heavy job"
-              exit 1
-            fi
-          else
-            echo "Policy contracts returned an invalid run_heavy value: $RUN_HEAVY"
-            exit 1
-          fi
+          if ($env:RUN_HEAVY -eq "true") {
+            if ($env:WINDOWS_RESULT -ne "success") {
+              throw "Required Windows MSVC tests did not succeed: $env:WINDOWS_RESULT"
+            }
+          } elseif ($env:RUN_HEAVY -eq "false") {
+            if ($env:WINDOWS_RESULT -ne "skipped") {
+              throw "Lightweight CI unexpectedly ran Windows MSVC tests."
+            }
+          } else {
+            throw "Policy contracts returned an invalid run_heavy value: $env:RUN_HEAVY"
+          }
+
+          if ($env:EVENT_NAME -eq "workflow_dispatch") {
+            if ($env:ASAN_RESULT -ne "success" -or
+                $env:UBSAN_RESULT -ne "success" -or
+                $env:ANALYSIS_RESULT -ne "success") {
+              throw "Deep Windows CI did not succeed: asan=$env:ASAN_RESULT ubsan=$env:UBSAN_RESULT analysis=$env:ANALYSIS_RESULT"
+            }
+          } elseif ($env:ASAN_RESULT -ne "skipped" -or
+                    $env:UBSAN_RESULT -ne "skipped" -or
+                    $env:ANALYSIS_RESULT -ne "skipped") {
+            throw "Pull-request CI unexpectedly ran a manual deep-validation job."
+          }

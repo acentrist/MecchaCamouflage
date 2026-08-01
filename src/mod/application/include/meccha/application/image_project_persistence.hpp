@@ -63,6 +63,9 @@ struct ImageProjectPersistenceError
     std::optional<ImageProjectStoreError> project{};
     std::optional<ConfigStoreError> configuration{};
     std::string detail{};
+
+    auto operator==(const ImageProjectPersistenceError&) const
+        -> bool = default;
 };
 
 struct ActivatedImageProject

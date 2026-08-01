@@ -1164,7 +1164,7 @@ auto compose_image_settings_section(
             {
                 return std::unexpected(crop.error());
             }
-            if (crop->activated)
+            if (crop->activated && selected && selected_source != nullptr)
             {
                 const auto started = ui::begin_image_crop(
                     *selected,

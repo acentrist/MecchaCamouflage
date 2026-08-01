@@ -518,15 +518,14 @@ auto Win32OriginalUserElevatedLoaderBroker::apply(
                      : nonce.error().detail),
             });
     }
-    const auto request = ElevatedLoaderMutationRequest{
-        ElevatedLoaderMutationSchemaVersion,
-        ElevatedLoaderOperation::Apply,
-        accepted_manifest_sha256_,
-        *nonce,
-        game_directory,
-        *proxy,
-        *override_file,
-    };
+    auto request = ElevatedLoaderMutationRequest{};
+    request.schema_version = ElevatedLoaderMutationSchemaVersion;
+    request.operation = ElevatedLoaderOperation::Apply;
+    request.manifest_sha256 = accepted_manifest_sha256_;
+    request.request_nonce = *nonce;
+    request.game_directory = game_directory;
+    request.proxy = *proxy;
+    request.override_file = *override_file;
     const auto executed = client_.execute(request);
     if (!executed)
     {
@@ -657,15 +656,14 @@ auto Win32OriginalUserElevatedLoaderBroker::remove(
                      : nonce.error().detail),
             });
     }
-    const auto request = ElevatedLoaderMutationRequest{
-        ElevatedLoaderMutationSchemaVersion,
-        ElevatedLoaderOperation::Remove,
-        accepted_manifest_sha256_,
-        *nonce,
-        game_directory,
-        *proxy,
-        *override_file,
-    };
+    auto request = ElevatedLoaderMutationRequest{};
+    request.schema_version = ElevatedLoaderMutationSchemaVersion;
+    request.operation = ElevatedLoaderOperation::Remove;
+    request.manifest_sha256 = accepted_manifest_sha256_;
+    request.request_nonce = *nonce;
+    request.game_directory = game_directory;
+    request.proxy = *proxy;
+    request.override_file = *override_file;
     const auto executed = client_.execute(request);
     if (!executed)
     {

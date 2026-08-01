@@ -18,21 +18,39 @@
       }
     },
     {
-      "name": "dev-linux",
-      "displayName": "Secret-free Linux development",
-      "inherits": "base",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "MECCHA_WITH_UE4SS": "OFF"
-      }
-    },
-    {
       "name": "ci-windows",
       "displayName": "Secret-free Windows CI",
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "MECCHA_WITH_UE4SS": "OFF"
+      }
+    },
+    {
+      "name": "windows-msvc-asan",
+      "displayName": "Windows MSVC AddressSanitizer",
+      "inherits": "ci-windows",
+      "cacheVariables": {
+        "MECCHA_ENABLE_MSVC_ADDRESS_SANITIZER": "ON"
+      }
+    },
+    {
+      "name": "windows-clang-ubsan",
+      "displayName": "Windows clang-cl UndefinedBehaviorSanitizer",
+      "inherits": "ci-windows",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang-cl",
+        "CMAKE_CXX_COMPILER": "clang-cl",
+        "MECCHA_ENABLE_CLANG_CL_UBSAN": "ON"
+      }
+    },
+    {
+      "name": "windows-msvc-analysis",
+      "displayName": "Windows MSVC native code analysis",
+      "inherits": "ci-windows",
+      "cacheVariables": {
+        "MECCHA_BUILD_TESTS": "OFF",
+        "MECCHA_ENABLE_MSVC_CODE_ANALYSIS": "ON"
       }
     },
     {
@@ -47,12 +65,25 @@
   ],
   "buildPresets": [
     {
-      "name": "dev-linux",
-      "configurePreset": "dev-linux"
-    },
-    {
       "name": "ci-windows",
       "configurePreset": "ci-windows"
+    },
+    {
+      "name": "windows-msvc-asan",
+      "configurePreset": "windows-msvc-asan"
+    },
+    {
+      "name": "windows-clang-ubsan",
+      "configurePreset": "windows-clang-ubsan"
+    },
+    {
+      "name": "windows-msvc-analysis",
+      "configurePreset": "windows-msvc-analysis",
+      "targets": [
+        "meccha_product_ui",
+        "meccha_runtime_contracts",
+        "meccha_launcher_core"
+      ]
     },
     {
       "name": "full-windows",
@@ -67,15 +98,22 @@
   ],
   "testPresets": [
     {
-      "name": "dev-linux",
-      "configurePreset": "dev-linux",
+      "name": "ci-windows",
+      "configurePreset": "ci-windows",
       "output": {
         "outputOnFailure": true
       }
     },
     {
-      "name": "ci-windows",
-      "configurePreset": "ci-windows",
+      "name": "windows-msvc-asan",
+      "configurePreset": "windows-msvc-asan",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-clang-ubsan",
+      "configurePreset": "windows-clang-ubsan",
       "output": {
         "outputOnFailure": true
       }

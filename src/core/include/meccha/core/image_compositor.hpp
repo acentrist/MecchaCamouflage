@@ -39,6 +39,8 @@ struct ImageAtlasComposition
     std::size_t rectangles_composed{};
     std::uint64_t pixel_operations{};
     std::uint64_t pixels_blended{};
+
+    auto operator==(const ImageAtlasComposition&) const -> bool = default;
 };
 
 enum class ImageComposeError : std::uint8_t

@@ -34,9 +34,6 @@ struct ProductUiEffectResult
 {
     bool cancelled{};
     std::optional<ProductUiActionEnvelope> action{};
-
-    auto operator==(const ProductUiEffectResult&) const
-        -> bool = default;
 };
 
 class ProductUiEffectExecutor

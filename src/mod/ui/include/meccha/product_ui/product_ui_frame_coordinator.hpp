@@ -129,7 +129,6 @@ struct ProductUiFrameSnapshot
     bool stopping{};
     bool stopped{};
 
-    auto operator==(const ProductUiFrameSnapshot&) const -> bool = default;
 };
 
 class ProductUiFrameCoordinator

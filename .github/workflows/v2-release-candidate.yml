@@ -7,7 +7,127 @@ permissions:
   contents: read
 
 jobs:
+  windows-msvc-asan:
+    name: Pre-release MSVC ASan
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout reviewed ref
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Checkout the public UE4SS root only
+        run: git submodule update --init third_party/RE-UE4SS
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure AddressSanitizer graph
+        run: >
+          cmake -S . -B .build/v2/release-msvc-asan
+          -G "Visual Studio 17 2022" -A x64
+          -DMECCHA_WITH_UE4SS=OFF
+          -DMECCHA_BUILD_TESTS=ON
+          -DMECCHA_WARNINGS_AS_ERRORS=ON
+          -DMECCHA_ENABLE_MSVC_ADDRESS_SANITIZER=ON
+
+      - name: Build AddressSanitizer graph
+        run: cmake --build .build/v2/release-msvc-asan --config Release
+
+      - name: Test AddressSanitizer graph
+        env:
+          ASAN_OPTIONS: halt_on_error=1
+        run: >
+          ctest --test-dir .build/v2/release-msvc-asan
+          -C Release --output-on-failure
+
+  windows-clang-ubsan:
+    name: Pre-release clang-cl UBSan
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout reviewed ref
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Checkout the public UE4SS root only
+        run: git submodule update --init third_party/RE-UE4SS
+
+      - name: Set up the MSVC SDK environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Report clang-cl version
+        run: clang-cl --version
+
+      - name: Configure UndefinedBehaviorSanitizer graph
+        run: >
+          cmake -S . -B .build/v2/release-clang-ubsan -G Ninja
+          -DCMAKE_C_COMPILER=clang-cl
+          -DCMAKE_CXX_COMPILER=clang-cl
+          -DCMAKE_BUILD_TYPE=Release
+          -DMECCHA_WITH_UE4SS=OFF
+          -DMECCHA_BUILD_TESTS=ON
+          -DMECCHA_WARNINGS_AS_ERRORS=ON
+          -DMECCHA_ENABLE_CLANG_CL_UBSAN=ON
+
+      - name: Build UndefinedBehaviorSanitizer graph
+        run: cmake --build .build/v2/release-clang-ubsan --parallel 2
+
+      - name: Test UndefinedBehaviorSanitizer graph
+        env:
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: >
+          ctest --test-dir .build/v2/release-clang-ubsan
+          --output-on-failure
+
+  windows-msvc-analysis:
+    name: Pre-release MSVC Code Analysis
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout reviewed ref
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Checkout the public UE4SS root only
+        run: git submodule update --init third_party/RE-UE4SS
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure native code analysis
+        run: >
+          cmake -S . -B .build/v2/release-msvc-analysis
+          -G "Visual Studio 17 2022" -A x64
+          -DMECCHA_WITH_UE4SS=OFF
+          -DMECCHA_BUILD_TESTS=OFF
+          -DMECCHA_WARNINGS_AS_ERRORS=ON
+          -DMECCHA_ENABLE_MSVC_CODE_ANALYSIS=ON
+
+      - name: Analyze production target closure
+        run: >
+          cmake --build .build/v2/release-msvc-analysis
+          --config Release
+          --target meccha_product_ui meccha_runtime_contracts
+          meccha_launcher_core --parallel 2
+
   release-candidate:
+    needs:
+      - windows-msvc-asan
+      - windows-clang-ubsan
+      - windows-msvc-analysis
     if: >-
       github.repository == 'acentrist/MecchaCamouflage' &&
       (github.ref == 'refs/heads/rewrite/ue4ss-v2' ||

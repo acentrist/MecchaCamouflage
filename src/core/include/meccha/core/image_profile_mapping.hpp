@@ -54,6 +54,8 @@ struct ImageTriangleAnchor
     double barycentric_a{};
     double barycentric_b{};
     double barycentric_c{};
+
+    auto operator==(const ImageTriangleAnchor&) const -> bool = default;
 };
 
 struct CanonicalImageCoordinate
@@ -61,6 +63,8 @@ struct CanonicalImageCoordinate
     ImageAtlasFace face{ImageAtlasFace::Front};
     double u{0.125};
     double v{0.5};
+
+    auto operator==(const CanonicalImageCoordinate&) const -> bool = default;
 };
 
 enum class ImageProfileMapError : std::uint8_t

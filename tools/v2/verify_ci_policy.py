@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -15,6 +16,7 @@ RELEASE_WORKFLOW = ROOT / ".github/workflows/v2-release-candidate.yml"
 RELEASE_SCRIPT = ROOT / "tools/v2/build-release-candidate.ps1"
 FULL_BUILD_VERIFIER = ROOT / "tools/v2/verify-full-build.ps1"
 CHANGE_POLICY = ROOT / "tools/v2/ci_change_policy.py"
+V2_WORKFLOWS = tuple(sorted((ROOT / ".github/workflows").glob("v2-*.yml")))
 
 
 def fail(message: str) -> None:
@@ -62,6 +64,24 @@ def require_ordered_fragments(
         offset = position + len(fragment)
 
 
+def verify_windows_only_v2_workflows() -> None:
+    if not V2_WORKFLOWS:
+        fail("no v2 workflows were found")
+    for workflow in V2_WORKFLOWS:
+        text = workflow.read_text(encoding="utf-8")
+        runners = re.findall(r"^\s*runs-on:\s*([^#\r\n]+)", text, re.MULTILINE)
+        if not runners:
+            fail(f"{workflow.relative_to(ROOT)} has no explicit runner")
+        unsupported = sorted(
+            runner.strip() for runner in runners if runner.strip() != "windows-2022"
+        )
+        if unsupported:
+            fail(
+                f"{workflow.relative_to(ROOT)} must use only windows-2022; "
+                f"found {unsupported}"
+            )
+
+
 def verify_public_workflow() -> None:
     if not PUBLIC_WORKFLOW.exists():
         fail(f"{PUBLIC_WORKFLOW.relative_to(ROOT)} is missing")
@@ -79,29 +99,34 @@ def verify_public_workflow() -> None:
             "github.event.before",
             "ref: ${{ env.V2_SOURCE_COMMIT }}",
             "fetch-depth: 0",
-            "ubuntu-24.04",
             "windows-2022",
             "submodules: false",
             "policy-contracts:",
             "run_heavy: ${{ steps.change-policy.outputs.run_heavy }}",
-            "python3 tools/v2/ci_change_policy.py",
-            "--repository \"$GITHUB_REPOSITORY\"",
-            "--api-url \"$GITHUB_API_URL\"",
-            "python3 tools/v2/verify_phase1.py",
-            "python3 tools/v2/verify_ci_policy.py",
+            "py -3 tools/v2/ci_change_policy.py",
+            '--repository "$env:GITHUB_REPOSITORY"',
+            '--api-url "$env:GITHUB_API_URL"',
+            "py -3 tools/v2/verify_phase1.py",
+            "py -3 tools/v2/verify_ci_policy.py",
             "needs: policy-contracts",
             "if: needs.policy-contracts.outputs.run_heavy == 'true'",
             "git submodule update --init third_party/RE-UE4SS",
             "-DMECCHA_WITH_UE4SS=OFF",
-            "linux-static-analysis:",
+            "windows-msvc:",
+            "name: Windows MSVC Tests",
+            "windows-msvc-asan:",
+            "name: Windows MSVC ASan",
+            "windows-clang-ubsan:",
+            "name: Windows clang-cl UBSan",
+            "windows-msvc-analysis:",
+            "name: Windows MSVC Code Analysis",
+            "github.event_name == 'workflow_dispatch'",
             "-DMECCHA_BUILD_TESTS=OFF",
-            "-DMECCHA_ENABLE_GCC_ANALYZER=ON",
+            "-DMECCHA_ENABLE_MSVC_CODE_ANALYSIS=ON",
             "--target meccha_product_ui meccha_runtime_contracts",
-            "--parallel 2",
             "meccha_launcher_core",
-            "-DMECCHA_ENABLE_SANITIZERS=ON",
-            "ASAN_OPTIONS:",
-            "UBSAN_OPTIONS:",
+            "-DMECCHA_ENABLE_MSVC_ADDRESS_SANITIZER=ON",
+            "-DMECCHA_ENABLE_CLANG_CL_UBSAN=ON",
             "ctest",
             "public-ci:",
             "name: Public CI Gate",
@@ -113,12 +138,18 @@ def verify_public_workflow() -> None:
     require_occurrences(
         text,
         "ref: ${{ env.V2_SOURCE_COMMIT }}",
-        4,
+        5,
         "public workflow",
     )
     require_occurrences(
         text,
         "if: needs.policy-contracts.outputs.run_heavy == 'true'",
+        1,
+        "public workflow",
+    )
+    require_occurrences(
+        text,
+        "github.event_name == 'workflow_dispatch'",
         3,
         "public workflow",
     )
@@ -130,6 +161,14 @@ def verify_public_workflow() -> None:
             "--recursive",
             "MECCHA_WITH_UE4SS=ON",
             "UE4SS_GITHUB_TOKEN",
+            "ubuntu",
+            "linux-static-analysis",
+            "linux-sanitizers",
+            "MECCHA_ENABLE_GCC_ANALYZER",
+            "MECCHA_ENABLE_SANITIZERS",
+            "-fanalyzer",
+            "detect_leaks",
+            "LSAN_OPTIONS",
         },
         "public workflow",
     )
@@ -262,6 +301,20 @@ def verify_release_workflow() -> None:
         {
             "workflow_dispatch:",
             "contents: read",
+            "windows-msvc-asan:",
+            "name: Pre-release MSVC ASan",
+            "windows-clang-ubsan:",
+            "name: Pre-release clang-cl UBSan",
+            "windows-msvc-analysis:",
+            "name: Pre-release MSVC Code Analysis",
+            "-DMECCHA_ENABLE_MSVC_ADDRESS_SANITIZER=ON",
+            "-DMECCHA_ENABLE_CLANG_CL_UBSAN=ON",
+            "-DMECCHA_ENABLE_MSVC_CODE_ANALYSIS=ON",
+            "--target meccha_product_ui meccha_runtime_contracts",
+            "needs:",
+            "- windows-msvc-asan",
+            "- windows-clang-ubsan",
+            "- windows-msvc-analysis",
             "environment: ue4ss-full-build",
             "github.repository == 'acentrist/MecchaCamouflage'",
             "persist-credentials: false",
@@ -382,6 +435,7 @@ def verify_full_build_verifier() -> None:
 
 def main() -> int:
     try:
+        verify_windows_only_v2_workflows()
         verify_legacy_workflow()
         verify_public_workflow()
         verify_public_change_policy()
@@ -393,7 +447,8 @@ def main() -> int:
         print(f"FAIL ci_policy: {error}", file=sys.stderr)
         return 1
     print(
-        "PASS ci_policy: public secrets=0, recursive checkout=trusted-only, "
+        "PASS ci_policy: v2 runners=Windows-only, public secrets=0, "
+        "deep gates=ASan+UBSan+/analyze, recursive checkout=trusted-only, "
         "release candidate=manual+protected+non-publishing"
     )
     return 0

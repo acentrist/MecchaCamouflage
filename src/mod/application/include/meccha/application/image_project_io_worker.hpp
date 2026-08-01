@@ -94,6 +94,8 @@ struct ImageProjectIoFailure
         ImageProjectIoFailureKind::Persistence};
     std::optional<ImageProjectPersistenceError> persistence{};
     std::optional<ImageProjectStoreError> project_store{};
+
+    auto operator==(const ImageProjectIoFailure&) const -> bool = default;
 };
 
 using ImageProjectIoResult = std::expected<

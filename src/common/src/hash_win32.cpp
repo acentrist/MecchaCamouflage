@@ -294,7 +294,7 @@ auto sha256_file(const std::filesystem::path& path)
     auto digest = compute_sha256(
         [&file](const auto& update)
         -> std::expected<void, HashError> {
-            std::array<std::byte, 64U * 1024U> buffer{};
+            auto buffer = std::vector<std::byte>(64U * 1024U);
             while (true)
             {
                 DWORD bytes_read{};

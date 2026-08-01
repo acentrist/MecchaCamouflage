@@ -1,0 +1,7 @@
+# The Windows SDK UCRT implements wmemcmp with deliberate unaligned 64-bit
+# loads after first checking that four wchar_t values remain. Clang's alignment
+# sanitizer instruments that inline implementation even though the target
+# architecture supports the access. Keep alignment checks enabled everywhere
+# except this SDK implementation.
+[alignment]
+src:*wchar.h

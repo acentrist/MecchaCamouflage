@@ -32,13 +32,18 @@ set(
     "Verified payload CAB to embed in the Windows launcher"
 )
 option(
-    MECCHA_ENABLE_SANITIZERS
-    "Enable AddressSanitizer and UndefinedBehaviorSanitizer"
+    MECCHA_ENABLE_MSVC_ADDRESS_SANITIZER
+    "Enable the Windows MSVC AddressSanitizer gate"
     OFF
 )
 option(
-    MECCHA_ENABLE_GCC_ANALYZER
-    "Enable the supported GCC static analyzer policy"
+    MECCHA_ENABLE_CLANG_CL_UBSAN
+    "Enable the Windows clang-cl UndefinedBehaviorSanitizer gate"
+    OFF
+)
+option(
+    MECCHA_ENABLE_MSVC_CODE_ANALYSIS
+    "Enable the Windows MSVC native code-analysis gate"
     OFF
 )
 
@@ -73,7 +78,12 @@ set(MECCHA_SHARED_MOD_LEDGER_SCHEMA_VERSION 1 CACHE STRING "v2 shared mod ledger
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+if(MECCHA_ENABLE_CLANG_CL_UBSAN)
+    # LLVM's supported Windows UBSan runtime is a static /MT library.
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+else()
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
 
 include(cmake/ProjectDependencies.cmake)
 
@@ -101,50 +111,85 @@ else()
     )
 endif()
 
-if(MECCHA_ENABLE_SANITIZERS)
-    if(MSVC OR NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+set(_meccha_deep_validation_modes)
+foreach(
+    _meccha_mode
+    IN ITEMS
+        MECCHA_ENABLE_MSVC_ADDRESS_SANITIZER
+        MECCHA_ENABLE_CLANG_CL_UBSAN
+        MECCHA_ENABLE_MSVC_CODE_ANALYSIS
+)
+    if(${_meccha_mode})
+        list(APPEND _meccha_deep_validation_modes "${_meccha_mode}")
+    endif()
+endforeach()
+list(LENGTH _meccha_deep_validation_modes _meccha_deep_validation_mode_count)
+if(_meccha_deep_validation_mode_count GREATER 1)
+    message(
+        FATAL_ERROR
+        "Use a separate build tree for each Windows deep-validation mode."
+    )
+endif()
+
+if(MECCHA_ENABLE_MSVC_ADDRESS_SANITIZER)
+    if(NOT WIN32 OR NOT CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
         message(
             FATAL_ERROR
-            "MECCHA_ENABLE_SANITIZERS requires GCC or Clang."
+            "MECCHA_ENABLE_MSVC_ADDRESS_SANITIZER requires Windows MSVC."
         )
     endif()
     target_compile_options(
         meccha_build_options
         INTERFACE
-            -fsanitize=address,undefined
-            -fno-omit-frame-pointer
+            /fsanitize=address
+            /Zi
     )
     target_link_options(
         meccha_build_options
         INTERFACE
-            -fsanitize=address,undefined
-            -fno-omit-frame-pointer
+            /DEBUG
+            /INCREMENTAL:NO
     )
 endif()
 
-if(MECCHA_ENABLE_GCC_ANALYZER)
-    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR
-       CMAKE_CXX_COMPILER_VERSION VERSION_LESS 13)
+if(MECCHA_ENABLE_CLANG_CL_UBSAN)
+    if(NOT WIN32 OR
+       NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR
+       NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
         message(
             FATAL_ERROR
-            "MECCHA_ENABLE_GCC_ANALYZER requires GCC 13 or newer."
-        )
-    endif()
-    if(MECCHA_ENABLE_SANITIZERS)
-        message(
-            FATAL_ERROR
-            "Run the GCC analyzer and sanitizers in separate build trees."
+            "MECCHA_ENABLE_CLANG_CL_UBSAN requires clang-cl on Windows."
         )
     endif()
     target_compile_options(
         meccha_build_options
         INTERFACE
-            -fanalyzer
-            # GCC 13 diagnoses libstdc++ moves of std::expected<T, HashError>,
-            # whose error owns a std::string, as leaking/uninitialized. Keep
-            # all other analyzer diagnostics under project-wide -Werror.
-            -Wno-analyzer-malloc-leak
-            -Wno-analyzer-use-of-uninitialized-value
+            -fsanitize=undefined
+            -fno-sanitize-recover=undefined
+            "-fsanitize-ignorelist=${CMAKE_CURRENT_SOURCE_DIR}/cmake/clang-cl-ubsan-ignorelist.txt"
+            /Oy-
+            /Zi
+    )
+    target_link_options(
+        meccha_build_options
+        INTERFACE
+            /DEBUG
+            /INCREMENTAL:NO
+    )
+endif()
+
+if(MECCHA_ENABLE_MSVC_CODE_ANALYSIS)
+    if(NOT WIN32 OR NOT CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+        message(
+            FATAL_ERROR
+            "MECCHA_ENABLE_MSVC_CODE_ANALYSIS requires Windows MSVC."
+        )
+    endif()
+    target_compile_options(
+        meccha_build_options
+        INTERFACE
+            /analyze
+            /analyze:external-
     )
 endif()
 
