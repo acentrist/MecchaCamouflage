@@ -7,11 +7,11 @@ dependency-boundary, sanitizer, and native static-analysis categories have
 repeatable Windows evidence. This inventory does not substitute for the live
 and measured release gates in Phase 13.
 
-The public hosted graph registers 94 secret-free tests. A native Windows
-workspace with the available local/private inputs registers 112 tests. The
-current native graph passes all 112 tests under normal MSVC Release, MSVC
-AddressSanitizer, and clang-cl UndefinedBehaviorSanitizer. MSVC `/analyze`
-passes the production target closure with warnings treated as errors.
+The public hosted and synchronized native Windows graphs each register 112
+secret-free tests. The current native graph passes all 112 tests under normal
+MSVC Release, MSVC AddressSanitizer, and clang-cl UndefinedBehaviorSanitizer.
+MSVC `/analyze` passes the production target closure with warnings treated as
+errors.
 
 ## Behavioral evidence
 

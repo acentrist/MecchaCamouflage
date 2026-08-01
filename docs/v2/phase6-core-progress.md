@@ -225,7 +225,7 @@ before the old worker completion arrived. It now waits for the typed
 `StaleCompletion` result. Twenty repeated normal and sanitized runs pass, and
 production generation checks were unchanged.
 
-The public Windows graph contains 94 secret-free tests. The synchronized native
+The public Windows graph contains 112 secret-free tests. The synchronized native
 Windows graph passes 112 tests under normal MSVC, MSVC ASan, and clang-cl
 UBSan, and passes MSVC x64 Shipping `/W4 /WX`. Historical counts above describe
 the earlier Phase 6 checkpoints at which their scheduling assumptions were

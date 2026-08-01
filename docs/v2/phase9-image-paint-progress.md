@@ -125,7 +125,7 @@ scan, runtime topology extraction, or profile I/O. Exact reflected pacing
 tuning can replace that bounded policy only through a separately frozen
 contract.
 
-Public Windows verification passes all 94 tests in the normal MSVC and deep
+Public Windows verification passes all 112 tests in the normal MSVC and deep
 validation graphs, including production resource construction, exact catalog
 loading, static Image Paint sampling, and Back/Side/Front planning. Immutable
 Windows staging builds the complete pinned UE4SS/MSVC x64
@@ -323,7 +323,7 @@ The test is part of the secret-free Windows MSVC and clang-cl suites.
 deterministic sample inventories, repeated planning, raw/image index-order
 matching, non-finite UV rejection, invalid brush rejection, cancellation, and
 the global resource bound through both the shared sampler and Image Paint
-planner. The public Windows suite passes 94/94 tests, and both MSVC ASan and
+planner. The public Windows suite passes 112/112 tests, and both MSVC ASan and
 clang-cl UBSan pass the same shared sampling contract.
 
 ## Worker boundary

@@ -383,7 +383,7 @@ the typed command route and immutable document publication. The project-owned
 HUD-frame coordinator additionally proves localized composition, exact
 input-lease acquisition and render-failure rollback, render-before-action
 ordering, ready-texture synchronization, and resource-free shutdown through a
-fake runtime port. The public Windows validation graph passes all 94 registered
+fake runtime port. The public Windows validation graph passes all 112 registered
 tests in normal MSVC and the deep Windows modes. The current exact clean project checkpoint passes all
 112 registered Windows x64 Shipping tests and links the production mod against
 the same manifest-verified UE4SS source graph.

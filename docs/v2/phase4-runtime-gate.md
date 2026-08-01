@@ -220,7 +220,7 @@ before lifecycle transient restore and callback finalization end to end. A
 second root fixture holds authoritative visual/outgoing queues nonempty and
 proves lifecycle quiescing cannot overtake active Paint cancellation/drain.
 
-The public Windows graph registers 94 secret-free tests. The complete native
+The public Windows graph registers 112 secret-free tests. The complete native
 Windows graph passes all 112 tests under normal MSVC, MSVC ASan, and clang-cl
 UBSan, including the native launcher/editor services and production runtime
 graph. The synchronized MSVC x64 `Game__Shipping__Win64` build also passes.

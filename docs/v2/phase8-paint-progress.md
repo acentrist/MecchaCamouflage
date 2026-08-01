@@ -451,7 +451,7 @@ boundaries, deterministic covering/minimax choices, and sample/replay bounds;
 the application scheduler tests cover measured dispatch cost and the finite
 adaptive-delay cap.
 
-The public hosted Windows graph contains 94 secret-free tests. The synchronized
+The public hosted Windows graph contains 112 secret-free tests. The synchronized
 native Windows graph passes all 112 tests under normal MSVC Release, MSVC ASan,
 and clang-cl UBSan. MSVC `/analyze` passes the three-target production closure
 (`meccha_product_ui`, `meccha_runtime_contracts`, and
