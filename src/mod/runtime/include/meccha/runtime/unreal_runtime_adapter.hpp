@@ -108,11 +108,6 @@ public:
             void,
             application::RuntimeExecutionError> override;
 
-    auto capture(const core::PaintSettings& settings)
-        -> std::expected<
-            application::CapturedPaintJob,
-            application::RuntimeExecutionError> override;
-
     auto begin_automatic_capture(
         const core::PaintSettings& settings,
         application::JobGeneration generation)

@@ -18,11 +18,9 @@ struct PaintCaptureRaster
 {
     std::uint32_t width{};
     std::uint32_t height{};
-    std::shared_ptr<const std::vector<Rgb8>> intrinsic_colors{};
-    std::shared_ptr<const std::vector<Rgb8>> scene_colors{};
     std::shared_ptr<
         const std::vector<ResolvedPaintAppearance>>
-        automatic_appearances{};
+        projected_appearances{};
 };
 
 struct PaintCaptureInput
@@ -41,7 +39,7 @@ enum class PaintCaptureRequestError : std::uint8_t
 {
     InvalidInput,
     InvalidRaster,
-    MissingAutomaticAppearance,
+    MissingProjectedAppearance,
     InvalidGeometry,
     ResourceLimit,
     Cancelled,

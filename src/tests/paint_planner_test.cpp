@@ -22,9 +22,7 @@ auto expect(bool condition, std::string_view message) -> bool
 auto sample(
     Region region,
     double u,
-    double v,
-    Rgb8 intrinsic,
-    Rgb8 scene) -> CapturedPaintSample
+    double v) -> CapturedPaintSample
 {
     return CapturedPaintSample{
         region,
@@ -35,8 +33,6 @@ auto sample(
         1.0 - v,
         1.0 - v,
         u,
-        intrinsic,
-        scene,
         ResolvedPaintAppearance{
             Rgb8{91U, 92U, 93U},
             Material{0.8, 0.3, 0.2},
@@ -70,21 +66,15 @@ auto main() -> int
             sample(
                 Region::Front,
                 0.1,
-                0.1,
-                Rgb8{10U, 11U, 12U},
-                Rgb8{20U, 21U, 22U}),
+                0.1),
             sample(
                 Region::Side,
                 0.2,
-                0.2,
-                Rgb8{30U, 31U, 32U},
-                Rgb8{40U, 41U, 42U}),
+                0.2),
             sample(
                 Region::Back,
                 0.3,
-                0.3,
-                Rgb8{50U, 51U, 52U},
-                Rgb8{60U, 61U, 62U}),
+                0.3),
         },
     };
     const auto planned = build_paint_plan(request);
@@ -118,46 +108,21 @@ auto main() -> int
         planned->strokes.back().pass == ReplayPass::Paint &&
             planned->strokes.back().source_sample == 1U &&
             planned->strokes.back().color ==
-                Rgb8{30U, 31U, 32U} &&
+                Rgb8{91U, 92U, 93U} &&
             planned->strokes.back().material ==
-                settings.paint_material &&
+                Material{0.8, 0.3, 0.2} &&
             planned->strokes.back().radius_texels ==
                 settings.brush_size_texels,
-        "manual Paint did not overwrite the routed region");
+        "normal Paint did not use the projected appearance");
 
-    auto automatic = request;
-    automatic.settings.auto_material = true;
-    automatic.settings.include_scene_lighting = true;
-    const auto automatic_plan = build_paint_plan(automatic);
-    passed &= expect(
-        automatic_plan &&
-            automatic_plan->strokes.back().color ==
-                Rgb8{91U, 92U, 93U} &&
-            automatic_plan->strokes.back().material ==
-                Material{0.8, 0.3, 0.2} &&
-            automatic_plan->strokes.front().color ==
-                automatic.settings.fill_color &&
-            automatic_plan->strokes.front().material ==
-                automatic.settings.fill_material,
-        "Auto Material changed Fill or ignored resolved appearance");
-
-    auto lit_manual = request;
-    lit_manual.settings.include_scene_lighting = true;
-    const auto lit_plan = build_paint_plan(lit_manual);
-    passed &= expect(
-        lit_plan &&
-            lit_plan->strokes.back().color ==
-                Rgb8{40U, 41U, 42U},
-        "scene-lighting inclusion did not select captured scene color");
-
-    auto missing_appearance = automatic;
-    missing_appearance.samples[1].automatic_appearance_available =
+    auto missing_appearance = request;
+    missing_appearance.samples[1].projected_appearance_available =
         false;
     passed &= expect(
         build_paint_plan(missing_appearance) ==
             std::unexpected(
-                PaintPlanError::MissingAutomaticAppearance),
-        "Auto Material accepted a missing resolved appearance");
+                PaintPlanError::MissingProjectedAppearance),
+        "normal Paint accepted a missing projected appearance");
 
     auto unsafe = request;
     unsafe.samples[2].safe = false;

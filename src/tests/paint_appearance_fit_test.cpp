@@ -166,8 +166,7 @@ auto main() -> int
             trial->paint_count == PixelCount &&
             trial->source_paint_count == PixelCount &&
             trial->compressed_paint_count == 0U &&
-            trial->texture_dimension == 1024U &&
-            trial->strokes.front().include_scene_lighting,
+            trial->texture_dimension == 1024U,
         "the appearance candidate did not become one immutable preview-only "
         "Paint plan");
 

@@ -40,7 +40,6 @@ auto one_stroke_plan() -> core::PaintPlan
         4.0,
         core::Rgb8{10U, 20U, 30U},
         core::Material{0.1, 0.8, 0.0},
-        false,
     });
     plan.paint_count = 1U;
     plan.source_paint_count = 1U;

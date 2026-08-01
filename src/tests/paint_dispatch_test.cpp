@@ -61,7 +61,6 @@ auto make_plan(std::size_t count)
                  : core::Rgb8{10U, 20U, 30U},
             fill ? core::Material{1.0, 0.0, 0.0}
                  : core::Material{0.0, 1.0, 0.0},
-            false,
         });
     }
     plan.fill_end = std::min<std::size_t>(2U, count);

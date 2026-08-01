@@ -2078,7 +2078,6 @@ auto build_paint_appearance_trial_plan(
                 brush_size_texels,
                 appearance.color,
                 appearance.material,
-                model.include_scene_lighting,
             });
     }
     plan.fill_end = 0U;

@@ -123,6 +123,8 @@ public:
         JobGeneration generation) const -> std::size_t override;
     [[nodiscard]] auto queue_snapshot() const
         -> QueueSnapshot override;
+    [[nodiscard]] auto last_paint_dispatch_us(
+        JobGeneration generation) const -> std::uint64_t override;
 
     auto request_shutdown(std::uint64_t shutdown_generation)
         -> std::expected<void, RuntimeLifecycleError>;

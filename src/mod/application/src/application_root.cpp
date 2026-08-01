@@ -898,7 +898,7 @@ auto ApplicationRoot::advance_esp(
 
 auto ApplicationRoot::begin_paint(
     StartPaint request,
-    std::uint64_t now_ms) -> void
+    std::uint64_t) -> void
 {
     if (active_automatic_paint_capture_)
     {
@@ -929,30 +929,10 @@ auto ApplicationRoot::begin_paint(
         }
     }
 
-    if (request.settings.auto_material)
-    {
-        static_cast<void>(
-            begin_automatic_paint_capture(
-                request.id,
-                request.settings,
-                false));
-        return;
-    }
-
-    auto captured =
-        paint_runtime_->capture(request.settings);
-    if (!captured)
-    {
-        record_runtime_error(
-            captured.error(),
-            request.id);
-        return;
-    }
-    accept_captured_paint(
+    static_cast<void>(begin_automatic_paint_capture(
         request.id,
         request.settings,
-        std::move(*captured),
-        now_ms);
+        false));
 }
 
 auto ApplicationRoot::accept_captured_paint(
@@ -1102,29 +1082,10 @@ auto ApplicationRoot::begin_paint_preview(
         }
     }
 
-    if (request.settings.auto_material)
-    {
-        static_cast<void>(
-            begin_automatic_paint_capture(
-                request.id,
-                request.settings,
-                true));
-        return;
-    }
-
-    auto captured =
-        paint_runtime_->capture(request.settings);
-    if (!captured)
-    {
-        record_runtime_error(
-            captured.error(),
-            request.id);
-        return;
-    }
-    accept_captured_paint_preview(
+    static_cast<void>(begin_automatic_paint_capture(
         request.id,
         request.settings,
-        std::move(*captured));
+        true));
 }
 
 auto ApplicationRoot::accept_captured_paint_preview(
@@ -1198,8 +1159,7 @@ auto ApplicationRoot::begin_automatic_paint_capture(
     const core::PaintSettings& settings,
     bool preview) -> bool
 {
-    if (!settings.auto_material ||
-        active_automatic_paint_capture_ ||
+    if (active_automatic_paint_capture_ ||
         paint_capture_generation_ ==
             std::numeric_limits<JobGeneration>::max())
     {

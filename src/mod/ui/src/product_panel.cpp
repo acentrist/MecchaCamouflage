@@ -681,17 +681,9 @@ auto build_product_panel_labels(
         },
         {
             std::string{catalog.text(locale, "brush.size")},
-            std::string{catalog.text(locale, "region.sides")} +
-                " UV",
-            std::string{catalog.text(locale, "region.front")} +
-                "/" +
-                std::string{catalog.text(locale, "region.back")} +
-                " UV",
             std::string{catalog.text(locale, "region.front")},
             std::string{catalog.text(locale, "region.sides")},
             std::string{catalog.text(locale, "region.back")},
-            std::string{catalog.text(locale, "auto.material")},
-            std::string{catalog.text(locale, "include.shadows")},
             std::string{catalog.text(locale, "metallic")},
             std::string{catalog.text(locale, "roughness")},
             std::string{catalog.text(locale, "emissive")},

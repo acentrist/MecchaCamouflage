@@ -253,8 +253,7 @@ auto main() -> int
             planned->paint.strokes[2U].material ==
                 planned->settings.image_material &&
             planned->paint.strokes[2U].radius_texels ==
-                planned->settings.brush_size_texels &&
-            !planned->paint.strokes[2U].include_scene_lighting,
+                planned->settings.brush_size_texels,
         "atlas color or Image Paint material reached the Paint plan "
         "incorrectly");
 

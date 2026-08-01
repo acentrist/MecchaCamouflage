@@ -15,7 +15,7 @@ namespace meccha::product_ui::detail
 namespace
 {
 constexpr auto PaintScrollIndex = std::size_t{0U};
-constexpr auto PaintRowCount = std::size_t{16U};
+constexpr auto PaintRowCount = std::size_t{12U};
 constexpr auto PaintControlIds = std::array{
     ui::WidgetId{501U},
     ui::WidgetId{502U},
@@ -29,10 +29,6 @@ constexpr auto PaintControlIds = std::array{
     ui::WidgetId{510U},
     ui::WidgetId{511U},
     ui::WidgetId{512U},
-    ui::WidgetId{513U},
-    ui::WidgetId{514U},
-    ui::WidgetId{515U},
-    ui::WidgetId{516U},
 };
 constexpr auto FillColorIds = std::array{
     ui::WidgetId{521U},
@@ -255,41 +251,6 @@ auto compose_paint_settings_section(
         }
         return {};
     };
-    const auto toggle = [&](
-                            std::size_t row,
-                            bool current,
-                            auto&& assign)
-        -> std::expected<void, ProductPanelError>
-    {
-        if (const auto drawn =
-                label(row, labels.paint_setting_labels[row]);
-            !drawn)
-        {
-            return drawn;
-        }
-        const auto response = widgets.toggle(
-            PaintControlIds[row],
-            control(row),
-            viewport,
-            labels.paint_setting_labels[row],
-            current,
-            enabled(row));
-        if (!response)
-        {
-            return std::unexpected(
-                ProductPanelError{response.error()});
-        }
-        if (response->changed)
-        {
-            auto config = model.settings.config;
-            assign(config.paint, response->value);
-            return publish_settings(
-                std::move(config),
-                model,
-                action);
-        }
-        return {};
-    };
     const auto region_mode = [&](
                                  std::size_t row,
                                  core::RegionMode current,
@@ -340,36 +301,8 @@ auto compose_paint_settings_section(
     {
         return result;
     }
-    if (const auto result = slider(
-            1U,
-            model.paint.settings.side_source_max_uv,
-            0.001,
-            0.5,
-            3U,
-            [](core::PaintSettings& settings, double value)
-            {
-                settings.side_source_max_uv = value;
-            });
-        !result)
-    {
-        return result;
-    }
-    if (const auto result = slider(
-            2U,
-            model.paint.settings.front_back_source_max_uv,
-            0.001,
-            2.0,
-            3U,
-            [](core::PaintSettings& settings, double value)
-            {
-                settings.front_back_source_max_uv = value;
-            });
-        !result)
-    {
-        return result;
-    }
     if (const auto result = region_mode(
-            3U,
+            1U,
             model.paint.settings.front_mode,
             [](core::PaintSettings& settings, core::RegionMode value)
             {
@@ -380,7 +313,7 @@ auto compose_paint_settings_section(
         return result;
     }
     if (const auto result = region_mode(
-            4U,
+            2U,
             model.paint.settings.side_mode,
             [](core::PaintSettings& settings, core::RegionMode value)
             {
@@ -391,7 +324,7 @@ auto compose_paint_settings_section(
         return result;
     }
     if (const auto result = region_mode(
-            5U,
+            3U,
             model.paint.settings.back_mode,
             [](core::PaintSettings& settings, core::RegionMode value)
             {
@@ -401,30 +334,8 @@ auto compose_paint_settings_section(
     {
         return result;
     }
-    if (const auto result = toggle(
-            6U,
-            model.paint.settings.auto_material,
-            [](core::PaintSettings& settings, bool value)
-            {
-                settings.auto_material = value;
-            });
-        !result)
-    {
-        return result;
-    }
-    if (const auto result = toggle(
-            7U,
-            model.paint.settings.include_scene_lighting,
-            [](core::PaintSettings& settings, bool value)
-            {
-                settings.include_scene_lighting = value;
-            });
-        !result)
-    {
-        return result;
-    }
     if (const auto result = slider(
-            8U,
+            4U,
             model.paint.settings.paint_material.metallic,
             0.0,
             1.0,
@@ -438,7 +349,7 @@ auto compose_paint_settings_section(
         return result;
     }
     if (const auto result = slider(
-            9U,
+            5U,
             model.paint.settings.paint_material.roughness,
             0.0,
             1.0,
@@ -452,7 +363,7 @@ auto compose_paint_settings_section(
         return result;
     }
     if (const auto result = slider(
-            10U,
+            6U,
             model.paint.settings.paint_material.emissive,
             0.0,
             1.0,
@@ -467,7 +378,7 @@ auto compose_paint_settings_section(
     }
 
     if (const auto drawn =
-            label(11U, labels.paint_setting_labels[11U]);
+            label(7U, labels.paint_setting_labels[7U]);
         !drawn)
     {
         return drawn;
@@ -475,7 +386,7 @@ auto compose_paint_settings_section(
     const auto fill = model.paint.settings.fill_color;
     const auto fill_color = widgets.color_control(
         FillColorIds,
-        control(11U),
+        control(7U),
         viewport,
         ui::CanvasColor{
             fill.red,
@@ -483,7 +394,7 @@ auto compose_paint_settings_section(
             fill.blue,
             255U,
         },
-        enabled(11U));
+        enabled(7U));
     if (!fill_color)
     {
         return std::unexpected(
@@ -508,7 +419,7 @@ auto compose_paint_settings_section(
     }
 
     if (const auto result = slider(
-            12U,
+            8U,
             model.paint.settings.fill_material.metallic,
             0.0,
             1.0,
@@ -522,7 +433,7 @@ auto compose_paint_settings_section(
         return result;
     }
     if (const auto result = slider(
-            13U,
+            9U,
             model.paint.settings.fill_material.roughness,
             0.0,
             1.0,
@@ -536,7 +447,7 @@ auto compose_paint_settings_section(
         return result;
     }
     if (const auto result = slider(
-            14U,
+            10U,
             model.paint.settings.fill_material.emissive,
             0.0,
             1.0,
@@ -550,7 +461,7 @@ auto compose_paint_settings_section(
         return result;
     }
     return slider(
-        15U,
+        11U,
         model.paint.settings.color_compression_tolerance_percent,
         0.0,
         10.0,

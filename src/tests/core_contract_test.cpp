@@ -51,15 +51,13 @@ auto main() -> int
     passed &= expect(
         validate(defaults).empty() &&
             defaults.brush_size_texels == 5.0 &&
-            defaults.side_source_max_uv == 0.08 &&
-            defaults.front_back_source_max_uv == 0.45 &&
             defaults.front_mode == RegionMode::Skip &&
             defaults.side_mode == RegionMode::Paint &&
             defaults.back_mode == RegionMode::Paint &&
             defaults.paint_material == Material{0.0, 1.0, 0.0} &&
             defaults.fill_color == Rgb8{255U, 255U, 255U} &&
             defaults.fill_material == Material{1.0, 0.0, 0.0},
-        "Paint defaults drifted from the frozen v1 contract");
+        "Paint defaults drifted from the v1.7.2 contract");
 
     auto invalid = defaults;
     invalid.brush_size_texels =
@@ -224,7 +222,7 @@ auto main() -> int
             42U,
         },
         AdaptivePaintSample{
-            0.52,
+            0.502,
             0.5,
             Region::Front,
             1,
@@ -261,9 +259,11 @@ auto main() -> int
     passed &= expect(
         compressed && compressed->entries.size() == 1U &&
             compressed->compressed_paint_entries == 1U &&
-            compressed->expanded_paint_entries == 1U &&
-            compressed->entries[0].radius_multiplier == 8.0,
-        "matching Paint samples did not coalesce deterministically");
+            compressed->expanded_paint_entries == 0U &&
+            compressed->entries[0].radius_multiplier == 1.0 &&
+            compressed->entries[0].has_color_override &&
+            compressed->representative_paint_entries == 1U,
+        "brush-aligned Paint samples did not coalesce deterministically");
 
     auto different_material = adaptive_samples;
     different_material[1].material_key = 43U;
@@ -314,6 +314,100 @@ auto main() -> int
             region_compression->entries[2].replay.region ==
                 Region::Front,
         "adaptive compression reordered Back-Side-Front regions");
+
+    auto compression_hole_samples =
+        std::vector<AdaptivePaintSample>{};
+    for (auto y = -8; y <= 8; ++y)
+    {
+        for (auto x = -8; x <= 8; ++x)
+        {
+            if (x == 1 && y == 0)
+            {
+                continue;
+            }
+            compression_hole_samples.push_back(
+                {0.505 + static_cast<double>(x) * 0.01,
+                 0.505 + static_cast<double>(y) * 0.01,
+                 Region::Front,
+                 0,
+                 0.50,
+                 0.50,
+                 0.50,
+                 true,
+                 true,
+                 1U});
+        }
+    }
+    const auto compression_hole_center =
+        static_cast<std::size_t>(8 * 17 + 8);
+    const auto compression_hole_entry = ReplayEntry{
+        compression_hole_center,
+        ReplayPass::Paint,
+        Region::Front,
+        {0, 0.0, compression_hole_center}};
+    const auto compression_hole = build_adaptive_paint_plan(
+        {&compression_hole_entry, 1U},
+        compression_hole_samples,
+        0.01,
+        5.0);
+    passed &= expect(
+        compression_hole && compression_hole->entries.size() == 1U &&
+            compression_hole->entries[0].radius_multiplier == 1.0 &&
+            compression_hole->expanded_paint_entries == 0U &&
+            compression_hole->coverage_grid_size == 100,
+        "a coverage hole did not block widened replay");
+
+    auto representative_color_samples =
+        std::vector<AdaptivePaintSample>{};
+    for (auto y = 0; y < 17; ++y)
+    {
+        for (auto x = 0; x < 17; ++x)
+        {
+            const auto color = x <= 8 ? 0.451 : 0.549;
+            representative_color_samples.push_back(
+                {(40.5 + static_cast<double>(x)) * 0.01,
+                 (40.5 + static_cast<double>(y)) * 0.01,
+                 Region::Front,
+                 0,
+                 color,
+                 color,
+                 color,
+                 true,
+                 true,
+                 1U});
+        }
+    }
+    const auto representative_color_center =
+        static_cast<std::size_t>(8 * 17 + 8);
+    const auto representative_entry = ReplayEntry{
+        representative_color_center,
+        ReplayPass::Paint,
+        Region::Front,
+        {0, 0.0, representative_color_center}};
+    const auto representative_color = build_adaptive_paint_plan(
+        {&representative_entry, 1U},
+        representative_color_samples,
+        0.01,
+        10.0);
+    passed &= expect(
+        representative_color &&
+            representative_color->entries.size() == 1U &&
+            representative_color->entries[0].radius_multiplier == 8.0 &&
+            representative_color->entries[0].has_color_override &&
+            std::abs(
+                representative_color->entries[0].red - 0.5) <
+                0.000001 &&
+            std::abs(
+                representative_color->entries[0].green - 0.5) <
+                0.000001 &&
+            std::abs(
+                representative_color->entries[0].blue - 0.5) <
+                0.000001 &&
+            representative_color->representative_paint_entries == 1U &&
+            std::abs(
+                representative_color->representative_error_max -
+                0.049) < 0.000001,
+        "representative color did not minimize per-channel maximum error");
 
     auto invalid_adaptive = adaptive_samples;
     invalid_adaptive[0].u =
@@ -394,6 +488,14 @@ auto main() -> int
             270,
         },
         "receiver-bounded replication pacing drifted");
+    passed &= expect(
+        local_dispatch_adaptive_delay_ms(21, 0U) == 21 &&
+            local_dispatch_adaptive_delay_ms(21, 4'000U) == 21 &&
+            local_dispatch_adaptive_delay_ms(21, 16'423U) == 53 &&
+            local_dispatch_adaptive_delay_ms(1, 100'000U) == 250 &&
+            local_dispatch_adaptive_delay_ms(-1, 0U) == 1 &&
+            local_dispatch_adaptive_delay_ms(300, 100'000U) == 300,
+        "measured local Paint slice did not produce the bounded adaptive delay");
     passed &= expect(
         !visual_drain_complete(true, true, 0, true, 1, 1000, 434) &&
             !visual_drain_complete(true, true, 1, true, 0, 1000, 434) &&

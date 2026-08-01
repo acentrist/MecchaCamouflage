@@ -64,6 +64,17 @@ auto material_key(const Material& material) -> std::uint64_t
     return hash;
 }
 
+auto color_from_unit(double red, double green, double blue) -> Rgb8
+{
+    const auto channel =
+        [](double value)
+        {
+            return static_cast<std::uint8_t>(std::lround(
+                std::clamp(value, 0.0, 1.0) * 255.0));
+        };
+    return {channel(red), channel(green), channel(blue)};
+}
+
 auto map_replay_error(ReplayPlanError error) -> PaintPlanError
 {
     switch (error)
@@ -145,9 +156,9 @@ auto build_paint_plan(
              !std::isfinite(sample.current_view_vertical)) ||
             !std::isfinite(sample.fallback_view_vertical) ||
             !std::isfinite(sample.horizontal) ||
-            (sample.automatic_appearance_available &&
+            (sample.projected_appearance_available &&
              !material_valid(
-                 sample.automatic_appearance.material)))
+                 sample.projected_appearance.material)))
         {
             return std::unexpected(PaintPlanError::InvalidSample);
         }
@@ -171,23 +182,15 @@ auto build_paint_plan(
             });
         }
 
-        if (request.settings.auto_material &&
-            sample.safe && mode == RegionMode::Paint &&
-            !sample.automatic_appearance_available)
+        if (sample.safe && mode == RegionMode::Paint &&
+            !sample.projected_appearance_available)
         {
             return std::unexpected(
-                PaintPlanError::MissingAutomaticAppearance);
+                PaintPlanError::MissingProjectedAppearance);
         }
-        const auto appearance =
-            request.settings.auto_material &&
-                    sample.automatic_appearance_available
-                ? sample.automatic_appearance
-                : ResolvedPaintAppearance{
-                      request.settings.include_scene_lighting
-                          ? sample.scene_color
-                          : sample.intrinsic_color,
-                      request.settings.paint_material,
-                  };
+        const auto appearance = sample.projected_appearance_available
+                                    ? sample.projected_appearance
+                                    : ResolvedPaintAppearance{};
         appearances.push_back(appearance);
         adaptive_samples.push_back(AdaptivePaintSample{
             sample.u,
@@ -257,12 +260,15 @@ auto build_paint_plan(
                       entry.radius_multiplier,
             fill
                 ? request.settings.fill_color
-                : appearances[sample_index].color,
+                : entry.has_color_override
+                      ? color_from_unit(
+                            entry.red,
+                            entry.green,
+                            entry.blue)
+                      : appearances[sample_index].color,
             fill
                 ? request.settings.fill_material
                 : appearances[sample_index].material,
-            !fill &&
-                request.settings.include_scene_lighting,
         });
     }
 

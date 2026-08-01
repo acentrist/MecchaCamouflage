@@ -225,6 +225,12 @@ auto RuntimeLifecycle::queue_snapshot() const -> QueueSnapshot
     return scheduler_.snapshot();
 }
 
+auto RuntimeLifecycle::last_paint_dispatch_us(
+    JobGeneration generation) const -> std::uint64_t
+{
+    return scheduler_.last_paint_dispatch_us(generation);
+}
+
 auto RuntimeLifecycle::request_shutdown(std::uint64_t shutdown_generation)
     -> std::expected<void, RuntimeLifecycleError>
 {

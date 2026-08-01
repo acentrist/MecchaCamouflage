@@ -5911,8 +5911,6 @@ public:
                         core::PaintCaptureRaster{
                             capture_width,
                             capture_height,
-                            std::move(intrinsic),
-                            std::move(scene_colors),
                             nullptr,
                         },
                     },
@@ -7360,8 +7358,6 @@ public:
                             core::PaintCaptureRaster{
                                 session.seed.camera.width,
                                 session.seed.camera.height,
-                                session.evidence.base_color.pixels,
-                                session.evidence.final_ldr.pixels,
                                 session.resolved_appearances,
                             },
                         },
@@ -9672,15 +9668,6 @@ auto UnrealRuntimeAdapter::restore(
         application::RuntimeExecutionError>
 {
     return impl_->restore_preview(snapshot);
-}
-
-auto UnrealRuntimeAdapter::capture(
-    const core::PaintSettings& settings)
-    -> std::expected<
-        application::CapturedPaintJob,
-        application::RuntimeExecutionError>
-{
-    return impl_->capture_paint(settings);
 }
 
 auto UnrealRuntimeAdapter::begin_automatic_capture(

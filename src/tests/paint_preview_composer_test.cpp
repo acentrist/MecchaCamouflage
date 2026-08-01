@@ -49,7 +49,6 @@ auto stroke(
         radius,
         color,
         material,
-        false,
     };
 }
 

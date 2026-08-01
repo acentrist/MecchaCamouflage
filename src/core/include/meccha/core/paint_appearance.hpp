@@ -9,6 +9,11 @@
 namespace meccha::core
 {
 inline constexpr double AppearanceHdrMaximum = 64.0;
+inline constexpr double AppearanceCalibrationStepTexels = 4.0;
+inline constexpr double AppearancePhysicalEmissionReadbackFloor =
+    1.0 / 255.0;
+inline constexpr double
+    AppearancePhysicalEmissionMaximumChromaticityDelta = 0.10;
 inline constexpr double AppearanceFallbackRoughness = 0.65;
 inline constexpr int AppearanceMaximumClusters = 8;
 inline constexpr int AppearanceSpsaIterations = 3;
@@ -42,6 +47,23 @@ struct AppearanceHdrSample
     bool clipped{};
 };
 
+struct EnvironmentProjectedCaptureInput
+{
+    double screen_x{0.5};
+    double screen_y{0.5};
+};
+
+struct EnvironmentProjectedCaptureResult
+{
+    bool ok{};
+    double capture_u{0.5};
+    double capture_v{0.5};
+};
+
+[[nodiscard]] auto environment_projected_capture_coordinate(
+    const EnvironmentProjectedCaptureInput& input)
+    -> EnvironmentProjectedCaptureResult;
+
 [[nodiscard]] auto appearance_rgb_finite(
     const AppearanceRgb& value) -> bool;
 [[nodiscard]] auto appearance_sanitize_hdr(
@@ -69,6 +91,42 @@ struct AppearanceHdrSample
 [[nodiscard]] auto appearance_intrinsic_emission_residual(
     const AppearanceRgb& isolated_hdr,
     const AppearanceRgb& base_srgb) -> AppearanceRgb;
+
+struct AppearanceEmissionColorRescue
+{
+    AppearanceRgb albedo_srgb{};
+    bool applied{};
+    double residual_luminance{};
+};
+
+[[nodiscard]] auto appearance_rescue_emission_color(
+    const AppearanceRgb& base_srgb,
+    const AppearanceRgb& isolated_hdr,
+    double residual_threshold) -> AppearanceEmissionColorRescue;
+
+struct AppearanceClosedLoopCorrectionInput
+{
+    AppearanceRgb albedo_linear{};
+    double emissive{};
+    AppearanceRgb source_hdr{};
+    AppearanceRgb rendered_hdr{};
+    bool intrinsic_emission_roi{};
+};
+
+struct AppearanceClosedLoopCorrection
+{
+    bool supported{};
+    AppearanceRgb albedo_linear{};
+    double emissive{};
+    double display_error{};
+};
+
+[[nodiscard]] auto appearance_albedo_closed_loop_correction(
+    const AppearanceClosedLoopCorrectionInput& input)
+    -> AppearanceClosedLoopCorrection;
+[[nodiscard]] auto appearance_closed_loop_correction(
+    const AppearanceClosedLoopCorrectionInput& input)
+    -> AppearanceClosedLoopCorrection;
 [[nodiscard]] auto appearance_emission_chromaticity_albedo(
     const AppearanceRgb& intrinsic_emission_hdr,
     const AppearanceRgb& fallback_albedo) -> AppearanceRgb;
@@ -158,6 +216,176 @@ struct AppearanceBoundedResponseCalibration
     double minimum_parameter,
     double maximum_parameter)
     -> AppearanceBoundedResponseCalibration;
+
+struct AppearancePhysicalEmissionEvidenceInput
+{
+    AppearanceRgb source_residual_first{};
+    AppearanceRgb source_residual_second{};
+    double source_noise_floor_first{
+        std::numeric_limits<double>::infinity()};
+    double source_noise_floor_second{
+        std::numeric_limits<double>::infinity()};
+    AppearanceRgb source_hdr{};
+    AppearanceRgb baseline_hdr{};
+    AppearanceRgb endpoint_hdr{};
+    double manual_emissive_floor{};
+    bool source_distribution_separated{};
+    bool camera_stable{};
+    bool readback_calibrated{};
+    bool packed_b_verified{};
+};
+
+struct AppearancePhysicalEmissionEvidence
+{
+    bool source_supported{};
+    bool source_noise_floor_calibrated{};
+    bool source_first_above_noise_floor{};
+    bool source_second_above_noise_floor{};
+    bool target_response_supported{};
+    bool accepted{};
+    double inferred_emissive{};
+    double composed_emissive{};
+    double source_repeatability_error{
+        std::numeric_limits<double>::infinity()};
+    double source_chromaticity_delta{
+        std::numeric_limits<double>::infinity()};
+    double response_energy{};
+    double baseline_loss{
+        std::numeric_limits<double>::infinity()};
+    double candidate_loss{
+        std::numeric_limits<double>::infinity()};
+};
+
+[[nodiscard]] auto appearance_compose_physical_emissive(
+    double manual_emissive_floor,
+    double inferred_emissive) -> double;
+
+struct AppearancePhysicalEmissionMaterialInput
+{
+    AppearanceRgb albedo{};
+    AppearanceRgb source_residual_first{};
+    AppearanceRgb source_residual_second{};
+    double manual_emissive_floor{};
+    double inferred_emissive{};
+    bool dual_evidence_accepted{};
+};
+
+struct AppearancePhysicalEmissionMaterial
+{
+    AppearanceRgb albedo{};
+    double emissive{};
+    bool chromaticity_carrier_applied{};
+};
+
+[[nodiscard]] auto appearance_compose_physical_emission_material(
+    const AppearancePhysicalEmissionMaterialInput& input)
+    -> AppearancePhysicalEmissionMaterial;
+[[nodiscard]] auto appearance_physical_emission_evidence(
+    const AppearancePhysicalEmissionEvidenceInput& input)
+    -> AppearancePhysicalEmissionEvidence;
+
+enum class AppearancePhysicalEmissionComponentRejection : std::uint8_t
+{
+    None,
+    DualEvidenceUnavailable,
+    CameraUnstable,
+    ReadbackUncalibrated,
+    PackedBNotVerified,
+    QuantizedEmissiveZero,
+    NonEmissionLossRegressed,
+    RoiImprovementBelowThreshold,
+};
+
+struct AppearancePhysicalEmissionComponentValidationInput
+{
+    int paired_samples{};
+    double baseline_loss{
+        std::numeric_limits<double>::infinity()};
+    double candidate_loss{
+        std::numeric_limits<double>::infinity()};
+    int non_emission_paired_samples{};
+    double baseline_non_emission_loss{
+        std::numeric_limits<double>::infinity()};
+    double candidate_non_emission_loss{
+        std::numeric_limits<double>::infinity()};
+    bool dual_evidence_prevalidated{};
+    bool camera_stable{};
+    bool readback_calibrated{};
+    bool packed_b_verified{};
+    int painted_emissive_nonzero_pixels{};
+};
+
+struct AppearancePhysicalEmissionComponentValidation
+{
+    bool accepted{};
+    AppearancePhysicalEmissionComponentRejection rejection{
+        AppearancePhysicalEmissionComponentRejection::
+            DualEvidenceUnavailable};
+    double roi_improvement{
+        -std::numeric_limits<double>::infinity()};
+    double non_emission_loss_delta{
+        std::numeric_limits<double>::infinity()};
+};
+
+[[nodiscard]] auto appearance_validate_physical_emission_component(
+    const AppearancePhysicalEmissionComponentValidationInput& input)
+    -> AppearancePhysicalEmissionComponentValidation;
+
+enum class AppearanceCorrectionBoundary : std::uint8_t
+{
+    Front,
+    Back,
+};
+
+enum class AppearanceCorrectionFieldFailure : std::uint8_t
+{
+    None,
+    InvalidInput,
+    SideUnanchored,
+};
+
+struct AppearanceCorrectionFieldEdge
+{
+    int first{-1};
+    int second{-1};
+};
+
+struct AppearanceCorrectionFieldAnchor
+{
+    int vertex{-1};
+    AppearanceRgb value{};
+    double weight{};
+    AppearanceCorrectionBoundary boundary{
+        AppearanceCorrectionBoundary::Front};
+};
+
+struct AppearanceCorrectionFieldInput
+{
+    int vertex_count{};
+    std::vector<AppearanceCorrectionFieldEdge> edges{};
+    std::vector<bool> side_vertices{};
+    std::vector<AppearanceCorrectionFieldAnchor> anchors{};
+};
+
+struct AppearanceCorrectionFieldResult
+{
+    bool ok{};
+    AppearanceCorrectionFieldFailure failure{
+        AppearanceCorrectionFieldFailure::None};
+    std::vector<AppearanceRgb> values{};
+    std::vector<bool> resolved{};
+    int front_anchor_vertices{};
+    int back_anchor_vertices{};
+    int side_components{};
+    int one_boundary_side_components{};
+    int unanchored_side_components{};
+    int iterations{};
+    std::uint64_t hash{1469598103934665603ULL};
+};
+
+[[nodiscard]] auto appearance_solve_correction_field(
+    const AppearanceCorrectionFieldInput& input)
+    -> AppearanceCorrectionFieldResult;
 [[nodiscard]] auto appearance_calibrate_albedo_blend(
     const AppearanceRgb& source_hdr,
     const AppearanceRgb& display_albedo_capture_hdr,

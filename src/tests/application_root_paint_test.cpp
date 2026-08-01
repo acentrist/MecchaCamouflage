@@ -219,17 +219,12 @@ public:
         sample.current_view_vertical = 0.25;
         sample.fallback_view_vertical = 0.25;
         sample.horizontal = 0.25;
-        sample.intrinsic_color = core::Rgb8{10U, 20U, 30U};
-        sample.scene_color = sample.intrinsic_color;
-        if (settings.auto_material)
-        {
-            sample.automatic_appearance =
-                core::ResolvedPaintAppearance{
-                    core::Rgb8{40U, 50U, 60U},
-                    core::Material{0.25, 0.5, 0.75},
-                };
-            sample.automatic_appearance_available = true;
-        }
+        sample.projected_appearance =
+            core::ResolvedPaintAppearance{
+                core::Rgb8{40U, 50U, 60U},
+                core::Material{0.25, 0.5, 0.75},
+            };
+        sample.projected_appearance_available = true;
         sample.safe = true;
         return CapturedPaintJob{
             RuntimeObjectHandle{71U, 9U},
@@ -253,16 +248,6 @@ public:
                 0,
             },
         };
-    }
-
-    auto capture(const core::PaintSettings& settings)
-        -> std::expected<
-            CapturedPaintJob,
-            RuntimeExecutionError> override
-    {
-        ++capture_count;
-        captured_settings = settings;
-        return make_captured(settings);
     }
 
     auto begin_automatic_capture(
@@ -357,9 +342,7 @@ public:
                    : PaintQueueObservation{};
     }
 
-    std::size_t capture_count{};
     std::size_t observe_count{};
-    core::PaintSettings captured_settings{};
     RuntimeObjectHandle observed_component{};
     JobGeneration observed_generation{};
     bool hold_queues{};
@@ -456,8 +439,8 @@ auto main() -> int
             completed->job.progress.total == 1U &&
             completed->job.progress.submitted == 1U &&
             completed->command_queue.queued == 0U &&
-            paint_runtime.capture_count == 1U &&
-            paint_runtime.captured_settings ==
+            paint_runtime.automatic_begin_count == 1U &&
+            paint_runtime.automatic_settings ==
                 core::PaintSettings{} &&
             paint_runtime.observe_count > 0U &&
             paint_runtime.observed_component ==
@@ -486,14 +469,13 @@ auto main() -> int
         8U,
     };
     auto automatic_settings = core::PaintSettings{};
-    automatic_settings.auto_material = true;
     passed &= expect(
         automatic_root.initialize().has_value() &&
             automatic_root.enqueue_command(StartPaint{
                 111U,
                 automatic_settings,
             }) == CommandEnqueueResult::Accepted,
-        "the multi-frame Auto Material fixture did not start");
+        "the multi-frame projective Paint fixture did not start");
     for (auto attempt = 0;
          attempt < 10 &&
          automatic_runtime.automatic_begin_count == 0U;
@@ -513,10 +495,9 @@ auto main() -> int
     }
     passed &= expect(
         automatic_runtime.automatic_begin_count == 1U &&
-            automatic_runtime.capture_count == 0U &&
             automatic_runtime.automatic_advance_count == 0U &&
             automatic_paint_calls_after_admission == 0U,
-        "Auto Material used the synchronous capture path or dispatched in "
+        "projective Paint dispatched in "
         "its admission frame");
     automatic_callbacks.invoke(Frame);
     auto automatic_paint_calls_after_first_advance =
@@ -532,7 +513,7 @@ auto main() -> int
     passed &= expect(
         automatic_runtime.automatic_advance_count == 1U &&
             automatic_paint_calls_after_first_advance == 0U,
-        "Auto Material completed without a later HUD-frame feedback step");
+        "projective Paint completed without a later HUD-frame feedback step");
     for (auto attempt = 0; attempt < 1000; ++attempt)
     {
         automatic_callbacks.invoke(Frame);
@@ -558,7 +539,7 @@ auto main() -> int
             automatic_root.snapshot()->job.phase ==
                 JobPhase::Completed &&
             automatic_paint_calls == 1U,
-        "a restored Auto Material capture did not enter normal planning and "
+        "a restored projective Paint capture did not enter normal planning and "
         "bounded dispatch");
 
     auto cancelled_storage = FakeStorage{};
@@ -585,7 +566,7 @@ auto main() -> int
                 112U,
                 automatic_settings,
             }) == CommandEnqueueResult::Accepted,
-        "the cancellable Auto Material fixture did not start");
+        "the cancellable projective Paint fixture did not start");
     for (auto attempt = 0;
          attempt < 10 &&
          cancelled_runtime.automatic_begin_count == 0U;
@@ -596,7 +577,7 @@ auto main() -> int
     passed &= expect(
         cancelled_root.enqueue_command(CancelPaint{113U}) ==
             CommandEnqueueResult::Accepted,
-        "the active Auto Material cancellation was rejected");
+        "the active projective Paint cancellation was rejected");
     cancelled_callbacks.invoke(Frame);
     cancelled_callbacks.invoke(Frame);
     auto cancelled_paint_calls = std::size_t{};
@@ -612,7 +593,7 @@ auto main() -> int
         cancelled_runtime.automatic_cancel_count == 2U &&
             !cancelled_runtime.automatic_active &&
             cancelled_paint_calls == 0U,
-        "Auto Material cancellation did not wait for exact restoration or "
+        "projective Paint cancellation did not wait for exact restoration or "
         "admitted a partial Paint job");
 
     auto failed_storage = FakeStorage{};
@@ -640,7 +621,7 @@ auto main() -> int
                 114U,
                 automatic_settings,
             }) == CommandEnqueueResult::Accepted,
-        "the failed Auto Material fixture did not start");
+        "the failed projective Paint fixture did not start");
     for (auto attempt = 0;
          attempt < 10 &&
          failed_runtime.automatic_begin_count == 0U;
@@ -665,7 +646,7 @@ auto main() -> int
             failed_runtime.automatic_cancel_count == 2U &&
             !failed_runtime.automatic_active &&
             failed_paint_calls == 0U,
-        "a failed Auto Material feedback stage bypassed restoration or "
+        "a failed projective Paint feedback stage bypassed restoration or "
         "published a partial job");
 
     auto automatic_shutdown_storage = FakeStorage{};
@@ -698,7 +679,7 @@ auto main() -> int
                 115U,
                 automatic_settings,
             }) == CommandEnqueueResult::Accepted,
-        "the Auto Material shutdown fixture did not start");
+        "the projective Paint shutdown fixture did not start");
     for (auto attempt = 0;
          attempt < 10 &&
          automatic_shutdown_runtime.automatic_begin_count ==
@@ -711,7 +692,7 @@ auto main() -> int
         automatic_shutdown_root.request_shutdown(91U)
             .has_value() &&
             !automatic_shutdown_root.finalize_shutdown(),
-        "shutdown did not wait for active Auto Material ownership");
+        "shutdown did not wait for active projective Paint ownership");
     auto automatic_shutdown_finalized = false;
     for (auto attempt = 0; attempt < 10; ++attempt)
     {
@@ -728,7 +709,7 @@ auto main() -> int
                     "automatic_restore",
                     "transient_restore"} &&
             automatic_shutdown_finalized,
-        "shutdown did not restore Auto Material before generic transient "
+        "shutdown did not restore projective Paint before generic transient "
         "state and lifecycle finalization");
 
     passed &= expect(
@@ -779,7 +760,7 @@ auto main() -> int
         std::this_thread::sleep_for(1ms);
     }
     passed &= expect(
-        paint_runtime.capture_count == 2U &&
+        paint_runtime.automatic_begin_count == 2U &&
             preview_runtime.capture_count == 1U &&
             preview_runtime.apply_count == 1U &&
             preview_runtime.applied_component ==

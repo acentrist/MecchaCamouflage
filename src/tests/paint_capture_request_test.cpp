@@ -78,15 +78,7 @@ auto main(int argc, char** argv) -> int
     constexpr auto Height = std::uint32_t{180U};
     constexpr auto Pixels =
         static_cast<std::size_t>(Width) * Height;
-    const auto intrinsic =
-        std::make_shared<const std::vector<core::Rgb8>>(
-            Pixels,
-            core::Rgb8{10U, 20U, 30U});
-    const auto scene =
-        std::make_shared<const std::vector<core::Rgb8>>(
-            Pixels,
-            core::Rgb8{40U, 50U, 60U});
-    const auto automatic = std::make_shared<
+    const auto projected = std::make_shared<
         const std::vector<core::ResolvedPaintAppearance>>(
         Pixels,
         core::ResolvedPaintAppearance{
@@ -122,9 +114,7 @@ auto main(int argc, char** argv) -> int
         core::PaintCaptureRaster{
             Width,
             Height,
-            intrinsic,
-            scene,
-            automatic,
+            projected,
         },
     };
     const auto request =
@@ -139,28 +129,23 @@ auto main(int argc, char** argv) -> int
                 {
                     return sample.safe &&
                            sample.has_current_view_position &&
-                           sample.intrinsic_color ==
-                               core::Rgb8{10U, 20U, 30U} &&
-                           sample.scene_color ==
-                               core::Rgb8{40U, 50U, 60U} &&
-                           sample.automatic_appearance_available &&
-                           sample.automatic_appearance ==
+                           sample.projected_appearance_available &&
+                           sample.projected_appearance ==
                                core::ResolvedPaintAppearance{
                                    core::Rgb8{70U, 80U, 90U},
                                    core::Material{0.2, 0.7, 0.1},
                                };
                 }),
-        "immutable background rasters did not map to Paint samples");
+        "immutable projected appearances did not map to Paint samples");
 
-    auto missing_automatic = input;
-    missing_automatic.settings.auto_material = true;
-    missing_automatic.raster.automatic_appearances.reset();
+    auto missing_projected = input;
+    missing_projected.raster.projected_appearances.reset();
     passed &= expect(
-        core::build_paint_capture_request(missing_automatic) ==
+        core::build_paint_capture_request(missing_projected) ==
             std::unexpected(
                 core::PaintCaptureRequestError::
-                    MissingAutomaticAppearance),
-        "Auto Material accepted a missing appearance raster");
+                    MissingProjectedAppearance),
+        "normal Paint accepted a missing projected appearance raster");
 
     auto malformed = input;
     malformed.raster.width = 0U;

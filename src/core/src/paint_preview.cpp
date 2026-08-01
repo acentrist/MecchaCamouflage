@@ -53,8 +53,7 @@ auto valid_plan(const PaintPlan& plan) -> bool
             !unit(stroke.material.roughness) ||
             !unit(stroke.material.emissive) ||
             (pass == ReplayPass::Fill &&
-             (stroke.radius_texels != PaintFillRadiusTexels ||
-              stroke.include_scene_lighting)))
+             stroke.radius_texels != PaintFillRadiusTexels))
         {
             return false;
         }

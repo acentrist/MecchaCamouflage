@@ -313,17 +313,6 @@ public:
 class UnusedPaintRuntime final : public PaintGameRuntimePort
 {
 public:
-    auto capture(const core::PaintSettings&)
-        -> std::expected<
-            CapturedPaintJob,
-            RuntimeExecutionError> override
-    {
-        return std::unexpected(RuntimeExecutionError{
-            RuntimeExecutionErrorCode::OperationFailure,
-            std::nullopt,
-        });
-    }
-
     auto begin_automatic_capture(
         const core::PaintSettings&,
         JobGeneration)

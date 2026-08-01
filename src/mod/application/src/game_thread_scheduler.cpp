@@ -1,6 +1,7 @@
 #include <meccha/application/game_thread_scheduler.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <mutex>
 #include <type_traits>
 #include <utility>
@@ -68,6 +69,8 @@ auto GameThreadScheduler::drain(
 
     const auto drain_lock = std::scoped_lock{drain_mutex_};
     auto completed = std::size_t{};
+    auto paint_slice_started =
+        std::optional<std::chrono::steady_clock::time_point>{};
     while (completed < maximum_operations)
     {
         auto operation = GameThreadOperation{ResolveInitialContracts{}};
@@ -85,6 +88,11 @@ auto GameThreadScheduler::drain(
                     : frame_queue_.front();
         }
 
+        const auto* paint = std::get_if<PaintAtUvWithBrush>(&operation);
+        if (paint != nullptr && !paint_slice_started)
+        {
+            paint_slice_started = std::chrono::steady_clock::now();
+        }
         const auto executed = executor.execute(operation);
         if (!executed)
         {
@@ -97,6 +105,24 @@ auto GameThreadScheduler::drain(
             queue.pop_front();
         }
         ++completed;
+        if (paint != nullptr && paint_slice_started)
+        {
+            const auto elapsed = std::chrono::duration_cast<
+                std::chrono::microseconds>(
+                std::chrono::steady_clock::now() -
+                *paint_slice_started);
+            const auto elapsed_us = static_cast<std::uint64_t>(
+                std::max<std::int64_t>(0, elapsed.count()));
+            {
+                const auto lock = std::scoped_lock{mutex_};
+                last_paint_generation_ = paint->job_generation;
+                last_paint_dispatch_us_ = elapsed_us;
+            }
+            if (elapsed_us >= core::LocalDispatchCpuBudgetUs)
+            {
+                break;
+            }
+        }
     }
     return completed;
 }
@@ -172,5 +198,14 @@ auto GameThreadScheduler::queued_paint_generation(
             return paint != nullptr &&
                    paint->job_generation == generation;
         }));
+}
+
+auto GameThreadScheduler::last_paint_dispatch_us(
+    JobGeneration generation) const -> std::uint64_t
+{
+    const auto lock = std::scoped_lock{mutex_};
+    return generation != 0U && generation == last_paint_generation_
+               ? last_paint_dispatch_us_
+               : 0U;
 }
 } // namespace meccha::application

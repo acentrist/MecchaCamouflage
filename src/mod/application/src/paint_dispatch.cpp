@@ -52,9 +52,8 @@ auto valid_plan(const core::PaintPlan& plan) -> bool
             !unit(stroke.material.roughness) ||
             !unit(stroke.material.emissive) ||
             (expected_pass == core::ReplayPass::Fill &&
-             (stroke.radius_texels !=
-                  core::PaintFillRadiusTexels ||
-              stroke.include_scene_lighting)))
+             stroke.radius_texels !=
+                 core::PaintFillRadiusTexels))
         {
             return false;
         }
@@ -187,7 +186,6 @@ auto PaintDispatchController::tick(
                     plan_->texture_dimension,
                     stroke.color,
                     stroke.material,
-                    stroke.include_scene_lighting,
                 });
             if (scheduled == ScheduleResult::Full)
             {
@@ -205,8 +203,10 @@ auto PaintDispatchController::tick(
         }
         if (admitted > 0U)
         {
-            const auto cadence =
-                static_cast<std::uint64_t>(pacing_.cadence_ms);
+            const auto cadence = static_cast<std::uint64_t>(
+                core::local_dispatch_adaptive_delay_ms(
+                    pacing_.cadence_ms,
+                    scheduler_.last_paint_dispatch_us(generation_)));
             next_admission_ms_ =
                 now_ms >
                         std::numeric_limits<std::uint64_t>::max() -

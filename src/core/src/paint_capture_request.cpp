@@ -81,26 +81,18 @@ auto build_paint_capture_request(
     const auto pixel_count =
         static_cast<std::size_t>(raster.width) *
         static_cast<std::size_t>(raster.height);
-    if (!raster.intrinsic_colors ||
-        !raster.scene_colors ||
-        raster.intrinsic_colors->size() != pixel_count ||
-        raster.scene_colors->size() != pixel_count ||
-        (raster.automatic_appearances &&
-         raster.automatic_appearances->size() != pixel_count))
+    if (!raster.projected_appearances)
+    {
+        return std::unexpected(
+            PaintCaptureRequestError::MissingProjectedAppearance);
+    }
+    if (raster.projected_appearances->size() != pixel_count)
     {
         return std::unexpected(
             PaintCaptureRequestError::InvalidRaster);
     }
-    if (input.settings.auto_material &&
-        !raster.automatic_appearances)
-    {
-        return std::unexpected(
-            PaintCaptureRequestError::
-                MissingAutomaticAppearance);
-    }
-    if (raster.automatic_appearances &&
-        !std::ranges::all_of(
-            *raster.automatic_appearances,
+    if (!std::ranges::all_of(
+            *raster.projected_appearances,
             appearance_valid))
     {
         return std::unexpected(
@@ -156,9 +148,9 @@ auto build_paint_capture_request(
                 static_cast<std::size_t>(y) * raster.width + x;
             ++safe_count;
         }
-        const auto automatic_available =
+        const auto projected_available =
             sample.projected &&
-            raster.automatic_appearances != nullptr;
+            raster.projected_appearances != nullptr;
         request.samples.push_back(CapturedPaintSample{
             sample.region,
             sample.uv_island,
@@ -170,16 +162,10 @@ auto build_paint_capture_request(
             sample.projected
                 ? sample.screen.x
                 : sample.fallback_view_horizontal,
-            sample.projected
-                ? (*raster.intrinsic_colors)[pixel]
-                : Rgb8{},
-            sample.projected
-                ? (*raster.scene_colors)[pixel]
-                : Rgb8{},
-            automatic_available
-                ? (*raster.automatic_appearances)[pixel]
+            projected_available
+                ? (*raster.projected_appearances)[pixel]
                 : ResolvedPaintAppearance{},
-            automatic_available,
+            projected_available,
             sample.projected,
         });
     }

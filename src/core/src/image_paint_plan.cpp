@@ -439,7 +439,6 @@ auto build_image_paint_plan(
             fill
                 ? request.settings.fill_material
                 : request.settings.image_material,
-            false,
         });
     }
 

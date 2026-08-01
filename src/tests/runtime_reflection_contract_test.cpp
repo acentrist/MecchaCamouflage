@@ -835,16 +835,8 @@ auto main() -> int
                 },
         "the exact cooked brush-plane visual contract drifted");
 
-    const auto unlit_capture_plan =
+    const auto projective_capture_plan =
         build_paint_scene_capture_plan(core::PaintSettings{});
-    auto lit_settings = core::PaintSettings{};
-    lit_settings.include_scene_lighting = true;
-    const auto lit_capture_plan =
-        build_paint_scene_capture_plan(lit_settings);
-    auto automatic_settings = lit_settings;
-    automatic_settings.auto_material = true;
-    const auto automatic_capture_plan =
-        build_paint_scene_capture_plan(automatic_settings);
     const auto feedback_capture_plan =
         paint_appearance_feedback_capture_plan();
     const auto intrinsic_show_flags =
@@ -863,22 +855,10 @@ auto main() -> int
             static_cast<std::uint8_t>(
                 PaintSceneCaptureProjection::Perspective) ==
                 0U &&
-        unlit_capture_plan &&
-            unlit_capture_plan->passes ==
-                std::vector<PaintSceneCapturePass>{
-                    PaintSceneCapturePass{
-                        PaintSceneCapturePassKind::BaseColor,
-                        PaintSceneCaptureSource::BaseColor,
-                        PaintCaptureRenderTargetFormat::Rgba8Srgb,
-                        PaintSceneCaptureProfile::Standard,
-                        false,
-                        false,
-                    },
-                } &&
-            !unlit_capture_plan->requires_preview_feedback &&
-            lit_capture_plan &&
-            lit_capture_plan->passes.size() == 2U &&
-            lit_capture_plan->passes[1] ==
+        projective_capture_plan &&
+            projective_capture_plan->passes.size() == 7U &&
+            projective_capture_plan->requires_preview_feedback &&
+            projective_capture_plan->passes[1] ==
                 PaintSceneCapturePass{
                     PaintSceneCapturePassKind::FinalColorHdr,
                     PaintSceneCaptureSource::FinalColorHdr,
@@ -887,21 +867,18 @@ auto main() -> int
                     false,
                     true,
                 } &&
-            automatic_capture_plan &&
-            automatic_capture_plan->passes.size() == 7U &&
-            automatic_capture_plan->requires_preview_feedback &&
-            automatic_capture_plan->passes[2].kind ==
+            projective_capture_plan->passes[2].kind ==
                 PaintSceneCapturePassKind::IntrinsicEmissionHdr &&
-            automatic_capture_plan->passes[2].profile ==
+            projective_capture_plan->passes[2].profile ==
                 PaintSceneCaptureProfile::IntrinsicEmission &&
-            automatic_capture_plan->passes[4].source ==
+            projective_capture_plan->passes[4].source ==
                 PaintSceneCaptureSource::Normal &&
-            automatic_capture_plan->passes[5].source ==
+            projective_capture_plan->passes[5].source ==
                 PaintSceneCaptureSource::SceneDepth &&
-            automatic_capture_plan->passes[6].source ==
+            projective_capture_plan->passes[6].source ==
                 PaintSceneCaptureSource::FinalColorLdr &&
             std::ranges::all_of(
-                automatic_capture_plan->passes,
+                projective_capture_plan->passes,
                 [](const PaintSceneCapturePass& pass)
                 {
                     return pass.subject ==
@@ -1423,7 +1400,6 @@ auto main() -> int
         1024U,
         core::Rgb8{128U, 64U, 255U},
         core::Material{0.2, 0.8, 0.4},
-        true,
     };
     const auto encoded = encode_paint_call(request);
     passed &= expect(

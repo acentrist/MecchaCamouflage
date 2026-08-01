@@ -68,8 +68,6 @@ struct PaintAtUvWithBrush
     std::uint32_t texture_dimension{};
     core::Rgb8 color{};
     core::Material material{};
-    bool include_scene_lighting{};
-
     auto operator==(const PaintAtUvWithBrush&) const -> bool = default;
 };
 
@@ -152,6 +150,8 @@ public:
         JobGeneration generation) const -> std::size_t = 0;
     [[nodiscard]] virtual auto queue_snapshot() const
         -> QueueSnapshot = 0;
+    [[nodiscard]] virtual auto last_paint_dispatch_us(
+        JobGeneration generation) const -> std::uint64_t = 0;
 };
 
 class GameThreadScheduler final : public PaintDispatchQueue
@@ -180,6 +180,8 @@ public:
         -> QueueSnapshot override;
     [[nodiscard]] auto queued_paint_generation(
         JobGeneration generation) const -> std::size_t override;
+    [[nodiscard]] auto last_paint_dispatch_us(
+        JobGeneration generation) const -> std::uint64_t override;
 
 private:
     const std::size_t capacity_{};
@@ -187,6 +189,8 @@ private:
     mutable std::mutex mutex_{};
     std::deque<GameThreadOperation> control_queue_{};
     std::deque<GameThreadOperation> frame_queue_{};
+    JobGeneration last_paint_generation_{};
+    std::uint64_t last_paint_dispatch_us_{};
     bool accepting_{true};
 };
 } // namespace meccha::application

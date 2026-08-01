@@ -45,12 +45,7 @@ public:
         -> PaintGameRuntimePort& = default;
     virtual ~PaintGameRuntimePort() = default;
 
-    virtual auto capture(const core::PaintSettings& settings)
-        -> std::expected<
-            CapturedPaintJob,
-            RuntimeExecutionError> = 0;
-
-    // Auto Material is a bounded multi-HUD-frame transaction. A successful
+    // Projective Paint is a bounded multi-HUD-frame transaction. A successful
     // begin owns any preview snapshot until advance publishes a completed job
     // after exact restoration, or cancel reports true after exact restoration.
     // Pending advance results and false cancellation results retain ownership.

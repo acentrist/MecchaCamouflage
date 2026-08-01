@@ -57,7 +57,6 @@ auto plan() -> core::PaintPlan
         128.0,
         core::Rgb8{10U, 20U, 30U},
         core::Material{0.25, 0.5, 0.75},
-        false,
     });
     result.paint_count = 1U;
     result.source_paint_count = 1U;

@@ -32,7 +32,6 @@ auto paint_call(std::uint64_t request_id) -> PaintAtUvWithBrush
         1024U,
         meccha::core::Rgb8{10U, 20U, 30U},
         meccha::core::Material{0.2, 0.8, 0.1},
-        false,
     };
 }
 
@@ -72,6 +71,11 @@ public:
                 compatibility_failure,
             });
         }
+        if (paint_delay.count() > 0 &&
+            std::holds_alternative<PaintAtUvWithBrush>(operation))
+        {
+            std::this_thread::sleep_for(paint_delay);
+        }
         operations.push_back(operation);
         return {};
     }
@@ -80,6 +84,7 @@ public:
     std::size_t fail_after{};
     bool throw_on_execute{};
     std::optional<CompatibilityFailure> compatibility_failure{};
+    std::chrono::microseconds paint_delay{};
     std::vector<GameThreadOperation> operations{};
 };
 
@@ -264,6 +269,20 @@ auto main() -> int
                     RestoreTransientState{9U}} &&
             priority_scheduler.snapshot().queued == 2U,
         "control work was starved behind Paint frame work");
+
+    GameThreadScheduler timed_scheduler{3U};
+    static_cast<void>(timed_scheduler.schedule(paint_call(46U)));
+    static_cast<void>(timed_scheduler.schedule(paint_call(47U)));
+    RecordingExecutor timed_executor{true};
+    timed_executor.paint_delay = std::chrono::milliseconds{8};
+    const auto timed_drain = timed_scheduler.drain(timed_executor, 2U);
+    passed &= expect(
+        timed_drain && *timed_drain == 1U &&
+            timed_scheduler.snapshot().queued == 1U &&
+            timed_scheduler.last_paint_dispatch_us(1U) >=
+                meccha::core::LocalDispatchCpuBudgetUs &&
+            timed_scheduler.last_paint_dispatch_us(2U) == 0U,
+        "the measured non-preemptible Paint slice did not yield at its CPU budget");
 
     scheduler.close();
     passed &= expect(

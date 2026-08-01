@@ -428,6 +428,191 @@ auto main() -> int
                 }),
         "the endpoint-calibrated cluster response gate changed");
 
+    const auto projected =
+        environment_projected_capture_coordinate({0.25, 0.75});
+    passed &= expect(
+        projected.ok && close(projected.capture_u, 0.25) &&
+            close(projected.capture_v, 0.75) &&
+            environment_projected_capture_coordinate({0.0, 0.0}).ok &&
+            environment_projected_capture_coordinate({1.0, 1.0}).ok &&
+            !environment_projected_capture_coordinate({-0.01, 0.5}).ok,
+        "environment projection did not preserve normalized screen coordinates");
+
+    const AppearanceRgb dark_emitter_base{0.02, 0.02, 0.02};
+    const AppearanceRgb warm_emission{12.0, 4.0, 0.5};
+    const AppearanceRgb warm_isolated_hdr{
+        appearance_srgb_to_linear(dark_emitter_base.r) + warm_emission.r,
+        appearance_srgb_to_linear(dark_emitter_base.g) + warm_emission.g,
+        appearance_srgb_to_linear(dark_emitter_base.b) + warm_emission.b,
+    };
+    const auto rescued_emitter = appearance_rescue_emission_color(
+        dark_emitter_base,
+        warm_isolated_hdr,
+        0.01);
+    const auto unchanged_non_emitter = appearance_rescue_emission_color(
+        dark_emitter_base,
+        {appearance_srgb_to_linear(dark_emitter_base.r) + 0.001,
+         appearance_srgb_to_linear(dark_emitter_base.g) + 0.001,
+         appearance_srgb_to_linear(dark_emitter_base.b) + 0.001},
+        0.01);
+    passed &= expect(
+        rescued_emitter.applied &&
+            close(std::max({rescued_emitter.albedo_srgb.r,
+                            rescued_emitter.albedo_srgb.g,
+                            rescued_emitter.albedo_srgb.b}),
+                  1.0) &&
+            rescued_emitter.albedo_srgb.r >
+                rescued_emitter.albedo_srgb.g &&
+            rescued_emitter.albedo_srgb.g >
+                rescued_emitter.albedo_srgb.b &&
+            !unchanged_non_emitter.applied &&
+            unchanged_non_emitter.albedo_srgb == dark_emitter_base,
+        "emission color rescue changed the v1.7.2 bounded chromaticity contract");
+
+    const auto diffuse_feedback = appearance_closed_loop_correction(
+        {{0.25, 0.20, 0.10},
+         0.0,
+         {0.60, 0.40, 0.10},
+         {0.30, 0.20, 0.10},
+         false});
+    const auto albedo_only_feedback =
+        appearance_albedo_closed_loop_correction(
+            {{0.20, 0.15, 0.10},
+             0.25,
+             {0.80, 0.45, 0.20},
+             {0.30, 0.20, 0.10},
+             true});
+    passed &= expect(
+        diffuse_feedback.supported &&
+            diffuse_feedback.albedo_linear.r > 0.25 &&
+            diffuse_feedback.albedo_linear.g > 0.20 &&
+            close(diffuse_feedback.albedo_linear.b, 0.10) &&
+            diffuse_feedback.emissive == 0.0 &&
+            albedo_only_feedback.supported &&
+            albedo_only_feedback.albedo_linear.r > 0.20 &&
+            albedo_only_feedback.albedo_linear.g > 0.15 &&
+            close(albedo_only_feedback.emissive, 0.25),
+        "closed-loop Albedo correction modified the independent Emissive state");
+
+    auto physical = AppearancePhysicalEmissionEvidenceInput{};
+    physical.source_residual_first = {0.80, 0.32, 0.08};
+    physical.source_residual_second = {0.79, 0.33, 0.08};
+    physical.source_noise_floor_first = 0.050;
+    physical.source_noise_floor_second = 0.080;
+    physical.source_hdr = {1.20, 0.52, 0.18};
+    physical.baseline_hdr = {0.28, 0.18, 0.09};
+    physical.endpoint_hdr = {2.20, 0.92, 0.27};
+    physical.manual_emissive_floor = 0.10;
+    physical.camera_stable = true;
+    physical.readback_calibrated = true;
+    physical.packed_b_verified = true;
+    const auto accepted_physical =
+        appearance_physical_emission_evidence(physical);
+    const auto warm_material =
+        appearance_compose_physical_emission_material(
+            {{0.18, 0.16, 0.03},
+             physical.source_residual_first,
+             physical.source_residual_second,
+             physical.manual_emissive_floor,
+             accepted_physical.inferred_emissive,
+             accepted_physical.accepted});
+    auto unstable = physical;
+    unstable.source_residual_first = {0.020, 0.018, 0.019};
+    unstable.source_residual_second = {0.001, 0.024, 0.002};
+    unstable.source_noise_floor_first = 0.010;
+    unstable.source_noise_floor_second = 0.010;
+    const auto rejected_physical =
+        appearance_physical_emission_evidence(unstable);
+    passed &= expect(
+        accepted_physical.accepted && accepted_physical.source_supported &&
+            accepted_physical.target_response_supported &&
+            accepted_physical.composed_emissive > 0.10 &&
+            accepted_physical.candidate_loss <
+                accepted_physical.baseline_loss &&
+            warm_material.chromaticity_carrier_applied &&
+            warm_material.albedo.r > warm_material.albedo.g * 2.0 &&
+            warm_material.albedo.g > warm_material.albedo.b * 2.0 &&
+            !rejected_physical.accepted &&
+            !rejected_physical.source_supported &&
+            rejected_physical.target_response_supported &&
+            close(rejected_physical.composed_emissive, 0.10) &&
+            close(appearance_compose_physical_emissive(0.65, 0.25),
+                  0.65),
+        "physical Emissive did not require both repeatable source and target evidence");
+
+    const auto accepted_component =
+        appearance_validate_physical_emission_component(
+            {1,
+             0.10,
+             0.08,
+             100,
+             0.050,
+             0.055,
+             true,
+             true,
+             true,
+             true,
+             1});
+    const auto weak_component =
+        appearance_validate_physical_emission_component(
+            {1,
+             0.10,
+             0.09,
+             100,
+             0.050,
+             0.055,
+             true,
+             true,
+             true,
+             true,
+             1});
+    passed &= expect(
+        accepted_component.accepted &&
+            accepted_component.rejection ==
+                AppearancePhysicalEmissionComponentRejection::None &&
+            !weak_component.accepted &&
+            weak_component.rejection ==
+                AppearancePhysicalEmissionComponentRejection::
+                    RoiImprovementBelowThreshold,
+        "physical Emissive component validation lost the one-sample gate");
+
+    auto correction = AppearanceCorrectionFieldInput{};
+    correction.vertex_count = 3;
+    correction.edges = {{0, 1}, {1, 2}};
+    correction.side_vertices = {false, true, false};
+    correction.anchors = {
+        {0, {0.0, 0.0, 0.0}, 1.0,
+         AppearanceCorrectionBoundary::Front},
+        {2,
+         {std::log(4.0), std::log(4.0), std::log(4.0)},
+         1.0,
+         AppearanceCorrectionBoundary::Back},
+    };
+    const auto interpolated = appearance_solve_correction_field(correction);
+    auto reversed = correction;
+    std::reverse(reversed.anchors.begin(), reversed.anchors.end());
+    const auto reversed_result = appearance_solve_correction_field(reversed);
+    auto one_boundary = correction;
+    one_boundary.anchors.resize(1U);
+    const auto extended = appearance_solve_correction_field(one_boundary);
+    one_boundary.anchors.clear();
+    const auto unanchored = appearance_solve_correction_field(one_boundary);
+    passed &= expect(
+        interpolated.ok && interpolated.values.size() == 3U &&
+            std::abs(interpolated.values[1].r - std::log(2.0)) <
+                0.0001 &&
+            interpolated.front_anchor_vertices == 1 &&
+            interpolated.back_anchor_vertices == 1 &&
+            interpolated.side_components == 1 &&
+            interpolated.one_boundary_side_components == 0 &&
+            interpolated.hash == reversed_result.hash && extended.ok &&
+            extended.one_boundary_side_components == 1 &&
+            std::abs(extended.values[1].r) < 0.000001 &&
+            !unanchored.ok && unanchored.unanchored_side_components == 1 &&
+            unanchored.failure ==
+                AppearanceCorrectionFieldFailure::SideUnanchored,
+        "Front/Back correction anchors did not propagate deterministically across Side");
+
     if (passed)
     {
         std::cout << "PASS paint_appearance\n";

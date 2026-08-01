@@ -32,10 +32,8 @@ struct CapturedPaintSample
     double current_view_vertical{};
     double fallback_view_vertical{};
     double horizontal{};
-    Rgb8 intrinsic_color{};
-    Rgb8 scene_color{};
-    ResolvedPaintAppearance automatic_appearance{};
-    bool automatic_appearance_available{};
+    ResolvedPaintAppearance projected_appearance{};
+    bool projected_appearance_available{};
     bool safe{true};
 
     auto operator==(const CapturedPaintSample&) const
@@ -59,7 +57,6 @@ struct PaintStroke
     double radius_texels{};
     Rgb8 color{};
     Material material{};
-    bool include_scene_lighting{};
 
     auto operator==(const PaintStroke&) const -> bool = default;
 };
@@ -83,7 +80,7 @@ enum class PaintPlanError : std::uint8_t
     InvalidProfile,
     InvalidSettings,
     InvalidSample,
-    MissingAutomaticAppearance,
+    MissingProjectedAppearance,
     ResourceLimit,
     Cancelled,
 };

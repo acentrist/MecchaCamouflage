@@ -215,22 +215,14 @@ auto build_paint_scene_capture_plan(
         false,
         false,
     });
-    if (settings.include_scene_lighting ||
-        settings.auto_material)
-    {
-        plan.passes.push_back(PaintSceneCapturePass{
-            PaintSceneCapturePassKind::FinalColorHdr,
-            PaintSceneCaptureSource::FinalColorHdr,
-            PaintCaptureRenderTargetFormat::Rgba16Float,
-            PaintSceneCaptureProfile::Standard,
-            false,
-            true,
-        });
-    }
-    if (!settings.auto_material)
-    {
-        return plan;
-    }
+    plan.passes.push_back(PaintSceneCapturePass{
+        PaintSceneCapturePassKind::FinalColorHdr,
+        PaintSceneCaptureSource::FinalColorHdr,
+        PaintCaptureRenderTargetFormat::Rgba16Float,
+        PaintSceneCaptureProfile::Standard,
+        false,
+        true,
+    });
 
     plan.passes.push_back(PaintSceneCapturePass{
         PaintSceneCapturePassKind::IntrinsicEmissionHdr,

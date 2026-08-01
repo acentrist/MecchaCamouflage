@@ -58,7 +58,7 @@ struct ProductPanelLabels
     std::array<std::string, 4U> diagnostics_state_labels{};
     std::array<std::string, 3U> diagnostics_severity_labels{};
     std::array<std::string, 9U> hotkey_labels{};
-    std::array<std::string, 16U> paint_setting_labels{};
+    std::array<std::string, 12U> paint_setting_labels{};
     std::array<std::string, 3U> region_mode_labels{};
     std::array<std::string, 16U> image_setting_labels{};
     std::array<std::string, 3U> body_profile_labels{};

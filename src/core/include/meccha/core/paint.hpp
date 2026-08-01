@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -44,13 +45,9 @@ struct Material
 struct PaintSettings
 {
     double brush_size_texels{5.0};
-    double side_source_max_uv{0.08};
-    double front_back_source_max_uv{0.45};
     RegionMode front_mode{RegionMode::Skip};
     RegionMode side_mode{RegionMode::Paint};
     RegionMode back_mode{RegionMode::Paint};
-    bool auto_material{};
-    bool include_scene_lighting{};
     Material paint_material{};
     Rgb8 fill_color{255U, 255U, 255U};
     Material fill_material{1.0, 0.0, 0.0};
@@ -62,8 +59,6 @@ struct PaintSettings
 enum class PaintSettingField : std::uint8_t
 {
     BrushSize,
-    SideSourceMaximum,
-    FrontBackSourceMaximum,
     FrontMode,
     SideMode,
     BackMode,
@@ -179,6 +174,7 @@ struct AdaptivePaintSample
     bool paint_eligible{};
     bool safe{};
     std::uint64_t material_key{};
+    bool replay_relevant{true};
 
     auto operator==(const AdaptivePaintSample&) const -> bool = default;
 };
@@ -187,6 +183,10 @@ struct AdaptiveReplayEntry
 {
     ReplayEntry replay{};
     double radius_multiplier{1.0};
+    bool has_color_override{};
+    double red{};
+    double green{};
+    double blue{};
 
     auto operator==(const AdaptiveReplayEntry&) const -> bool = default;
 };
@@ -196,6 +196,10 @@ struct AdaptivePaintPlan
     std::vector<AdaptiveReplayEntry> entries{};
     std::size_t compressed_paint_entries{};
     std::size_t expanded_paint_entries{};
+    int coverage_grid_size{};
+    std::size_t representative_paint_entries{};
+    double representative_error_sum{};
+    double representative_error_max{};
 
     auto operator==(const AdaptivePaintPlan&) const -> bool = default;
 };
@@ -247,6 +251,43 @@ struct ReplicationPacingPlan
 
 [[nodiscard]] auto replication_pacing_plan(
     const ReplicationPacingInput& input) -> ReplicationPacingPlan;
+
+inline constexpr std::uint64_t LocalDispatchCpuBudgetUs = 4'000U;
+inline constexpr std::uint64_t LocalDispatchNominalFrameUs = 16'667U;
+inline constexpr int LocalDispatchMaximumAdaptiveDelayMs = 250;
+
+[[nodiscard]] constexpr auto local_dispatch_adaptive_delay_ms(
+    int requested_delay_ms,
+    std::uint64_t observed_dispatch_us) -> int
+{
+    const auto base_delay = std::max(1, requested_delay_ms);
+    if (observed_dispatch_us == 0U ||
+        LocalDispatchCpuBudgetUs >= LocalDispatchNominalFrameUs)
+    {
+        return base_delay;
+    }
+    constexpr auto idle_ratio_numerator =
+        LocalDispatchNominalFrameUs - LocalDispatchCpuBudgetUs;
+    constexpr auto delay_denominator =
+        LocalDispatchCpuBudgetUs * 1'000U;
+    constexpr auto capped_observation_us =
+        (static_cast<std::uint64_t>(
+             LocalDispatchMaximumAdaptiveDelayMs) *
+             delay_denominator +
+         idle_ratio_numerator - 1U) /
+        idle_ratio_numerator;
+    if (observed_dispatch_us >= capped_observation_us)
+    {
+        return std::max(
+            base_delay,
+            LocalDispatchMaximumAdaptiveDelayMs);
+    }
+    const auto adaptive_delay_ms = static_cast<int>(
+        (observed_dispatch_us * idle_ratio_numerator +
+         delay_denominator - 1U) /
+        delay_denominator);
+    return std::max(base_delay, adaptive_delay_ms);
+}
 
 [[nodiscard]] auto visual_drain_complete(
     bool observer_available,

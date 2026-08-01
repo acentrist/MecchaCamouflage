@@ -110,7 +110,6 @@ auto main() -> int
         1024U,
         core::Rgb8{10U, 20U, 30U},
         core::Material{0.2, 0.8, 0.1},
-        true,
     };
     GameThreadScheduler scheduler{3U};
     static_cast<void>(scheduler.schedule(paint));
