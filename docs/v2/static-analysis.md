@@ -1,117 +1,117 @@
-# MecchaCamouflage v2 Phase 6 Verification Inventory
+# MecchaCamouflage v2 Windows Verification Inventory
 
 ## Result
 
 The Phase 6 unit, invariant/property, golden, state-machine,
-dependency-boundary, sanitizer, and supported static-analysis categories all
-have repeatable evidence. This inventory does not substitute for the live and
-measured release gates in Phase 13.
+dependency-boundary, sanitizer, and native static-analysis categories have
+repeatable Windows evidence. This inventory does not substitute for the live
+and measured release gates in Phase 13.
+
+The public hosted graph registers 94 secret-free tests. A native Windows
+workspace with the available local/private inputs registers 112 tests. The
+current native graph passes all 112 tests under normal MSVC Release, MSVC
+AddressSanitizer, and clang-cl UndefinedBehaviorSanitizer. MSVC `/analyze`
+passes the production target closure with warnings treated as errors.
 
 ## Behavioral evidence
 
 | Category | Repeatable evidence |
 | --- | --- |
-| Unit and boundary | The registered portable graph exercises every focused core/application/UI/launcher library and rejects invalid enums, non-finite values, limits, stale generations, malformed resources, and publication failures. |
-| Invariant/property | Deterministic value sweeps cover color transfer round trips, projection/clipping, profile sampling, image transforms, codec round trips, bounded collection mutations, reflection-record mutations, and queue/state invariants. These are fixed reproducible property cases rather than randomized fuzz results. |
+| Unit and boundary | The registered graph exercises every focused core/application/UI/launcher library and rejects invalid enums, non-finite values, limits, stale generations, malformed resources, and publication failures. |
+| Invariant/property | Deterministic value sweeps cover color transfer round trips, projection/clipping, profile sampling, image transforms, codec round trips, bounded collection mutations, reflection-record mutations, and queue/state invariants. |
 | Golden | Frozen v1 domain fixtures cover Paint routing/pacing, Image Paint mapping, and ESP semantics. Packaged profile identities, canonical PNG bytes, fallback glyph atlas metadata, localization catalogs, and payload/dependency manifests have exact expected-output checks. |
 | State machine | Application jobs, preview ownership, workers, command queues, launcher transactions, recovery journals, and UI input modes cover success, cancellation, staleness, overflow, exception containment, shutdown, and retry/restore transitions. |
-| Dependency boundary | `phase1_contracts`, `source_graph`, and `ci_policy` reject v1 production edges, restricted public-CI checkout, secret use, recursive public submodules, and release-policy drift. |
+| Dependency boundary | `phase1_contracts`, `source_graph`, and `ci_policy` reject v1 production edges, restricted public-CI checkout, secret use, recursive public submodules, non-Windows v2 runners, and release-policy drift. |
 
-The current complete portable graph is 94 tests under both normal Linux and
-ASan/UBSan builds. The exact synchronized Windows x64 Shipping graph is 112
-tests under MSVC `/W4 /WX`. Feature progress documents retain the focused test
-names and scenarios for their own acceptance criteria.
+## Executable CI policy
 
-## Supported static analysis
+`.github/workflows/v2-ci.yml` uses `windows-2022` exclusively:
 
-Public CI has a separate `linux-static-analysis` job. It configures the
-secret-free graph with:
+- `Policy Contracts` always runs.
+- `Windows MSVC Tests` is the required secret-free PR test signal for every
+  code-bearing change.
+- `Windows MSVC ASan`, `Windows clang-cl UBSan`, and `Windows MSVC Code
+  Analysis` run on `workflow_dispatch` and are required by the stable
+  `Public CI Gate` for that manual deep-validation run.
+- A synchronized Markdown/latest-v1-checkpoint-only change may skip the
+  compiler jobs only when the previous head already has a successful
+  `Public CI Gate`. Missing or malformed evidence fails closed.
 
-```text
-MECCHA_WITH_UE4SS=OFF
-MECCHA_BUILD_TESTS=OFF
-MECCHA_WARNINGS_AS_ERRORS=ON
-MECCHA_ENABLE_GCC_ANALYZER=ON
-```
+`.github/workflows/v2-release-candidate.yml` repeats all three deep Windows
+jobs as hard predecessors of the protected release-candidate job. A release
+candidate therefore cannot be assembled when ASan, UBSan, or `/analyze`
+fails. The workflow remains manual, protected, and non-publishing.
 
-The job builds `meccha_product_ui`, `meccha_runtime_contracts`, and
-`meccha_launcher_core`. Their transitive target closures cover the portable
-production common, core, application, runtime-contract, UI, and launcher
-sources without spending analyzer time on test translation units or requiring
-the restricted Unreal dependency. CI limits this analyzer build to two
-parallel compile jobs: the analyzer has a materially higher per-translation
-unit memory cost, and an unbounded Ninja fan-out can be terminated by a hosted
-runner before GCC emits a diagnostic.
+## Toolchain modes
 
-Every public v2 job that reads repository source checks out the exact
-pull-request head commit (or exact manually selected commit), rather than
-GitHub's synthetic pull-request merge ref. This keeps the rewrite's frozen v1
-comparison evidence and profile identities bound to the commit under review
-even while the target branch changes. The legacy v1 workflow remains enabled
-for its normal branches and pull requests but skips only the
-`rewrite/ue4ss-v2` pull request, whose restricted recursive checkout is outside
-the public v2 trust boundary.
+The three CMake deep-validation switches are mutually exclusive and require
+their exact native toolchain:
 
-The public workflow runs automatically for pull requests and can be run
-manually with `workflow_dispatch`; it has no branch `push` trigger that would
-duplicate every open-PR run. A workflow-level concurrency group is unique to
-the workflow plus pull request (or manual ref), and `cancel-in-progress` stops
-obsolete runs after a newer update arrives.
+- `MECCHA_ENABLE_MSVC_ADDRESS_SANITIZER=ON` adds `/fsanitize=address`, `/Zi`,
+  `/DEBUG`, and `/INCREMENTAL:NO` under MSVC.
+- `MECCHA_ENABLE_CLANG_CL_UBSAN=ON` adds `-fsanitize=undefined`, fatal recovery
+  behavior, frame pointers, and debug information under clang-cl. LLVM's
+  Windows UBSan runtime is static, so this isolated graph uses the matching
+  static MSVC runtime.
+- `MECCHA_ENABLE_MSVC_CODE_ANALYSIS=ON` adds `/analyze` and
+  `/analyze:external-`. Normal `/WX` policy makes project analyzer diagnostics
+  fatal.
 
-`policy-contracts` always checks out the exact source commit with full Git
-history, runs the Phase 1 and CI-policy verifiers, and selects the required CI
-depth. On a pull-request `synchronize` event it compares only the previous and
-current head commits. The heavy analyzer, sanitizer, and Windows jobs may be
-skipped only when every changed path is Markdown or the exact
-`src/tests/fixtures/v1/manifest.json` latest-v1 checkpoint **and** the previous
-head already has a successful `Public CI Gate`. That prior result is read from
-GitHub's public Checks API without a token. Missing, malformed, rate-limited,
-or unavailable evidence fails closed to the heavy jobs, as do initial or
-reopened pull requests, manual runs, empty or unavailable ranges,
-non-canonical paths, workflow/verifier changes, source changes, and
-fixture-data changes. Requiring prior green evidence prevents a docs-only
-update from cancelling an unfinished code-bearing run and then inheriting
-evidence that never completed.
+CTest prepends the selected compiler directory to each sanitizer test's
+`PATH`, so the MSVC ASan runtime DLL is resolved without relying on a developer
+shell. The elevated transport and child test executables embed the same Common
+Controls v6 activation contract as the launcher, preventing loader failures in
+`TaskDialog` imports.
 
-`Public CI Gate` always runs after the policy and heavy jobs. It succeeds only
-when policy contracts pass and either all selected heavy jobs pass or all three
-are correctly skipped for a lightweight update. This gives required-check
-configuration one stable job name without weakening the analyzer, sanitizer,
-or Windows evidence for code-bearing changes.
+The Windows SDK UCRT implements inline `wmemcmp` with deliberate unaligned
+64-bit loads on x64. clang-cl instruments those SDK-header loads as alignment
+violations. `cmake/clang-cl-ubsan-ignorelist.txt` excludes only the alignment
+check originating in that SDK header; all other UBSan checks and project-source
+alignment checks remain enabled.
 
-The sanitized Image Paint composition-root test pumps asynchronous work to a
-30-second steady-clock deadline and reports a timeout as a failed assertion.
-This preserves a bounded failure while avoiding the former assumption that a
-sanitized hosted runner would finish worker setup within 1,000 one-millisecond
-sleeps.
+Leak detection is not a v2 acceptance criterion. The supported MSVC sanitizer
+mode is AddressSanitizer, and the Windows toolchain does not provide equivalent
+supported LeakSanitizer coverage.
 
-`MECCHA_ENABLE_GCC_ANALYZER` requires GCC 13 or newer and enables `-fanalyzer`
-under the normal `-Wall -Wextra -Wpedantic -Werror` policy. Analyzer and
-ASan/UBSan builds must use separate build trees so each gate has an unambiguous
-diagnostic model.
+## Native reproduction
 
-Two GCC analyzer diagnostics are disabled:
+Run from an x64 Visual Studio developer environment. Use a separate build tree
+for every mode.
 
-- `-Wanalyzer-malloc-leak`
-- `-Wanalyzer-use-of-uninitialized-value`
+```powershell
+cmake -S . -B .build/v2/windows-msvc -G "Visual Studio 17 2022" -A x64 `
+  -DMECCHA_WITH_UE4SS=OFF -DMECCHA_BUILD_TESTS=ON `
+  -DMECCHA_WARNINGS_AS_ERRORS=ON
+cmake --build .build/v2/windows-msvc --config Release
+ctest --test-dir .build/v2/windows-msvc -C Release --output-on-failure
 
-GCC 13 reports both while moving libstdc++ `std::expected<T, HashError>` values
-whose error object owns a `std::string`, in ordinary project return paths. The
-reproducing diagnostics point into the standard-library expected/string
-implementation rather than an unmatched project allocation or read. All other
-compiler and analyzer diagnostics remain fatal. The exclusions are narrow and
-must be re-evaluated when the minimum supported GCC analyzer changes.
+cmake -S . -B .build/v2/windows-msvc-asan -G "Visual Studio 17 2022" -A x64 `
+  -DMECCHA_WITH_UE4SS=OFF -DMECCHA_BUILD_TESTS=ON `
+  -DMECCHA_WARNINGS_AS_ERRORS=ON `
+  -DMECCHA_ENABLE_MSVC_ADDRESS_SANITIZER=ON
+cmake --build .build/v2/windows-msvc-asan --config Release
+$env:ASAN_OPTIONS = "halt_on_error=1"
+ctest --test-dir .build/v2/windows-msvc-asan -C Release --output-on-failure
 
-## Local reproduction
+cmake -S . -B .build/v2/windows-clang-ubsan -G Ninja `
+  -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl `
+  -DCMAKE_BUILD_TYPE=Release -DMECCHA_WITH_UE4SS=OFF `
+  -DMECCHA_BUILD_TESTS=ON -DMECCHA_WARNINGS_AS_ERRORS=ON `
+  -DMECCHA_ENABLE_CLANG_CL_UBSAN=ON
+cmake --build .build/v2/windows-clang-ubsan --parallel 2
+$env:UBSAN_OPTIONS = "halt_on_error=1:print_stacktrace=1"
+ctest --test-dir .build/v2/windows-clang-ubsan --output-on-failure
 
-```bash
-cmake -S . -B .build/v2/gcc-analyzer -G Ninja \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DMECCHA_WITH_UE4SS=OFF \
-  -DMECCHA_BUILD_TESTS=OFF \
-  -DMECCHA_WARNINGS_AS_ERRORS=ON \
-  -DMECCHA_ENABLE_GCC_ANALYZER=ON
-cmake --build .build/v2/gcc-analyzer \
-  --target meccha_product_ui meccha_runtime_contracts meccha_launcher_core \
+cmake -S . -B .build/v2/windows-msvc-analysis `
+  -G "Visual Studio 17 2022" -A x64 `
+  -DMECCHA_WITH_UE4SS=OFF -DMECCHA_BUILD_TESTS=OFF `
+  -DMECCHA_WARNINGS_AS_ERRORS=ON `
+  -DMECCHA_ENABLE_MSVC_CODE_ANALYSIS=ON
+cmake --build .build/v2/windows-msvc-analysis --config Release `
+  --target meccha_product_ui meccha_runtime_contracts meccha_launcher_core `
   --parallel 2
 ```
+
+Native evidence on 2026-08-01 used MSVC 19.44.35228.0, clang-cl 20.1.8,
+CMake 4.4.0, and Windows SDK 10.0.26100.0. Results were 112/112 for each test
+configuration and a clean three-target `/analyze` production closure.

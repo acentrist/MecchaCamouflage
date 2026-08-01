@@ -339,9 +339,9 @@ removes any candidate EXE from its newly created artifact directory. The
 workflow uploads candidate/evidence artifacts only; it has no GitHub Release
 publication permission or step.
 
-Portable target-validation coverage runs in the normal Linux graph and the
-Linux ASan/UBSan graph. The MakeCab determinism and round-trip case runs in the
-Windows MSVC Release graph.
+Target-validation coverage runs in the normal Windows MSVC, MSVC ASan, and
+clang-cl UBSan graphs. The MakeCab determinism and round-trip case also runs in
+the Windows MSVC Release graph.
 
 ## Remaining packaging work
 

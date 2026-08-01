@@ -91,10 +91,10 @@ admission for the rest of that captured frame, so a second terminal or trailing
 edit cannot turn the batch into an invalid partial sequence. No WndProc,
 window, graphics, or Present hook is installed.
 
-This checkpoint passes the complete 94-test portable Linux graph in both the
-normal and fresh ASan/UBSan configurations. The synchronized Windows source
-tree builds the production DLL with MSVC x64 Shipping `/W4 /WX` and passes all
-112 tests. The resulting `main.dll` is PE32+ x86-64, imports `UE4SS.dll`, and
+This checkpoint is covered by the current Windows MSVC, MSVC ASan, and
+clang-cl UBSan configurations. The synchronized Windows source tree builds the
+production DLL with MSVC x64 Shipping `/W4 /WX` and passes all 112 tests. The
+resulting `main.dll` is PE32+ x86-64, imports `UE4SS.dll`, and
 exports exactly `start_mod` and `uninstall_mod`; the canonical UE4SS source
 stage still verifies as the pinned commit plus only the approved Cargo lock
 overlay.
@@ -131,8 +131,9 @@ held-key behavior across snapshot publication, complete remapping, duplicate
 mapping refusal, invalid/event-limit refusal, exact command-ID exhaustion,
 input-loss release, and terminal shutdown.
 
-The current complete Linux and Linux ASan/UBSan graphs pass all 81 registered
-tests. The exact clean project checkpoint at `bc1c39b` passes all 99 Windows
+The current Windows MSVC, MSVC ASan, and clang-cl UBSan graphs retain all 81
+tests from this checkpoint. The exact clean project checkpoint at `bc1c39b`
+passes all 99 Windows
 MSVC x64 Shipping tests after building `UE4SS.dll`, `main.dll`, and the
 launcher from the manifest-verified immutable UE4SS source stage.
 Post-build verification confirms that the immutable stage still contains only

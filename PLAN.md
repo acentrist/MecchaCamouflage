@@ -731,6 +731,15 @@ UE4SS’s restricted UEPseudo dependency means:
   head already has that aggregate gate's successful evidence. Missing prior
   evidence, missing/empty ranges, and manual runs fail closed to the heavy
   graph. It does not claim that the real mod ABI compiled.
+- Every v2 workflow runs on `windows-2022`. Normal MSVC secret-free tests are
+  the required compiler signal for code-bearing pull requests. Manual deep
+  validation and every release-candidate run additionally require MSVC
+  AddressSanitizer, clang-cl UndefinedBehaviorSanitizer, and MSVC `/analyze`
+  over the production target closure. No non-Windows job is official v2
+  development, review, phase-exit, or release evidence.
+- Leak detection is not an acceptance criterion because the supported Windows
+  toolchain has no equivalent LeakSanitizer coverage. This does not weaken the
+  mandatory MSVC AddressSanitizer or clang-cl UndefinedBehaviorSanitizer gates.
 - A full recursive build is required before merge, but it runs only from an
   explicitly maintainer-approved commit on a protected repository ref and
   behind an approved CI environment. Do not use `pull_request_target` or expose
@@ -1250,7 +1259,9 @@ packaged UMG; no fallback implementation starts without explicit plan approval.
   preview ownership, late worker results, cancellation, restore, and shutdown.
 - Dependency checks proving no UE4SS, Unreal, Windows UI, or launcher headers in
   `core`.
-- Sanitizer/static-analysis runs where supported.
+- Windows MSVC AddressSanitizer and clang-cl UndefinedBehaviorSanitizer over
+  the complete registered secret-free graph, plus MSVC `/analyze` over the
+  production target closure. All diagnostics are release-blocking.
 
 **Manual/external verification**
 
@@ -1558,7 +1569,9 @@ packaged UMG; no fallback implementation starts without explicit plan approval.
    manifest, profiles, fonts, localization, icons, project license, UE4SS
    license, and all dependency notices.
 4. Build the mod and packaged runtime from the same trusted source graph.
-5. Implement trusted full-build/release CI and secret-free fork PR CI.
+5. Implement Windows-only trusted full-build/release CI and secret-free fork
+   PR CI. Require MSVC AddressSanitizer, clang-cl UndefinedBehaviorSanitizer,
+   and MSVC `/analyze` before release-candidate assembly.
 6. Add binary allowlist checks, payload inventory checks, dependency provenance,
    and release SHA-256 generation.
 7. Decide and document Windows code-signing policy before release. Signing is
@@ -1575,6 +1588,9 @@ packaged UMG; no fallback implementation starts without explicit plan approval.
 - One-EXE artifact count and allowed PE imports/resources.
 - No PDB/debug artifact or legacy WebView/bridge/injector/D3D material.
 - Fork CI proves deterministic modules need no maintainer secret.
+- MSVC AddressSanitizer and clang-cl UndefinedBehaviorSanitizer pass every
+  registered secret-free test, and MSVC `/analyze` passes the production
+  closure, before release-candidate assembly begins.
 
 **Manual/external verification**
 

@@ -125,8 +125,8 @@ scan, runtime topology extraction, or profile I/O. Exact reflected pacing
 tuning can replace that bounded policy only through a separately frozen
 contract.
 
-Portable Linux verification passes all 94 tests in both the normal and fresh
-ASan/UBSan graphs, including production resource construction, exact catalog
+Public Windows verification passes all 94 tests in the normal MSVC and deep
+validation graphs, including production resource construction, exact catalog
 loading, static Image Paint sampling, and Back/Side/Front planning. Immutable
 Windows staging builds the complete pinned UE4SS/MSVC x64
 `Game__Shipping__Win64` graph and passes all 112 Windows tests. The verified
@@ -216,8 +216,8 @@ entering either native decoder.
 
 `image_decoder_test` covers shared decoded bounds, content identity, declared
 container mismatch, truncation, encoded-size limits, and an exact lossless WebP
-decode on Linux and Windows. The Windows run additionally decodes real PNG and
-baseline JPEG fixtures through WIC. The upstream license is preserved at
+decode on Windows. The native run additionally decodes real PNG and baseline
+JPEG fixtures through WIC. The upstream license is preserved at
 `resources/licenses/libwebp-COPYING.txt`.
 
 `ImageProjectDecodeWorker` keeps all codec work off the frame callback. One
@@ -317,14 +317,14 @@ on every composed row, and while finalizing the atlas.
 - resource rejection during the constant-time preflight rather than after
   expensive partial drawing.
 
-The test is part of the secret-free Linux and Windows MSVC suites.
+The test is part of the secret-free Windows MSVC and clang-cl suites.
 
 `image_paint_sampling_test` covers all three packaged profile pairs,
 deterministic sample inventories, repeated planning, raw/image index-order
 matching, non-finite UV rejection, invalid brush rejection, cancellation, and
 the global resource bound through both the shared sampler and Image Paint
-planner. The complete Linux suite now passes 94/94 tests. A fresh
-ASan/UBSan/leak build passes the same shared sampling contract.
+planner. The public Windows suite passes 94/94 tests, and both MSVC ASan and
+clang-cl UBSan pass the same shared sampling contract.
 
 ## Worker boundary
 

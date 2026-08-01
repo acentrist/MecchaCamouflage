@@ -117,9 +117,8 @@ drift. The production composition root now repeats strict manifest, coverage,
 PNG, and Windows SHA-256 validation and binds the retained atlas through the
 central UCanvas preflight. Live visual selection remains a maintainer gate.
 
-Verified in both the Linux secret-free build and the Windows MSVC Release
-build. The repeated MSBuild `MSB8064`/`MSB8065` messages are caused by building
-the Windows tree through a WSL UNC path and are not project compiler warnings.
+Verified in the native Windows MSVC Release, MSVC ASan, and clang-cl UBSan
+builds.
 
 ## v2-only project container
 
@@ -258,7 +257,7 @@ ordering. Windows-only `image_editor_services` uses the real stores, native
 hasher/decoder, and core compositor to import and compose a WebP project,
 publish the named config reference, reconstruct the complete service graph,
 and recover the same project after restart.
-The portable suite passes on Linux and Windows MSVC Release.
+The suite passes under Windows MSVC Release, MSVC ASan, and clang-cl UBSan.
 
 ## Remaining gate
 

@@ -353,11 +353,11 @@ open.
 
 ## Automated evidence
 
-Linux secret-free tests exercise the portable parser, policy, loader, and
-transaction state machine. Windows tests additionally exercise CNG and real
-temporary directory trees.
+Windows secret-free tests exercise the parser, policy, loader, transaction
+state machine, CNG integration, and real temporary directory trees.
 
-The preparation/removal planner is exercised on Linux and MSVC Release. Its
+The preparation/removal planner is exercised under MSVC Release, MSVC ASan,
+and clang-cl UBSan. Its
 tests cover clean managed preparation, exact reuse, minimal owned update,
 prepare-only operation, managed UAC decisions, shared mod installation,
 running-game rejection, invalid payloads, inaccessible cache storage, every

@@ -135,8 +135,8 @@ the game thread, then drops runtime contracts. These compile and portable
 lifetime tests do not yet prove that imported textures display or survive
 travel in the live game.
 
-The exact contract and PNG tests pass on Linux and Windows. The modified
-adapter compiles and links under `/W4 /WX` in the pinned MSVC
+The exact contract and PNG tests pass in all supported Windows validation
+graphs. The modified adapter compiles and links under `/W4 /WX` in the pinned MSVC
 `Game__Shipping__Win64` graph against the manifest-verified canonical UE4SS
 source stage. The exact clean project checkout passes all 112 registered
 Windows tests after building `UE4SS.dll`, `main.dll`, and the native launcher
@@ -303,8 +303,8 @@ the terminal emergency path makes a bounded game-thread restoration attempt
 after admitted callbacks drain.
 
 The reflection contracts, controller replacement state machine, rollback, and
-retry paths pass portable Linux, ASan/UBSan, and targeted Windows MSVC Release
-tests. The production adapter compiles and links under `/W4 /WX` against the
+retry paths pass normal MSVC, MSVC ASan, clang-cl UBSan, and targeted MSVC
+Release tests. The production adapter compiles and links under `/W4 /WX` against the
 pinned manifest-verified UE4SS graph. Live reflection resolution and behavior
 through travel, HUD/controller replacement, and unload remain mandatory.
 
@@ -348,9 +348,9 @@ the runtime contract test covers the exact texture-import ABI and owned
 localized UTF-16 conversion. Composition/pipeline tests prove immutable PNG
 publication, while the texture coordinator/frame tests cover complete
 generation replacement, unchanged-revision reuse, partial-create rollback,
-bounded retry, clear, and resource-free shutdown. The complete 81-test graph
-passes in normal Linux and mandatory ASan/UBSan configurations. The complete
-99-test Windows MSVC x64 Shipping graph passes from the same exact project
+bounded retry, clear, and resource-free shutdown. The complete 81-test
+checkpoint remains covered by normal MSVC, MSVC ASan, and clang-cl UBSan. The
+complete 99-test Windows MSVC x64 Shipping graph passes from the same exact project
 commit and immutable UE4SS source-stage identity.
 
 ## Immutable editor binding
@@ -383,8 +383,8 @@ the typed command route and immutable document publication. The project-owned
 HUD-frame coordinator additionally proves localized composition, exact
 input-lease acquisition and render-failure rollback, render-before-action
 ordering, ready-texture synchronization, and resource-free shutdown through a
-fake runtime port. The current normal Linux and fresh ASan/UBSan graphs pass
-all 94 registered tests. The current exact clean project checkpoint passes all
+fake runtime port. The public Windows validation graph passes all 94 registered
+tests in normal MSVC and the deep Windows modes. The current exact clean project checkpoint passes all
 112 registered Windows x64 Shipping tests and links the production mod against
 the same manifest-verified UE4SS source graph.
 

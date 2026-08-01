@@ -399,7 +399,7 @@ or preview-lease access.
 
 ## Automated evidence
 
-`paint_planner` passes on GCC and MSVC Release and covers:
+`paint_planner` passes under MSVC Release and clang-cl UBSan and covers:
 
 - Fill-first/Paint-overwrite/Skip routing;
 - independent Fill color, PBR, and radius;
@@ -428,7 +428,7 @@ ownership, bounded concurrency, cancellation, generation tagging, worker
 reuse, exception containment, and terminal shutdown. `paint_job_coordinator`
 covers planning-to-dispatch transition, planning cancellation, typed failure,
 confirmed terminal completion, and replacement-job isolation. All related
-tests pass on GCC and MSVC Release. `paint_preview_build_worker` covers copied
+tests pass under MSVC Release, MSVC ASan, and clang-cl UBSan. `paint_preview_build_worker` covers copied
 request ownership, bounded concurrency, cancellation, generation tagging,
 typed planner/composer failures, immutable output, reuse, exception
 containment, and terminal shutdown. `paint_preview_controller` covers
@@ -457,9 +457,9 @@ Side topology/facing visibility, and camera movement and viewport-resize
 rejection plus calibrated target-E0 noise from 256 paired samples.
 `paint_appearance_worker` additionally proves owned
 profile/transform/evidence lifetimes, immutable candidate raster ownership,
-combined feedback/target-E0 preparation, and typed failures. The secret-free
-Linux normal and fresh ASan/UBSan suites currently pass all 94 registered
-tests. The production
+combined feedback/target-E0 preparation, and typed failures. The public
+Windows graph passes all 94 registered tests in normal and deep-validation
+configurations. The production
 adapter, exact sender, queue observer, preview channel adapter, capture codecs,
 and struct-array reflection bridge also compile with `/WX` in the pinned
 Windows MSVC `Game__Shipping__Win64` graph. All 112 exact Windows tests pass,

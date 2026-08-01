@@ -2,9 +2,9 @@
 
 ## Current status
 
-The secret-free source/build boundary is implemented and verified on Windows
-and on Linux with AddressSanitizer plus UndefinedBehaviorSanitizer. The exact
-restricted graph was initialized with an already configured
+The secret-free source/build boundary is implemented and verified entirely on
+Windows with normal MSVC, MSVC AddressSanitizer, clang-cl
+UndefinedBehaviorSanitizer, and MSVC `/analyze`. The exact restricted graph was initialized with an already configured
 maintainer-authorized credential and reached UE4SS, proxy, and mod binaries on
 a native Windows source path.
 
@@ -86,35 +86,54 @@ See [`dependency-lock.md`](dependency-lock.md) for commits and license state.
 
 ## Verified commands
 
-Linux secret-free build:
+Windows deep-validation builds:
 
-```text
-cmake -S . -B .build/v2/sanitize-linux -G Ninja \
-  -DCMAKE_BUILD_TYPE=Debug -DMECCHA_WITH_UE4SS=OFF \
-  -DMECCHA_BUILD_TESTS=ON -DMECCHA_WARNINGS_AS_ERRORS=ON \
-  -DMECCHA_ENABLE_SANITIZERS=ON
-cmake --build .build/v2/sanitize-linux
-ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
-UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
-ctest --test-dir .build/v2/sanitize-linux --output-on-failure
+```powershell
+cmake -S . -B .build/v2/windows-msvc-asan `
+  -G "Visual Studio 17 2022" -A x64 `
+  -DMECCHA_WITH_UE4SS=OFF -DMECCHA_BUILD_TESTS=ON `
+  -DMECCHA_WARNINGS_AS_ERRORS=ON `
+  -DMECCHA_ENABLE_MSVC_ADDRESS_SANITIZER=ON
+cmake --build .build/v2/windows-msvc-asan --config Release
+$env:ASAN_OPTIONS = "halt_on_error=1"
+ctest --test-dir .build/v2/windows-msvc-asan `
+  -C Release --output-on-failure
+
+cmake -S . -B .build/v2/windows-clang-ubsan -G Ninja `
+  -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl `
+  -DCMAKE_BUILD_TYPE=Release -DMECCHA_WITH_UE4SS=OFF `
+  -DMECCHA_BUILD_TESTS=ON -DMECCHA_WARNINGS_AS_ERRORS=ON `
+  -DMECCHA_ENABLE_CLANG_CL_UBSAN=ON
+cmake --build .build/v2/windows-clang-ubsan --parallel 2
+$env:UBSAN_OPTIONS = "halt_on_error=1:print_stacktrace=1"
+ctest --test-dir .build/v2/windows-clang-ubsan --output-on-failure
+
+cmake -S . -B .build/v2/windows-msvc-analysis `
+  -G "Visual Studio 17 2022" -A x64 `
+  -DMECCHA_WITH_UE4SS=OFF -DMECCHA_BUILD_TESTS=OFF `
+  -DMECCHA_WARNINGS_AS_ERRORS=ON `
+  -DMECCHA_ENABLE_MSVC_CODE_ANALYSIS=ON
+cmake --build .build/v2/windows-msvc-analysis --config Release `
+  --target meccha_product_ui meccha_runtime_contracts meccha_launcher_core `
+  --parallel 2
 ```
 
-Result: all 76 registered secret-free tests passed with GCC 13.3.0,
-CMake 3.28.3, Ninja 1.13.2, ASan, UBSan, and leak detection.
+Result: the current native checkout passes 112/112 tests under both sanitizer
+configurations. The `/analyze` production closure completes without a project
+diagnostic under `/WX`.
 
 The first sanitized run exposed a timing assumption in
 `image_paint_job_coordinator_test`: entering the planning function was treated
 as equivalent to publishing its worker completion. The production coordinator
 already retained the correct asynchronous cancellation/drain behavior. The
 fixture now deterministically blocks until cancellation and waits for the
-typed stale-project terminal result; ten repeated normal and sanitized runs
-pass.
+typed stale-project terminal result; repeated normal and sanitized runs pass.
 
 Windows secret-free build:
 
-```text
-cmake -S . -B .build/v2/windows-vs -G "Visual Studio 17 2022" -A x64 \
-  -DMECCHA_WITH_UE4SS=OFF -DMECCHA_BUILD_TESTS=ON \
+```powershell
+cmake -S . -B .build/v2/windows-vs -G "Visual Studio 17 2022" -A x64 `
+  -DMECCHA_WITH_UE4SS=OFF -DMECCHA_BUILD_TESTS=ON `
   -DMECCHA_WARNINGS_AS_ERRORS=ON
 cmake --build .build/v2/windows-vs --config Release
 ctest --test-dir .build/v2/windows-vs -C Release --output-on-failure
@@ -122,45 +141,24 @@ ctest --test-dir .build/v2/windows-vs -C Release --output-on-failure
 
 Result: all registered secret-free tests passed with MSVC 19.44.35228 and
 CMake 4.4.0.
-UNC-only MSBuild emitted path/case incremental-build warnings in this WSL
-workspace, so those warnings are recorded as host-path noise rather than
-product compiler warnings. GitHub CI uses a native local Windows workspace.
-
-Full-build source-path probe:
-
-```text
-cmake -S . -B .build/v2/full-probe -G "Visual Studio 17 2022" -A x64 \
-  -DMECCHA_WITH_UE4SS=ON -DMECCHA_BUILD_TESTS=OFF
-```
-
-The first attempt configured successfully from the WSL workspace but failed
-when Corrosion invoked Cargo:
-
-```text
-CMD does not support UNC paths as current directories.
-```
-
-This is a Windows `cmd.exe` host-path limitation, not a source or compiler
-failure. The same commit and recursive submodules were therefore checked out
-under `C:\Temp` and configured without changing UE4SS.
 
 Native-path full build:
 
-```text
-cmake -S C:\Temp\MecchaCamouflage-v2-full-src \
-  -B C:\Temp\MecchaCamouflage-v2-full-local \
-  -G "Visual Studio 17 2022" -A x64 \
-  -DMECCHA_WITH_UE4SS=ON -DMECCHA_BUILD_TESTS=OFF \
-  -DMECCHA_WARNINGS_AS_ERRORS=ON
-cmake --build C:\Temp\MecchaCamouflage-v2-full-local \
-  --config Game__Shipping__Win64 --target UE4SS
-cmake --build C:\Temp\MecchaCamouflage-v2-full-local\third_party\RE-UE4SS\UE4SS\proxy_generator\proxy \
-  --config Game__Shipping__Win64 --target proxy
-cmake --build C:\Temp\MecchaCamouflage-v2-full-local \
-  --config Game__Shipping__Win64 --target meccha_mod
+```powershell
+py -3 tools/v2/prepare_ue4ss_source_stage.py `
+  --policy cmake/ue4ss-source-overlay.json `
+  --source-root third_party/RE-UE4SS `
+  --output-root .build/v2/ue4ss-source `
+  --manifest .build/v2/ue4ss-source-stage.json
+$sourceRoot = (Resolve-Path .build/v2/ue4ss-source).Path
+$sourceManifest = (Resolve-Path .build/v2/ue4ss-source-stage.json).Path
+cmake --preset full-windows `
+  "-DMECCHA_UE4SS_SOURCE_ROOT=$sourceRoot" `
+  "-DMECCHA_UE4SS_SOURCE_MANIFEST=$sourceManifest"
+cmake --build --preset full-windows
 ```
 
-Diagnostic result:
+The rejected pre-stage diagnostic that motivated the immutable stage proved:
 
 - MSVC `19.44.35228.0`, CMake `4.4.0`, Windows x64,
   `Game__Shipping__Win64`.
@@ -187,19 +185,19 @@ provenance.
 
 Approved source-stage verification:
 
-```text
-python tools/v2/prepare_ue4ss_source_stage.py \
-  --policy cmake/ue4ss-source-overlay.json \
-  --source-root third_party/RE-UE4SS \
-  --output-root .build/v2/ue4ss-source \
+```powershell
+py -3 tools/v2/prepare_ue4ss_source_stage.py `
+  --policy cmake/ue4ss-source-overlay.json `
+  --source-root third_party/RE-UE4SS `
+  --output-root .build/v2/ue4ss-source `
   --manifest .build/v2/ue4ss-source-stage.json
-cargo metadata --locked --offline \
-  --filter-platform x86_64-pc-windows-msvc --format-version 1 --no-deps \
-  --manifest-path \
+cargo metadata --locked --offline `
+  --filter-platform x86_64-pc-windows-msvc --format-version 1 --no-deps `
+  --manifest-path `
   .build/v2/ue4ss-source/deps/first/patternsleuth_bind/Cargo.toml
-python tools/v2/prepare_ue4ss_source_stage.py --verify-only \
-  --policy cmake/ue4ss-source-overlay.json \
-  --output-root .build/v2/ue4ss-source \
+py -3 tools/v2/prepare_ue4ss_source_stage.py --verify-only `
+  --policy cmake/ue4ss-source-overlay.json `
+  --output-root .build/v2/ue4ss-source `
   --manifest .build/v2/ue4ss-source-stage.json
 ```
 

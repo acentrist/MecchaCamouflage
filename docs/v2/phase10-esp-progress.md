@@ -188,8 +188,8 @@ names, parent topology, and asset identity before runtime selection. The
 production adapter itself compiles with warnings-as-errors in the pinned UE4SS
 graph.
 
-All 86 registered secret-free tests pass in the normal Linux graph and in a
-fresh ASan/UBSan graph. At project commit
+All 86 tests from this historical checkpoint remain covered by the current
+native Windows MSVC, MSVC ASan, and clang-cl UBSan graphs. At project commit
 `abb69150f4cb4d4b04390c4d53f08d17a06f04ad`, all 104 Windows tests pass after
 a complete MSVC x64 `Game__Shipping__Win64` build, including the production
 projection/skeleton codec, profile contracts, and UE4SS adapter.

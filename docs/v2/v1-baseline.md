@@ -37,8 +37,8 @@ Result on 2026-07-30:
 - Build warnings: 0
 - Build errors: 0
 
-The command ran from WSL through Windows PowerShell and the repository's
-unmodified `scripts/build.ps1`.
+The baseline is reproducible through the repository's unmodified
+`scripts/build.ps1` from native Windows PowerShell.
 
 ## Baseline artifact inventory
 

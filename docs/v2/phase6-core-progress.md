@@ -193,7 +193,7 @@ worker, access a filesystem, or inspect a UObject.
 - `src/tests/fixtures/v1/esp-domain.json`.
 
 The focused core library includes no UE4SS, Unreal, Win32, graphics, launcher,
-JSON, or UI header. Its test passes with both GCC and MSVC `/W4 /WX`.
+JSON, or UI header. Its test passes under MSVC `/W4 /WX` and clang-cl `/WX`.
 
 The adaptive-compression cases cover disabled exact preservation,
 same-material coalescing, material isolation, deterministic expansion, and
@@ -206,12 +206,12 @@ copied inputs, bounded concurrency, generation-checked cancellation,
 planner/composer errors, immutable publication, worker reuse, exception
 containment, and terminal shutdown. `application_command_queue_test` covers
 hard capacity, invalid IDs, FIFO bounded drains, concurrent publication, and
-terminal close/discard. The secret-free Linux suite currently passes all 48
-registered tests.
+terminal close/discard. The current Windows suites retain all 48 tests from
+this checkpoint.
 
-The same 48-test graph also passes with GCC AddressSanitizer,
-UndefinedBehaviorSanitizer, frame pointers, and leak detection. The sanitizer
-feedback loop found and removed a test-only scheduling assumption in the Image
+The same 48-test graph also passes with MSVC AddressSanitizer and clang-cl
+UndefinedBehaviorSanitizer with frame pointers. The sanitizer feedback loop
+found and removed a test-only scheduling assumption in the Image
 Paint stale-project case: the fixture now blocks until cancellation and waits
 for the coordinator's terminal typed result instead of assuming that worker
 entry means worker completion. Ten repeated normal and sanitized runs pass.
@@ -222,13 +222,12 @@ before the old worker completion arrived. It now waits for the typed
 `StaleCompletion` result. Twenty repeated normal and sanitized runs pass, and
 production generation checks were unchanged.
 
-The current integrated graph contains 94 portable tests and passes both normal
-Linux and ASan/UBSan builds. The synchronized native Windows graph passes 112
-MSVC x64 Shipping `/W4 /WX` tests. Historical counts above describe the earlier
-Phase 6 checkpoints at which their specific scheduling assumptions were fixed.
-The public CI also analyzes the portable production target closure with GCC
-13-or-newer `-fanalyzer`; its exact scope and two documented libstdc++
-diagnostic exclusions are recorded in
+The public Windows graph contains 94 secret-free tests. The synchronized native
+Windows graph passes 112 tests under normal MSVC, MSVC ASan, and clang-cl
+UBSan, and passes MSVC x64 Shipping `/W4 /WX`. Historical counts above describe
+the earlier Phase 6 checkpoints at which their scheduling assumptions were
+fixed. Public manual and pre-release CI analyze the production target closure
+with MSVC `/analyze`; its exact scope is recorded in
 [`static-analysis.md`](static-analysis.md).
 
 ## Deliberate non-port

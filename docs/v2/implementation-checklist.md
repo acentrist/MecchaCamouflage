@@ -91,8 +91,9 @@ Evidence:
   - [ ] Re-run the collector in the protected workflow, upload its evidence,
     and approve every corresponding license file.
 - [x] Add secret-free fork CI with `MECCHA_WITH_UE4SS=OFF`.
-  - [x] Run the complete Linux graph under AddressSanitizer and
-    UndefinedBehaviorSanitizer in addition to the Windows MSVC Release graph.
+  - [x] Require the Windows MSVC Release graph on code-bearing pull requests;
+    require MSVC AddressSanitizer, clang-cl UndefinedBehaviorSanitizer, and
+    MSVC `/analyze` for manual deep validation and before release candidates.
 - [x] Add the maintainer-approved protected-ref full-build workflow.
 - [x] Build UE4SS and the minimal mod from the same source/configuration.
   - [x] Reach `UE4SS.dll`, `dwmapi.dll`, and `main.dll` in a diagnostic build
@@ -387,8 +388,8 @@ Evidence:
     resource-limit audit.
 - [x] Pass unit, property, golden, state-machine, dependency-boundary, and
   supported sanitizer/static-analysis checks.
-  - [x] Pass all registered secret-free tests under Linux ASan/UBSan and keep
-    the sanitized job mandatory in public PR CI.
+  - [x] Pass all registered secret-free tests under MSVC AddressSanitizer and
+    clang-cl UndefinedBehaviorSanitizer, and make both pre-release blockers.
   - [x] Complete remaining property/golden and supported static-analysis
     evidence.
 
@@ -914,8 +915,8 @@ Evidence:
     callbacks to the router.
     - [x] Implement a one-shot F1–F24 registration owner with bounded typed
       failure, partial-registration fail closure, callback-safe shared queue
-      lifetime, explicit stop-before-derived-destruction, and portable,
-      sanitizer, and Windows MSVC Release tests.
+      lifetime, explicit stop-before-derived-destruction, and normal MSVC,
+      MSVC AddressSanitizer, and clang-cl UndefinedBehaviorSanitizer tests.
     - [x] Inject the same callback queue into the production runtime adapter
       and drain it only from a validated, focused HUD frame after mapping a
       current-process game-window pointer into Canvas coordinates. Suppress
@@ -1063,12 +1064,12 @@ Evidence:
   - [x] Bind every source-reading public v2 job to the exact pull-request
     head/manual commit, remove duplicate branch-push runs, cancel superseded
     runs, and retain one stable aggregate gate. Allow only Markdown/latest-v1
-    checkpoint updates with a prior green aggregate gate to skip the heavy
-    analyzer, sanitizer, and Windows jobs; fail missing prior evidence and every
+    checkpoint updates with a prior green aggregate gate to skip compiler
+    validation; fail missing prior evidence and every
     unclassifiable or code-bearing update closed to the full graph.
     Keep the legacy recursive v1 job off the rewrite pull request only, bound
-    GCC analyzer parallelism, and cover hosted-runner timing plus Windows 8.3
-    dependency-root aliases without weakening reparse rejection.
+    native analyzer parallelism, and cover hosted-runner timing plus Windows
+    8.3 dependency-root aliases without weakening reparse rejection.
   - [x] Implement a manual, protected, fail-closed release-candidate workflow
     that rebuilds the pinned graph, requires a separately approved dependency
     audit, collects exact evidence, assembles the runtime/CAB/resources,
